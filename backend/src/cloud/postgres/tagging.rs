@@ -199,7 +199,8 @@ pub async fn create_setup_session(
     // What was received, and where. Reading it here rather than trusting the
     // caller means a session can only ever be opened against real goods.
     let receipt = sqlx::query(
-        "SELECT r.quantity, l.article_code, o.destination_site_id
+        "SELECT r.quantity, r.matched_quantity, r.excess_quantity,
+                l.article_code, o.destination_site_id
          FROM goods_receipt_line r
          JOIN purchase_order_line l ON l.po_line_id = r.po_line_id
          JOIN purchase_order o ON o.purchase_order_id = l.purchase_order_id
@@ -215,7 +216,25 @@ pub async fn create_setup_session(
         ))
     })?;
 
-    let receipt_quantity: i64 = receipt.get("quantity");
+    // The MATCHED quantity, not everything that came off the lorry. Goods
+    // beyond what the order had outstanding are in the warehouse and are not
+    // yet the company's to name, price and put a label on — a buyer has still
+    // to say whether they are being kept or sent back.
+    //
+    // It is the quantity and not the whole line that waits: a delivery of 105
+    // against an order of 100 gives 100 the company certainly bought, and
+    // holding those up because five it did not buy shared the pallet would be
+    // a control nobody asked for.
+    let receipt_quantity: i64 = receipt.get("matched_quantity");
+    let excess_quantity: i64 = receipt.get("excess_quantity");
+    if receipt_quantity <= 0 {
+        return Err(AppError::Validation(format!(
+            "every piece on delivery line {} arrived beyond what the order had outstanding \
+             ({excess_quantity} of them); a buyer decides whether they are kept before they \
+             can be identified",
+            request.receipt_line_id
+        )));
+    }
     // The supplier's own code, kept for traceability and never used as an
     // identity. It arrived on the order; it says what the supplier calls the
     // thing, not what it is.
@@ -882,7 +901,8 @@ pub async fn issue_setup_session(
 /// identity — head office's queue.
 pub async fn unidentified_receipts(pool: &PgPool) -> Result<Vec<Value>, AppError> {
     let rows = sqlx::query(
-        "SELECT r.receipt_line_id, r.quantity, r.verified_at, l.article_code, l.article_name,
+        "SELECT r.receipt_line_id, r.matched_quantity AS quantity, r.excess_quantity,
+                r.verified_at, l.article_code, l.article_name,
                 l.image_url, l.division_code, o.destination_site_id, o.po_number,
                 g.receipt_number, g.supplier_id, g.invoice_number,
                 COALESCE((SELECT array_agg(t.tag_code ORDER BY t.tag_code)
@@ -896,6 +916,10 @@ pub async fn unidentified_receipts(pool: &PgPool) -> Result<Vec<Value>, AppError
              SELECT 1 FROM article_setup_session s
              WHERE s.receipt_line_id = r.receipt_line_id
          )
+           -- A line that is nothing but excess has nothing to identify yet.
+           -- It is not lost: it sits in the buyer's excess queue until they
+           -- say whether the company is keeping it.
+           AND r.matched_quantity > 0
          ORDER BY r.verified_at",
     )
     .fetch_all(pool)
@@ -909,6 +933,9 @@ pub async fn unidentified_receipts(pool: &PgPool) -> Result<Vec<Value>, AppError
                 "supplier_id": row.get::<String, _>("supplier_id"),
                 "invoice_number": row.get::<Option<String>, _>("invoice_number"),
                 "quantity": row.get::<i64, _>("quantity"),
+                // Beyond the order, and deliberately not part of the quantity
+                // above: identified goods are goods the company agreed to buy.
+                "excess_quantity": row.get::<i64, _>("excess_quantity"),
                 "verified_at": row.get::<DateTime<Utc>, _>("verified_at"),
                 // The supplier's code, named as such. Nothing downstream may
                 // mistake it for ours: it never becomes part of a SKU.
@@ -930,13 +957,23 @@ pub async fn unidentified_receipts(pool: &PgPool) -> Result<Vec<Value>, AppError
 /// Where one setup session stands, with the job it produced.
 pub async fn setup_session_status(pool: &PgPool, session_id: Uuid) -> Result<Value, AppError> {
     let session = sqlx::query(
+        // The supplier comes back through the delivery this session was opened
+        // against. It is not on the session row and it should not be: a
+        // session records what head office DECIDED, and who sent the goods is
+        // a fact about the receipt. Left-joined because a receipt line can be
+        // removed from under a session that has already minted, and a record
+        // that 404s because its delivery was tidied away is worse than one
+        // that cannot name the supplier.
         "SELECT s.receipt_line_id, s.article_code, s.supplier_article_code, s.article_name,
                 s.division_code,
                 s.receipt_quantity, s.destination_site_id, s.status, s.currency,
                 s.created_by, s.created_at, s.issued_at, s.tagged_at,
-                j.job_id, j.status AS job_status, j.confirmed_by, j.confirmed_at
+                j.job_id, j.status AS job_status, j.confirmed_by, j.confirmed_at,
+                g.supplier_id
          FROM article_setup_session s
          LEFT JOIN tagging_job j ON j.session_id = s.session_id
+         LEFT JOIN goods_receipt_line r ON r.receipt_line_id = s.receipt_line_id
+         LEFT JOIN goods_receipt g ON g.receipt_id = r.receipt_id
          WHERE s.session_id = $1",
     )
     .bind(session_id)
@@ -968,6 +1005,11 @@ pub async fn setup_session_status(pool: &PgPool, session_id: Uuid) -> Result<Val
         "receipt_line_id": session.get::<Uuid, _>("receipt_line_id"),
         "article_code": session.get::<String, _>("article_code"),
         "supplier_article_code": session.get::<Option<String>, _>("supplier_article_code"),
+        // The supplier's CODE — `SUP02` — which is what the receipt carries
+        // and what the supplier book is keyed by. The name is looked up where
+        // it is read, so this answer does not go stale when somebody renames a
+        // supplier.
+        "supplier_code": session.get::<Option<String>, _>("supplier_id"),
         "article_name": session.get::<String, _>("article_name"),
         "division_code": session.get::<String, _>("division_code"),
         "tags": tags,

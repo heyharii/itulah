@@ -9,14 +9,17 @@ import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Field, Input, Textarea } from "@/components/ui/field"
+import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
 import { PickMany } from "@/components/ui/pick"
 import { Pill } from "@/components/ui/pill"
 import { MiniTable, TotalsLadder } from "@/components/ui/rows"
+import { Toolbar } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { Tag } from "@/components/ui/tag"
+import { useFilters } from "@/lib/filters"
 import { count, moment } from "@/lib/format"
 import {
   commandReach,
@@ -57,12 +60,28 @@ const tabs = [
 ] as const
 
 const discrepancyColumns: ColumnDef<TableSetup, PoolDiscrepancy>[] = [
-  { accessorKey: "origin_id", header: "Node", size: 150 },
-  { accessorKey: "site_id", header: "Site", size: 120 },
+  {
+    accessorKey: "origin_id",
+    header: "Node",
+    size: 150,
+    // One node disagreeing about forty pools and forty nodes disagreeing about
+    // one pool are two different faults, and in a list sorted by the gap they
+    // look identical. The clause is what tells them apart.
+    meta: { filter: { kind: "option", label: "Node" } },
+  },
+  {
+    accessorKey: "site_id",
+    header: "Site",
+    size: 120,
+    meta: { filter: { kind: "option", label: "Site" } },
+  },
   {
     accessorKey: "pool_id",
     header: "Pool",
     size: 150,
+    // A fleet out of step on one pool is a different investigation from one
+    // out of step on everything it holds.
+    meta: { filter: { kind: "option", label: "Pool" } },
     cell: ({ row }) => <Tag>{row.original.pool_id}</Tag>,
   },
   {
@@ -84,7 +103,14 @@ const discrepancyColumns: ColumnDef<TableSetup, PoolDiscrepancy>[] = [
     accessorFn: (row) => Math.abs(row.difference),
     header: "Gap",
     size: 100,
-    meta: { align: "right" },
+    // Filtered on the magnitude, exactly as it is sorted: "more than ten out"
+    // is the threshold somebody sets once the list is long enough that a gap
+    // of one is noise. Asking it unsigned is what stops a clause quietly
+    // answering for only the half of the fault that reads as a shortage.
+    meta: {
+      align: "right",
+      filter: { kind: "number", label: "Gap", unit: "pcs" },
+    },
     // The decision metric. Sorted on its magnitude rather than its sign,
     // because a node claiming 40 too few is exactly as wrong as one claiming
     // 40 too many.
@@ -211,39 +237,50 @@ function ReconciliationTab() {
 
   const rows = useMemo(() => report.data?.discrepancies ?? [], [report.data])
 
+  const filters = useFilters(discrepancyColumns)
+
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
         data: rows as PoolDiscrepancy[],
-        columns: discrepancyColumns,
+        columns: filters.columns,
         getRowId: (row: PoolDiscrepancy) =>
           `${row.origin_id}/${row.site_id}/${row.pool_id}`,
-        state: { sorting },
+        state: { columnFilters: filters.columnFilters, sorting },
         onSortingChange: setSorting,
       }),
-      [rows, sorting]
+      [rows, filters.columns, filters.columnFilters, sorting]
     )
   )
 
   return (
-    <Card className="overflow-hidden">
-      {queryState(report, {
-        loading: "Reconciling…",
-        render: (data) =>
-          data.reconciled ? (
-            <EmptyState>
-              Every node the centre has caught up with agrees with the position
-              derived from its own facts.
-            </EmptyState>
-          ) : (
-            <DataTable<PoolDiscrepancy>
-              table={table}
-              className="max-h-[calc(100vh-18rem)]"
-            />
-          ),
-      })}
-    </Card>
+    <>
+      {/* Inside the tab rather than beside the tab strip: the other two tabs
+          are a disclosure list and a lookup box, and a filter control standing
+          over all three would be a control that does nothing on two of them. */}
+      <Toolbar>
+        <FilterPanel model={filters} table={table} />
+      </Toolbar>
+
+      <Card className="overflow-hidden">
+        {queryState(report, {
+          loading: "Reconciling…",
+          render: (data) =>
+            data.reconciled ? (
+              <EmptyState>
+                Every node the centre has caught up with agrees with the
+                position derived from its own facts.
+              </EmptyState>
+            ) : (
+              <DataTable<PoolDiscrepancy>
+                table={table}
+                className="max-h-[calc(100vh-18rem)]"
+              />
+            ),
+        })}
+      </Card>
+    </>
   )
 }
 
@@ -265,23 +302,26 @@ function DeadLettersTab() {
     <Card className="overflow-hidden">
       <CardHeader>
         <CardTitle>Refused facts</CardTitle>
-        {letters.data && letters.data.length > 0 && (
+        {/* The server's own count of the whole backlog, not the length of
+            the page — which was the same number only while the backlog was
+            smaller than the request. */}
+        {letters.data && letters.data.total > 0 && (
           <span className="text-[0.75rem] text-mute tabular-nums">
-            {count(letters.data.length)}
+            {count(letters.data.total)}
           </span>
         )}
       </CardHeader>
       {queryState(letters, {
         loading: "Loading what was refused…",
-        render: (items) =>
-          items.length === 0 ? (
+        render: (page) =>
+          page.rows.length === 0 ? (
             <EmptyState>
               Nothing has been refused. Every fact a node has sent was accepted
               into the ledger.
             </EmptyState>
           ) : (
             <div className="border-t border-hairline">
-              {items.map((letter) => (
+              {page.rows.map((letter) => (
                 <details
                   key={letter.event_id}
                   className="border-b border-hairline last:border-b-0"

@@ -216,6 +216,24 @@ export function enqueueSale(draft: SaleDraft): QueuedSale {
       actor_id: draft.actor_id,
       idempotency_key: idempotencyKey(),
       coupon_codes: [...draft.coupon_codes],
+      /// Fees on the bill that are not goods — delivery, a service charge,
+      /// wrapping. Always empty here, and empty as a statement rather than as
+      /// a placeholder: this counter sells what is on the rail, a basket is a
+      /// list of scanned EPCs, and there is nothing on this surface that can
+      /// raise a fee. What would fill it is a `Charge` per fee — the shop's own
+      /// code, the words the receipt shows, an amount and a tax category —
+      /// carried here rather than folded into a line price, because that
+      /// separation is what keeps a courier out of the promotions, out of the
+      /// spend thresholds and out of the points.
+      ///
+      /// Sent rather than omitted, which the node accepts either way: `charges`
+      /// is `#[serde(default)]` on `SaleRequest`, `complete_sale` sums an empty
+      /// list to nought and the amount due stays the goods alone. It is also
+      /// safe for the sales already sitting in this queue from before the field
+      /// existed — the idempotency digest the node compares is its own
+      /// re-serialisation of the parsed struct, not the bytes a till sent, so
+      /// both spellings replay against the same stored request.
+      charges: [],
       customer_id: draft.customer_id,
     },
     lines: draft.lines,

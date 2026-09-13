@@ -1,0 +1,250 @@
+//! The one way this terminal reaches its shop's node.
+//!
+//! The window cannot call the edge itself. A WebView served from `tauri://`
+//! is a different origin to `http://till-01.local:8081`, and the edge sends no
+//! CORS headers — deliberately: it serves its own SPA same-origin, and
+//! `backend/src/cloud/http/mod.rs` is the only place in the estate that opens
+//! an allow-list. Adding one to the edge so a desktop shell could skip this
+//! file would widen the shop node's door for the convenience of one client.
+//!
+//! So every request goes through here instead, which also puts three things in
+//! one place rather than thirty call sites: the node's address, the device
+//! credential, and the timeout. None of them belong in JavaScript.
+//!
+//! # What this is not
+//!
+//! It is not a cache, and it is not a cart. It forwards and it returns. The
+//! basket lives in the window — a tag scanned must be drawn before any wire is
+//! touched — and everything the shop is the authority on (stock, price, the
+//! sale, its sequence number, the cash session) stays at the node and is asked
+//! for by name.
+
+use std::path::PathBuf;
+use std::sync::Mutex;
+use std::time::Duration;
+
+use serde::{Deserialize, Serialize};
+use tauri::Manager;
+
+/// Where the node is, and who we are to it.
+///
+/// Held in the shell rather than the page so that a terminal cannot be pointed
+/// at another shop's node by anything the window loads.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NodeConfig {
+    /// `http://127.0.0.1:8081` in development; the counter's own node on a
+    /// shop LAN otherwise.
+    pub base_url: String,
+    /// Bearer token for the edge session. Both of our backends name their
+    /// cookie the same thing, so a shell that used cookies would send the
+    /// wrong one the moment a terminal also talked to the centre.
+    pub token: Option<String>,
+    /// Which till this is. Printed on receipts and carried on every sale.
+    pub terminal_id: String,
+    /// The receipt printer on this counter, as the NODE will reach it — not as
+    /// this machine would. The node does the printing because it is the party
+    /// on the printer's LAN, so this address is resolved there, and a printer
+    /// that only this terminal can see is a printer the node cannot use.
+    #[serde(default)]
+    pub printer_host: Option<String>,
+    #[serde(default = "default_printer_port")]
+    pub printer_port: u16,
+    /// `NARROW` (58mm) or `WIDE` (80mm).
+    #[serde(default = "default_paper")]
+    pub paper: String,
+}
+
+fn default_printer_port() -> u16 {
+    9100
+}
+
+fn default_paper() -> String {
+    "NARROW".into()
+}
+
+impl Default for NodeConfig {
+    fn default() -> Self {
+        Self {
+            base_url: "http://127.0.0.1:8081".into(),
+            token: None,
+            terminal_id: "POS-01".into(),
+            printer_host: None,
+            printer_port: default_printer_port(),
+            paper: default_paper(),
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct Node(pub Mutex<NodeConfig>);
+
+/// Where the terminal's own settings live between runs.
+///
+/// A till is set up once, by whoever installs it, and then used by people who
+/// were never told what a node address is. Keeping this in memory would mean a
+/// terminal that forgot which shop it belonged to every time it was closed —
+/// and the person who finds it in the morning is a cashier, not the installer.
+///
+/// The token is written here too. That is a deliberate trade: it is a session
+/// for one shop's node, held in the user's own config directory on the machine
+/// that is allowed to use it, and the alternative — a sign-in before the first
+/// customer every morning — is the kind of friction that gets solved at the
+/// counter by writing the password on the monitor.
+fn config_path(app: &tauri::AppHandle) -> Option<PathBuf> {
+    let dir = app.path().app_config_dir().ok()?;
+    std::fs::create_dir_all(&dir).ok()?;
+    Some(dir.join("node.json"))
+}
+
+/// Read what was saved, if anything. A missing or unreadable file is not an
+/// error: it is a terminal that has not been set up yet, which is exactly the
+/// state the setup screen exists for.
+pub fn load(app: &tauri::AppHandle) -> NodeConfig {
+    config_path(app)
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default()
+}
+
+fn save(app: &tauri::AppHandle, config: &NodeConfig) {
+    // A failure to write is reported and not fought over: the terminal keeps
+    // working with what is in memory, and the next start asks again. Refusing
+    // to sign somebody in because a config directory is read-only would stop a
+    // till that is otherwise perfectly able to sell.
+    if let Some(path) = config_path(app) {
+        if let Ok(text) = serde_json::to_string_pretty(config) {
+            if let Err(error) = std::fs::write(&path, text) {
+                eprintln!("terminal settings could not be saved to {path:?}: {error}");
+            }
+        }
+    }
+}
+
+/// What the window gets back, whatever happened.
+///
+/// A refusal is not an exception here. "Stock is short" and "the node is not
+/// answering" are both ordinary at a counter and both have to be *shown* to a
+/// cashier, so they come back as a value with a status rather than as a thrown
+/// string the page has to parse.
+#[derive(Serialize)]
+pub struct EdgeReply {
+    pub ok: bool,
+    /// HTTP status, or 0 when nothing was reached at all.
+    pub status: u16,
+    /// Parsed JSON when the node sent JSON; otherwise null.
+    pub body: serde_json::Value,
+    /// Plain text for the cashier when `ok` is false.
+    pub problem: Option<String>,
+}
+
+impl EdgeReply {
+    fn unreachable(detail: String) -> Self {
+        Self {
+            ok: false,
+            status: 0,
+            body: serde_json::Value::Null,
+            problem: Some(detail),
+        }
+    }
+}
+
+/// A till waits in front of a person. Ten seconds is already long enough that
+/// a cashier has started apologising; beyond it the honest answer is that the
+/// node is not there.
+const PATIENCE: Duration = Duration::from_secs(10);
+
+#[tauri::command]
+pub fn node_config(node: tauri::State<'_, Node>) -> NodeConfig {
+    node.0.lock().expect("node config").clone()
+}
+
+#[tauri::command]
+pub fn set_node_config(
+    app: tauri::AppHandle,
+    node: tauri::State<'_, Node>,
+    next: NodeConfig,
+) -> NodeConfig {
+    let mut held = node.0.lock().expect("node config");
+    *held = next;
+    save(&app, &held);
+    held.clone()
+}
+
+/// Call the shop's node.
+///
+/// `path` is a path, never a URL: the window names the endpoint it wants and
+/// the shell decides which machine that is. A window that could pass an
+/// absolute URL here is a window that could post the day's takings anywhere.
+#[tauri::command]
+pub fn edge_call(
+    node: tauri::State<'_, Node>,
+    method: String,
+    path: String,
+    body: Option<serde_json::Value>,
+) -> EdgeReply {
+    let config = node.0.lock().expect("node config").clone();
+
+    if !path.starts_with('/') {
+        return EdgeReply::unreachable(format!(
+            "“{path}” is not a path on the shop node. The window names an endpoint; \
+             the shell decides which machine that is."
+        ));
+    }
+
+    let url = format!("{}{}", config.base_url.trim_end_matches('/'), path);
+    let mut request = ureq::request(&method, &url)
+        .timeout(PATIENCE)
+        .set("Accept", "application/json")
+        .set("X-Terminal-Id", &config.terminal_id);
+    if let Some(token) = config.token.as_deref() {
+        request = request.set("Authorization", &format!("Bearer {token}"));
+    }
+
+    let outcome = match body {
+        Some(payload) => request.send_json(payload),
+        None => request.call(),
+    };
+
+    match outcome {
+        Ok(response) => reply_from(response.status(), response.into_string().unwrap_or_default()),
+        // A 4xx or 5xx is an answer, not a failure to reach: the node said no,
+        // and what it said is the thing the cashier needs to read.
+        Err(ureq::Error::Status(status, response)) => {
+            reply_from(status, response.into_string().unwrap_or_default())
+        }
+        Err(transport) => EdgeReply::unreachable(format!(
+            "This till cannot reach its shop node at {}. {transport}",
+            config.base_url
+        )),
+    }
+}
+
+fn reply_from(status: u16, text: String) -> EdgeReply {
+    let body = serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);
+    let ok = (200..300).contains(&status);
+    let problem = if ok {
+        None
+    } else {
+        // The node's own wording when it gave one — it knows why it refused,
+        // and a message invented here could only ever disagree with it.
+        Some(
+            body.get("message")
+                .or_else(|| body.get("error"))
+                .and_then(|value| value.as_str())
+                .map(str::to_owned)
+                .unwrap_or_else(|| {
+                    if text.trim().is_empty() {
+                        format!("The shop node refused this with a {status} and said nothing.")
+                    } else {
+                        text.clone()
+                    }
+                }),
+        )
+    };
+    EdgeReply {
+        ok,
+        status,
+        body,
+        problem,
+    }
+}

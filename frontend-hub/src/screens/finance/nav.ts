@@ -3,12 +3,14 @@ import {
   Banknote,
   BarChart3,
   CalendarClock,
+  CircleAlert,
   FileStack,
   FileText,
   Files,
   Gauge,
   GitBranch,
   Landmark,
+  Printer,
   Receipt,
   Wallet,
 } from "lucide-react"
@@ -18,6 +20,7 @@ import {
   useFinanceAttentionCount,
   useMonthNotOpenCount,
   useOverdueBillCount,
+  useUnansweredChargeCount,
   useUnmappedMeaningCount,
 } from "@/screens/finance/badges"
 
@@ -78,6 +81,18 @@ export const financeNav: AppModule = {
         // giro transfer. It is a statement list today and becomes the drill-in
         // under that name.
         { path: "/finance/bank", label: "Cash & bank", icon: Wallet },
+        // Beside Cash & bank because it is the same question pointed the other
+        // way: that screen checks money that arrived, this one lists money that
+        // arrived and should not have. Amber, always — a row here is a shopper
+        // waiting for a refund, and the branch cannot see it because its own
+        // day report balances.
+        {
+          path: "/finance/unmatched-charges",
+          label: "Charges without a sale",
+          icon: CircleAlert,
+          badge: "warn",
+          useCount: useUnansweredChargeCount,
+        },
         { path: "/finance/assets", label: "Assets", icon: Archive },
         { path: "/finance/journal", label: "Journal", icon: FileText },
       ],
@@ -107,6 +122,14 @@ export const financeNav: AppModule = {
           // refused outright, so this is a stoppage and not a backlog.
           badge: "bad",
           useCount: useUnmappedMeaningCount,
+        },
+        // Coordinates, one set per bank. Setup rather than Work because it is
+        // done once against a real leaf and then not thought about — and when
+        // it is wrong, every giro that bank prints is wrong the same way.
+        {
+          path: "/finance/giro-print",
+          label: "Giro printing",
+          icon: Printer,
         },
         {
           path: "/finance/periods",

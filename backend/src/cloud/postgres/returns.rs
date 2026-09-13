@@ -13,9 +13,13 @@ use crate::cloud::{
     },
 };
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::{PgPool, Row};
+use sqlx::{Postgres, Transaction};
+use std::collections::BTreeMap;
 use std::collections::HashSet;
+use std::str::FromStr;
 use uuid::Uuid;
 
 pub async fn create_sale_return(
@@ -63,7 +67,7 @@ pub async fn create_sale_return(
     }
 
     let sale = sqlx::query(
-        "SELECT id,sale_number,site_id,status,total_minor FROM sale WHERE id=$1 FOR UPDATE",
+        "SELECT id,sale_number,site_id,status,total_minor,customer_id FROM sale WHERE id=$1 FOR UPDATE",
     )
     .bind(sale_id)
     .fetch_optional(&mut *tx)
@@ -78,6 +82,13 @@ pub async fn create_sale_return(
     let site_id: String = sale.get("site_id");
     let sale_number: String = sale.get("sale_number");
     let sale_total: i64 = sale.get("total_minor");
+    // Who earned the points this return may have to take back. `None` is an
+    // anonymous sale, and the result below says so out loud rather than
+    // reversing nought quietly — see `POINTS_ANONYMOUS_SALE`.
+    let customer_id: Option<String> = sale
+        .get::<Option<String>, _>("customer_id")
+        .map(|id| id.trim().to_owned())
+        .filter(|id| !id.is_empty());
 
     let already_refunded: i64 =
         sqlx::query("SELECT COALESCE(SUM(refund_total_minor),0)::bigint total FROM sale_return WHERE sale_id=$1")
@@ -91,10 +102,28 @@ pub async fn create_sale_return(
     let mut return_lines = Vec::with_capacity(request.lines.len());
     let mut refund_expected = 0_i64;
     for line in &request.lines {
+        // `esl.points_earned` is the ORIGINAL SNAPSHOT — what the engine
+        // allocated to THIS unit when it was sold, stored by 0166 — and it is
+        // the only figure a reversal is allowed to read. Re-running today's
+        // scheme over the returned goods, or taking a share of the basket
+        // total, can both take back more points than the purchase ever gave.
+        //
+        // Read from `edge_sale_line` rather than copied onto `sale_line` first:
+        // `sale_line_append_only` (0003) refuses every UPDATE to a sale line at
+        // any status, so there is no moment at which the award could be moved
+        // across. LEFT JOIN, because the shop's account of a sale may not be
+        // here at all — and absent is `None`, which `plan_return_reversal`
+        // reports rather than counts as nought.
+        //
+        // Joined on `(sale_id, subject_id)`: both models give one physical unit
+        // one line and key it by subject, so the lines match on what was sold
+        // rather than on the order somebody scanned it.
         let row = sqlx::query(
-            "SELECT l.id,l.subject_id,l.sku_id,l.quantity,l.total_minor,subject.epc,\
+            "SELECT l.id,l.subject_id,l.sku_id,l.quantity,l.total_minor,esl.points_earned,subject.epc,\
              EXISTS(SELECT 1 FROM sale_return_line rl WHERE rl.sale_line_id=l.id) returned \
              FROM sale_line l JOIN inventory_subject subject ON subject.id=l.subject_id \
+             LEFT JOIN edge_sale_line esl \
+                    ON esl.sale_id=l.sale_id AND esl.subject_id=l.subject_id \
              WHERE l.id=$1 AND l.sale_id=$2 FOR UPDATE OF l",
         )
         .bind(line.sale_line_id)
@@ -213,25 +242,117 @@ pub async fn create_sale_return(
         }));
     }
 
-    for refund in &request.refunds {
+    // ── the refund, split by the server rather than taken from the caller ──
+    //
+    // Money goes back where it came from. The caller says WHAT is being
+    // returned; how much of it lands on the voucher and how much on the card is
+    // arithmetic over the original tenders and their remaining capacity, and it
+    // is not a number a till may assert. See `crate::refund`.
+    let allocation = allocate_refund(&mut tx, sale_id, refund_total).await?;
+
+    // A caller that also sent figures is checked against them rather than
+    // ignored: if it agreed, nothing changes for it; if it did not, it is told
+    // the right answer instead of having its request silently rewritten.
+    if !request.refunds.is_empty() {
+        let mut asked: BTreeMap<&str, i64> = BTreeMap::new();
+        for refund in &request.refunds {
+            *asked.entry(refund.method.as_str()).or_default() += refund.amount_minor;
+        }
+        let mut computed: BTreeMap<&str, i64> = BTreeMap::new();
+        for share in &allocation {
+            *computed.entry(share.method.as_str()).or_default() += share.amount_minor;
+        }
+        if asked != computed {
+            return Err(AppError::Validation(format!(
+                "the refund splits across the tenders that paid, and this sale allocates \
+                 {computed:?} rather than {asked:?} — send no refunds and let the server \
+                 allocate, or send these"
+            )));
+        }
+    }
+
+    for share in &allocation {
         sqlx::query(
-            "INSERT INTO sale_return_payment(id,return_id,method,amount_minor,reference) \
-             VALUES($1,$2,$3,$4,$5)",
+            "INSERT INTO sale_return_payment
+                 (id,return_id,method,amount_minor,reference,original_tender_id,status,
+                  acquirer,card_kind)
+             VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",
         )
         .bind(Uuid::new_v4())
         .bind(return_id)
-        .bind(refund.method.as_str())
-        .bind(refund.amount_minor)
-        .bind(
-            refund
-                .reference
-                .as_deref()
-                .map(str::trim)
-                .filter(|v| !v.is_empty()),
-        )
+        .bind(share.method.as_str())
+        .bind(share.amount_minor)
+        .bind(share.reference.as_deref())
+        .bind(share.tender_id)
+        // Accepted, not yet returned. A card refund is not money back until the
+        // network says so, and a return that reported SUCCEEDED the moment it
+        // was accepted is how a shop tells a customer their money is on its way
+        // when nothing has been sent.
+        .bind("PENDING")
+        .bind(share.acquirer.as_deref())
+        .bind(share.card_kind.as_deref())
         .execute(&mut *tx)
         .await?;
     }
+
+    // ── the points the return takes back ────────────────────────────────────
+    //
+    // `reverse_for_return` has existed and been correct since 0165 and could
+    // not be reached from here: it needs a member to debit, and `sale` — the
+    // model `sale_return.sale_id` points at — had no column naming one. So
+    // every award landed and no reversal ever did. 0177 is that column.
+    //
+    // Read from the SNAPSHOT each line carries, scoped to the units actually
+    // coming back. A return of one of two shoes takes back what that shoe was
+    // awarded, not half the receipt and not what it would earn if sold this
+    // morning. See `plan_return_reversal`, where the arithmetic lives with no
+    // database under it.
+    //
+    // Idempotent on the return, through the partial unique index
+    // `ux_points_ledger_reversal (return_id) WHERE entry_type='RETURN_REVERSAL'`
+    // that 0165 already created for exactly this. A second mechanism here —
+    // a prior read, a marker column — would be a second opinion about the same
+    // question, and this estate has been bitten by that shape before.
+    let plan = super::loyalty::plan_return_reversal(
+        &return_lines
+            .iter()
+            .map(|(input, row)| super::loyalty::LineAward {
+                sale_line_id: input.sale_line_id,
+                points_earned: row.get::<Option<i64>, _>("points_earned"),
+            })
+            .collect::<Vec<_>>(),
+    );
+    let points_status = match customer_id.as_deref() {
+        // Not a bug and not a silent skip. A sale nobody was recorded against
+        // has no account to debit, and saying nothing here is how a scheme
+        // leaks: the awards would still be landing on the sales that DO name a
+        // shopper, and only the reversals would be missing.
+        None => "ANONYMOUS_SALE",
+        Some(customer) if plan.points > 0 => {
+            match super::loyalty::reverse_for_return(
+                &mut tx,
+                customer,
+                return_id,
+                plan.points,
+                request.actor_id.trim(),
+            )
+            .await?
+            {
+                Some(_) => "REVERSED",
+                // The index refused a second entry for this return. A fresh
+                // `return_id` cannot collide, so reaching this means a replay
+                // that got past the idempotency guard above — correct, and
+                // worth being able to see rather than indistinguishable from a
+                // reversal that just happened.
+                None => "ALREADY_REVERSED",
+            }
+        }
+        // A member, and nothing to take back. Two different reasons, kept
+        // apart: goods that genuinely earned nothing, versus lines whose award
+        // was never recorded at all and which a person has to settle.
+        Some(_) if plan.unrecorded.is_empty() => "NOTHING_EARNED",
+        Some(_) => "NOTHING_RECORDED",
+    };
 
     let response = json!({
         "id": return_id,
@@ -242,12 +363,26 @@ pub async fn create_sale_return(
         "status": "COMPLETED",
         "reason": request.reason.trim(),
         "refund_total_minor": refund_total,
-        "refunds": request.refunds.iter().map(|r| json!({
-            "method": r.method.as_str(),
-            "amount_minor": r.amount_minor,
-            "reference": r.reference,
+        "refunds": allocation.iter().map(|share| json!({
+            "method": share.method.as_str(),
+            "amount_minor": share.amount_minor,
+            "reference": share.reference,
+            "original_tender_id": share.tender_id,
+            "status": "PENDING",
         })).collect::<Vec<_>>(),
         "lines": line_values,
+        // What happened to the member's balance, stated whether or not anything
+        // did. A caller that has to infer "nothing was reversed" from an absent
+        // field cannot tell it apart from a build that never reversed at all.
+        "points": {
+            "customer_id": customer_id,
+            "status": points_status,
+            "reversed": if points_status == "REVERSED" { plan.points } else { 0 },
+            // The lines this return could not answer for: sold before an award
+            // was recorded per line, or through a path that records none. Named
+            // so somebody can settle them, rather than counted as nought.
+            "lines_without_recorded_award": plan.unrecorded,
+        },
         "movement_group_id": movement_group_id.0,
         "movement_ids": movement_ids,
         "created_at": now,
@@ -314,37 +449,390 @@ pub async fn get_sale_return(pool: &PgPool, return_id: Uuid) -> Result<Value, Ap
     }))
 }
 
-pub async fn list_sale_returns(pool: &PgPool, query: ReturnQuery) -> Result<Value, AppError> {
-    let limit = query.limit.unwrap_or(100).clamp(1, 500);
-    let rows = sqlx::query(
-        "SELECT r.id,r.return_number,r.sale_id,s.sale_number,r.site_id,r.reason,\
-         r.refund_total_minor,r.actor_id,r.created_at \
-         FROM sale_return r JOIN sale s ON s.id=r.sale_id \
-         WHERE ($1::text IS NULL OR r.site_id=$1) \
-         ORDER BY r.created_at DESC LIMIT $2",
-    )
-    .bind(
-        query
-            .site_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|v| !v.is_empty()),
-    )
-    .bind(limit)
+/// One refund, as the list shows it.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct SaleReturnRow {
+    pub id: Uuid,
+    pub return_number: String,
+    pub sale_id: Uuid,
+    pub sale_number: String,
+    pub site_id: String,
+    pub reason: String,
+    pub refund_total_minor: i64,
+    /// Who took it back — a cashier's login, not a shopper's anything. The one
+    /// identifier on this row that names a person, and it names a colleague.
+    pub actor_id: String,
+    pub created_at: DateTime<Utc>,
+}
+
+/// One value a filter can take, and how many refunds would still be there.
+/// Counted over what the SEARCH leaves, ignoring the filters currently applied.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct SaleReturnFacet {
+    pub value: String,
+    pub label: Option<String>,
+    pub count: i64,
+    /// What those refunds came to. A count alone says how OFTEN a shop refunds
+    /// and never how much, and on this list the second question is the one
+    /// somebody is actually asking.
+    pub refund_total_minor: i64,
+}
+
+/// The two things the returns list can be narrowed by.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct SaleReturnFacets {
+    pub sites: Vec<SaleReturnFacet>,
+    pub reasons: Vec<SaleReturnFacet>,
+}
+
+/// A page of refunds, and the shape of everything it was drawn from.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct SaleReturnList {
+    pub rows: Vec<SaleReturnRow>,
+    /// Opaque. Pass it back as `cursor`; absent means this was the last page.
+    pub next_cursor: Option<String>,
+    /// Every refund the search and the filters match, not just this page.
+    pub total: i64,
+    /// What the whole matched set came to — not just this page. The number the
+    /// storeops roll-up was computing in the browser over whatever hundred rows
+    /// it happened to hold, which is a sum of the page.
+    pub refund_total_minor: i64,
+    pub facets: SaleReturnFacets,
+}
+
+/// Where the previous page stopped — as a ROW, not a position.
+#[derive(Serialize, Deserialize)]
+struct SaleReturnCursor {
+    id: Uuid,
+}
+
+impl SaleReturnCursor {
+    fn encode(&self) -> Result<String, AppError> {
+        Ok(hex::encode(serde_json::to_vec(self)?))
+    }
+
+    fn decode(raw: &str) -> Result<Self, AppError> {
+        let bytes = hex::decode(raw).map_err(|_| {
+            AppError::Validation("cursor is not a cursor this server issued".into())
+        })?;
+        serde_json::from_slice(&bytes)
+            .map_err(|_| AppError::Validation("cursor is not a cursor this server issued".into()))
+    }
+}
+
+const RETURNS_DEFAULT_LIMIT: i64 = 100;
+const RETURNS_MAX_LIMIT: i64 = 500;
+
+/// One refund row, defined once.
+///
+/// Used by the page query and by the facet counts, which is the whole reason it
+/// is a constant: the facets are only honest if they count exactly what the
+/// page can show.
+///
+/// It stops at the SEARCH. The site and reason filters are applied outside by
+/// each caller, so one definition answers two questions — the page wants what
+/// the filters leave, the filter panel wants what the search alone leaves.
+///
+/// Every column a sort can name is NOT NULL — `created_at`, `return_number`,
+/// `refund_total_minor`, `site_id` — so no `COALESCE` sentinel is needed. Worth
+/// stating rather than rediscovering: a row comparison against NULL is NULL
+/// rather than true, so a nullable sort key added here would end paging at the
+/// first NULL, in silence.
+///
+/// Binds: `$1` the search pattern or NULL.
+const RETURN_ROWS: &str = "
+    SELECT r.id, r.return_number, r.sale_id, s.sale_number, r.site_id, r.reason,
+           r.refund_total_minor, r.actor_id, r.created_at
+      FROM sale_return r
+      JOIN sale s ON s.id = r.sale_id
+     WHERE ($1::text IS NULL
+            OR r.return_number ILIKE $1
+            OR s.sale_number ILIKE $1)
+";
+
+/// Every filter, in one place, so the page and the total cannot drift.
+const RETURN_FILTERS: &str = "
+    WHERE ($2::text IS NULL OR site_id = $2)
+      AND ($3::text IS NULL OR reason = $3)
+";
+
+/// Refunds, one page at a time, beside the shape of the whole answer.
+///
+/// Brought up to the shape `list_employees` sets: a scope struct in, an
+/// envelope out, a keyset over a named sort, and facet counts drawn from the
+/// same row definition the page is.
+pub async fn list_sale_returns(
+    pool: &PgPool,
+    query: ReturnQuery,
+) -> Result<SaleReturnList, AppError> {
+    let limit = query
+        .limit
+        .unwrap_or(RETURNS_DEFAULT_LIMIT)
+        .clamp(1, RETURNS_MAX_LIMIT);
+    let site = query
+        .site_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned);
+    // A blank search is not a search: `Some("")` compiles to `ILIKE '%%'`,
+    // which matches everything and costs a scan to say so.
+    let needle = query
+        .q
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| format!("%{value}%"));
+    let reason = query
+        .reason
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned);
+
+    // The sort, and the tie-break that makes it total. Every order ends in the
+    // return's id, which is the primary key, so no two rows can compare equal —
+    // which is what stops a keyset repeating or losing the rows that tie.
+    //
+    // TWO spellings of the same thing, and they are not interchangeable:
+    // `ORDER BY` takes directions, a ROW EXPRESSION does not.
+    let lead = match query.sort.as_deref() {
+        Some("number") => "return_number",
+        Some("refund") => "refund_total_minor",
+        Some("site") => "site_id",
+        _ => "created_at",
+    };
+    let descending = query.dir.as_deref() != Some("asc");
+    let cols = format!("{lead}, id");
+    let dir = if descending { "DESC" } else { "ASC" };
+    let order = format!("{lead} {dir}, id {dir}");
+    let seek = if descending { "<" } else { ">" };
+
+    let cursor = query
+        .cursor
+        .as_deref()
+        .map(SaleReturnCursor::decode)
+        .transpose()?;
+
+    // The seek re-reads the previous row's own sort value rather than trusting
+    // one encoded in the cursor. A cursor whose row the filters no longer keep
+    // finds nothing to compare against, so the page comes back empty: the list
+    // ends early rather than starting again, and stopping is visible.
+    // `NOT MATERIALIZED`: `kept` is referenced twice — as the page and
+    // inside the seek — and two references makes PostgreSQL materialise a
+    // CTE, which is an optimisation fence the `ORDER BY … LIMIT` cannot be
+    // pushed through. Materialised, this reads the whole table and sorts it
+    // to hand back one page; inlined, it seeks the index. See
+    // `postgres::audit::list_audit`, where the difference was measured.
+    let sql = format!(
+        "WITH searched AS NOT MATERIALIZED ({RETURN_ROWS}),
+              kept AS NOT MATERIALIZED (
+             SELECT * FROM searched {RETURN_FILTERS}
+         )
+         SELECT * FROM kept
+          WHERE $4::uuid IS NULL
+             OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE id = $4)
+          ORDER BY {order}
+          LIMIT $5"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(&needle)
+        .bind(&site)
+        .bind(&reason)
+        .bind(cursor.as_ref().map(|one| one.id))
+        .bind(limit)
+        .fetch_all(pool)
+        .await?;
+
+    // A short page is the last page. A full one may not be — the next request
+    // can come back empty — and that is the honest answer.
+    let next_cursor = match rows.last() {
+        Some(row) if rows.len() as i64 == limit => Some(
+            SaleReturnCursor {
+                id: row.try_get("id")?,
+            }
+            .encode()?,
+        ),
+        _ => None,
+    };
+
+    let out = rows
+        .iter()
+        .map(|row| {
+            Ok(SaleReturnRow {
+                id: row.try_get("id")?,
+                return_number: row.try_get("return_number")?,
+                sale_id: row.try_get("sale_id")?,
+                sale_number: row.try_get("sale_number")?,
+                site_id: row.try_get("site_id")?,
+                reason: row.try_get("reason")?,
+                refund_total_minor: row.try_get("refund_total_minor")?,
+                actor_id: row.try_get("actor_id")?,
+                created_at: row.try_get("created_at")?,
+            })
+        })
+        .collect::<Result<Vec<_>, AppError>>()?;
+
+    // Per-value counts read the SEARCHED set, ignoring what is filtered — the
+    // number beside a shop answers "how much does this shop refund", which is
+    // the question somebody has while choosing. The total reads the FILTERED
+    // set, because it describes the list on screen.
+    let counted = sqlx::query(&format!(
+        "WITH searched AS ({RETURN_ROWS}), kept AS (
+             SELECT * FROM searched {RETURN_FILTERS}
+         )
+         SELECT 'site' AS facet, site_id AS value, COUNT(*)::bigint AS n,
+                COALESCE(SUM(refund_total_minor), 0)::bigint AS refunded
+           FROM searched GROUP BY site_id
+          UNION ALL
+         SELECT 'reason', reason, COUNT(*)::bigint,
+                COALESCE(SUM(refund_total_minor), 0)::bigint
+           FROM searched GROUP BY reason
+          UNION ALL
+         SELECT 'all', '', COUNT(*)::bigint,
+                COALESCE(SUM(refund_total_minor), 0)::bigint
+           FROM kept"
+    ))
+    .bind(&needle)
+    .bind(&site)
+    .bind(&reason)
     .fetch_all(pool)
     .await?;
-    Ok(json!({
-        "items": rows.iter().map(|row| json!({
-            "id": row.get::<Uuid,_>("id"),
-            "return_number": row.get::<String,_>("return_number"),
-            "sale_id": row.get::<Uuid,_>("sale_id"),
-            "sale_number": row.get::<String,_>("sale_number"),
-            "site_id": row.get::<String,_>("site_id"),
-            "reason": row.get::<String,_>("reason"),
-            "refund_total_minor": row.get::<i64,_>("refund_total_minor"),
-            "actor_id": row.get::<String,_>("actor_id"),
-            "created_at": row.get::<DateTime<Utc>,_>("created_at"),
-        })).collect::<Vec<_>>(),
-        "limit": limit,
-    }))
+
+    let mut total = 0i64;
+    let mut refunded = 0i64;
+    let (mut sites, mut reasons) = (Vec::new(), Vec::new());
+    for row in &counted {
+        let facet: String = row.try_get("facet")?;
+        let one = SaleReturnFacet {
+            value: row.try_get("value")?,
+            label: None,
+            count: row.try_get("n")?,
+            refund_total_minor: row.try_get("refunded")?,
+        };
+        match facet.as_str() {
+            "site" => sites.push(one),
+            "reason" => reasons.push(one),
+            _ => {
+                total = one.count;
+                refunded = one.refund_total_minor;
+            }
+        }
+    }
+    // Biggest first, with ties broken on the value so the order is stable
+    // between calls — a filter list that reshuffles under the cursor is one
+    // nobody can click.
+    for list in [&mut sites, &mut reasons] {
+        list.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.value.cmp(&b.value)));
+    }
+
+    Ok(SaleReturnList {
+        rows: out,
+        next_cursor,
+        total,
+        refund_total_minor: refunded,
+        facets: SaleReturnFacets { sites, reasons },
+    })
+}
+
+/// One tender's share of a refund, and what it is going back to.
+pub struct RefundShare {
+    pub tender_id: Uuid,
+    pub method: crate::tender::PaymentMethod,
+    pub amount_minor: i64,
+    pub reference: Option<String>,
+    pub acquirer: Option<String>,
+    pub card_kind: Option<String>,
+}
+
+/// Split a refund across the tenders that paid for the sale, by what each has
+/// left to give back.
+///
+/// The capacity subtraction is decision K04: an allocation already committed
+/// counts against its tender even while the provider call is pending or has
+/// failed and is still to be retried. Only a CANCELLED allocation gives its
+/// capacity back. Subtracting successful refunds alone would let a second
+/// return promise the same rupiah while the first was still in flight.
+///
+/// `FOR UPDATE` on the tender rows, so two returns of one sale accepted at the
+/// same moment cannot both read the same remaining balance — the invariant this
+/// exists to hold is exactly the one two concurrent readers would break.
+async fn allocate_refund(
+    tx: &mut Transaction<'_, Postgres>,
+    sale_id: Uuid,
+    amount_minor: i64,
+) -> Result<Vec<RefundShare>, AppError> {
+    // `sale_payment`, not `edge_sale_tender`. There are two sale models here —
+    // the centre's own (`sale`, what `sale_return.sale_id` points at) and the
+    // one synced up from a till (`edge_sale`) — and a return is against the
+    // first. Reading the second would have found no tenders at all for every
+    // sale a return can actually be made against.
+    //
+    // `id` stands in for a sequence: `sale_payment` has no ordinal, so the
+    // allocation's stable order is the payment's own id. Stable is what the
+    // tie-break needs; consecutive is not.
+    let tenders = sqlx::query(
+        "SELECT t.id, t.method, t.amount_minor, t.reference, t.acquirer, t.card_kind,
+                COALESCE((
+                    SELECT sum(p.amount_minor)
+                      FROM sale_return_payment p
+                      JOIN sale_return r ON r.id = p.return_id
+                     WHERE r.sale_id = t.sale_id
+                       AND p.original_tender_id = t.id
+                       AND p.status <> 'CANCELLED'
+                ), 0)::bigint AS committed_minor
+           FROM sale_payment t
+          WHERE t.sale_id = $1
+          ORDER BY t.id
+          FOR UPDATE OF t",
+    )
+    .bind(sale_id)
+    .fetch_all(&mut **tx)
+    .await?;
+
+    if tenders.is_empty() {
+        // A sale with no recorded tender — one taken before tenders were stored
+        // per method. There is nothing to split by, and inventing a split would
+        // put money back somewhere nobody paid from.
+        return Err(AppError::Validation(
+            "this sale has no recorded tenders, so a refund cannot be allocated back to them"
+                .into(),
+        ));
+    }
+
+    let capacities: Vec<crate::refund::Capacity> = tenders
+        .iter()
+        .map(|row| crate::refund::Capacity {
+            original_minor: row.get::<i64, _>("amount_minor"),
+            committed_minor: row.get::<i64, _>("committed_minor"),
+        })
+        .collect();
+
+    let shares = crate::refund::allocate(&capacities, amount_minor)
+        .map_err(|error| AppError::Validation(error.to_string()))?;
+
+    let mut out = Vec::new();
+    for (row, share) in tenders.iter().zip(shares) {
+        if share == 0 {
+            // A tender with nothing left to give takes no row. An allocation of
+            // nought is not a refund, and one per tender would leave a trail of
+            // empty obligations for a reconciler to chase.
+            continue;
+        }
+        let method: String = row.get("method");
+        out.push(RefundShare {
+            tender_id: row.get("id"),
+            method: crate::tender::PaymentMethod::from_str(&method)
+                .map_err(|error| AppError::Validation(error.to_string()))?,
+            amount_minor: share,
+            reference: row.get("reference"),
+            acquirer: row.get("acquirer"),
+            card_kind: row.get("card_kind"),
+        });
+    }
+    Ok(out)
 }

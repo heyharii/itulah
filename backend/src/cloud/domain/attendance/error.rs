@@ -1,8 +1,9 @@
-//! Every way the attendance policy can refuse.
+//! Every way attendance can refuse.
 //!
-//! Trimmed from the reference, which covers punches, corrections and kiosks as
-//! well. A variant is here only if code in this module raises it; the punch
-//! half arrives when there is a punch source to raise it.
+//! A variant is here only if code in this module raises it. The punch,
+//! terminal, derivation and correction variants arrived with the fingerprint
+//! terminal — until there was a punch source there was nothing to raise them,
+//! and a refusal nothing can produce is a refusal nobody maintains.
 
 use chrono::NaiveDate;
 use thiserror::Error;
@@ -86,6 +87,89 @@ pub enum AttendanceError {
         open_corrections: u32,
         unresolved_leave: u32,
     },
+
+    // ── the terminal, which is the attendance authority ──────────────────
+    #[error("action `{action_key}` does not authorize administering a terminal")]
+    ActionForbidsTerminalAdministration { action_key: String },
+    #[error("a terminal that is {status} cannot identify anybody")]
+    TerminalNotActive { status: &'static str },
+    #[error("a terminal cannot go from {from} to {to}")]
+    IllegalTerminalTransition {
+        from: &'static str,
+        to: &'static str,
+    },
+    #[error("the stored terminal status is not the one its own history produces")]
+    TerminalStatusContradictsHistory,
+
+    // ── punches ──────────────────────────────────────────────────────────
+    #[error("the terminal attested somebody other than this employee")]
+    AttestationEmployeeMismatch,
+    #[error("this punch belongs to another place")]
+    PunchPlaceMismatch,
+    #[error("a punch with this identity is already recorded")]
+    DuplicatePunchIdentity,
+    #[error("the stored punch no longer matches its terminal: {field}")]
+    PunchProvenanceMismatch { field: &'static str },
+    #[error("the period is closed and will not take a punch: {period}")]
+    ClosedPeriodRejectsPunch { period: String },
+    #[error("employment is {status} on {date}, which does not permit attendance")]
+    EmploymentForbidsAttendance {
+        status: &'static str,
+        date: NaiveDate,
+    },
+    #[error("this person was not posted to the terminal's place on {date}")]
+    NotPostedToPlaceOnDate { date: NaiveDate },
+    #[error("`{code}` is not a clock quality")]
+    UnreadableClockQuality { code: String },
+
+    // ── the derived day ──────────────────────────────────────────────────
+    #[error("a day must say at least one thing about itself")]
+    EmptyOutcomeSet,
+    #[error("a day cannot say {code} twice")]
+    DuplicateOutcome { code: &'static str },
+    #[error("{code} carrying zero minutes says nothing")]
+    ZeroMinuteOutcome { code: &'static str },
+    #[error("a day cannot be both {first} and {second}")]
+    ContradictoryOutcomes {
+        first: &'static str,
+        second: &'static str,
+    },
+    #[error("this punch is not for the rostered day being derived")]
+    PunchDoesNotMatchRosterDay,
+    #[error("there are punches on a day recorded as approved leave")]
+    PunchesOnApprovedLeaveDay,
+    #[error("overtime is agreed for a day with no work observed")]
+    OvertimeAgreedWithoutWork,
+    #[error("work was punched on a non-working day that no overtime order covers")]
+    UnagreedNonWorkingDayWork,
+
+    // ── corrections ──────────────────────────────────────────────────────
+    #[error("action `{action_key}` does not authorize requesting a correction")]
+    ActionForbidsCorrectionRequest { action_key: String },
+    #[error("action `{action_key}` does not authorize deciding a correction")]
+    ActionForbidsCorrectionDecision { action_key: String },
+    #[error("a corrected arrival must come before the corrected departure")]
+    CorrectionArrivalNotBeforeDeparture,
+    #[error("this correction is about another employee, place or day")]
+    CorrectionTargetMismatch,
+    #[error("only the requester may withdraw a correction; anybody else rejects it")]
+    CorrectionWithdrawalNotByRequester,
+    #[error("this correction is already {state}")]
+    CorrectionAlreadyDecided { state: &'static str },
+    #[error("a correction is already awaiting a decision on this day")]
+    AnotherCorrectionIsPending,
+    #[error("a new correction must supersede the one in force, which is {expected}")]
+    CorrectionSupersedesTheWrongLink { expected: String },
+    #[error("the period is closed and will not take a correction: {period}")]
+    ClosedPeriodRejectsCorrection { period: String },
+    #[error("this chain holds a correction belonging to another employee, place or day")]
+    CorrectionChainMismatch,
+
+    // ── enrolment ────────────────────────────────────────────────────────
+    #[error("`{code}` is not a finger")]
+    UnknownFinger { code: String },
+    #[error("action `{action_key}` does not authorize enrolling a fingerprint")]
+    ActionForbidsEnrolment { action_key: String },
 }
 
 impl AttendanceError {
@@ -122,6 +206,42 @@ impl AttendanceError {
             Self::DateOutsidePeriod { .. } => "attendance_date_outside_period",
             Self::ClosedPeriodRejectsRosterChange { .. } => "attendance_closed_rejects_roster",
             Self::PeriodHasBlockers { .. } => "attendance_period_has_blockers",
+            Self::ActionForbidsTerminalAdministration { .. } => {
+                "attendance_action_forbids_terminal_admin"
+            }
+            Self::TerminalNotActive { .. } => "attendance_terminal_not_active",
+            Self::IllegalTerminalTransition { .. } => "attendance_illegal_terminal_transition",
+            Self::TerminalStatusContradictsHistory => "attendance_terminal_status_contradicts",
+            Self::AttestationEmployeeMismatch => "attendance_attestation_employee_mismatch",
+            Self::PunchPlaceMismatch => "attendance_punch_place_mismatch",
+            Self::DuplicatePunchIdentity => "attendance_duplicate_punch_identity",
+            Self::PunchProvenanceMismatch { .. } => "attendance_punch_provenance_mismatch",
+            Self::ClosedPeriodRejectsPunch { .. } => "attendance_closed_rejects_punch",
+            Self::EmploymentForbidsAttendance { .. } => "attendance_employment_forbids",
+            Self::NotPostedToPlaceOnDate { .. } => "attendance_not_posted_to_place",
+            Self::UnreadableClockQuality { .. } => "attendance_unreadable_clock_quality",
+            Self::EmptyOutcomeSet => "attendance_empty_outcome_set",
+            Self::DuplicateOutcome { .. } => "attendance_duplicate_outcome",
+            Self::ZeroMinuteOutcome { .. } => "attendance_zero_minute_outcome",
+            Self::ContradictoryOutcomes { .. } => "attendance_contradictory_outcomes",
+            Self::PunchDoesNotMatchRosterDay => "attendance_punch_not_for_roster_day",
+            Self::PunchesOnApprovedLeaveDay => "attendance_punches_on_leave_day",
+            Self::OvertimeAgreedWithoutWork => "attendance_overtime_agreed_without_work",
+            Self::UnagreedNonWorkingDayWork => "attendance_unagreed_non_working_work",
+            Self::ActionForbidsCorrectionRequest { .. } => "attendance_action_forbids_correction",
+            Self::ActionForbidsCorrectionDecision { .. } => {
+                "attendance_action_forbids_correction_decision"
+            }
+            Self::CorrectionArrivalNotBeforeDeparture => "attendance_correction_times_backwards",
+            Self::CorrectionTargetMismatch => "attendance_correction_target_mismatch",
+            Self::CorrectionWithdrawalNotByRequester => "attendance_correction_withdrawal_foreign",
+            Self::CorrectionAlreadyDecided { .. } => "attendance_correction_already_decided",
+            Self::AnotherCorrectionIsPending => "attendance_correction_already_pending",
+            Self::CorrectionSupersedesTheWrongLink { .. } => "attendance_correction_wrong_lineage",
+            Self::ClosedPeriodRejectsCorrection { .. } => "attendance_closed_rejects_correction",
+            Self::CorrectionChainMismatch => "attendance_correction_chain_mismatch",
+            Self::UnknownFinger { .. } => "attendance_unknown_finger",
+            Self::ActionForbidsEnrolment { .. } => "attendance_action_forbids_enrolment",
         }
     }
 
@@ -141,6 +261,20 @@ impl AttendanceError {
                 | Self::DuplicateRosterEntry { .. }
                 | Self::RosterRevisionNotForward
                 | Self::NoPolicyEffective { .. }
+                // The record is in the wrong state, not the request in the
+                // wrong shape: the month is settled, the device is untrusted,
+                // the day already has a request waiting.
+                | Self::ClosedPeriodRejectsPunch { .. }
+                | Self::ClosedPeriodRejectsCorrection { .. }
+                | Self::DuplicatePunchIdentity
+                | Self::TerminalNotActive { .. }
+                | Self::IllegalTerminalTransition { .. }
+                | Self::AnotherCorrectionIsPending
+                | Self::CorrectionAlreadyDecided { .. }
+                | Self::CorrectionSupersedesTheWrongLink { .. }
+                | Self::EmploymentForbidsAttendance { .. }
+                | Self::NotPostedToPlaceOnDate { .. }
+                | Self::PunchesOnApprovedLeaveDay
         )
     }
 
@@ -148,7 +282,13 @@ impl AttendanceError {
     pub const fn is_forbidden(&self) -> bool {
         matches!(
             self,
-            Self::ActionForbidsRosterChange { .. } | Self::ActionForbidsPeriodOperation { .. }
+            Self::ActionForbidsRosterChange { .. }
+                | Self::ActionForbidsPeriodOperation { .. }
+                | Self::ActionForbidsTerminalAdministration { .. }
+                | Self::ActionForbidsCorrectionRequest { .. }
+                | Self::ActionForbidsCorrectionDecision { .. }
+                | Self::ActionForbidsEnrolment { .. }
+                | Self::CorrectionWithdrawalNotByRequester
         )
     }
 }

@@ -47,6 +47,15 @@ function counted(value: unknown): string | undefined {
     : undefined
 }
 
+/// A calendar day, `YYYY-MM-DD`, which is how every date on the wire is
+/// spelled. Checked rather than passed through: the value reaches head office
+/// as a `NaiveDate`, and `?week=next` is a 400 dressed up as a link.
+function day(value: unknown): string | undefined {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? value
+    : undefined
+}
+
 /// One of a fixed set. Anything else is dropped rather than passed on: the
 /// value reaches the node as a grouping, and `?bucket=fortnight` is a 400
 /// dressed up as a link.
@@ -81,6 +90,14 @@ export const PARAMS = {
   span: counted,
   /// How the series is grouped.
   bucket: oneOf(["day", "week", "month"] as const),
+  /// The first day of the week the roster is showing.
+  ///
+  /// In the URL for this surface's own reason rather than the console's: a
+  /// manager looks at next week's rota on a tablet that then sleeps in their
+  /// hand, and a week offset held in `useState` is back to this week when it
+  /// wakes. It is also what makes "look at the week of the 21st" a thing one
+  /// person can send another.
+  week: day,
 } as const
 
 export type ParamKey = keyof typeof PARAMS

@@ -7,7 +7,7 @@ import type {
   RuleScope,
 } from "@itulah/contract"
 
-import { count, day, money } from "@/lib/format"
+import { count, day, money, span } from "@/lib/format"
 import { oxford } from "@/screens/commercial/compose"
 import { allNavItems } from "@/lib/navigation"
 import { useIdentity } from "@/lib/session"
@@ -200,6 +200,21 @@ export function describeEffect(effect: Effect): string {
 /// would be a field that cannot be sent.
 export function describeCustomers(rule: Rule): string {
   return scopeOf(rule).customers.who === "MEMBERS" ? "Members" : "Everyone"
+}
+
+/// When it runs, or `null` when it does not say.
+///
+/// `null` is the answer most rules give — a shop that publishes an offer and
+/// takes it down by hand never writes a window — and it is handed back rather
+/// than worded so the caller can draw *nothing*. A column reading "Always on"
+/// fifteen times is the same noise a column of "Unlimited" was: the two rows
+/// that do have a window are the ones somebody is scanning for, and they only
+/// stand out if the rest is blank.
+export function describePeriod(rule: Rule): string | null {
+  const conditions = conditionsOf(rule)
+  if (conditions.effective_from === null && conditions.effective_to === null)
+    return null
+  return span(conditions.effective_from, conditions.effective_to)
 }
 
 /// How one cell of the Pricelist grid is named — in the URL, in the selection,

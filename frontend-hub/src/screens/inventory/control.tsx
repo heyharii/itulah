@@ -11,12 +11,14 @@ import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Field, Input } from "@/components/ui/field"
+import { FilterPanel } from "@/components/ui/filter-panel"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { Toolbar } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
+import { useFilters } from "@/lib/filters"
 import { count, moment } from "@/lib/format"
 import {
   controlStatus,
@@ -60,6 +62,11 @@ const rowDifferences: ColumnDef<TableSetup, ProjectionDifference>[] = [
     accessorKey: "place_id",
     header: "Place",
     size: 260,
+    /// `text`, not `option`: a place is `<pool>:<state>`, so "contains
+    /// :missing" and "starts with store-07" are the two questions somebody
+    /// debugging a divergence actually asks, and a facet of every place in a
+    /// broken fleet is a list as long as the table.
+    meta: { filter: { kind: "text" } },
     cell: ({ row }) => (
       <AppLink
         to="/inventory/pools"
@@ -77,6 +84,8 @@ const rowDifferences: ColumnDef<TableSetup, ProjectionDifference>[] = [
     accessorKey: "subject_id",
     header: "Subject",
     size: 300,
+    // A subject is a uuid carried here from somewhere else. Nobody narrows a
+    // list by one; they paste it into the time machine.
     cell: ({ row }) => (
       <span className="font-mono text-id text-mute">
         {row.original.subject_id}
@@ -101,7 +110,13 @@ const rowDifferences: ColumnDef<TableSetup, ProjectionDifference>[] = [
     accessorKey: "difference",
     header: "Difference",
     size: 120,
-    meta: { align: "right" },
+    /// Ledger minus projection, so the sign is the direction of the drift —
+    /// "at least 1" is stock the projection has lost, "at most -1" is stock it
+    /// has invented. The one filter on this table somebody uses twice a day.
+    meta: {
+      align: "right",
+      filter: { kind: "number", unit: "pcs" },
+    },
     cell: ({ row }) => (
       <span className="font-medium text-bad-fg">
         {signed(row.original.difference)}
@@ -115,6 +130,7 @@ const stageDifferences: ColumnDef<TableSetup, RollupDifference>[] = [
     accessorKey: "parent_pool_id",
     header: "Stage",
     size: 260,
+    meta: { filter: { kind: "text" } },
     cell: ({ row }) => (
       <span className="font-mono text-id text-body">
         {row.original.parent_pool_id}
@@ -125,6 +141,7 @@ const stageDifferences: ColumnDef<TableSetup, RollupDifference>[] = [
     accessorKey: "state",
     header: "State",
     size: 120,
+    meta: { filter: { kind: "option" } },
   },
   {
     accessorKey: "ledger_quantity",
@@ -144,7 +161,10 @@ const stageDifferences: ColumnDef<TableSetup, RollupDifference>[] = [
     accessorKey: "difference",
     header: "Difference",
     size: 120,
-    meta: { align: "right" },
+    meta: {
+      align: "right",
+      filter: { kind: "number", unit: "pcs" },
+    },
     cell: ({ row }) => (
       <span className="font-medium text-bad-fg">
         {signed(row.original.difference)}
@@ -213,18 +233,24 @@ export function Control() {
     [status.data]
   )
 
+  /// A parameter each, because both tables have a `difference` and a
+  /// `state`-shaped question: one key would carry a clause from the tab being
+  /// read onto the tab beside it.
+  const rowFilters = useFilters(rowDifferences)
+  const stageFilters = useFilters(stageDifferences, "f2")
+
   const rowTable = useTable(
     useMemo(
       () => ({
         features: tableSetup,
         data: rows,
-        columns: rowDifferences,
+        columns: rowFilters.columns,
         getRowId: (row: ProjectionDifference) =>
           `${row.subject_id}/${row.place_id}`,
-        state: { sorting },
+        state: { columnFilters: rowFilters.columnFilters, sorting },
         onSortingChange: setSorting,
       }),
-      [rows, sorting]
+      [rows, rowFilters.columns, rowFilters.columnFilters, sorting]
     )
   )
 
@@ -233,13 +259,16 @@ export function Control() {
       () => ({
         features: tableSetup,
         data: stages,
-        columns: stageDifferences,
+        columns: stageFilters.columns,
         getRowId: (row: RollupDifference) =>
           `${row.parent_pool_id}/${row.state}`,
-        state: { sorting: stageSorting },
+        state: {
+          columnFilters: stageFilters.columnFilters,
+          sorting: stageSorting,
+        },
         onSortingChange: setStageSorting,
       }),
-      [stages, stageSorting]
+      [stages, stageFilters.columns, stageFilters.columnFilters, stageSorting]
     )
   )
 
@@ -310,10 +339,20 @@ export function Control() {
                 tone={data.ledger_health === "HEALTHY" ? "up" : "down"}
               />
               <Kpi label="Ledger facts" value={count(data.ledger_fact_count)} />
+              {/* `count` draws a null as an em dash, which is the honest
+                  reading of "not counted" — and the tone follows the health
+                  verdict beside it, which the server still answers exactly
+                  whether or not it counted. */}
               <Kpi
                 label="Row differences"
                 value={count(data.projection_difference_count)}
-                tone={data.projection_difference_count > 0 ? "down" : "flat"}
+                tone={
+                  (data.projection_difference_count ?? 0) > 0 ||
+                  (data.projection_difference_count === null &&
+                    data.ledger_health !== "HEALTHY")
+                    ? "down"
+                    : "flat"
+                }
               />
               <Kpi
                 label="Stage differences"
@@ -408,6 +447,17 @@ export function Control() {
               onChange={setTab}
             />
 
+            {/* The tab's own panel, and only its own: the two tables ask
+                different questions of different rows, and the one on screen is
+                the one being narrowed. */}
+            <Toolbar>
+              {tab === "rows" ? (
+                <FilterPanel model={rowFilters} table={rowTable} />
+              ) : (
+                <FilterPanel model={stageFilters} table={stageTable} />
+              )}
+            </Toolbar>
+
             <Card className="overflow-hidden">
               {tab === "rows" ? (
                 rows.length === 0 ? (
@@ -418,6 +468,7 @@ export function Control() {
                 ) : (
                   <DataTable<ProjectionDifference>
                     table={rowTable}
+                    empty="No disagreement matches the filters in force."
                     className="max-h-[calc(100vh-32rem)]"
                   />
                 )
@@ -429,6 +480,7 @@ export function Control() {
               ) : (
                 <DataTable<RollupDifference>
                   table={stageTable}
+                  empty="No stage rollup matches the filters in force."
                   className="max-h-[calc(100vh-32rem)]"
                 />
               )}

@@ -1,0 +1,7 @@
+{
+  "$schema": "https://schema.tauri.app/config/2/capability",
+  "identifier": "default",
+  "description": "What the counter window is allowed to ask the shell for",
+  "windows": ["main"],
+  "permissions": ["core:default", "core:event:default"]
+}

@@ -100,7 +100,7 @@ function Branch({
 }) {
   const branch = useQuery({
     queryKey: financeKeys.accounts(parent),
-    queryFn: ({ signal }) => listAccounts({ parent }, signal),
+    queryFn: ({ signal }) => listAccounts({ parent }, signal).then((page) => page.rows),
     // The chart is imported once and then sits still for months. Refetching it
     // on every focus would be a request per branch per tab switch, for data
     // that has not moved since the seeder ran.
@@ -267,7 +267,8 @@ function SearchResults({
 }) {
   const hits = useQuery({
     queryKey: financeKeys.accounts(undefined, needle),
-    queryFn: ({ signal }) => searchAccounts(needle, { limit: HITS }, signal),
+    queryFn: ({ signal }) =>
+      searchAccounts(needle, { limit: HITS }, signal).then((page) => page.rows),
     staleTime: 60 * 1000,
   })
   const accounts = hits.data ?? []

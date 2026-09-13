@@ -388,8 +388,62 @@ export function requestCorrection(
   )
 }
 
-export function holidays(signal?: AbortSignal): Promise<HolidayCalendar> {
-  return read("/api/v1/holiday-calendars", () => demo.demoHolidays, signal)
+/// The second route in this file the server has grown, and — like
+/// `/notifications` above — it does not answer what the stand-in does.
+///
+/// `/api/v1/holiday-calendars` returns the **index of published years**,
+/// `{ years: [2026] }`, not a calendar. This function used to hand that
+/// straight back typed as a `HolidayCalendar`, so `calendar.days` was
+/// `undefined` and the "Days off" panel threw on `.length` — taking the whole
+/// **Me** screen down with it, because one panel's crash is the screen's crash.
+///
+/// Because the route exists, `read`'s stand-in never fired to hide it. That is
+/// the fallback working correctly: a route that answers is a route we must read
+/// properly, and the shape mismatch was ours.
+///
+/// So: ask which years exist, take this year if it is one of them and otherwise
+/// the most recent, then fetch that year. No year published is not an error —
+/// it is an empty calendar, and it says so.
+export async function holidays(signal?: AbortSignal): Promise<HolidayCalendar> {
+  const index = await read<{ years: number[] }>(
+    "/api/v1/holiday-calendars",
+    () => ({ years: [demo.demoHolidays.year] }),
+    signal
+  )
+  const years = [...(index.years ?? [])].sort((a, b) => b - a)
+  if (years.length === 0) {
+    return { calendar_id: "", name: "", year: new Date().getFullYear(), days: [] }
+  }
+  const thisYear = new Date().getFullYear()
+  const year = years.includes(thisYear) ? thisYear : years[0]
+
+  const calendar = await read<{
+    year: number
+    holidays: { date: string; name: string; kind: string }[]
+  }>(
+    `/api/v1/holiday-calendars/${year}`,
+    () => ({ year, holidays: [] }),
+    signal
+  )
+
+  return {
+    calendar_id: String(year),
+    name: `Kalender ${year}`,
+    year: calendar.year ?? year,
+    // The server says `CUTI_BERSAMA`; these screens say `JOINT_LEAVE`, because
+    // that is the word the balance rule is written in. Translated here, once,
+    // rather than in each screen that renders a day.
+    days: (calendar.holidays ?? []).map((one) => ({
+      date: one.date,
+      name: one.name,
+      kind:
+        one.kind === "CUTI_BERSAMA"
+          ? ("JOINT_LEAVE" as const)
+          : one.kind === "REGIONAL"
+            ? ("COMPANY" as const)
+            : ("NATIONAL" as const),
+    })),
+  }
 }
 
 /// The one route in this file the server has actually grown, and it does not

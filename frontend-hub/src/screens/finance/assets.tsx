@@ -18,6 +18,7 @@ import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { BarSeries, type ChartSeries } from "@/components/ui/chart"
 import { DataTable } from "@/components/ui/data-table"
 import { Field, Input, Money, Select, Textarea } from "@/components/ui/field"
+import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import {
@@ -29,7 +30,8 @@ import {
 } from "@/components/ui/rows"
 import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState } from "@/components/ui/states"
+import { Banner, EmptyState, Truncated } from "@/components/ui/states"
+import { useFilters } from "@/lib/filters"
 import { count, day, label, money } from "@/lib/format"
 import {
   assessAsset,
@@ -120,6 +122,15 @@ const DECISIONS = [
     label: "Expense",
     note: "It is a cost of this month and never appears on the balance sheet.",
   },
+  {
+    value: "IN_PROGRESS",
+    label: "Still being built",
+    // The client's Contract In Progress, and 668 of the 1,342 rows in their
+    // own register. A cost being incurred on something that is not a thing
+    // yet: it charges nothing, and the day it is finished a second assessment
+    // capitalises it into the family it became.
+    note: "A cost on something not finished. It charges nothing until it is.",
+  },
 ] as const satisfies readonly Tile<string>[]
 
 type Decision = (typeof DECISIONS)[number]["value"]
@@ -143,6 +154,10 @@ function Treatment({ asset }: { asset: AssetRow }) {
   if (asset.disposed_on !== null) return <Pill tone="neutral">Disposed</Pill>
   if (asset.decision === null) return <Pill tone="warn">Not assessed</Pill>
   if (asset.decision === "CAPITALIZE") return <Pill tone="ok">Capitalised</Pill>
+  // In motion, which is what `info` means everywhere in this app: the money is
+  // real and on the balance sheet, and what it will become is not decided yet.
+  if (asset.decision === "IN_PROGRESS")
+    return <Pill tone="info">Being built</Pill>
   return <Pill tone="neutral">Expensed</Pill>
 }
 
@@ -172,7 +187,10 @@ const columns: ColumnDef<TableSetup, AssetRow>[] = [
     // The first column this table gives up when the card is narrow, and the
     // one it can most afford to: the family is on the chart above, and it is
     // the only column here that says nothing about *this* asset's state.
-    meta: { priority: 2 },
+    //
+    // It is still worth a question, and the chart above is why: a bar for
+    // Kendaraan is a number somebody then wants the rows behind.
+    meta: { priority: 2, filter: { kind: "option" } },
   },
   {
     accessorKey: "site_id",
@@ -192,6 +210,25 @@ const columns: ColumnDef<TableSetup, AssetRow>[] = [
       row.disposed_on !== null ? "ZZ" : (row.decision ?? ""),
     header: "Treatment",
     size: 130,
+    // The decision metric, so the decision column. The accessor's `ZZ` is a
+    // sort trick and never a word anybody reads, so the arms are named here.
+    //
+    // "Not assessed" is the one arm with no option row of its own: it is the
+    // empty string, and an empty cell is what `is empty` asks about — the
+    // operator menu carries it. The banner above already counts them.
+    meta: {
+      filter: {
+        kind: "option",
+        format: (value) =>
+          value === "ZZ"
+            ? "Disposed"
+            : value === "CAPITALIZE"
+              ? "Capitalised"
+              : value === "EXPENSE"
+                ? "Expensed"
+                : "Not assessed",
+      },
+    },
     cell: ({ row }) => <Treatment asset={row.original} />,
   },
   {
@@ -199,6 +236,11 @@ const columns: ColumnDef<TableSetup, AssetRow>[] = [
     accessorFn: (row) => row.acquired_via ?? "",
     header: "Bought via",
     size: 150,
+    // Offered for its empty end and not for its values: "Bought via is empty"
+    // beside "Treatment is Capitalised" is the control exception this column
+    // draws in warn — something on the balance sheet whose cost never came in
+    // on a bill. Nothing else on the screen can ask the pair.
+    meta: { filter: { kind: "text" } },
     // Absent is the ordinary state for a thing the company already owned when
     // this system arrived — and an EXCEPTION for one that was capitalised
     // here, because the only way a cost gets into the books is a bill. So the
@@ -223,6 +265,11 @@ const columns: ColumnDef<TableSetup, AssetRow>[] = [
     accessorKey: "last_depreciated_month",
     header: "Charged through",
     size: 145,
+    // A date, and the question is almost always "before": an asset the run has
+    // been quietly skipping for four months looks exactly like one capitalised
+    // last week until somebody asks which ones stopped. Empty is its own
+    // answer — land never charges, and neither does an asset nobody has run.
+    meta: { filter: { kind: "date" } },
     // Absent means nothing has ever been charged, which is a real state and not
     // a zero: land never charges, an asset capitalised last week has not been
     // reached yet, and one the run has been silently skipping for four months
@@ -267,7 +314,14 @@ const columns: ColumnDef<TableSetup, AssetRow>[] = [
     accessorKey: "book_value_minor",
     header: "Book value",
     size: 140,
-    meta: { align: "right" },
+    // What is left of the cost, which is what a register exists to answer —
+    // and the figure the chart above totals. Cost and Accumulated are the two
+    // halves of it and are deliberately not offered: three money filters on
+    // one row is a panel nobody reads.
+    meta: {
+      align: "right",
+      filter: { kind: "number", unit: "Rp" },
+    },
     cell: ({ row }) =>
       row.original.book_value_minor === null ? (
         <span className="text-faint">—</span>
@@ -295,25 +349,41 @@ export function AssetRegister() {
   // list by construction. The location is different: `GET /assets` takes a
   // site, an asset belongs to exactly one, and narrowing on the wire is what
   // keeps this list from being fourteen shops of shelving.
+  // The whole envelope, not just its rows. `GET /assets` was given a default
+  // limit while this screen was being written, and the `.then(page => page.rows)`
+  // that kept it compiling also threw away the one field that says whether the
+  // limit bit: `total` counts every asset the filters match, and the rows are
+  // one page of them. Keeping both is what lets the banner below be exact
+  // instead of a guess — see `<Truncated>`.
   const assets = useQuery({
     queryKey: financeKeys.assets(false, site || null),
     queryFn: ({ signal }) => listAssets({ site: site || undefined }, signal),
   })
 
-  const rows = useMemo(() => assets.data ?? [], [assets.data])
+  const rows = useMemo(() => assets.data?.rows ?? [], [assets.data])
+  /// The server's own count of what it holds, against what it sent. Exact,
+  /// because it is the server's subtraction rather than the browser inferring
+  /// truncation from having received exactly as many rows as it asked for.
+  const held = assets.data?.total ?? rows.length
+
+  const filters = useFilters(columns)
 
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
         data: rows,
-        columns,
+        columns: filters.columns,
         getRowId: (row: AssetRow) => row.asset_id,
-        state: { globalFilter: query, sorting },
+        state: {
+          columnFilters: filters.columnFilters,
+          globalFilter: query,
+          sorting,
+        },
         onSortingChange: setSorting,
         onGlobalFilterChange: setQuery,
       }),
-      [rows, query, sorting]
+      [rows, filters.columns, filters.columnFilters, query, sorting]
     )
   )
 
@@ -378,6 +448,10 @@ export function AssetRegister() {
           className="h-8 w-44"
           aria-label="Location"
         />
+        {/* Location is not among the questions inside: the select beside this
+            asks it on the wire, and the figure to the right is the answer for
+            whatever it asked. */}
+        <FilterPanel model={filters} table={table} />
         <Toolbar.Spacer />
         {/* The effective answer, in words. Which location, and what the rows
             on screen are worth — the same figure the chart below totals, so
@@ -425,6 +499,11 @@ export function AssetRegister() {
         </Card>
       )}
 
+      {/* Exact, and only when it is true: the server said how many assets match
+          and how many it sent, so this is a subtraction rather than the usual
+          inference from "we got exactly what we asked for". */}
+      {held > rows.length && <Truncated limit={rows.length} noun="assets" />}
+
       <Card className="overflow-hidden">
         {queryState(assets, {
           loading: "Loading the register…",
@@ -440,7 +519,7 @@ export function AssetRegister() {
                 table={table}
                 onRowClick={(row) => asset.open(row.asset_id)}
                 isSelected={(row) => row.asset_id === asset.value}
-                empty="No asset matches that search."
+                empty="No asset matches the search and filters in force."
                 className={
                   booked > 0
                     ? "max-h-[calc(100vh-31rem)]"
@@ -758,10 +837,20 @@ interface AssessmentDraft {
   inService: string
   reason: string
   acquiredVia: string
+  /// The family work in progress becomes when it is finished. Empty on every
+  /// other assessment — an asset already in a family stays in it, and the
+  /// server refuses anything else.
+  becomes: string
 }
 
-/// The reason is required on both decisions; the basis only on a capitalisation.
-function assessmentReady(draft: AssessmentDraft): boolean {
+/// The reason is required on every decision; the basis only on a
+/// capitalisation; and the family only when finished work is leaving Contract
+/// In Progress — the server refuses that one outright, and a button that let
+/// somebody try would be a button that fails.
+function assessmentReady(
+  draft: AssessmentDraft,
+  fromProgress = false
+): boolean {
   const costMinor = parseMinor(draft.cost)
   const salvageMinor = parseMinor(draft.salvage)
   const lifeMonths = parseMinor(draft.life)
@@ -772,7 +861,8 @@ function assessmentReady(draft: AssessmentDraft): boolean {
         costMinor > 0 &&
         salvageMinor !== null &&
         lifeMonths !== null &&
-        lifeMonths > 0))
+        lifeMonths > 0 &&
+        (!fromProgress || draft.becomes !== "")))
   )
 }
 
@@ -794,11 +884,25 @@ function AssetSheet({
   // happened to be filtered to would 'not find' assets that plainly exist.
   const assets = useQuery({
     queryKey: financeKeys.assets(false, null),
+    // The whole envelope, exactly as the list above keeps it — and that is not
+    // a preference. Both queries write to `financeKeys.assets(false, null)`
+    // whenever no site is chosen, so they share one cache entry; one of them
+    // unwrapping to an array while the other kept the envelope meant whichever
+    // resolved first decided the shape, and the other threw
+    // `assets.data?.find is not a function` on a screen that had been fine a
+    // moment earlier. One key, one shape.
     queryFn: ({ signal }) => listAssets({}, signal),
     enabled: id !== null,
   })
 
-  const asset = assets.data?.find((row) => row.asset_id === id)
+  const asset = assets.data?.rows.find((row) => row.asset_id === id)
+
+  /// The families finished work can become: every category the register knows
+  /// except work in progress itself. Read off the facets rather than from a
+  /// list of ours — the chart IS the category register.
+  const families = assets.data?.facets.categories.filter(
+    (one) => !one.value.startsWith("1031803")
+  )
 
   const assess = useMutation({
     // Wrapped rather than passed by reference: v5 hands a mutation context as
@@ -822,6 +926,11 @@ function AssetSheet({
           ? draft.chargeKind || impliedChargeKind(asset?.category_code ?? "")
           : null,
         in_service_on: capitalising ? draft.inService : null,
+        // Only ever sent when finished work is being capitalised out of the
+        // work-in-progress family, which is the one re-filing the server
+        // allows. See migration 0213.
+        category_code:
+          capitalising && draft.becomes !== "" ? draft.becomes : undefined,
         reason: draft.reason.trim(),
         // Absent and not `""`: the field is optional on the wire, and an empty
         // string is a line id that does not exist rather than the absence of
@@ -853,6 +962,7 @@ function AssetSheet({
       inService: todayIso(),
       reason: "",
       acquiredVia: "",
+      becomes: "",
     } as AssessmentDraft,
     onSubmit: ({ value }) => assess.mutate(value),
   })
@@ -879,7 +989,11 @@ function AssetSheet({
             <span className="text-[0.71875rem] text-mute">
               The reason is required on both decisions.
             </span>
-            <form.Subscribe selector={(state) => assessmentReady(state.values)}>
+            <form.Subscribe
+              selector={(state) =>
+                assessmentReady(state.values, asset?.decision === "IN_PROGRESS")
+              }
+            >
               {(ready) => (
                 <Button
                   variant="primary"
@@ -1024,7 +1138,10 @@ function AssetSheet({
                   onSubmit={(event) => {
                     event.preventDefault()
                     if (
-                      assessmentReady(form.state.values) &&
+                      assessmentReady(
+                        form.state.values,
+                        asset?.decision === "IN_PROGRESS"
+                      ) &&
                       !assess.isPending
                     ) {
                       form.handleSubmit()
@@ -1059,6 +1176,47 @@ function AssetSheet({
                       </div>
                     )}
                   </form.Field>
+
+                  {/* What the finished work became.
+                      
+                      Only for an asset that is still being built: everything
+                      else keeps the family it is filed under, and the server
+                      refuses a re-filing that is not this one. The options are
+                      the client's own families — the chart is the category
+                      register, and there is no second list. */}
+                  {asset?.decision === "IN_PROGRESS" && (
+                    <form.Subscribe
+                      selector={(state) =>
+                        state.values.decision === "CAPITALIZE"
+                      }
+                    >
+                      {(capitalising) =>
+                        capitalising && (
+                          <form.Field name="becomes">
+                            {(field) => (
+                              <Field
+                                label="It became"
+                                hint="The family this finished work now belongs to — it leaves Contract In Progress."
+                              >
+                                <Select
+                                  value={field.state.value}
+                                  onChange={(next) => field.handleChange(next)}
+                                  aria-label="It became"
+                                >
+                                  <option value="">Choose…</option>
+                                  {(families ?? []).map((one) => (
+                                    <option key={one.value} value={one.value}>
+                                      {one.label ?? one.value}
+                                    </option>
+                                  ))}
+                                </Select>
+                              </Field>
+                            )}
+                          </form.Field>
+                        )
+                      }
+                    </form.Subscribe>
+                  )}
 
                   <form.Subscribe
                     selector={(state) => state.values.decision === "CAPITALIZE"}

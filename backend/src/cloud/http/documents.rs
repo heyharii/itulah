@@ -3,6 +3,8 @@
 use super::auth::Principal;
 use crate::cloud::{
     application::{AppError, AppState},
+    domain::RecordKind,
+    http::audit::DeclaredSubject,
     postgres::{self as infrastructure, DocumentUploadRequest, FileDocumentRequest},
 };
 use axum::{
@@ -26,11 +28,12 @@ pub async fn upload_url(
 pub async fn file(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
+    Extension(acted_on): Extension<DeclaredSubject>,
     Json(request): Json<FileDocumentRequest>,
 ) -> Result<Json<infrastructure::Document>, AppError> {
-    Ok(Json(
-        infrastructure::file_document(&state, request, &principal.username).await?,
-    ))
+    let document = infrastructure::file_document(&state, request, &principal.username).await?;
+    acted_on.set(RecordKind::Document, document.document_id.to_string());
+    Ok(Json(document))
 }
 
 /// What a drawer screen asks for. Comma-separated for the same reason the

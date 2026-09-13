@@ -140,6 +140,49 @@ const RESERVED: &[(u32, u32, &str)] = &[
         "the asset lane's block: 146115e filed 0106 and then jumped to 0159 \
          rather than crowd the next number",
     ),
+    (
+        183,
+        189,
+        "left to the lanes already in flight on this branch — several of them \
+         have uncommitted files in the 0160s and 0170s. The records \
+         vocabulary took a distant block at 0190 rather than crowd the next \
+         number, which is the convention this table exists to record",
+    ),
+    (
+        203,
+        209,
+        "the letters lane again: 0200 landed, 0201 and 0202 were already the \
+         payment-terms lane's, so the blank-letter migration took 0210 rather \
+         than crowd the next number while three lanes were still filing files \
+         in the 0160s-0190s",
+    ),
+    (
+        193,
+        199,
+        "left to the lanes working beside the letters one on 2026-09-13 — the \
+         records vocabulary had just landed 0190-0192 and was still moving. \
+         Letters took 0200 rather than 0193 for the reason at the top of this \
+         file: two lanes reading the directory at the same moment pick the \
+         same next number",
+    ),
+    (
+        217,
+        219,
+        "the giro lane, 2026-09-13, and a worked example of why this table \
+         exists: 0213 was claimed twice within the hour, the loser renumbered \
+         to 0215 while this lane was writing, 0216 went the same way an hour \
+         later, and the giro files took 0220 onwards rather than crowd it \
+         again. The finance-control lane is \
+         also still holding 0115-0119 unmerged",
+    ),
+    (
+        224,
+        229,
+        "the People lane, 2026-09-13. It took 0230 for the reason every block \
+         above it was taken: the giro and banking lanes were filing files in \
+         the 0210s-0220s in the same hour, and a lane that claims the next \
+         number claims the one somebody else is already writing",
+    ),
 ];
 
 #[test]
@@ -227,5 +270,72 @@ fn every_edge_migration_is_actually_applied_by_something() {
          Add an `include_str!` constant and a guarded `execute_batch` in \
          src/edge/sqlite.rs, next to the others.",
         orphans.join("\n  ")
+    );
+}
+
+/// The vocabulary of records exists twice — once as `RecordKind` in
+/// `cloud::domain::record`, once as rows in `record_kind` — and the two have to
+/// agree or the estate has the old problem back in a new shape.
+///
+/// Comparing them needs no database: the rows are seeded by migrations, and a
+/// migration is a file. So this reads every `INSERT INTO record_kind` in the
+/// folder and checks the union against the enum.
+///
+/// **Every file, not just 0190.** The first version of this read the seed in
+/// 0190 alone, which quietly made that file the only place a kind could be
+/// added — and adding one there is exactly what must not happen once it has
+/// been applied. 0192 is a kind added the right way, in a file of its own, and
+/// a test that could not see it would have argued for editing history instead.
+///
+/// It fails in the direction that matters. A kind added in Rust and not in a
+/// migration compiles, passes every unit test, and then rejects every write
+/// against it at runtime with a foreign key violation — on the one surface
+/// whose whole job is to record what happened.
+#[test]
+fn the_record_vocabulary_is_the_same_in_rust_and_in_the_database() {
+    use inventory_backend::cloud::domain::RecordKind;
+
+    let mut seeded: Vec<String> = Vec::new();
+    for (_, name) in migration_files("postgres") {
+        let sql = std::fs::read_to_string(migrations_dir("postgres").join(&name))
+            .unwrap_or_else(|error| panic!("cannot read {name}: {error}"));
+        let mut rest = sql.as_str();
+        while let Some(at) = rest.find("INSERT INTO record_kind") {
+            let block = &rest[at..];
+            let end = block.find(";\n").unwrap_or(block.len());
+            // `    ('article', 'Article'),` — the code is the first quoted word
+            // of a line that opens a tuple.
+            for line in block[..end].lines() {
+                if let Some(tuple) = line.trim().strip_prefix("('") {
+                    if let Some(code) = tuple.split('\'').next() {
+                        seeded.push(code.to_owned());
+                    }
+                }
+            }
+            rest = &block[end.min(block.len())..];
+        }
+    }
+
+    let declared: Vec<String> = RecordKind::ALL
+        .iter()
+        .map(|kind| kind.as_str().to_owned())
+        .collect();
+
+    let missing: Vec<&String> = declared.iter().filter(|k| !seeded.contains(k)).collect();
+    let extra: Vec<&String> = seeded.iter().filter(|k| !declared.contains(k)).collect();
+
+    assert!(
+        missing.is_empty() && extra.is_empty(),
+        "`RecordKind` and the `record_kind` rows disagree.\n\n\
+         In Rust but not seeded ({}): {:?}\n\
+         Seeded but not in Rust ({}): {:?}\n\n\
+         A kind that exists only in Rust compiles and then fails at runtime \
+         with a foreign key violation on the audit log. Add it in a NEW \
+         migration — never by editing one that has been applied, which is a \
+         checksum mismatch and a node that will not start.",
+        missing.len(),
+        missing,
+        extra.len(),
+        extra,
     );
 }

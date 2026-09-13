@@ -12,4 +12,15 @@ article_code: string, article_name: string, image_url: string | null,
 /**
  * Present only on the verifier's view of the same line.
  */
-expected_stock_units: number | null, received_stock_units: number, };
+expected_stock_units: number | null, received_stock_units: number, 
+/**
+ * When this order landed HERE — not when the centre raised it.
+ *
+ * The bay's question is "what turned up recently", and the centre's
+ * issue date does not answer it: an order raised on Monday and
+ * activated at this DC on Thursday is Thursday's work. Carried so the
+ * list can lead with the newest arrival; the PO number cannot stand in
+ * for it, because the book holds numbers in several shapes and sorting
+ * them as text puts `PO-R1-…` above every dated one.
+ */
+activated_at: string, };

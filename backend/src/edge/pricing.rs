@@ -17,7 +17,7 @@ use chrono::{DateTime, Utc};
 use pricing_engine::{
     price_cart, price_catalog, Applicability, Campaign, CampaignStatus, Caps, CartLine,
     CatalogEntry, Coupon, Currency, CustomerScope, Effect, Markdown, Money, PriceEntry, PriceLevel,
-    PricingError, PricingSnapshot, RejectionReason, Rule, TimeWindow,
+    PricingError, PricingSnapshot, RejectionReason, Rule, TaxRule, TimeWindow,
 };
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -166,6 +166,7 @@ pub fn load_snapshot_for(
         rules: load_rules(connection, &usage)?,
         coupons: load_coupons(connection, &usage)?,
         campaigns: load_campaigns(connection, &usage)?,
+        tax_rules: load_tax_rules(connection)?,
     })
 }
 
@@ -209,6 +210,24 @@ fn with_usage(mut caps: Caps, counted: Option<&(i64, i64)>) -> Caps {
     }
     caps
 }
+
+// Why there is no sibling of this for the per-shopper limit.
+//
+// `Caps::max_uses_per_customer` is counted in `commercial_usage_customer`,
+// which exists at the centre and has no mirror here: `commercial_usage` is
+// synced down keyed by `(kind, key)` with no customer dimension, and a shop's
+// own `sale` table carries no customer at all. So a till genuinely cannot say
+// how often THIS shopper has had an offer.
+//
+// It is left unset rather than filled with an empty map, and that is the whole
+// point of the field being an `Option`. An empty map would read as "this
+// shopper has never used it" for every shopper in the fleet, which turns "once
+// per customer" into "once per basket, at thirteen shops, for ever". Unset,
+// the engine refuses such a rule at the counter and says why
+// (`CustomerUsageUnknown`) — a visible refusal instead of a silent leak.
+//
+// Closing it needs the customer dimension on the sync lane and a table here,
+// which is `edge/sync.rs` and a migration rather than anything in this file.
 
 /// Read which shops and shoppers a stored price applies to.
 ///
@@ -257,7 +276,7 @@ fn load_campaigns(
             // sources, and the two agreed only because authoring always writes
             // nought.
             "SELECT campaign_id, name, status, valid_from, valid_to,
-                    budget_minor, max_uses
+                    budget_minor, max_uses, site_ids_json
                FROM commercial_campaign ORDER BY campaign_id",
         )
         .map_err(db)?;
@@ -271,13 +290,14 @@ fn load_campaigns(
                 row.get::<_, Option<String>>(4)?,
                 row.get::<_, Option<i64>>(5)?,
                 row.get::<_, Option<i64>>(6)?,
+                row.get::<_, Option<String>>(7)?,
             ))
         })
         .map_err(db)?;
 
     let mut campaigns = Vec::new();
     for row in rows {
-        let (campaign_id, name, status, valid_from, valid_to, budget, max_uses) =
+        let (campaign_id, name, status, valid_from, valid_to, budget, max_uses, sites) =
             row.map_err(db)?;
         let campaign_id_for_usage = campaign_id.clone();
         campaigns.push(Campaign {
@@ -296,6 +316,14 @@ fn load_campaigns(
             },
             valid_from: valid_from.as_deref().map(parse_time).transpose()?,
             valid_to: valid_to.as_deref().map(parse_time).transpose()?,
+            // A list this build cannot read is treated as EVERYWHERE rather
+            // than as nowhere. The other direction would take a campaign dark
+            // across the whole estate over one malformed column, and the
+            // engine's own default for an empty set is everywhere anyway.
+            site_ids: sites
+                .as_deref()
+                .and_then(|document| serde_json::from_str(document).ok())
+                .unwrap_or_default(),
             caps: with_usage(
                 Caps {
                     budget: budget.map(Money::new),
@@ -1069,6 +1097,11 @@ pub fn store_offers(
         rules: load_rules(connection, &usage)?,
         coupons: load_coupons(connection, &usage)?,
         campaigns,
+        // A shelf-edge reading prices nothing, so tax would change no figure it
+        // shows. Loaded anyway rather than left empty: the two snapshots this
+        // file builds must differ only in what they were asked for, or the
+        // window and the counter come to disagree for a reason nobody can see.
+        tax_rules: load_tax_rules(connection)?,
     };
     let context = crate::reporting::pricing_context(site_id, channel, at);
     let faces = load_campaign_faces(connection)?;
@@ -1394,6 +1427,23 @@ pub struct QuotedLine {
     /// What this line actually comes to. Promotions act on the line, not the
     /// unit, so a discounted line is not always a whole number of unit prices.
     pub line_total_minor: i64,
+    /// What of `line_total_minor` is goods, and what is tax.
+    ///
+    /// Three figures rather than one because they answer three questions that
+    /// get confused: the net is SALES, the tax is money held for somebody else,
+    /// and the line total is what the shopper pays. Under the tax-inclusive
+    /// pricing Indonesian retail quotes, the first two sum to the third and the
+    /// shopper's total does not move.
+    ///
+    /// A book that publishes no rate for the category gives `net` equal to the
+    /// line total and nought tax — the honest reading of a book that says
+    /// nothing, rather than a guessed rate.
+    pub net_ex_tax_minor: i64,
+    pub tax_minor: i64,
+    /// What this line earned, as the engine allocated it. See D02: allocated
+    /// rather than divided, so a return of one line takes back exactly what
+    /// that line was given.
+    pub points_earned: i64,
     pub price_source: String,
     pub publication_version: i64,
     /// Which clearance set this price, when one did.
@@ -1473,8 +1523,31 @@ pub struct Quote {
     pub granted_lines: Vec<GrantedLine>,
     pub promotions: Vec<PromotionOutcome>,
     pub discount_total_minor: i64,
+    /// The GOODS. A fee is not merchandise and is not in here — see
+    /// `charge_total_minor` below and `pricing_engine::Charge` for why.
     pub total_minor: i64,
+    /// Fees on this bill that are not goods, each with its own tax split.
+    #[serde(default)]
+    pub charges: Vec<QuotedCharge>,
+    pub charge_total_minor: i64,
+    /// What the shopper actually owes: goods plus fees. **The number a till
+    /// settles against.** Settling against `total_minor` would hand the goods
+    /// over and never ask for the delivery — and the drawer would balance,
+    /// because nobody asked.
+    pub amount_due_minor: i64,
     pub points_earned: i64,
+}
+
+/// One fee on the bill, priced and taxed.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct QuotedCharge {
+    pub code: String,
+    pub description: String,
+    pub amount_minor: i64,
+    pub net_ex_tax_minor: i64,
+    pub tax_minor: i64,
+    pub tax_category: String,
 }
 
 /// Price a basket for a shop.
@@ -1498,6 +1571,7 @@ pub fn quote(
     sku_codes: &[String],
     coupon_codes: &[String],
     customer_id: Option<&str>,
+    charges: &[pricing_engine::Charge],
 ) -> Result<Option<Quote>, EdgeError> {
     let snapshot = load_snapshot_for(connection, site_id, channel, Some(sku_codes))?;
     if snapshot.entries.is_empty() {
@@ -1521,6 +1595,11 @@ pub fn quote(
     let mut context = crate::reporting::pricing_context(site_id, channel, at);
     context.coupon_codes = coupon_codes.to_vec();
     context.customer_id = customer_id.map(str::to_string);
+    // Handed to the engine rather than added on afterwards, because the engine
+    // is what refuses to let a promotion, a threshold or an earn rule reach
+    // them — adding a fee to a total out here would put it past every one of
+    // those guards.
+    context.charges = charges.to_vec();
     // Only the products in the basket. The same narrowing the snapshot already
     // does: pricing five items has no business reading forty thousand rows.
     let facts = merchandise(connection, Some(sku_codes))?;
@@ -1574,11 +1653,21 @@ pub fn quote(
         lines: result
             .lines
             .iter()
-            .map(|line| QuotedLine {
+            .enumerate()
+            .map(|(index, line)| QuotedLine {
                 sku_code: line.sku_code.clone(),
                 base_unit_price_minor: line.base_unit_price.minor,
                 unit_price_minor: line.unit_price.minor,
                 line_total_minor: line.line_total.minor,
+                net_ex_tax_minor: line.net_ex_tax.minor,
+                tax_minor: line.tax_amount.minor,
+                points_earned: result
+                    .earn_awards
+                    .iter()
+                    .flat_map(|award| award.line_points.iter())
+                    .filter(|share| share.line == index)
+                    .map(|share| share.points)
+                    .sum(),
                 price_source: line.source.as_str().to_string(),
                 publication_version: line.publication_version,
                 markdown_id: line.markdown_id.clone(),
@@ -1598,6 +1687,20 @@ pub fn quote(
         promotions,
         discount_total_minor: result.discount_total.minor,
         total_minor: result.total.minor,
+        charges: result
+            .charges
+            .iter()
+            .map(|charge| QuotedCharge {
+                code: charge.code.clone(),
+                description: charge.description.clone(),
+                amount_minor: charge.amount.minor,
+                net_ex_tax_minor: charge.net_ex_tax.minor,
+                tax_minor: charge.tax_amount.minor,
+                tax_category: charge.tax_category.clone(),
+            })
+            .collect(),
+        charge_total_minor: result.charge_total.minor,
+        amount_due_minor: result.amount_due.minor,
         points_earned: result.points_earned,
     }))
 }
@@ -1921,6 +2024,7 @@ mod tests {
                 &["SKU1".to_string()],
                 &[],
                 None,
+                &[],
             ) {
                 Ok(Some(quoted)) => quoted,
                 other => panic!("expected a quote, got {other:?}"),
@@ -2041,6 +2145,7 @@ mod tests {
                 &["SKU1".to_string()],
                 &[],
                 None,
+                &[],
             ) {
                 Ok(None) => {}
                 other => panic!("expected the no-price-book signal, got {other:?}"),
@@ -2064,6 +2169,7 @@ mod tests {
                 &["SKU2".to_string()],
                 &[],
                 None,
+                &[],
             ) {
                 Err(EdgeError::Conflict(_)) => {}
                 other => panic!("expected a conflict, got {other:?}"),
@@ -2113,4 +2219,37 @@ mod tests {
             );
         });
     }
+}
+
+/// What each category of goods carries, as the shop last received it.
+///
+/// One row per category, newest publication winning — the same rule the centre
+/// applies and the same one every other loader here follows. An empty answer is
+/// a shop that has been sent no tax rules, and the engine reports nought tax
+/// rather than inventing a rate at the counter.
+fn load_tax_rules(connection: &Connection) -> Result<Vec<TaxRule>, EdgeError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT t.tax_category, t.rate_bps, t.tax_inclusive
+               FROM commercial_tax_rule t
+               JOIN commercial_publication p ON p.id = t.publication_id
+              WHERE p.id = (SELECT id FROM commercial_publication
+                             ORDER BY version DESC LIMIT 1)
+              ORDER BY t.tax_category",
+        )
+        .map_err(db)?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok(TaxRule {
+                tax_category: row.get::<_, String>(0)?,
+                rate_bps: row.get::<_, i64>(1)?,
+                inclusive: row.get::<_, i64>(2)? != 0,
+            })
+        })
+        .map_err(db)?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row.map_err(db)?);
+    }
+    Ok(out)
 }

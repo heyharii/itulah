@@ -12,6 +12,8 @@ use super::articles::{expected_version, idempotency_key, request_digest, version
 use super::auth::Principal;
 use crate::cloud::{
     application::{AppError, AppState},
+    domain::RecordKind,
+    http::audit::DeclaredSubject,
     postgres::{self as infrastructure, CreateTermRequest, UpdateTermRequest, Vocabulary},
 };
 use axum::{
@@ -35,6 +37,20 @@ fn vocabulary(segment: &str) -> Result<Vocabulary, AppError> {
     })
 }
 
+/// Which record a term of this list is.
+///
+/// Three lists, three kinds. The route cannot say it — `/vocabulary/{kind}` is
+/// one path serving three masters — so the handler does. The old derivation
+/// got this right by luck: it singularised the path segment, and `divisions`
+/// happens to singularise to the word the hub already passes.
+const fn record_kind(kind: Vocabulary) -> RecordKind {
+    match kind {
+        Vocabulary::Divisions => RecordKind::Division,
+        Vocabulary::Sizes => RecordKind::Size,
+        Vocabulary::Tags => RecordKind::Tag,
+    }
+}
+
 /// Every term in one list, and how many articles are filed under each.
 ///
 /// Retired ones included, which is the difference between this and
@@ -53,6 +69,7 @@ pub async fn list_terms(
 pub async fn create_term(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
+    Extension(acted_on): Extension<DeclaredSubject>,
     Path(kind): Path<String>,
     headers: HeaderMap,
     Json(request): Json<CreateTermRequest>,
@@ -65,6 +82,7 @@ pub async fn create_term(
         "request": &request,
     }))?;
     let term = infrastructure::create_term(&state.db, kind, request, &key, &digest).await?;
+    acted_on.set(record_kind(kind), term.code.clone());
     let version = term.version;
     versioned_response(StatusCode::CREATED, term, version)
 }
@@ -78,6 +96,7 @@ pub async fn create_term(
 pub async fn update_term(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
+    Extension(acted_on): Extension<DeclaredSubject>,
     Path((kind, code)): Path<(String, String)>,
     headers: HeaderMap,
     Json(request): Json<UpdateTermRequest>,
@@ -94,6 +113,7 @@ pub async fn update_term(
     }))?;
     let term = infrastructure::update_term(&state.db, kind, &code, version, request, &key, &digest)
         .await?;
+    acted_on.set(record_kind(kind), term.code.clone());
     let version = term.version;
     versioned_response(StatusCode::OK, term, version)
 }
@@ -123,10 +143,16 @@ pub async fn term_usage(
 /// screen and the server cannot disagree about what "never used" means.
 pub async fn delete_term(
     State(state): State<AppState>,
+    Extension(acted_on): Extension<DeclaredSubject>,
     Path((kind, code)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> Result<StatusCode, AppError> {
     let version = expected_version(&headers)?;
-    infrastructure::delete_term(&state.db, vocabulary(&kind)?, &code, version).await?;
+    let kind = vocabulary(&kind)?;
+    infrastructure::delete_term(&state.db, kind, &code, version).await?;
+    // Recorded against the term that is now gone. A deletion is the one act
+    // whose subject cannot be read back from the database afterwards, so if
+    // the log does not name it here nothing ever will.
+    acted_on.set(record_kind(kind), code);
     Ok(StatusCode::NO_CONTENT)
 }

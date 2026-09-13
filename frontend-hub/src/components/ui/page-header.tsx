@@ -27,8 +27,10 @@ export function PageHeader({
   return (
     <div
       className={cn(
-        "mb-4 flex flex-col items-stretch gap-3",
-        "md:flex-row md:items-start md:justify-between md:gap-4",
+        "mb-5 flex flex-col items-stretch gap-3",
+        // The actions stand level with the title rather than hanging off its
+        // first line: a 17px heading and a 32px button centre on each other.
+        "md:flex-row md:items-center md:justify-between md:gap-5",
         className
       )}
     >
@@ -40,13 +42,11 @@ export function PageHeader({
         )}
         <h1 className="text-hero font-semibold text-ink">{title}</h1>
         {sub && (
-          <p className="mt-[0.1875rem] text-[0.8125rem] text-body">{sub}</p>
+          <p className="mt-[0.1875rem] text-[0.75rem] text-body">{sub}</p>
         )}
       </div>
       {actions && (
-        <div className="flex items-center gap-[0.4375rem] md:shrink-0 md:pt-[0.1875rem]">
-          {actions}
-        </div>
+        <div className="flex items-center gap-2 md:shrink-0">{actions}</div>
       )}
     </div>
   )

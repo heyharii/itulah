@@ -19,6 +19,10 @@ declare module "@tanstack/react-table" {
     TValue extends CellData = CellData,
   > {
     readonly align?: "left" | "right" | "center"
+    /// This cell hands itself over to `DataTable`'s `rowAction` while its row
+    /// is under the pointer. Declared on the status column, which is the one
+    /// whose answer the verb follows from.
+    readonly swap?: boolean
     /// Renders the cell in the mono face at id size. Every SKU, PO number and
     /// account code in this language is set that way.
     readonly mono?: boolean

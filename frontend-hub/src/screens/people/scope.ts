@@ -10,11 +10,14 @@ import { employerScope, useReach } from "@/lib/queries/people"
 /// against are its work. So there is one module with two faces rather than two
 /// modules, and this is the one place the face is decided.
 ///
-/// The answer comes from the caller's own posting, resolved by the server: a
-/// posting to head office reaches every place, a posting to a shop reaches that
-/// shop, and no posting reaches nothing. Deriving it here from `place_id === "ho"`
-/// would put the rule in two files, and the day they disagreed the sidebar would
-/// be the one that looked right.
+/// The answer comes from the server, which resolves it from the caller's rung
+/// and their own posting: the Admin rung reaches every place, any posting
+/// reaches that one place, and no posting reaches nothing. Deriving it here
+/// from `place_id === "ho"` would put the rule in two files, and the day they
+/// disagreed the sidebar would be the one that looked right — which is exactly
+/// how head office stopped being a pass to every place without this file
+/// noticing. See `domain::employment::reach`: head office employs buyers and
+/// finance staff too, so the building is not the credential.
 ///
 /// `null` while the read is in flight. The sidebar treats that as "not yet"
 /// rather than as "no", so the head-office rows arrive a moment after the menu

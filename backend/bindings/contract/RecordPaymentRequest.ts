@@ -3,7 +3,7 @@ import type { AllocateToBill } from "./AllocateToBill";
 
 export type RecordPaymentRequest = { site_id: string, payment_date: string, 
 /**
- * `TRANSFER`, `CASH`, `CHEQUE`, `GIRO` or `OTHER`.
+ * `TRANSFER`, `CASH`, `GIRO` or `OTHER`.
  */
 method: string, 
 /**

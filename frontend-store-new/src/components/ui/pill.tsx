@@ -4,25 +4,36 @@ import { cn } from "@/lib/utils"
 
 /// The status pill — one grammar for every state in the app.
 ///
-/// The tint carries the meaning and the text is a darker cut of the same hue:
-/// the saturated token (`--ok`, `--warn`) is for the dot, the meter and the
-/// glyph, and at 11px on a tint it fails contrast, which is why each tone has a
-/// second, readable foreground.
+/// OUTLINED, not filled. What reads is the coloured TEXT; the hairline only
+/// holds it. The filled version was not wrong so much as too loud for how
+/// often a pill appears: a basket of eight lines with a tinted chip on each is
+/// a screen of confetti, and the eye has to work out which of the blocks is a
+/// status before it can read one. An outline recedes to the weight of the word
+/// inside it — which matters more at a counter than at a desk, because the one
+/// thing on this screen that is allowed to shout is the total.
+///
+/// The border is deliberately much paler than the text — 30% against 100%. A
+/// border as strong as its label turns the tag into a BOX, and a box is a
+/// container; a label is a fact about the line.
+///
+/// The tint is not gone, it moved: `--ok-bg` and its siblings still fill
+/// meters and the warning box inside a sheet — surfaces large enough for a
+/// wash to read as a wash.
 ///
 /// `info` is SKY and only ever means in motion — shipped, processing, issued,
-/// still receiving. `accent` is INDIGO and means selected. They never swap.
+/// still receiving. `accent` means selected. They never swap.
 const pill = cva(
-  "inline-flex h-[1.3125rem] w-max items-center gap-1.5 rounded-full px-2 text-pill font-semibold whitespace-nowrap",
+  "inline-flex h-[1.5625rem] w-max items-center gap-1.5 rounded-inner border bg-canvas px-[0.5625rem] text-pill font-medium whitespace-nowrap",
   {
     variants: {
       tone: {
-        ok: "bg-ok-bg text-ok-fg",
-        warn: "bg-warn-bg text-warn-fg",
-        bad: "bg-bad-bg text-bad-fg",
-        info: "bg-info-bg text-info-fg",
-        accent: "bg-accent-bg text-info-fg",
-        neutral: "bg-soft-2 text-body",
-        new: "bg-new-bg text-new-fg",
+        ok: "border-ok-fg/30 text-ok-fg",
+        warn: "border-warn-fg/30 text-warn-fg",
+        bad: "border-bad-fg/30 text-bad-fg",
+        info: "border-info-fg/30 text-info-fg",
+        accent: "border-accent/30 text-accent",
+        neutral: "border-hairline-2 text-body",
+        new: "border-new-fg/30 text-new-fg",
       },
     },
     defaultVariants: { tone: "neutral" },

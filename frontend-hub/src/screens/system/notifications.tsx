@@ -17,6 +17,7 @@ import {
   systemKeys,
 } from "@/lib/queries/system"
 import { queryState } from "@/lib/query-state"
+import { recordRoute } from "@/lib/record-route"
 import type { SheetKey } from "@/lib/sheets"
 import { saying } from "@/screens/system/units"
 import type { Notification } from "@itulah/contract"
@@ -36,29 +37,15 @@ import type { Notification } from "@itulah/contract"
 
 /// Where a notification leads.
 ///
-/// The server stores the target as a record — `(subject_kind, subject_id)` —
-/// rather than a URL, so this is the one place that knows which screen shows
-/// that record today. A stored link would have stranded every old notification
-/// the day somebody renamed a route.
-///
-/// A kind with no screen yet returns nothing rather than a guess: the sentence
-/// still says what happened, and it simply does not offer to take you anywhere.
+/// One line, because the translation from a record to a screen moved to
+/// `lib/record-route.ts` the moment a second surface needed it: the bell in the
+/// top bar asks the identical question, and two copies would have drifted the
+/// first time a route changed. What was here — one kind, an amendment — is now
+/// one row in that table beside the rest.
 function target(
   notification: Notification
 ): { to: string; sheet?: { key: SheetKey; value: string } } | null {
-  if (notification.subject_id === null) return null
-  switch (notification.subject_kind) {
-    case "purchase_price_amendment":
-      return {
-        to: "/procurement/amendments",
-        sheet: { key: "amendment", value: notification.subject_id },
-      }
-    // Naming a delivery is head office's job and it is done on the sourcing
-    // side; until that screen shows one receipt line by id, this one says what
-    // happened and stops there.
-    default:
-      return null
-  }
+  return recordRoute(notification.subject_kind, notification.subject_id)
 }
 
 type Slice = "unread" | "all"

@@ -1,4 +1,7 @@
-use super::{begin_idempotent, complete_idempotent, payload_digest};
+use super::catalogue::CommercialFacet;
+use super::{
+    begin_idempotent, complete_idempotent, decode_cursor, encode_cursor, order_by, payload_digest,
+};
 use crate::cloud::{
     application::{
         AppError, CampaignSwitchRequest, CommandRequest, CreateCommercialPublicationRequest,
@@ -7,7 +10,8 @@ use crate::cloud::{
     domain::{CommercialChannel, CurrencyCode, SiteId},
 };
 use chrono::{DateTime, Utc};
-use pricing_engine::{price_catalog, CartLine};
+use pricing_engine::{price_catalog, CartLine, PriceLevel};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use std::collections::HashSet;
@@ -61,13 +65,21 @@ pub async fn create_commercial_publication(
         )));
     }
     let publication_id = Uuid::new_v4();
-    sqlx::query("INSERT INTO commercial_publication(id,version,name,status,effective_from,effective_to,created_by) VALUES($1,$2,$3,'DRAFT',$4,$5,$6)")
+    // Checked before the insert rather than left to the CHECK constraint: a
+    // constraint violation names a column and a value, and the person who typed
+    // "SALE" needs to be told the four words that are allowed.
+    let change_type = match request.change_type.as_deref().map(str::trim) {
+        None | Some("") => None,
+        Some(word) => Some(one_of("change_type", word, CHANGE_TYPES)?),
+    };
+    sqlx::query("INSERT INTO commercial_publication(id,version,name,status,effective_from,effective_to,created_by,change_type) VALUES($1,$2,$3,'DRAFT',$4,$5,$6,$7)")
         .bind(publication_id)
         .bind(request.version)
         .bind(request.name.trim())
         .bind(request.effective_from)
         .bind(request.effective_to)
         .bind(request.actor_id.trim())
+        .bind(change_type.as_deref())
         .execute(&mut *tx)
         .await?;
     for tax in &request.tax_rules {
@@ -134,7 +146,7 @@ pub async fn create_commercial_publication(
             .await?;
     }
     for campaign in &request.campaigns {
-        sqlx::query("INSERT INTO commercial_campaign(id,publication_id,campaign_id,name,status,valid_from,valid_to,budget_minor,max_uses,image_url,headline,terms) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)")
+        sqlx::query("INSERT INTO commercial_campaign(id,publication_id,campaign_id,name,status,valid_from,valid_to,budget_minor,max_uses,image_url,headline,terms,site_ids) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)")
             .bind(Uuid::new_v4())
             .bind(publication_id)
             .bind(campaign.campaign_id.trim())
@@ -147,6 +159,10 @@ pub async fn create_commercial_publication(
             .bind(campaign.image_url.as_deref().map(str::trim))
             .bind(campaign.headline.as_deref().map(str::trim))
             .bind(campaign.terms.as_deref())
+            // Null rather than `[]` for "everywhere", so a campaign that never
+            // named a shop is distinguishable from one whose list was emptied.
+            // Both behave identically today; only one of them was a decision.
+            .bind(group_of(Some(campaign.site_ids.as_slice())))
             .execute(&mut *tx)
             .await?;
     }
@@ -727,7 +743,7 @@ pub(super) async fn dispatch_publication(
 
     let campaigns: Vec<Value> = sqlx::query(
         "SELECT campaign_id,name,status,valid_from,valid_to,budget_minor,
-                max_uses,image_url,headline,terms
+                max_uses,image_url,headline,terms,site_ids
            FROM commercial_campaign WHERE publication_id=$1 ORDER BY campaign_id",
     )
     .bind(publication_id)
@@ -749,10 +765,22 @@ pub(super) async fn dispatch_publication(
             "image_url": row.get::<Option<String>, _>("image_url"),
             "headline": row.get::<Option<String>, _>("headline"),
             "terms": row.get::<Option<String>, _>("terms"),
+            // Carried whole to every shop rather than resolved into each rule
+            // here. Resolving it would make the book say what it means with no
+            // cross-reference, which is tempting — and it would also silently
+            // rewrite the scope somebody authored. The campaign's WINDOW is
+            // carried and intersected at the till; its shops travel the same
+            // way, so there is one composition rule rather than two.
+            "site_ids": row.get::<Option<Vec<String>>, _>("site_ids"),
         })
     })
     .collect();
 
+    // One timestamp for the whole dispatch, because one publish IS one telling:
+    // thirteen shops learned about this book at the same instant, and thirteen
+    // timestamps a few milliseconds apart would invite somebody to read an
+    // ordering into them that does not exist.
+    let told_at = Utc::now();
     let mut delivered = Vec::with_capacity(shops.len());
     for shop in shops {
         let origin_id: String = shop.get("origin_id");
@@ -871,6 +899,25 @@ pub(super) async fn dispatch_publication(
             // shop selling at the previous version with nothing to show why.
             None,
             std::slice::from_ref(&origin_id),
+        )
+        .await?;
+        // Write down that this shop has been told, in the transaction that
+        // tells it. Which shops are outstanding was a subtraction — target less
+        // activated — and a subtraction can count but can never say WHEN a shop
+        // was told, which is the gap UI-001 §6 asks somebody to watch.
+        //
+        // Only the shops that were actually sent the book: a shop the loop
+        // skipped above because this book says nothing to it was never told and
+        // is not outstanding. The list is resolved once, here, for the reason
+        // `publish_commercial_usage_to_fleet` gives — "which shops" has one
+        // right answer and a second derivation can quietly miss one.
+        super::rollout::record_told(
+            tx,
+            publication_id,
+            publication.get::<i64, _>("version"),
+            &origin_id,
+            &site_id,
+            told_at,
         )
         .await?;
         delivered.push(origin_id);
@@ -1012,7 +1059,7 @@ pub async fn resolve_offer(pool: &PgPool, query: ResolveOfferQuery) -> Result<Va
     // What the product IS, not just what it is called. A markdown or promotion
     // written against the whole style matches on this, and a line without it
     // silently qualifies for nothing.
-    let merchandise = super::pricing::load_merchandise(&mut tx).await?;
+    let merchandise = super::pricing::load_merchandise(&mut tx, None).await?;
     tx.commit().await?;
 
     let Some(sku_code) = pricing.sku_code_by_id.get(&query.sku_id).cloned() else {
@@ -1096,7 +1143,7 @@ pub async fn list_resolved_offers(
     // names the screen prints AND the facts a range-wide markdown matches on —
     // one query, because they are the same facts, and fetching them twice is
     // how a screen and an engine come to disagree about what a garment is.
-    let merchandise = super::pricing::load_merchandise(&mut tx).await?;
+    let merchandise = super::pricing::load_merchandise(&mut tx, None).await?;
     tx.commit().await?;
 
     let context = crate::reporting::pricing_context(site_id, channel.as_str(), at);
@@ -1451,7 +1498,7 @@ pub async fn commercial_publication_detail(
 
     let campaigns: Vec<Value> = sqlx::query(
         "SELECT campaign_id, name, status, valid_from, valid_to, budget_minor,
-                max_uses, image_url, headline, terms
+                max_uses, image_url, headline, terms, site_ids
            FROM commercial_campaign WHERE publication_id = $1 ORDER BY campaign_id",
     )
     .bind(publication_id)
@@ -1478,9 +1525,16 @@ pub async fn commercial_publication_detail(
             // filing one offer under the Lebaran sale republished the Lebaran
             // sale with its banner, its headline and its small print blanked,
             // to every shop in the fleet.
+            //
+            // `site_ids` rides here for exactly that reason and is the worse
+            // version of the same fault: a poster blanked is visible to anyone
+            // who walks past a till, and a campaign silently widened from six
+            // shops to thirteen is not visible anywhere until the discounts
+            // turn up in seven shops that were never meant to have them.
             "image_url": row.get::<Option<String>, _>("image_url"),
             "headline": row.get::<Option<String>, _>("headline"),
             "terms": row.get::<Option<String>, _>("terms"),
+            "site_ids": row.get::<Option<Vec<String>>, _>("site_ids"),
         })
     })
     .collect();
@@ -1565,7 +1619,7 @@ pub async fn simulate(
     let pricing =
         super::pricing::load_site_pricing(&mut tx, &request.site_id, request.channel.as_str(), at)
             .await?;
-    let merchandise = super::pricing::load_merchandise(&mut tx).await?;
+    let merchandise = super::pricing::load_merchandise(&mut tx, None).await?;
     tx.commit().await?;
 
     let mut context =
@@ -1600,6 +1654,13 @@ pub async fn simulate(
                 "base_unit_price_minor": line.base_unit_price.minor,
                 "unit_price_minor": line.unit_price.minor,
                 "line_total_minor": line.line_total.minor,
+                // What the shop earns and what it collects for the state, split
+                // here rather than in the browser: the engine already did the
+                // rounding, and a second division in JavaScript is a second
+                // answer. A merchandiser testing a basket has to see the same
+                // numbers the till will print.
+                "net_ex_tax_minor": line.net_ex_tax.minor,
+                "tax_minor": line.tax_amount.minor,
                 "tax_category": line.tax_category,
                 "publication_version": line.publication_version,
                 "markdown_id": line.markdown_id,
@@ -1671,12 +1732,36 @@ pub async fn simulate(
             "name": award.name,
             "points": award.points,
             "basis_amount_minor": award.basis_amount.minor,
+            // Which line earned which points. A cart that earns 1.076 points is
+            // not answerable on a return unless it is known that 438 of them
+            // came off one shirt and 638 off the other.
+            "line_points": award.line_points.iter().map(|share| json!({
+                "line": share.line,
+                "points": share.points,
+            })).collect::<Vec<Value>>(),
         })).collect::<Vec<Value>>(),
         "points_earned": result.points_earned,
         "discount_total_minor": result.discount_total.minor,
         "total_minor": result.total.minor,
+        // `total` is the goods. `amount_due` is what has to be settled, and for
+        // a tax-inclusive book those are the same number — which is precisely
+        // why both are sent: a screen that shows only one of them cannot tell
+        // an inclusive book from an exclusive one, and the difference is the
+        // whole of the shop's tax position.
+        "net_ex_tax_minor": result.net_ex_tax.minor,
+        "tax_total_minor": result.tax_total.minor,
+        "amount_due_minor": result.amount_due.minor,
     }))
 }
+
+/// The four business classifications a pricing change may declare — UI-001 §6.
+///
+/// Declared at publication and never after: `protect_commercial_publication`
+/// refuses every UPDATE to a published book, so a book that goes out without
+/// one stays unclassified for ever. That is deliberate — a classification added
+/// later is somebody's reconstruction of what was meant, and this estate keeps
+/// what was decided rather than what was reconstructed.
+const CHANGE_TYPES: &[&str] = &["REGULAR_PRICE", "MARKDOWN", "CLEARANCE", "CORRECTION"];
 
 /// Send the promotion counts to every shop.
 ///
@@ -1833,6 +1918,55 @@ pub async fn publish_campaign_switches_to_fleet(
     }))
 }
 
+// ── the pricelist ────────────────────────────────────────────────────────
+//
+// Brought up to the shape `money_overview` set in `postgres::statements` and
+// `list_employees` most recently copied: a scope struct assembled by the
+// handler, a keyset cursor over the sort order, and an envelope carrying the
+// page beside the size and the shape of the whole matched set.
+//
+// The cursor matters more here than on any other list in this module, because
+// this one is the one that was ALREADY truncating. It priced the first `limit`
+// styles alphabetically and said so only through a count nobody drew, so a
+// merchandiser looking for a style past the two hundredth found nothing and had
+// no way to ask for the next page. There was no next page.
+
+/// How many styles the pricelist prices when the caller does not say.
+///
+/// **Twenty, and the number is a measurement rather than a taste.** The owner's
+/// rule is that a list answers in under 100 ms or it pages; this one pages, so
+/// the remaining question is how big a page fits. Measured on a RELEASE build
+/// against the seeded database — 506 styles, 13 shops:
+///
+/// ```text
+///   limit=1    30 ms      limit=20    91 ms
+///   limit=10   61 ms      limit=30   125 ms
+///   limit=15   80 ms      limit=50   199 ms
+/// ```
+///
+/// Thirty milliseconds of that is fixed — the facet counts, the merchandise
+/// map, and one price book per shop — and the rest is about 3 ms per style.
+/// Seventy milliseconds of budget over a 3 ms slope is twenty styles.
+///
+/// It was two hundred, and two hundred was 685 ms. That was never a page size
+/// anybody chose: it was the size that fitted before there was a cursor, kept
+/// after there was one.
+///
+/// The number falls as the FLEET grows, not as the catalogue does, and that is
+/// worth knowing before somebody raises it back: the work is styles TIMES
+/// shops, so the same 100 ms buys ten styles at twenty-six branches. A screen
+/// that wants a longer table wants the cursor, not a bigger limit.
+const PRICELIST_DEFAULT_LIMIT: i64 = 20;
+/// And the most it will price however loudly a caller asks.
+///
+/// Five hundred, down from the two thousand this endpoint used to clamp to. The
+/// old ceiling existed because there was no other way to reach the rest of the
+/// catalogue — a caller that wanted style 900 had to ask for a thousand. There
+/// is a cursor now, so a large `limit` buys nothing and costs the fleet: the
+/// work is styles TIMES shops, and two thousand styles across thirteen shops is
+/// twenty-six thousand priced stacks in one request.
+const PRICELIST_MAX_LIMIT: i64 = 500;
+
 /// Every price every shop could charge for a style, and which one wins.
 ///
 /// The offers list answers "what does this cost here" with one number per SKU,
@@ -1846,26 +1980,296 @@ pub async fn publish_campaign_switches_to_fleet(
 /// is the engine's own — `price_stacks` — never a second ranking written here:
 /// a screen that showed the cascade in a different order from the order that
 /// decides it would look authoritative and be wrong.
-/// How a caller narrows the range before it is priced.
+/// How a caller narrows, orders and pages the pricelist.
 ///
-/// Empty everywhere means "the whole catalogue, capped by `limit`", which is
-/// what the screen asks for when it first opens.
+/// Every field but the price bounds is answered by the SQL rather than by the
+/// browser, and that is not an optimisation detail worth hiding: the work is
+/// styles times shops, so five hundred styles across thirteen shops is seconds
+/// of work and megabytes of answer, and a filter applied after that has already
+/// paid for all of it. Narrowing first is the difference between a screen that
+/// answers and one that waits.
 #[derive(Clone, Debug, Default)]
-pub struct ArticlePriceFilter {
+pub struct ArticlePriceScope {
+    /// Article code, article name, or SKU code — the three things somebody has
+    /// in front of them when they go looking for a style. The SKU code is in
+    /// there because the code on a label is as often a product's as a style's.
     pub q: Option<String>,
+    /// Division codes. Empty means every division.
     pub divisions: Vec<String>,
+    /// Tag codes. A style matches if it carries ANY of them, which is what a
+    /// facet list means when you tick two boxes.
     pub tags: Vec<String>,
+    /// Keep only styles the till charges at least this much for, at any shop.
+    ///
+    /// **The one filter that cannot be fully answered in SQL**, because what a
+    /// style costs is the answer rather than the question — the cascade decides
+    /// it, per shop, and the cascade is the engine. What SQL does is narrow to
+    /// a deliberate SUPERSET, and the true bound is applied to the page once it
+    /// has been priced. See [`PRICELIST_FILTERS`] and `total` on
+    /// [`ArticlePricePage`].
     pub min_price: Option<i64>,
     pub max_price: Option<i64>,
+    /// `article_code`, `name`, `division` or `sku_count` — the closed set this
+    /// server names. Anything unrecognised falls back to `article_code` rather
+    /// than refusing, because a sort arrives from a URL somebody may have kept
+    /// from an older build and a 400 for a stale bookmark is a worse answer
+    /// than the rows in the house order.
+    ///
+    /// **There is deliberately no sort by price.** A price is not a column: it
+    /// is the engine's answer for one style at one shop at one instant, and
+    /// ordering the catalogue by it means pricing the whole catalogue at every
+    /// shop before the first row can be chosen. Measured on the seeded dev
+    /// database — 506 styles, 13 shops — that is the whole ten seconds this
+    /// screen used to take, paid on every page rather than once. A cursor over
+    /// a scan is a cursor that lies about its cost.
+    pub sort: Option<String>,
+    pub desc: bool,
+    pub cursor: Option<String>,
+    /// Absent means [`PRICELIST_DEFAULT_LIMIT`].
+    pub limit: Option<i64>,
 }
+
+/// One shop the pricelist is drawn across.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PricelistShop {
+    pub site_id: String,
+    /// The shop's own name when it has one, and its id when it has not: a
+    /// column heading has to say something.
+    pub label: String,
+    /// The newest book version this shop has reported putting into service, and
+    /// therefore the version every price in its column comes from.
+    ///
+    /// `None` is a shop that has confirmed nothing. Its column is empty, and
+    /// that is the answer — UI-001 §3: "Tidak ada valid activation evidence →
+    /// Belum terkonfirmasi / harga aktif tidak tersedia; jangan fallback
+    /// diam-diam ke latest HO." A column of head office's prices under a shop's
+    /// name is the claim this refuses to make.
+    pub active_version: Option<i64>,
+    /// A book head office has published over the top which this shop has not
+    /// switched to. Beside the prices, never instead of them.
+    pub pending_publication: Option<super::pricing::PendingPublication>,
+}
+
+/// One distinct amount inside a rung's range, and which products carry it.
+///
+/// A range is a summary and somebody eventually has to ask which size is the
+/// expensive one; answering that from the same rung means the detail can never
+/// disagree with the summary above it.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PricePoint {
+    pub unit_price_minor: i64,
+    pub sku_codes: Vec<String>,
+    pub in_force_for: i64,
+}
+
+/// One rung of the cascade, as a style rather than as a product.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PriceRung {
+    /// Where the engine put this candidate. Zero is the one being charged.
+    pub rank: i64,
+    /// `BASE`, `MARKDOWN` — `PriceSource` as the engine spells it.
+    pub source: String,
+    /// Who this price is for: everyone, a group of shops, one shop. The
+    /// engine's own enum, so the browser reads the cascade in the vocabulary
+    /// that decides it.
+    pub applies_to: PriceLevel,
+    /// Named when this rung is a markdown.
+    pub markdown_id: Option<String>,
+    pub currency: String,
+    pub publication_version: i64,
+    /// The two ends of the range. A style priced per size genuinely has two,
+    /// and showing only the cheaper one would say the large costs what the
+    /// small costs.
+    pub min_unit_price_minor: i64,
+    pub max_unit_price_minor: i64,
+    /// How many of the style's products this rung covers.
+    pub sku_count: i64,
+    /// How many it actually WINS, which is not always all of them: a shop price
+    /// on one size beats the company price on that size alone, and the company
+    /// rung is then in force for the rest. A boolean would have to pick one of
+    /// those and be wrong about the other.
+    pub in_force_for: i64,
+    /// Cheapest first, so opening a range reads down from the price the shelf
+    /// edge advertises.
+    pub points: Vec<PricePoint>,
+    pub effective_from: DateTime<Utc>,
+    pub effective_to: Option<DateTime<Utc>>,
+}
+
+/// What one shop would charge for one style, and what it beat.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ShopPriceStack {
+    pub site_id: String,
+    pub label: String,
+    pub stack: Vec<PriceRung>,
+}
+
+/// One style, across every shop that can sell it.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ArticlePriceRow {
+    pub article_code: String,
+    pub article_name: String,
+    pub image_url: Option<String>,
+    pub division_code: Option<String>,
+    pub tags: Vec<String>,
+    pub sku_count: i64,
+    /// Shops where this style has no price at all are ABSENT, not zero: no
+    /// price is not a price, and a shop that cannot sell a thing should not
+    /// appear to sell it for nothing.
+    pub shops: Vec<ShopPriceStack>,
+}
+
+/// The two things the pricelist can be narrowed by that are worth counting.
+///
+/// The price bounds are not among them for the reason
+/// [`ArticlePriceScope::min_price`] gives: a facet count is a promise about how
+/// many rows a value would leave, and nothing can make that promise about a
+/// number the engine has not worked out yet.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ArticlePriceFacets {
+    pub divisions: Vec<CommercialFacet>,
+    pub tags: Vec<CommercialFacet>,
+}
+
+/// A page of the pricelist, and the shape of everything it was drawn from.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ArticlePricePage {
+    /// What this answer is about, echoed back: the channel and the instant it
+    /// was priced at. Not merely the parameters repeated — a caller that sent
+    /// no `at` gets the instant the server used, which is what makes two
+    /// screenshots of this screen comparable.
+    pub channel: String,
+    pub as_of: DateTime<Utc>,
+    pub shops: Vec<PricelistShop>,
+    pub rows: Vec<ArticlePriceRow>,
+    /// Opaque. Pass it back as `cursor` for the next page; absent means this
+    /// was the last one.
+    ///
+    /// **Issued from the last style the QUERY returned, not the last row in
+    /// `rows`.** With a price bound applied, a page can be thinned after it has
+    /// been priced — see [`ArticlePriceScope::min_price`] — and a cursor taken
+    /// from the surviving rows would resume after the last survivor and skip
+    /// every style the bound dropped behind it. A short page is therefore NOT
+    /// the end of the list when a price bound is set; `next_cursor` is the only
+    /// thing that says so.
+    pub next_cursor: Option<String>,
+    /// Every style the search and the filters match, not just this page.
+    ///
+    /// With a price bound set this is an UPPER bound, and deliberately so: it
+    /// counts the styles whose stored amounts could put them in range, which is
+    /// the widest set the SQL can honestly promise. Some of them will be
+    /// dropped once priced. Wider than the truth is safe here; narrower is not,
+    /// because a total that undercounts tells somebody to stop paging.
+    pub total: i64,
+    pub facets: ArticlePriceFacets,
+}
+
+/// Where the previous page stopped — as a ROW, not as a position.
+///
+/// The article code, which is unique in `article`. Styles are created and
+/// retired while somebody pages through a catalogue of five hundred, and an
+/// offset would skip or repeat them with nothing saying so.
+#[derive(Serialize, Deserialize)]
+struct ArticlePriceCursor {
+    article_code: String,
+}
+
+/// One pricelist row, defined once.
+///
+/// Used by the page query and by the facet counts, and that is the whole reason
+/// it is a constant: the facets are only honest if they count exactly what the
+/// page can show.
+///
+/// Binds: `$1` the search pattern, or NULL for no search.
+///
+/// It stops at the SEARCH. The division, tag and price filters are applied
+/// outside it, which is what lets one definition answer two different questions
+/// from the same rows: the page wants what the filters leave, while the filter
+/// panel's counts want what the search alone leaves — because "DENIM 41" has to
+/// mean "there are 41 denim styles", not "41 among the ones you have already
+/// narrowed to denim".
+///
+/// `name_key` and `division_key` are computed here rather than only in
+/// `ORDER BY` because the keyset has to COMPARE the sort value in a `WHERE`,
+/// and a sort expression that is not also a column is one a `WHERE` cannot see.
+/// `division_key` is non-null for a reason that is easy to miss and expensive
+/// to find: a row comparison against NULL is NULL rather than true, so one
+/// style filed under no division would end paging at whatever row happened to
+/// carry it, silently, with the rest of the catalogue below the fold.
+///
+/// `article_id` is carried for the price filter alone — the two EXISTS clauses
+/// below need the style's id and cannot reach it once the rows are grouped.
+const PRICELIST_ROWS: &str = "
+    SELECT a.id AS article_id, a.article_code, a.name AS article_name,
+           a.image_url, a.division_code,
+           array_agg(s.sku_code ORDER BY s.sku_code) AS sku_codes,
+           count(s.id)::bigint AS sku_count,
+           COALESCE((SELECT array_agg(t.tag_code ORDER BY t.tag_code)
+                       FROM article_tag t WHERE t.article_id = a.id),
+                    ARRAY[]::text[]) AS tags,
+           COALESCE(a.name, '') AS name_key,
+           COALESCE(a.division_code, '') AS division_key
+      FROM article a
+      JOIN sku s ON s.article_id = a.id AND s.active
+     WHERE ($1::text IS NULL
+            OR a.article_code ILIKE $1
+            OR a.name ILIKE $1
+            OR EXISTS (SELECT 1 FROM sku q
+                        WHERE q.article_id = a.id AND q.sku_code ILIKE $1))
+     GROUP BY a.id, a.article_code, a.name, a.image_url, a.division_code
+";
+
+/// The division, tag and price filters, written once for both queries.
+///
+/// The price bounds are here as well as on the way out, and that is the
+/// difference between a filter and a lie. Applied only afterwards, they
+/// narrowed the two hundred styles this request happened to price and left the
+/// other three hundred unexamined — so "styles over 500.000" quietly meant
+/// "styles over 500.000 in the first two hundred alphabetically".
+///
+/// What they match here is deliberately a SUPERSET of the answer: every amount
+/// the engine can end up charging is stored either as a price rule or as a
+/// markdown's replacement, so a style with neither in range cannot come out in
+/// range, while a style kept here may still be dropped once the cascade has run.
+///
+/// **`searched.article_id`, qualified.** Unqualified it would resolve against
+/// `sku ps` inside the first EXISTS, which also has an `article_id` — making
+/// the clause `ps.article_id = ps.article_id`, true for every row, and a price
+/// filter that silently matched the whole catalogue.
+const PRICELIST_FILTERS: &str = "
+    (cardinality($2::text[]) = 0 OR division_code = ANY($2))
+    AND (cardinality($3::text[]) = 0 OR tags && $3::text[])
+    AND ($4::bigint IS NULL AND $5::bigint IS NULL
+         OR EXISTS (SELECT 1 FROM commercial_price_rule pr
+                      JOIN commercial_publication p ON p.id = pr.publication_id
+                      JOIN sku ps ON ps.id = pr.sku_id
+                     WHERE ps.article_id = searched.article_id
+                       AND p.status = 'PUBLISHED'
+                       AND ($4 IS NULL OR pr.unit_price_minor >= $4)
+                       AND ($5 IS NULL OR pr.unit_price_minor <= $5))
+         OR EXISTS (SELECT 1 FROM commercial_markdown m
+                      JOIN commercial_publication p ON p.id = m.publication_id
+                      LEFT JOIN sku ms ON ms.id = m.sku_id
+                     WHERE p.status = 'PUBLISHED'
+                       AND (ms.article_id = searched.article_id
+                            OR m.article_code = searched.article_code)
+                       AND ($4 IS NULL OR m.replacement_unit_price_minor >= $4)
+                       AND ($5 IS NULL OR m.replacement_unit_price_minor <= $5)))
+";
 
 pub async fn article_prices(
     pool: &PgPool,
     channel: CommercialChannel,
     at: DateTime<Utc>,
-    limit: i64,
-    filter: ArticlePriceFilter,
-) -> Result<Value, AppError> {
+    scope: ArticlePriceScope,
+) -> Result<ArticlePricePage, AppError> {
     let shops = sqlx::query(
         "SELECT origin_id, site_id, label FROM sync_origin_credential
           WHERE node_role = 'STORE' AND site_id IS NOT NULL
@@ -1874,134 +2278,83 @@ pub async fn article_prices(
     .fetch_all(pool)
     .await?;
 
+    // A blank search is not a search. `Some("")` would compile to `ILIKE '%%'`,
+    // which matches everything and costs a scan to say so.
+    let needle = scope
+        .q
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(|text| format!("%{text}%"));
+
+    // The sort, and the tie-break that makes it total. Every order ends in the
+    // article code, which is unique, so no two rows can compare equal — which
+    // is what stops a keyset from repeating or losing the rows that tie.
+    let lead = match scope.sort.as_deref() {
+        Some("name") => "name_key",
+        Some("division") => "division_key",
+        Some("sku_count") => "sku_count",
+        _ => "article_code",
+    };
+    let (cols, order) = order_by(lead, "article_code", scope.desc);
+    let seek = if scope.desc { "<" } else { ">" };
+
+    let cursor: Option<ArticlePriceCursor> =
+        scope.cursor.as_deref().map(decode_cursor).transpose()?;
+    let limit = scope
+        .limit
+        .unwrap_or(PRICELIST_DEFAULT_LIMIT)
+        .clamp(1, PRICELIST_MAX_LIMIT);
+
     // The styles, and the products under each. One query rather than one per
     // article: a screen that fetched per row would be as slow as the catalogue
     // is long.
-    // The narrowing, written once and bound to both queries below.
     //
-    // `q` reaches SKU codes as well as the style's own code and name, because
-    // the code somebody has in their hand is as often a product's as a style's
-    // — off a label, off a count sheet — and a search box that answered only
-    // two of the three would look broken exactly when it mattered.
-    //
-    // The price bounds are here as well as on the way out, and that is the
-    // difference between a filter and a lie. Applied only afterwards, they
-    // narrowed the two hundred styles this request happened to price and left
-    // the other three hundred unexamined — so "styles over 500.000" quietly
-    // meant "styles over 500.000 in the first two hundred alphabetically".
-    //
-    // What it matches is deliberately a SUPERSET of the answer: every amount
-    // the engine can end up charging is stored either as a price rule or as a
-    // markdown's replacement, so a style with neither in range cannot come out
-    // in range, while a style kept here may still be dropped below once the
-    // cascade has actually run. Wider than the truth is safe; narrower is not.
-    let narrow = "
-        AND ($2::text IS NULL
-             OR a.article_code ILIKE '%' || $2 || '%'
-             OR a.name ILIKE '%' || $2 || '%'
-             OR EXISTS (SELECT 1 FROM sku q WHERE q.article_id = a.id
-                          AND q.sku_code ILIKE '%' || $2 || '%'))
-        AND (cardinality($3::text[]) = 0
-             OR a.division_code = ANY($3))
-        AND (cardinality($4::text[]) = 0
-             OR EXISTS (SELECT 1 FROM article_tag t
-                         WHERE t.article_id = a.id AND t.tag_code = ANY($4)))
-        AND ($5::bigint IS NULL AND $6::bigint IS NULL
-             OR EXISTS (SELECT 1 FROM commercial_price_rule pr
-                          JOIN commercial_publication p ON p.id = pr.publication_id
-                          JOIN sku ps ON ps.id = pr.sku_id
-                         WHERE ps.article_id = a.id AND p.status = 'PUBLISHED'
-                           AND ($5 IS NULL OR pr.unit_price_minor >= $5)
-                           AND ($6 IS NULL OR pr.unit_price_minor <= $6))
-             OR EXISTS (SELECT 1 FROM commercial_markdown m
-                          JOIN commercial_publication p ON p.id = m.publication_id
-                          LEFT JOIN sku ms ON ms.id = m.sku_id
-                         WHERE p.status = 'PUBLISHED'
-                           AND (ms.article_id = a.id
-                                OR m.article_code = a.article_code)
-                           AND ($5 IS NULL OR m.replacement_unit_price_minor >= $5)
-                           AND ($6 IS NULL OR m.replacement_unit_price_minor <= $6)))";
+    // The seek re-reads the previous row's own sort value rather than trusting
+    // one encoded in the cursor: one cursor shape then serves every order, and
+    // a fifth sort cannot arrive without its cursor.
+    // `NOT MATERIALIZED`: `kept` is referenced twice — as the page and
+    // inside the seek — and two references makes PostgreSQL materialise a
+    // CTE, which is an optimisation fence the `ORDER BY … LIMIT` cannot be
+    // pushed through. Materialised, this reads the whole table and sorts it
+    // to hand back one page; inlined, it seeks the index. See
+    // `postgres::audit::list_audit`, where the difference was measured.
+    let sql = format!(
+        "WITH searched AS NOT MATERIALIZED ({PRICELIST_ROWS}),
+              kept AS NOT MATERIALIZED (
+             SELECT searched.* FROM searched WHERE {PRICELIST_FILTERS}
+         )
+         SELECT * FROM kept
+          WHERE $6::text IS NULL
+             OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE article_code = $6)
+          ORDER BY {order}
+          LIMIT $7"
+    );
+    let article_rows = sqlx::query(&sql)
+        .bind(&needle)
+        .bind(&scope.divisions)
+        .bind(&scope.tags)
+        .bind(scope.min_price)
+        .bind(scope.max_price)
+        .bind(cursor.as_ref().map(|c| c.article_code.clone()))
+        .bind(limit)
+        .fetch_all(pool)
+        .await?;
 
-    let article_rows = sqlx::query(&format!(
-        "SELECT a.article_code, a.name article_name, a.image_url, a.division_code,
-                array_agg(s.sku_code ORDER BY s.sku_code) sku_codes,
-                COALESCE(
-                    (SELECT array_agg(t.tag_code ORDER BY t.tag_code)
-                       FROM article_tag t WHERE t.article_id = a.id),
-                    '{{}}'
-                ) tags
-           FROM article a
-           JOIN sku s ON s.article_id = a.id AND s.active
-          WHERE true {narrow}
-          GROUP BY a.id, a.article_code, a.name, a.image_url, a.division_code
-          ORDER BY a.article_code
-          LIMIT $1"
-    ))
-    .bind(limit.clamp(1, 2_000))
-    .bind(filter.q.as_deref())
-    .bind(&filter.divisions)
-    .bind(&filter.tags)
-    .bind(filter.min_price)
-    .bind(filter.max_price)
-    .fetch_all(pool)
-    .await?;
-
-    // How many styles there are, against how many were priced. A cap that does
-    // not say it capped reads as "this is all of them", and a merchandiser who
-    // cannot find a style would go looking for a pricing fault rather than for
-    // the next page.
-    //
-    // Counted through the SAME narrowing, so "200 of 506" means 200 of the 506
-    // that match — a total counting the whole catalogue while the list counts a
-    // search is a fraction whose two halves are answers to different questions.
-    let total_styles: i64 = sqlx::query_scalar(&format!(
-        "SELECT count(DISTINCT a.id) FROM article a
-           JOIN sku s ON s.article_id = a.id AND s.active
-          WHERE true {narrow}"
-    ))
-    // `$1` is unused here, and bound anyway: the fragment is shared, so the
-    // parameter numbering has to be.
-    .bind(limit)
-    .bind(filter.q.as_deref())
-    .bind(&filter.divisions)
-    .bind(&filter.tags)
-    .bind(filter.min_price)
-    .bind(filter.max_price)
-    .fetch_one(pool)
-    .await?;
-
-    // What the whole catalogue holds, for the filter pickers.
-    //
-    // Counted over everything rather than over the narrowed set on purpose: a
-    // facet list that only counts what is already showing cannot tell you what
-    // ticking a second box would add, which is the one thing a facet is for.
-    let facet_rows = sqlx::query(
-        "SELECT 'division' kind, COALESCE(a.division_code, '') value, count(DISTINCT a.id) n
-           FROM article a JOIN sku s ON s.article_id = a.id AND s.active
-          GROUP BY 1, 2
-          UNION ALL
-         SELECT 'tag', t.tag_code, count(DISTINCT a.id)
-           FROM article a
-           JOIN sku s ON s.article_id = a.id AND s.active
-           JOIN article_tag t ON t.article_id = a.id
-          GROUP BY 1, 2
-          ORDER BY 1, 3 DESC, 2",
-    )
-    .fetch_all(pool)
-    .await?;
-
-    let mut divisions = Vec::new();
-    let mut tag_counts = Vec::new();
-    for row in &facet_rows {
-        let kind: String = row.get("kind");
-        let entry = json!({ "value": row.get::<String, _>("value"),
-                            "count": row.get::<i64, _>("n") });
-        if kind == "division" {
-            divisions.push(entry);
-        } else {
-            tag_counts.push(entry);
+    // Issued BEFORE the price bound thins the page — see
+    // `ArticlePricePage::next_cursor`. A short page is the last page only
+    // because the QUERY ran out of styles, which is a fact about `article_rows`
+    // and not about what survives pricing.
+    let next_cursor = match article_rows.last() {
+        Some(row) if article_rows.len() as i64 == limit => {
+            Some(encode_cursor(&ArticlePriceCursor {
+                article_code: row.try_get("article_code")?,
+            })?)
         }
-    }
+        _ => None,
+    };
+
+    let (total, facets) = pricelist_facets(pool, &needle, &scope).await?;
 
     struct Style {
         article_code: String,
@@ -2010,39 +2363,68 @@ pub async fn article_prices(
         division_code: Option<String>,
         tags: Vec<String>,
         sku_codes: Vec<String>,
+        sku_count: i64,
     }
-    let styles: Vec<Style> = article_rows
-        .into_iter()
-        .map(|row| Style {
-            article_code: row.get("article_code"),
-            article_name: row.get("article_name"),
-            image_url: row.get("image_url"),
-            division_code: row.get("division_code"),
-            tags: row.get("tags"),
-            sku_codes: row.get("sku_codes"),
-        })
+    let mut styles = Vec::with_capacity(article_rows.len());
+    for row in &article_rows {
+        styles.push(Style {
+            article_code: row.try_get("article_code")?,
+            article_name: row.try_get("article_name")?,
+            image_url: row.try_get("image_url")?,
+            division_code: row.try_get("division_code")?,
+            tags: row.try_get("tags")?,
+            sku_codes: row.try_get("sku_codes")?,
+            sku_count: row.try_get("sku_count")?,
+        });
+    }
+
+    // Every product on THIS PAGE, once, and the whole reason the screen is
+    // affordable.
+    //
+    // The page is at most `limit` styles, so this is some hundreds of codes
+    // where the catalogue is thousands — and it is the only set anything below
+    // asks about. Both loaders are narrowed to it: the shop's price book and
+    // the merchandise map were each being read whole, for a question about this
+    // slice of it, thirteen times and once respectively.
+    let page_skus: Vec<String> = styles
+        .iter()
+        .flat_map(|style| style.sku_codes.iter().cloned())
         .collect();
 
     // What a product IS does not change from shop to shop, so it is read once
     // rather than once per shop. Inside the loop it was thirty reads of one
     // answer — invisible against two shops and the whole cost of the screen
     // against thirty.
+    //
+    // ONE transaction for the merchandise map AND every shop's book, where
+    // there used to be fourteen. A `BEGIN` and a `COMMIT` are a round trip each,
+    // so a transaction per branch was twenty-six round trips spent on
+    // bookkeeping around thirteen reads — and they bought nothing, because
+    // these are reads: there is no write here for a transaction boundary to
+    // make atomic, and every branch is being priced at the same `at` whatever
+    // the boundaries are.
     let mut tx = pool.begin().await?;
-    let merchandise = super::pricing::load_merchandise(&mut tx).await?;
-    tx.commit().await?;
+    let merchandise = super::pricing::load_merchandise(&mut tx, Some(&page_skus)).await?;
 
-    // article_code -> site_id -> the collapsed stack
-    let mut by_style: std::collections::BTreeMap<String, Vec<Value>> =
+    // article_code -> the collapsed stack at each shop
+    let mut by_style: std::collections::BTreeMap<String, Vec<ShopPriceStack>> =
         std::collections::BTreeMap::new();
     let mut shop_list = Vec::with_capacity(shops.len());
+    // Per shop, the book head office has published over the top that this shop
+    // has not switched to. Held beside the prices and never folded into them —
+    // UI-001 §3: the active store price stays the headline and the pending
+    // publication is a badge next to it.
+    let mut pending_by_site: std::collections::BTreeMap<
+        String,
+        Option<super::pricing::PendingPublication>,
+    > = std::collections::BTreeMap::new();
 
     // Every style's cart lines, once, with the slice each style owns.
     //
     // What a product IS does not change from shop to shop, so building these
     // inside the shop loop was thirteen constructions of one answer. They are
-    // also the reason the whole range can be priced in ONE engine call per
-    // shop rather than one per style — see below, which is where the real cost
-    // was.
+    // also the reason the whole page can be priced in ONE engine call per shop
+    // rather than one per style — see below, which is where the real cost was.
     let mut lines: Vec<CartLine> = Vec::new();
     let mut spans: Vec<(usize, usize)> = Vec::with_capacity(styles.len());
     for style in &styles {
@@ -2057,24 +2439,70 @@ pub async fn article_prices(
     }
 
     for shop in &shops {
-        let site_id: String = shop.get("site_id");
-        let label: Option<String> = shop.get("label");
-        shop_list.push(json!({
-            "site_id": site_id,
-            "label": label.clone().unwrap_or_else(|| site_id.clone()),
-        }));
+        let site_id: String = shop.try_get("site_id")?;
+        let label: Option<String> = shop.try_get("label")?;
+        let label = label.unwrap_or_else(|| site_id.clone());
+        // Pushed after the book is resolved below, so the column can carry the
+        // version its prices actually came from.
+        let shop_row_at = shop_list.len();
+        shop_list.push(PricelistShop {
+            site_id: site_id.clone(),
+            label: label.clone(),
+            active_version: None,
+            pending_publication: None,
+        });
 
-        let mut tx = pool.begin().await?;
         // The price book only. A stack is base prices and markdowns; a
         // promotion is a statement about a basket and is never consulted here,
         // so reading the promotion tables once per shop would be paying for
         // three queries per branch to throw all three away.
-        let pricing =
-            super::pricing::load_site_price_book(&mut tx, &site_id, channel.as_str(), at).await?;
-        tx.commit().await?;
+        //
+        // And only THIS PAGE's products. The shop's whole book was being read
+        // to answer a question about fifty styles — four thousand rules across
+        // thirteen branches, fifty thousand rows fetched and indexed to look
+        // two hundred and fifty of them up. That was the fixed cost that made
+        // this endpoint slower at fifty rows than at two hundred: it did not
+        // scale with the page, it scaled with the catalogue.
+        // What this shop has actually put into service, not what head office
+        // has decided — UI-001 §2: "Cell default = harga sebelum promo dari
+        // versi **yang aktif di store**, bukan latest HO publication."
+        //
+        // Read from the shop's own activation reports and handed to the same
+        // loader the rest of the estate uses: the candidates narrow, the
+        // ranking does not move. There is no second resolver here, and a shop
+        // that has confirmed nothing gets an empty book rather than head
+        // office's prices wearing a shop's name (§3, last row).
+        let activated = super::pricing::activated_versions(&mut tx, &site_id, at).await?;
+        let pricing = super::pricing::load_site_price_book(
+            &mut tx,
+            &site_id,
+            channel.as_str(),
+            at,
+            Some(&page_skus),
+            &super::pricing::PriceBookScope::AsActivated(activated.clone()),
+        )
+        .await?;
+        // What head office has published over the top and this shop has not
+        // switched to. Surfaced BESIDE the price and never instead of it: §3
+        // "Active store price tetap utama; badge publication baru/pending".
+        let newest_activated = activated.iter().copied().max();
+        let pending = super::pricing::pending_publication(
+            &mut tx,
+            &site_id,
+            channel.as_str(),
+            at,
+            &page_skus,
+            newest_activated,
+        )
+        .await?;
+        if let Some(row) = shop_list.get_mut(shop_row_at) {
+            row.active_version = newest_activated;
+            row.pending_publication = pending.clone();
+        }
+        pending_by_site.insert(site_id.clone(), pending);
         let context = crate::reporting::pricing_context(&site_id, channel.as_str(), at);
 
-        // ONE call for the whole range, not one per style.
+        // ONE call for the whole page, not one per style.
         //
         // `price_stacks` builds its `PriceIndex` on entry — every price and
         // markdown the shop holds, into two BTreeMaps — and that index is the
@@ -2099,13 +2527,14 @@ pub async fn article_prices(
             by_style
                 .entry(style.article_code.clone())
                 .or_default()
-                .push(json!({
-                    "site_id": site_id,
-                    "label": label.clone().unwrap_or_else(|| site_id.clone()),
-                    "stack": collapsed,
-                }));
+                .push(ShopPriceStack {
+                    site_id: site_id.clone(),
+                    label: label.clone(),
+                    stack: collapsed,
+                });
         }
     }
+    tx.commit().await?;
 
     // The price bounds, applied here because this is the first moment a price
     // exists. A style is kept when what the till charges falls inside the
@@ -2116,59 +2545,128 @@ pub async fn article_prices(
     // Read off rank 0 only. The rungs below it are prices that were BEATEN,
     // and filtering on those would return styles on the strength of an amount
     // no shop is charging.
-    let charged = |shops: &[Value]| -> Option<(i64, i64)> {
+    let charged = |shops: &[ShopPriceStack]| -> Option<(i64, i64)> {
         let mut low = i64::MAX;
         let mut high = i64::MIN;
         for shop in shops {
-            let Some(top) = shop.get("stack").and_then(|s| s.get(0)) else {
+            let Some(top) = shop.stack.first() else {
                 continue;
             };
-            if let Some(min) = top.get("min_unit_price_minor").and_then(Value::as_i64) {
-                low = low.min(min);
-            }
-            if let Some(max) = top.get("max_unit_price_minor").and_then(Value::as_i64) {
-                high = high.max(max);
-            }
+            low = low.min(top.min_unit_price_minor);
+            high = high.max(top.max_unit_price_minor);
         }
         (low <= high).then_some((low, high))
     };
 
-    let items: Vec<Value> = styles
+    let rows: Vec<ArticlePriceRow> = styles
         .into_iter()
         .filter_map(|style| {
             let shops = by_style.remove(&style.article_code).unwrap_or_default();
-            if filter.min_price.is_some() || filter.max_price.is_some() {
+            if scope.min_price.is_some() || scope.max_price.is_some() {
                 // A style no shop prices cannot satisfy a price bound. Dropped
                 // rather than kept: it is absent, and absent is not "cheap".
                 let (low, high) = charged(&shops)?;
-                if filter.min_price.is_some_and(|bound| high < bound) {
+                if scope.min_price.is_some_and(|bound| high < bound) {
                     return None;
                 }
-                if filter.max_price.is_some_and(|bound| low > bound) {
+                if scope.max_price.is_some_and(|bound| low > bound) {
                     return None;
                 }
             }
-            Some(json!({
-                "article_code": style.article_code,
-                "article_name": style.article_name,
-                "image_url": style.image_url,
-                "division_code": style.division_code,
-                "tags": style.tags,
-                "sku_count": style.sku_codes.len(),
-                "shops": shops,
-            }))
+            Some(ArticlePriceRow {
+                article_code: style.article_code,
+                article_name: style.article_name,
+                image_url: style.image_url,
+                division_code: style.division_code,
+                tags: style.tags,
+                sku_count: style.sku_count,
+                shops,
+            })
         })
         .collect();
 
-    Ok(json!({
-        "channel": channel.as_str(),
-        "as_of": at,
-        "shops": shop_list,
-        "article_count": items.len(),
-        "total_article_count": total_styles,
-        "facets": { "divisions": divisions, "tags": tag_counts },
-        "items": items,
-    }))
+    Ok(ArticlePricePage {
+        channel: channel.as_str().to_owned(),
+        as_of: at,
+        shops: shop_list,
+        rows,
+        next_cursor,
+        total,
+        facets,
+    })
+}
+
+/// How many styles there are, and how they split.
+///
+/// Counted from the SAME [`PRICELIST_ROWS`] the page is drawn from, so a change
+/// to what a listable style is moves both together. The two scopes are
+/// deliberate:
+///
+///   per-value counts read the SEARCHED set, ignoring which boxes are ticked,
+///     so the number beside `DENIM` answers "how many denim styles are there",
+///     which is the question somebody has while deciding whether to click it.
+///     Counting the already-filtered set instead shows the chosen value its own
+///     row count and every other one a zero.
+///   the total reads the FILTERED set, because it describes the list on screen.
+///
+/// The old version counted the WHOLE catalogue for the facets — search
+/// included — which read as "how many of these exist" rather than "how many of
+/// these your search found", and made a search with three hits sit under a
+/// filter panel promising five hundred.
+async fn pricelist_facets(
+    pool: &PgPool,
+    needle: &Option<String>,
+    scope: &ArticlePriceScope,
+) -> Result<(i64, ArticlePriceFacets), AppError> {
+    let sql = format!(
+        "WITH searched AS ({PRICELIST_ROWS}), kept AS (
+             SELECT searched.* FROM searched WHERE {PRICELIST_FILTERS}
+         )
+         SELECT 'division'::text AS kind, searched.division_code AS value,
+                d.label AS label, count(*)::bigint AS n
+           FROM searched LEFT JOIN division d ON d.code = searched.division_code
+          WHERE searched.division_code IS NOT NULL
+          GROUP BY searched.division_code, d.label
+          UNION ALL
+         SELECT 'tag'::text, tag_code, t.label, count(*)::bigint
+           FROM searched
+           CROSS JOIN LATERAL unnest(searched.tags) AS tag_code
+           LEFT JOIN tag t ON t.code = tag_code
+          GROUP BY tag_code, t.label
+          UNION ALL
+         SELECT 'all'::text, ''::text, NULL::text, count(*)::bigint FROM kept"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(needle)
+        .bind(&scope.divisions)
+        .bind(&scope.tags)
+        .bind(scope.min_price)
+        .bind(scope.max_price)
+        .fetch_all(pool)
+        .await?;
+
+    let mut total = 0i64;
+    let mut divisions = Vec::new();
+    let mut tags = Vec::new();
+    for row in &rows {
+        let kind: String = row.try_get("kind")?;
+        let facet = CommercialFacet {
+            value: row.try_get("value")?,
+            label: row.try_get("label")?,
+            count: row.try_get("n")?,
+        };
+        match kind.as_str() {
+            "division" => divisions.push(facet),
+            "tag" => tags.push(facet),
+            _ => total = facet.count,
+        }
+    }
+    // Biggest first, ties broken on the value, as every other facet panel in
+    // this estate is ordered.
+    for list in [&mut divisions, &mut tags] {
+        list.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.value.cmp(&b.value)));
+    }
+    Ok((total, ArticlePriceFacets { divisions, tags }))
 }
 
 /// Many products' stacks, as one style's rows.
@@ -2183,11 +2681,11 @@ pub async fn article_prices(
 /// not always all of them: a shop price on one size beats the company price on
 /// that size alone, and the company row is then in force for the rest. A
 /// boolean would have to pick one of those and be wrong about the other.
-fn collapse(stacks: &[pricing_engine::ProductStack]) -> Vec<Value> {
+fn collapse(stacks: &[pricing_engine::ProductStack]) -> Vec<PriceRung> {
     struct Row {
         rank: usize,
         source: &'static str,
-        applies_to: Value,
+        applies_to: PriceLevel,
         markdown_id: Option<String>,
         currency: String,
         publication_version: i64,
@@ -2207,20 +2705,22 @@ fn collapse(stacks: &[pricing_engine::ProductStack]) -> Vec<Value> {
 
     for stack in stacks {
         for (rank, candidate) in stack.candidates.iter().enumerate() {
-            let scope = serde_json::to_value(&candidate.applies_to).unwrap_or(Value::Null);
             // Two candidates are one row when they are the same statement: the
             // same kind of price, from the same book, for the same audience.
+            // The audience is compared through its serialisation because
+            // `PriceLevel` is a tree — one shop, a named set of them, or
+            // everybody — and a string is the cheapest total order over that.
             let key = format!(
                 "{}|{}|{}|{}",
                 candidate.source.as_str(),
                 candidate.publication_version,
                 candidate.markdown_id.as_deref().unwrap_or(""),
-                scope,
+                serde_json::to_value(&candidate.applies_to).unwrap_or(Value::Null),
             );
             let entry = rows.entry(key).or_insert_with(|| Row {
                 rank,
                 source: candidate.source.as_str(),
-                applies_to: scope.clone(),
+                applies_to: candidate.applies_to.clone(),
                 markdown_id: candidate.markdown_id.clone(),
                 currency: candidate.currency.0.clone(),
                 publication_version: candidate.publication_version,
@@ -2269,28 +2769,28 @@ fn collapse(stacks: &[pricing_engine::ProductStack]) -> Vec<Value> {
 
     ordered
         .into_iter()
-        .map(|row| {
-            json!({
-                "rank": row.rank,
-                "source": row.source,
-                "applies_to": row.applies_to,
-                "markdown_id": row.markdown_id,
-                "currency": row.currency,
-                "publication_version": row.publication_version,
-                "min_unit_price_minor": row.min_minor,
-                "max_unit_price_minor": row.max_minor,
-                "sku_count": row.sku_count,
-                "in_force_for": row.in_force_for,
-                // Cheapest first, so opening a range reads down from the price
-                // the shelf edge advertises.
-                "points": row.points.iter().map(|(minor, (sku_codes, in_force_for))| json!({
-                    "unit_price_minor": minor,
-                    "sku_codes": sku_codes,
-                    "in_force_for": in_force_for,
-                })).collect::<Vec<Value>>(),
-                "effective_from": row.effective_from,
-                "effective_to": row.effective_to,
-            })
+        .map(|row| PriceRung {
+            rank: row.rank as i64,
+            source: row.source.to_owned(),
+            applies_to: row.applies_to,
+            markdown_id: row.markdown_id,
+            currency: row.currency,
+            publication_version: row.publication_version,
+            min_unit_price_minor: row.min_minor,
+            max_unit_price_minor: row.max_minor,
+            sku_count: row.sku_count,
+            in_force_for: row.in_force_for,
+            points: row
+                .points
+                .into_iter()
+                .map(|(minor, (sku_codes, in_force_for))| PricePoint {
+                    unit_price_minor: minor,
+                    sku_codes,
+                    in_force_for,
+                })
+                .collect(),
+            effective_from: row.effective_from,
+            effective_to: row.effective_to,
         })
         .collect()
 }
@@ -2404,4 +2904,215 @@ pub async fn commercial_products(
         .collect();
 
     Ok(json!({ "items": items }))
+}
+
+// ── a campaign's reason for existing ───────────────────────────────────────
+//
+// Everything above this line is the price book: what a shop will charge, and
+// under what conditions. None of it says WHY, and until now neither did
+// anything else — which is what made a campaign hard to tell from a folder of
+// promotions. A campaign that cannot state an objective, a measure and a line
+// is a grouping, and a grouping does not need a menu.
+//
+// It is deliberately not in the book. See `0161`: an objective is management
+// intent, a till has no use for it, and putting it in a publication would mean
+// repricing thirteen shops to change a goal from 75% to 80%.
+
+/// What a campaign is FOR, as somebody will type it.
+#[derive(Clone, Debug, Deserialize)]
+pub struct CampaignIntentInput {
+    pub objective: String,
+    pub success_metric: String,
+    pub target_direction: String,
+    pub target_value: i64,
+    /// The campaign this one should be read against. See below: a campaign, not
+    /// a period.
+    #[serde(default)]
+    pub baseline_campaign_id: Option<String>,
+    #[serde(default)]
+    pub notes: Option<String>,
+    pub updated_by: String,
+}
+
+const OBJECTIVES: [&str; 6] = [
+    "DRIVE_SALES",
+    "INCREASE_BASKET",
+    "CLEAR_INVENTORY",
+    "ACQUIRE_CUSTOMERS",
+    "RETAIN_MEMBERS",
+    "LAUNCH_PRODUCT",
+];
+
+/// Every one of these is computed from sale facts by `performance.rs`. The set
+/// is closed for that reason rather than for tidiness: a metric nothing
+/// measures is a target nobody can ever be held to.
+const METRICS: [&str; 7] = [
+    "PROMO_SALES",
+    "DISCOUNT_GIVEN",
+    "GROSS_PROFIT",
+    "UNITS_SOLD",
+    "AVERAGE_BASKET",
+    "NEW_CUSTOMERS",
+    "SELL_THROUGH",
+];
+
+/// Checked here as well as by the table's own constraints, because a check
+/// constraint refused at the database is a 500 and a typo in a form is a 422.
+/// The words a caller gets back name what was wrong and what was allowed.
+fn one_of(field: &str, value: &str, allowed: &[&str]) -> Result<String, AppError> {
+    let upper = value.trim().to_ascii_uppercase();
+    if allowed.contains(&upper.as_str()) {
+        Ok(upper)
+    } else {
+        Err(AppError::Validation(format!(
+            "{field} must be one of {}, not {:?}",
+            allowed.join(", "),
+            value
+        )))
+    }
+}
+
+fn intent_row(row: &sqlx::postgres::PgRow) -> Value {
+    json!({
+        "campaign_id": row.get::<String, _>("campaign_id"),
+        "objective": row.get::<String, _>("objective"),
+        "success_metric": row.get::<String, _>("success_metric"),
+        "target_direction": row.get::<String, _>("target_direction"),
+        // Read according to `success_metric`: money is minor units, counts are
+        // whole, and SELL_THROUGH is basis points. The unit is never stored
+        // beside it because the metric already decides it.
+        "target_value": row.get::<i64, _>("target_value"),
+        "baseline_campaign_id": row.get::<Option<String>, _>("baseline_campaign_id"),
+        "notes": row.get::<Option<String>, _>("notes"),
+        "updated_at": row.get::<DateTime<Utc>, _>("updated_at"),
+        "updated_by": row.get::<String, _>("updated_by"),
+    })
+}
+
+/// One campaign's intent, or `None` where nobody has stated one.
+///
+/// `None` is a real answer and not an empty form: a campaign without an
+/// objective is exactly the thing this module argues should not exist, and the
+/// screen says so rather than drawing blank fields.
+pub async fn campaign_intent(pool: &PgPool, campaign_id: &str) -> Result<Option<Value>, AppError> {
+    Ok(
+        sqlx::query("SELECT * FROM campaign_intent WHERE campaign_id = $1")
+            .bind(campaign_id.trim())
+            .fetch_optional(pool)
+            .await?
+            .as_ref()
+            .map(intent_row),
+    )
+}
+
+/// Every stated intent, for the list that has to show a column of objectives.
+///
+/// One read rather than one per row: the campaigns list is a page of campaigns
+/// and asking for each one's objective separately is the N+1 the promotions
+/// screen already documents as its own worst feature.
+pub async fn campaign_intents(pool: &PgPool) -> Result<Value, AppError> {
+    let rows = sqlx::query("SELECT * FROM campaign_intent ORDER BY campaign_id")
+        .fetch_all(pool)
+        .await?;
+    Ok(json!({ "items": rows.iter().map(intent_row).collect::<Vec<Value>>() }))
+}
+
+/// State it, or restate it.
+///
+/// An upsert rather than a create and an update: intent has one row per
+/// campaign for its whole life, and a second POST is somebody changing their
+/// mind about the target rather than declaring a second objective.
+pub async fn save_campaign_intent(
+    pool: &PgPool,
+    campaign_id: &str,
+    input: CampaignIntentInput,
+) -> Result<Value, AppError> {
+    let campaign_id = campaign_id.trim();
+    if campaign_id.is_empty() {
+        return Err(AppError::Validation("campaign_id is required".into()));
+    }
+    let objective = one_of("objective", &input.objective, &OBJECTIVES)?;
+    let metric = one_of("success_metric", &input.success_metric, &METRICS)?;
+    let direction = one_of(
+        "target_direction",
+        &input.target_direction,
+        &["AT_LEAST", "AT_MOST"],
+    )?;
+    if input.target_value < 0 {
+        return Err(AppError::Validation(
+            "target_value cannot be negative".into(),
+        ));
+    }
+    // A percentage typed as 80 rather than as basis points is the mistake this
+    // shape invites, and it is silent: the target becomes 0.8% and the campaign
+    // reports success on its first sale. Refused rather than guessed, because
+    // guessing would make 80 mean 80% here and 80 basis points everywhere else.
+    if metric == "SELL_THROUGH" && input.target_value > 10_000 {
+        return Err(AppError::Validation(
+            "a SELL_THROUGH target is basis points and cannot exceed 10000 (100%)".into(),
+        ));
+    }
+    let baseline = input
+        .baseline_campaign_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|one| !one.is_empty())
+        .map(str::to_string);
+    if baseline.as_deref() == Some(campaign_id) {
+        return Err(AppError::Validation(
+            "a campaign cannot be its own baseline".into(),
+        ));
+    }
+    let actor = input.updated_by.trim();
+    if actor.is_empty() {
+        return Err(AppError::Validation("updated_by is required".into()));
+    }
+    let row = sqlx::query(
+        "INSERT INTO campaign_intent
+             (campaign_id, objective, success_metric, target_direction, target_value,
+              baseline_campaign_id, notes, updated_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+         ON CONFLICT (campaign_id) DO UPDATE SET
+             objective            = EXCLUDED.objective,
+             success_metric       = EXCLUDED.success_metric,
+             target_direction     = EXCLUDED.target_direction,
+             target_value         = EXCLUDED.target_value,
+             baseline_campaign_id = EXCLUDED.baseline_campaign_id,
+             notes                = EXCLUDED.notes,
+             updated_at           = now(),
+             updated_by           = EXCLUDED.updated_by
+         RETURNING *",
+    )
+    .bind(campaign_id)
+    .bind(&objective)
+    .bind(&metric)
+    .bind(&direction)
+    .bind(input.target_value)
+    .bind(baseline.as_deref())
+    .bind(
+        input
+            .notes
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty()),
+    )
+    .bind(actor)
+    .fetch_one(pool)
+    .await?;
+    Ok(intent_row(&row))
+}
+
+/// Withdraw it.
+///
+/// The campaign survives — it is a row in a published book and this was never
+/// part of it. What goes is the claim that it was run for a stated reason,
+/// which is a thing somebody should be able to take back without republishing
+/// prices to the estate.
+pub async fn delete_campaign_intent(pool: &PgPool, campaign_id: &str) -> Result<Value, AppError> {
+    let gone = sqlx::query("DELETE FROM campaign_intent WHERE campaign_id = $1")
+        .bind(campaign_id.trim())
+        .execute(pool)
+        .await?
+        .rows_affected();
+    Ok(json!({ "deleted": gone }))
 }

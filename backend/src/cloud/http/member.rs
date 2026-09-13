@@ -22,6 +22,8 @@
 use super::auth::Principal;
 use crate::cloud::{
     application::{AppError, AppState},
+    domain::RecordKind,
+    http::audit::DeclaredSubject,
     postgres::{
         self as infrastructure, CustomerSummary, CustomerTransactionDetail,
         CustomerTransactionPage, CustomerTransactionsQuery, IssuedPairingCode, MemberIdentity,
@@ -135,10 +137,13 @@ pub async fn directory(
     // the query string: a caller holding clauses is holding a copy, and the
     // list would stop agreeing with the count on the card that linked to it.
     //
-    // Three placeholders are bound by `list_members` before the narrowing, and
-    // telling the compiler so is the whole contract — see `compile::narrow`.
+    // TWO placeholders are bound by `list_members` before the narrowing — the
+    // search and the segment filter — and telling the compiler so is the whole
+    // contract; see `compile::narrow`. It was three while the limit was bound
+    // third; the limit now comes after the narrowing's own parameters, because
+    // how many of those there are depends on how many clauses somebody wrote.
     let narrowing = match query.segment_id {
-        Some(id) => Some(infrastructure::segment_narrowing(&state.db, id, 3).await?),
+        Some(id) => Some(infrastructure::segment_narrowing(&state.db, id, 2).await?),
         None => None,
     };
     Ok(Json(
@@ -212,6 +217,7 @@ pub struct SegmentRequest {
 pub async fn create_segment(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
+    Extension(acted_on): Extension<DeclaredSubject>,
     Json(request): Json<SegmentRequest>,
 ) -> Result<(axum::http::StatusCode, Json<infrastructure::SavedSegment>), AppError> {
     let saved = infrastructure::create_segment(
@@ -224,6 +230,7 @@ pub async fn create_segment(
         },
     )
     .await?;
+    acted_on.set(RecordKind::Segment, saved.segment_id.to_string());
     Ok((axum::http::StatusCode::CREATED, Json(saved)))
 }
 
@@ -285,16 +292,17 @@ pub async fn preview_segment(
 /// Enrol a card at the counter.
 pub async fn enrol(
     State(state): State<AppState>,
+    Extension(acted_on): Extension<DeclaredSubject>,
     Json(request): Json<EnrolMemberRequest>,
 ) -> Result<Json<MemberIdentity>, AppError> {
-    Ok(Json(
-        infrastructure::enrol_member(
-            &state.db,
-            &request.member_id,
-            request.display_name.as_deref(),
-        )
-        .await?,
-    ))
+    let member = infrastructure::enrol_member(
+        &state.db,
+        &request.member_id,
+        request.display_name.as_deref(),
+    )
+    .await?;
+    acted_on.set(RecordKind::Member, member.member_id.clone());
+    Ok(Json(member))
 }
 
 /// Issue the six digits a cashier reads out to a shopper holding the card.

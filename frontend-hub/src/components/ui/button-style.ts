@@ -9,31 +9,43 @@ import { cva, type VariantProps } from "class-variance-authority"
 /// to a screen reader, and on some browsers the keyboard activates the inner
 /// one and goes nowhere.
 ///
-/// `primary` is the one filled CTA and there is at most one per screen. It
-/// wears the indigo — the same colour as the active nav row, the selected
-/// cell and the focus ring — so "this one" is one colour in the whole app.
-/// It used to be black, on the reasoning that a neutral CTA never competes
-/// with the accent; in practice it read as a second system sitting on top of
-/// an indigo one, and the most important control on a screen was the only
-/// thing that did not belong to it.
+/// `primary` is the one filled CTA and there is at most one per screen. It is
+/// BLACK, and this is the second time that has been decided — so the previous
+/// reversal is worth answering rather than quietly overwriting.
+///
+/// Black was tried, dropped for indigo, and is now back. What failed the first
+/// time was not the black: it was the indigo everywhere else. When the active
+/// nav row, the selected cell, the focus ring and half the chrome were all a
+/// saturated violet-blue, a black button genuinely did read as a second system
+/// sitting on top of the first. Since 2026-09-10 the accent is a plainer blue
+/// and it appears in far fewer places — selection only — so the page it stands
+/// on is neutral, and black is simply the darkest thing on it.
+///
+/// The positive argument, which held all along: a screen can hold a dozen
+/// things that mean "selected" and every one of them is the accent. A CTA in
+/// that same colour is one more of them. Black is the only ink nothing else
+/// uses, so "the button to press" needs no disambiguation.
 export const button = cva(
-  "inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full font-medium whitespace-nowrap transition-colors disabled:pointer-events-none disabled:opacity-50 [&_svg]:shrink-0",
+  // `rounded-inner` (8), not a pill. A fully round control reads as consumer;
+  // the reference screens hold a soft rectangle, and it also stops a button
+  // from looking like a status chip at a glance.
+  "inline-flex shrink-0 items-center justify-center gap-1.5 rounded-inner font-medium whitespace-nowrap transition-colors disabled:pointer-events-none disabled:opacity-50 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
-        primary: "bg-accent text-white hover:brightness-95",
+        primary: "bg-cta text-cta-fg hover:bg-cta-hover [&_svg]:text-cta-fg",
         ghost:
-          "border border-hairline-2 bg-canvas text-text hover:bg-soft-2 [&_svg]:text-line-ico",
+          "border border-hairline-2 bg-canvas text-text shadow-soft hover:bg-soft-2 hover:text-ink [&_svg]:text-line-ico",
         soft: "bg-soft-2 text-text hover:bg-hairline [&_svg]:text-line-ico",
         quiet: "text-body hover:bg-soft-2 hover:text-ink [&_svg]:text-line-ico",
         danger: "bg-bad-bg text-bad-fg hover:brightness-97",
       },
       size: {
-        // 32 declared. The prototypes' one button height; `sm` exists only for
-        // controls that sit inside a table row.
-        default: "h-8 px-3 text-[0.78125rem] [&_svg]:size-3.5",
-        sm: "h-[1.625rem] px-2.5 text-[0.71875rem] [&_svg]:size-3",
-        icon: "size-8 [&_svg]:size-4",
+        // 32, from `--spacing-control` — the one height every control in a
+        // toolbar agrees on. `sm` exists only for controls inside a table row.
+        default: "h-control px-2.5 text-control [&_svg]:size-4",
+        sm: "h-[1.75rem] px-2 text-meta [&_svg]:size-3.5",
+        icon: "size-control [&_svg]:size-4",
       },
     },
     defaultVariants: { variant: "ghost", size: "default" },

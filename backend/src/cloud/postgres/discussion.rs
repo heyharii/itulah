@@ -1,12 +1,18 @@
 //! Discussions: threads that hang off a record, not off a category.
 //!
-//! `subject_kind` has nine values and every one of them is a thing this
-//! business does — a purchase order, a supplier, one receipt, an exception.
-//! There is no "General" and no category table, because a thread that is not
-//! about a record is a conversation and conversations have their own screen.
-//! That single constraint is what makes the left-hand axis of the forum useful
-//! instead of decorative: it is a list of work, and each row names the record
-//! being argued about.
+//! `subject_kind` is a record kind and nothing else — there is no "General"
+//! and no category table, because a thread that is not about a record is a
+//! conversation and conversations have their own screen. That single
+//! constraint is what makes the left-hand axis of the forum useful instead of
+//! decorative: it is a list of work, and each row names the record being
+//! argued about.
+//!
+//! The nine words this module used to hold are now fifty-seven, and they are
+//! not this module's to hold: they live in [`crate::cloud::domain::RecordKind`]
+//! and in `record_kind`, which the log, filed documents and notifications read
+//! from too. Widening the list was never the risk 0040 was guarding against —
+//! a supplier bill and a payroll run are records somebody may argue about, and
+//! always were. What it guards is that the subject is a RECORD.
 //!
 //! Three fields most forums hide are load-bearing here:
 //!
@@ -22,26 +28,12 @@
 
 use super::files::{StoredFile, FILE_COLUMNS};
 use crate::cloud::application::AppError;
+use crate::cloud::domain::RecordKind;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
-
-/// The nine subjects a thread may hang on. Rejected here with a list rather
-/// than by the database with a constraint violation, so somebody typing a
-/// tenth is told what the nine are.
-pub const SUBJECT_KINDS: [&str; 9] = [
-    "purchase_order",
-    "purchase_order_line",
-    "supplier",
-    "receipt",
-    "purchase_exception",
-    "commercial_verification",
-    "packaging_item",
-    "supply_item",
-    "article",
-];
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
@@ -107,10 +99,10 @@ pub struct ReplyRequest {
     pub attachments: Vec<Uuid>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct ThreadQuery {
-    /// One of the nine, or absent for all of them.
+    /// A record kind, or absent for all of them.
     pub subject_kind: Option<String>,
     pub subject_id: Option<String>,
     pub tag: Option<String>,
@@ -316,13 +308,21 @@ pub async fn open_thread(
     author: &str,
     request: &OpenThreadRequest,
 ) -> Result<DiscussionThread, AppError> {
+    // Refused here rather than by the foreign key, so somebody who typed a
+    // word that is not a record is told what the words are instead of reading
+    // a constraint name.
     let subject_kind = request.subject_kind.trim().to_ascii_lowercase();
-    if !SUBJECT_KINDS.contains(&subject_kind.as_str()) {
+    let Some(kind) = RecordKind::parse(&subject_kind) else {
         return Err(AppError::Validation(format!(
             "a discussion hangs on a record, and {subject_kind:?} is not one of: {}",
-            SUBJECT_KINDS.join(", ")
+            RecordKind::ALL
+                .iter()
+                .map(|kind| kind.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
         )));
-    }
+    };
+    let subject_kind = kind.as_str().to_owned();
     let subject_id = request.subject_id.trim().to_string();
     let title = request.title.trim().to_string();
     let body = request.body.trim().to_string();
@@ -399,11 +399,88 @@ pub async fn open_thread(
         json!({ "thread_id": thread_id, "title": title, "author": author }),
     )
     .await?;
+
+    // Somebody at head office is told a thread was opened.
+    //
+    // Added when discussions became the channel a SHOP reports a fault on —
+    // "the printer is dead" written into a forum nobody is watching is a
+    // report that was never made. Every thread here is about a record, so
+    // every thread is somebody's work rather than conversation.
+    //
+    // Addressed by role and not to a person: there is no GA account, there are
+    // two admins, and a notification aimed at whoever happens to be listed as
+    // responsible is a notification that stops when that person leaves. The
+    // author is dropped — being told about your own report is noise, and it is
+    // what makes people stop reading the list.
+    // Where this happened, when the record can say. An asset knows which shop
+    // it stands in, so a fault reported at store-03 reaches head office AND
+    // whoever else is posted at store-03 — the second manager on the rota, who
+    // will be the one standing next to the dead printer tomorrow. Records with
+    // no place fall back to head office, which is the honest answer for a
+    // thread about a supplier or an article.
+    let at: Option<String> = if subject_kind == "asset" {
+        sqlx::query_scalar("SELECT site_id FROM fixed_asset WHERE asset_id = $1::uuid")
+            .bind(&subject_id)
+            .fetch_optional(&mut *tx)
+            .await?
+    } else {
+        None
+    };
+    let audience: Vec<String> = match at.as_deref() {
+        Some(place) => {
+            super::notifications::recipients_with_role_at(&mut tx, &["ADMIN", "SUPERVISOR"], place)
+                .await?
+        }
+        None => super::notifications::recipients_with_role(&mut tx, &["ADMIN"]).await?,
+    }
+    .into_iter()
+    .filter(|username| username != author)
+    .collect();
+    super::notifications::raise_notification(
+        &mut tx,
+        super::notifications::NewNotification {
+            kind: "discussion.thread.opened",
+            title: title.clone(),
+            body: match request.subject_note.as_deref().map(str::trim) {
+                Some(note) if !note.is_empty() => format!("{author} · {note}"),
+                _ => format!("{author} opened a discussion about a {subject_kind}"),
+            },
+            subject: Some(("discussion", thread_id.to_string())),
+            origin_id: None,
+            payload: json!({
+                "thread_id": thread_id,
+                "subject_kind": subject_kind,
+                "subject_id": subject_id,
+            }),
+        },
+        &audience,
+    )
+    .await?;
+
     tx.commit().await?;
     read_thread(db, thread_id, author).await
 }
 
 /// Say something in one.
+/// The first line of a reply, short enough to read in a list.
+///
+/// Cut on a word rather than mid-syllable, and only when it is actually too
+/// long: most replies in this system are one sentence, and an ellipsis on a
+/// sentence that already fits is a lie about there being more.
+fn snippet(body: &str) -> String {
+    const ROOM: usize = 90;
+    let one_line = body.split_whitespace().collect::<Vec<_>>().join(" ");
+    if one_line.chars().count() <= ROOM {
+        return one_line;
+    }
+    let cut: String = one_line.chars().take(ROOM).collect();
+    let kept = match cut.rsplit_once(' ') {
+        Some((head, _)) if head.chars().count() > ROOM / 2 => head.to_owned(),
+        _ => cut,
+    };
+    format!("{kept}…")
+}
+
 pub async fn reply(
     db: &PgPool,
     thread_id: Uuid,
@@ -472,6 +549,56 @@ pub async fn reply(
         json!({ "thread_id": thread_id, "seq": seq, "author": author }),
     )
     .await?;
+
+    // Everybody already in this argument is told there is more of it.
+    //
+    // Addressed to PEOPLE and not to a role, which is the difference between
+    // this and every other notification in the system: the question "who cares
+    // about this thread" has one honest answer — whoever has written in it —
+    // and no rung or posting can be asked it. A store manager who reported a
+    // dead printer is not a supervisor here, they are the person waiting.
+    //
+    // Without this the reporting loop only runs one way: head office is told a
+    // fault was reported, answers it, and the shop never learns. People stop
+    // reporting faults not because nobody acts on them, but because the answer
+    // never becomes visible.
+    let participants: Vec<String> = sqlx::query_scalar(
+        "SELECT DISTINCT who FROM (
+             SELECT created_by AS who FROM discussion_thread WHERE thread_id = $1
+             UNION
+             SELECT author_username FROM discussion_post WHERE thread_id = $1
+         ) everybody
+          WHERE who <> $2",
+    )
+    .bind(thread_id)
+    .bind(author)
+    .fetch_all(&mut *tx)
+    .await?;
+    let (title, subject_note): (String, Option<String>) =
+        sqlx::query_as("SELECT title, subject_note FROM discussion_thread WHERE thread_id = $1")
+            .bind(thread_id)
+            .fetch_one(&mut *tx)
+            .await?;
+    super::notifications::raise_notification(
+        &mut tx,
+        super::notifications::NewNotification {
+            kind: "discussion.thread.replied",
+            title,
+            // The reply itself, cut rather than summarised: "there is a new
+            // reply" makes somebody open a screen to find out whether it
+            // mattered, and most of the time it is one sentence long anyway.
+            body: match subject_note.as_deref().map(str::trim) {
+                Some(note) if !note.is_empty() => format!("{author} · {note} — {}", snippet(&body)),
+                _ => format!("{author} — {}", snippet(&body)),
+            },
+            subject: Some(("discussion", thread_id.to_string())),
+            origin_id: None,
+            payload: json!({ "thread_id": thread_id, "seq": seq }),
+        },
+        &participants,
+    )
+    .await?;
+
     tx.commit().await?;
 
     Ok(DiscussionPost {
@@ -693,11 +820,20 @@ mod tests {
         assert_eq!(tags, vec!["harga".to_string(), "lead-time".to_string()]);
     }
 
-    /// The list is the design. A tenth kind is how this becomes a forum with
-    /// categories, which is the one thing it must not become.
+    /// The rule 0040 wrote down, kept after the list stopped being this
+    /// module's. A thread hangs on a RECORD; the moment "general" is a legal
+    /// subject this is a forum with categories, which is the one thing it must
+    /// not become. The list may grow — a payroll run is a record somebody may
+    /// argue about — but it may only grow by records.
     #[test]
-    fn there_are_nine_subjects_and_none_of_them_is_general() {
-        assert_eq!(SUBJECT_KINDS.len(), 9);
-        assert!(!SUBJECT_KINDS.contains(&"general"));
+    fn no_subject_is_a_category() {
+        for word in ["general", "other", "misc", "announcements", "random"] {
+            assert!(
+                RecordKind::parse(word).is_none(),
+                "{word:?} is not a record, and a thread that hangs on it is a \
+                 category by another name"
+            );
+        }
+        assert!(RecordKind::parse("purchase_order").is_some());
     }
 }

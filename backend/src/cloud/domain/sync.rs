@@ -836,6 +836,11 @@ pub struct PublicationCampaign {
     // other on arrival.
     #[serde(default)]
     pub max_uses: Option<i64>,
+    /// The shops this campaign runs in. Absent or empty is everywhere, which is
+    /// what every book published before this field existed meant — so an older
+    /// centre sending nothing narrows nothing.
+    #[serde(default)]
+    pub site_ids: Vec<String>,
     /// The banner, the words on it, and the small print under it.
     ///
     /// A campaign is the only thing in a price book a SHOPPER is meant to read,
@@ -1676,6 +1681,61 @@ mod catalog_tests {
 /// that left match the stock that was billed".
 pub const FACT_SALES_COMPLETED: &str = "sales.completed";
 
+/// A shop that took money and could not turn it into a sale.
+///
+/// Sent when a person at the counter closes a checkout as FAILED while a tender
+/// had already settled — the one outcome the shop cannot fix by itself. The
+/// money is in the shop's takings and there is no sale behind it, so somebody
+/// is owed a refund and nobody at the centre would otherwise know: the shop's
+/// Z report balances, because the money is genuinely there.
+///
+/// Deliberately NOT sent for every unresolved checkout. A checkout still in
+/// FINALIZING is a till mid-payment, which is the ordinary state of every till
+/// several times a minute; reporting those would drown the real ones. This
+/// fires once, after a human has looked and could not resolve it locally.
+///
+/// It carries the acquirer's own references because that is the only handle
+/// head office has when it rings the bank — a shop, a date and an amount is not
+/// enough to find one transaction among a day's batch.
+pub const FACT_CHECKOUT_UNRESOLVED: &str = "checkout.unresolved";
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct CheckoutUnresolvedPayload {
+    pub checkout_id: Uuid,
+    /// Who closed it, which is who to ask what happened.
+    pub actor_id: String,
+    /// What the basket came to — what the shopper was told they owed.
+    pub total_minor: i64,
+    /// What actually settled and is now in the shop's takings with nothing
+    /// against it. This is the number a refund is measured from.
+    pub money_held_minor: i64,
+    pub opened_at: DateTime<Utc>,
+    pub resolved_at: DateTime<Utc>,
+    /// Why it could not be finished, in whatever words the till had.
+    pub last_error: Option<String>,
+    pub tenders: Vec<CheckoutUnresolvedTender>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct CheckoutUnresolvedTender {
+    pub tender_seq: i64,
+    pub method: String,
+    pub amount_minor: i64,
+    pub status: String,
+    /// The acquirer's reference. Without it the centre has an amount and a
+    /// shop, which is not enough to find one transaction in a day's batch.
+    pub external_reference: Option<String>,
+    pub last_error: Option<String>,
+}
+
+/// Read one back off the wire.
+pub fn parse_checkout_unresolved(
+    payload: &serde_json::Value,
+) -> Result<CheckoutUnresolvedPayload, String> {
+    serde_json::from_value(payload.clone())
+        .map_err(|e| format!("malformed {FACT_CHECKOUT_UNRESOLVED} payload: {e}"))
+}
+
 /// A shop reporting that it has put a price book into service.
 ///
 /// Nobody presses a button for this. A shop that applies a publication says so
@@ -1715,6 +1775,56 @@ pub fn parse_publication_activated(payload: &Value) -> Result<PublicationActivat
     Ok(parsed)
 }
 
+/// A shop reporting that it could NOT put a price book into service.
+///
+/// The missing half of the activation story, and its absence was structural
+/// rather than an oversight: a shop that fell over applying a book recorded the
+/// reason in its own command watermark and stopped, and from the centre that
+/// looked exactly like a shop that was merely slow. UI-001 §6 asks a rollout to
+/// read "2 pending, 1 failed"; until this existed the third number could only be
+/// nought, because nothing anywhere let a till say "I failed".
+///
+/// A separate fact from the activation rather than a field on it, because they
+/// are not two shapes of one event: one carries a time the shop started charging
+/// these prices and the other carries a reason it is not. Folding them together
+/// would make `activated_at` optional on the fact that exists to report it.
+pub const FACT_PUBLICATION_ACTIVATION_FAILED: &str = "commercial.publication.activation_failed";
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct PublicationActivationFailedPayload {
+    pub publication_id: Uuid,
+    pub version: i64,
+    /// When the shop tried — its own clock, the same one `activated_at` uses, so
+    /// a rollout's timeline reads in one frame of reference whether the attempts
+    /// succeeded or not.
+    pub attempted_at: DateTime<Utc>,
+    /// What went wrong, in the shop's own words.
+    ///
+    /// Not a code. The centre cannot enumerate what can go wrong inside a till,
+    /// and a classification invented here would be a guess laid over the only
+    /// description anybody actually has. Like `PublicationActivatedPayload`,
+    /// this does NOT name the shop: every fact is attributed to the origin that
+    /// signed for it, and a payload naming its own site would be a claim rather
+    /// than an attribution.
+    pub error: String,
+}
+
+pub fn parse_publication_activation_failed(
+    payload: &Value,
+) -> Result<PublicationActivationFailedPayload, String> {
+    let parsed: PublicationActivationFailedPayload = serde_json::from_value(payload.clone())
+        .map_err(|e| format!("malformed {FACT_PUBLICATION_ACTIVATION_FAILED} payload: {e}"))?;
+    if parsed.version <= 0 {
+        return Err("a publication a shop failed on has a positive version".into());
+    }
+    // An empty reason is NOT refused, and that is deliberate. A rejected fact
+    // blocks this shop's whole stream — its sales stop landing at the centre —
+    // and doing that because a till composed an empty error string would turn a
+    // pricing hiccup into a reporting outage. The centre substitutes a reason
+    // saying the shop gave none, which is itself the truth about the report.
+    Ok(parsed)
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct SaleFactLine {
     pub subject_id: Uuid,
@@ -1736,6 +1846,23 @@ pub struct SaleFactLine {
     /// reconstruction of the old meaning, not a guess at the new one.
     #[serde(default)]
     pub line_total_minor: Option<i64>,
+    /// What of the line is goods and what is tax.
+    ///
+    /// The net is SALES; the tax is money held for somebody else. Absent from a
+    /// shop whose book publishes no rate, and absent from one running a build
+    /// that predates this — and in both cases absent means NOT RECORDED, never
+    /// nought. Nought would claim the line was all goods, which is a different
+    /// and false statement.
+    #[serde(default)]
+    pub net_ex_tax_minor: Option<i64>,
+    #[serde(default)]
+    pub tax_minor: Option<i64>,
+    /// What this line earned. Absent means not recorded, which is what a sale
+    /// taken before the award was allocated per line reads as — and a partial
+    /// return of one of those needs a person, not arithmetic over a figure
+    /// nobody stored.
+    #[serde(default)]
+    pub points_earned: Option<i64>,
     /// What one unit would have cost before a clearance replaced the price.
     ///
     /// `price_source` already says a markdown applied; this says what it was
@@ -1792,6 +1919,11 @@ pub struct SalesCompletedPayload {
     pub total_minor: i64,
     pub paid_minor: i64,
     pub change_minor: i64,
+    /// The basket's own split. See `SaleFactLine`: absent is not recorded.
+    #[serde(default)]
+    pub net_ex_tax_minor: Option<i64>,
+    #[serde(default)]
+    pub tax_total_minor: Option<i64>,
     pub lines: Vec<SaleFactLine>,
     /// What the promotions took off, together. Zero from a shop that has none.
     #[serde(default)]
@@ -2107,6 +2239,13 @@ pub const FACT_GOODS_RECEIPT_LINE: &str = "goods_receipt.line";
 /// The supplier's invoice, as the verifier read it off the paper.
 pub const FACT_GOODS_RECEIPT_INVOICE: &str = "goods_receipt.invoice";
 
+/// A whole delivery turned away, with nothing accepted off it.
+///
+/// It carries the document's own header rather than assuming the centre has
+/// heard of it: a refused delivery has no accepted lines, and lines are the
+/// only thing that ever created the header before.
+pub const FACT_GOODS_RECEIPT_REJECTED: &str = "goods_receipt.rejected";
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct PurchaseOrderLinePayload {
     pub po_line_id: Uuid,
@@ -2213,10 +2352,28 @@ pub struct GoodsReceiptLinePayload {
 
     // --- this line ---
     pub receipt_line_id: Uuid,
+    /// The DC's own identifier for the count this line came from. It is what a
+    /// price query names, and without it the centre cannot say which
+    /// acceptance a buyer's approval was about.
+    #[serde(default)]
+    pub count_id: Option<Uuid>,
     pub po_line_id: Uuid,
     pub movement_group_id: Uuid,
-    /// Pieces.
+    /// Pieces, exactly as the checker counted them.
     pub quantity: i64,
+    /// How much of that the order still had room for, as the DC computed it.
+    /// The centre re-derives this from its own copy of the order and does not
+    /// take the node's word for it — a node can be behind, rebuilt, or wrong —
+    /// but a disagreement is worth knowing about, so it travels.
+    #[serde(default)]
+    pub matched_quantity: Option<i64>,
+    #[serde(default)]
+    pub excess_quantity: Option<i64>,
+    /// The agreed price at the moment of acceptance. Absent from nodes that
+    /// predate the column, in which case the centre falls back to the order's
+    /// price as it stands when the fact lands.
+    #[serde(default)]
+    pub agreed_unit_price_minor: Option<i64>,
     /// Who counted the delivery.
     pub counted_by: String,
     /// Who accepted that count. A line only travels once both exist, and they
@@ -2226,6 +2383,33 @@ pub struct GoodsReceiptLinePayload {
     pub verified_by: String,
     pub counted_at: DateTime<Utc>,
     pub verified_at: DateTime<Utc>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct GoodsReceiptRejectedPayload {
+    pub receipt_id: Uuid,
+    pub receipt_number: String,
+    pub supplier_id: String,
+    pub arrived_at: DateTime<Utc>,
+    pub opened_by: String,
+    pub opened_at: DateTime<Utc>,
+    /// Why it went back. A refusal with no reason is a rumour, so this is not
+    /// optional on the wire either.
+    pub reason: String,
+    pub rejected_by: String,
+    pub rejected_at: DateTime<Utc>,
+}
+
+pub fn parse_goods_receipt_rejected(
+    payload: &Value,
+) -> Result<GoodsReceiptRejectedPayload, String> {
+    let rejected: GoodsReceiptRejectedPayload = serde_json::from_value(payload.clone())
+        .map_err(|e| format!("malformed {FACT_GOODS_RECEIPT_REJECTED} payload: {e}"))?;
+    if rejected.reason.trim().is_empty() {
+        return Err("a refused delivery must say why it went back".into());
+    }
+    Ok(rejected)
 }
 
 pub fn parse_goods_receipt_line(payload: &Value) -> Result<GoodsReceiptLinePayload, String> {
@@ -2491,6 +2675,14 @@ pub struct PriceAmendmentDecisionPayload {
     /// warehouse learns what anything costs.
     #[serde(default)]
     pub approved_price_minor: Option<i64>,
+    /// How far the approval reaches: `DELIVERY` settles the acceptance that
+    /// raised the query and nothing else; `REMAINING` also makes the new price
+    /// the agreed one for quantity not yet received. Absent on a refusal.
+    ///
+    /// The DC needs it because only the second case changes the price its
+    /// verifiers will be shown on the next lorry.
+    #[serde(default)]
+    pub scope: Option<String>,
     pub decided_by: String,
     #[serde(default)]
     pub decision_note: Option<String>,

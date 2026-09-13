@@ -77,6 +77,39 @@ pub enum Effect {
         #[serde(default)]
         unit_price: Money,
     },
+    /// Discount a bundle the shopper is already holding — decision D01.
+    ///
+    /// Not a variation on [`Effect::FreeItem`] but the other thing "buy two get
+    /// one" can mean, and the difference is what leaves the shop. `FreeItem`
+    /// hands over an EXTRA unit and leaves the basket priced as it was; this
+    /// reprices units that were already picked up and gives nothing away. That
+    /// is why this one can be published and that one cannot: a shop sells by
+    /// EPC, and every unit in a bundle has already been scanned, where a
+    /// granted unit is one nothing chose.
+    ///
+    /// The discount does not sit on the rewarded unit. D01 spreads it across
+    /// every unit in the bundle, buyers included, so that a refund of any one
+    /// of them returns a share of the offer rather than all of it or none —
+    /// returning the dear unit at full price and keeping the cheap one free is
+    /// how a shopper walks out ahead of a bundle they did not complete.
+    BuyXGetY {
+        /// Units paid for in each bundle.
+        buy: i64,
+        /// Units rewarded in each bundle. The CHEAPEST eligible units are the
+        /// rewarded ones: "get one free" across three different prices is the
+        /// cheapest one free, which is what the shop advertised and what it
+        /// would have to argue at the counter otherwise.
+        get: i64,
+        /// How much comes off each rewarded unit, in basis points. 10.000 is
+        /// D01's own case — the reward free — and 5.000 is "get one half
+        /// price", which is the same offer and not a different effect.
+        ///
+        /// Required rather than defaulted, because nought is a syntactically
+        /// perfect bundle that rewards nothing. A book that does not say what
+        /// the offer gives has not described an offer, and should be refused
+        /// rather than published as one that silently does nothing.
+        reward_bps: i64,
+    },
     /// Award loyalty points. Carries no price benefit, so it never competes
     /// with a discount — see [`crate::engine`] for why it is resolved
     /// separately.
@@ -98,19 +131,83 @@ pub enum EarnEffect {
 
 /// Which amount points accrue on.
 ///
-/// Default is the selling price after any markdown but before discounts: a
-/// shopper who buys a marked-down shirt earns on what the shirt now costs, and
-/// a promotion the shop chose to run does not also cut the points it awards.
+/// Default is [`PostDiscountNet`](EarnBasis::PostDiscountNet) — the goods after
+/// every discount has come off, and before tax. That is the locked rule: a
+/// shopper earns on what the shop actually took for the merchandise.
+///
+/// The two halves are separate decisions and both were argued. *After discount*
+/// because the alternative pays loyalty on money nobody paid. *Before tax*
+/// because the tax is not the shop's to reward: on an inclusive book it is
+/// already inside the ticket price, and awarding on it would hand out points
+/// that rise and fall with a rate the shop does not set.
+///
+/// The old default was [`PostMarkdownPreDiscount`](EarnBasis::PostMarkdownPreDiscount),
+/// which reads reasonably and was never anybody's policy — it arrived as a
+/// field default and stayed. It is still selectable, for a rule that means it.
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum EarnBasis {
+    /// Net of every discount the engine applied, **and of tax**.
+    ///
+    /// The V1 default, and the locked rule: points are earned on the goods —
+    /// what the shopper actually paid for merchandise, with nothing in it that
+    /// belongs to the state. Paying loyalty on a PPN line is paying customers
+    /// for money the shop is only holding.
+    ///
+    /// It is the default rather than the third option because a rule that says
+    /// nothing should mean the policy, not the most generous reading of it.
+    /// The two below are pre-discount bases kept for the offers that genuinely
+    /// want them — "earn on the ticket price even though it was on sale" is a
+    /// real promotion — and under tax-inclusive pricing they still contain the
+    /// tax, because they are prices rather than net amounts.
     #[default]
-    PostMarkdownPreDiscount,
-    /// Net of every discount the engine applied.
     PostDiscountNet,
+    /// What the line came to after markdown, before any promotion.
+    PostMarkdownPreDiscount,
     /// The list price, before markdown.
     Original,
+}
+
+/// What a bonus earning rate does when a better rate already reached the line.
+///
+/// Several earning rules can be eligible for one line — an everyday rate, a
+/// double-points weekend, triple points on footwear. One of them wins the line
+/// outright; this says what the OTHERS are then worth, and it is read on each
+/// of those others rather than on the winner, because the author of "double
+/// points this weekend" is the person deciding whether their offer stacks.
+///
+/// **The bonus is measured against the least generous rate that reaches the
+/// line** — the shop's everyday rate, the one that is always on. That is what
+/// makes "2x" a number rather than a ratio between two arbitrary rules. Where
+/// no everyday rate reaches a line, the least generous rate in play becomes the
+/// baseline and there is nothing to be a bonus over, so the best rate stands
+/// alone whatever this says.
+///
+/// [`Highest`](PointsCombination::Highest) is the default and is exactly what
+/// the engine did before this field existed: the best rate takes the line and
+/// the rest earn nothing. Defaulting either other way would raise the points
+/// every published loyalty rule awards, on baskets that have already been rung.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum PointsCombination {
+    /// Only the best rate on the line counts. A rate that was beaten earns
+    /// nothing — 2x beside 3x is 3x.
+    #[default]
+    Highest,
+    /// Each bonus adds what it is worth ABOVE the everyday rate. 2x beside 3x
+    /// is 4x: one for the everyday rate, one more from the 2x, two more from
+    /// the 3x.
+    Add,
+    /// Each bonus multiplies what the line has earned so far. 2x beside 3x is
+    /// 6x.
+    ///
+    /// The one that runs away with a basket if it is chosen carelessly, which
+    /// is why it is neither the default nor reachable without saying it: three
+    /// modest multipliers that read as generous separately are an order of
+    /// magnitude together.
+    Compound,
 }
 
 /// Who a rule is for.
@@ -352,6 +449,60 @@ pub enum Stacking {
     Exclusive,
 }
 
+/// How much of the basket a rule that will not share actually claims.
+///
+/// [`Stacking`] says an offer applies on its own. This says what "on its own"
+/// is measured over, and it is read for any rule that is not
+/// [`Stackable`](Stacking::Stackable).
+///
+/// **[`Basket`](ExclusiveScope::Basket) is the default and is today's meaning**
+/// — an offer that will not share shuts every other offer out of the whole
+/// sale. Every rule ever published carries that reading, and defaulting the
+/// other way would quietly widen offers a shop has already run: a 20%-off-shoes
+/// promotion that has been suppressing a basket offer all season would start
+/// letting it through, and the first anybody would hear of it is the margin.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ExclusiveScope {
+    /// It claims the whole sale: while it applies, nothing else does.
+    #[default]
+    Basket,
+    /// It claims only the lines its own benefit lands on. Another offer may
+    /// still work on the rest of the basket — measured over the rest, and
+    /// landing on the rest.
+    ///
+    /// Both halves, for the reason [`MarkdownPolicy::Exclude`] excludes both:
+    /// an offer allowed to COUNT a claimed line toward its threshold but not to
+    /// discount it would qualify on goods it is then not permitted to touch.
+    Line,
+}
+
+/// Whether a promotion may land on goods that are already marked down.
+///
+/// **Excluded by default**, which is the locked V1 rule and the one a shop
+/// means when it says "not valid on sale items". A markdown has already given
+/// margin away; a promotion on top gives away a second slice of what is left,
+/// and the two were authored by different people for different reasons.
+///
+/// `Allow` is the deliberate exception — a clearance event where the point IS
+/// to stack — and it has to be said out loud, because the failure mode of the
+/// other default is silent: nobody notices the offers compounding until the
+/// margin report lands.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum MarkdownPolicy {
+    /// A line whose price came from a markdown is not matched at all — so it
+    /// takes no benefit AND does not count toward this rule's minimum spend.
+    /// Both halves matter: a rule that ignored a cleared line for the discount
+    /// but counted it toward the threshold would qualify on goods it refuses
+    /// to discount.
+    #[default]
+    Exclude,
+    Allow,
+}
+
 /// Whether a rule is live.
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -393,9 +544,45 @@ pub struct Campaign {
     pub valid_from: Option<DateTime<Utc>>,
     #[serde(default)]
     pub valid_to: Option<DateTime<Utc>>,
+    /// The shops it runs in. Empty is everywhere.
+    ///
+    /// Shared the way the window above is shared, and enforced the same way:
+    /// both the campaign's list and the rule's own bind, and what a shop gets
+    /// is the intersection. A campaign across thirteen shops holding a student
+    /// offer named for six gives six.
+    ///
+    /// `#[serde(default)]` is load-bearing rather than tidy. Every book
+    /// published before this field existed is still in force in some shop, and
+    /// an empty set is exactly what those books meant: nothing narrowed.
+    #[serde(default)]
+    pub site_ids: BTreeSet<String>,
     /// Shared across every rule in the campaign.
     #[serde(default)]
     pub caps: Caps,
+}
+
+/// What tax a category of goods carries, and whether the shelf price already
+/// contains it.
+///
+/// Published with the price book and frozen with it, so a sale from March is
+/// still explainable in November after a rate changes. The engine reads it; it
+/// does not decide it.
+///
+/// **`inclusive` is the whole of the difference.** Indonesian retail prices are
+/// quoted with PPN in them, so the honest reading of a 110.000 shelf ticket at
+/// 10% is 100.000 of goods and 10.000 of tax — the shopper pays 110.000 either
+/// way. Read the same ticket as exclusive and the shopper is charged 121.000.
+/// Getting this backwards is not a rounding difference, it is an eleven per
+/// cent one, which is why it travels with the rate rather than being assumed.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaxRule {
+    pub tax_category: String,
+    /// Basis points. 1100 is 11%.
+    pub rate_bps: i64,
+    /// Whether the price the shopper sees already contains this tax.
+    #[serde(default)]
+    pub inclusive: bool,
 }
 
 /// One promotion.
@@ -422,11 +609,64 @@ pub struct Rule {
     pub max_discount: Option<Money>,
     #[serde(default)]
     pub caps: Caps,
-    /// Higher wins when two rules cannot both apply.
+    /// How many carts this may apply to **for one shopper**. `None` is the
+    /// default and means no per-shopper limit, which is what every book
+    /// published before this field existed says — so none of them changes.
+    ///
+    /// Beside [`caps`](Rule::caps) rather than inside it, and the placement is
+    /// the argument. Every limit in [`Caps`] is a property of the PROMOTION and
+    /// can be answered out of the snapshot, which is why `Caps` can be shared
+    /// with a [`Campaign`]. This one is a property of the SHOPPER: two people
+    /// in the same shop, under the same book, get different answers from it.
+    /// Its count arrives on [`crate::PricingContext`] and the check lives in
+    /// the gate, which is the only place the rule and the shopper are both in
+    /// hand.
+    ///
+    /// Refused rather than ignored where the count cannot be had — see
+    /// [`RejectionReason::CustomerUsageUnknown`]. A limit that silently reads
+    /// nought is not a limit, and the money leaks with nothing on any screen to
+    /// say so.
+    #[serde(default)]
+    pub max_uses_per_customer: Option<i64>,
+    /// The order this rule is reached in, and the tie-break when two outcomes
+    /// are worth the same. **Lower first** — decision D03.
+    ///
+    /// Ascending, not descending, and the direction is load-bearing rather than
+    /// a preference: with `Combine`, each offer works on what the previous one
+    /// left, so 20% then Rp50.000 off Rp300.000 is Rp190.000 and the reverse is
+    /// Rp200.000. Whoever writes `priority` is choosing between those two
+    /// numbers, and they have to know which way the field counts.
+    ///
+    /// Flipped from "higher wins" when D03 was locked. It cost nothing to flip:
+    /// every rule published to that point carried priority nought, so no book's
+    /// meaning moved.
     #[serde(default)]
     pub priority: i64,
     #[serde(default)]
     pub stacking: Stacking,
+    /// How much of the basket this rule claims when it will not share.
+    ///
+    /// Read only when [`stacking`](Rule::stacking) is not
+    /// [`Stackable`](Stacking::Stackable) — a rule that combines with
+    /// everything claims nothing, so there is nothing for this to narrow.
+    ///
+    /// `#[serde(default)]` is [`Basket`](ExclusiveScope::Basket), which is what
+    /// the engine has always done and therefore what every book already in
+    /// force means. The narrow reading has to be opted into, because widening
+    /// it by default would let offers through that a published promotion has
+    /// been suppressing.
+    #[serde(default)]
+    pub exclusive_scope: ExclusiveScope,
+    /// Whether this offer lands on goods already marked down. Excluded unless
+    /// the rule says otherwise — see [`MarkdownPolicy`].
+    ///
+    /// `#[serde(default)]` gives every book published before this field existed
+    /// the excluded reading. That is a CHANGE in what those books do, and the
+    /// right direction for it: they were written under a policy nobody could
+    /// state, and the shop's own words for that policy are "not valid on sale
+    /// items".
+    #[serde(default)]
+    pub markdown_policy: MarkdownPolicy,
     /// Never applied on its own; surfaced so a person can choose it.
     ///
     /// For offers that need a decision the till cannot make — a trade-in, a
@@ -437,6 +677,19 @@ pub struct Rule {
     /// Which amount points accrue on. Only read for an earn rule.
     #[serde(default)]
     pub earn_basis: EarnBasis,
+    /// What this earning rate is worth on a line a better rate already won.
+    ///
+    /// Read only for a rule that earns at a rate. A flat bonus and a
+    /// per-unit bonus ([`EarnEffect::FixedPoints`],
+    /// [`EarnEffect::PointsPerQuantity`]) are additive by construction — they
+    /// are not competing for a line — so there is nothing here to decide.
+    ///
+    /// `#[serde(default)]` is [`Highest`](PointsCombination::Highest), which is
+    /// the arithmetic the engine already did: one rate wins a line and the
+    /// beaten ones earn nothing. Any other default would hand out more points
+    /// than the rule that is already published promised.
+    #[serde(default)]
+    pub points_combination: PointsCombination,
     /// Most points this rule may award on one cart. `None` is unbounded.
     #[serde(default)]
     pub max_points: Option<i64>,
@@ -514,6 +767,34 @@ pub enum RejectionReason {
     DisplacedByExclusiveRule,
     /// It would have taken nothing off.
     NoBenefit,
+    /// Everything it would have touched is already marked down, and it is not
+    /// written to stack on a markdown.
+    ///
+    /// Distinct from [`NothingMatched`](Self::NothingMatched) on purpose. The
+    /// two are the same fact to the engine and opposite facts to the person
+    /// reading them: "nothing in the basket qualifies" sends a merchandiser
+    /// looking for a scope bug while the named SKU sits right there on the
+    /// screen, marked down. Naming the real cause is the difference between a
+    /// rule somebody fixes and a rule somebody re-authors from scratch.
+    MarkdownExcluded,
+    /// This shopper has already had it as often as it allows —
+    /// [`Caps::max_uses_per_customer`].
+    ///
+    /// Deliberately not [`UsageExhausted`](Self::UsageExhausted). That one
+    /// means the promotion is finished for everybody and the right answer at
+    /// the counter is "it has ended"; this one means the offer is still running
+    /// and this shopper has had their turn. Giving the first answer for the
+    /// second fact has a cashier telling a queue a live promotion is over.
+    CustomerLimitReached,
+    /// It is limited per shopper and this node cannot say how often THIS
+    /// shopper has used it, so it is refused rather than given away.
+    ///
+    /// The count lives in `commercial_usage_customer` at the centre. A node
+    /// that does not hold it — a till, which keeps no customer history at all —
+    /// reads nought for every shopper, and nought means a "once per customer"
+    /// offer applies on every visit to every shop, for ever. Failing closed
+    /// puts that on the screen instead of into the margin.
+    CustomerUsageUnknown,
 }
 
 impl RejectionReason {
@@ -546,6 +827,11 @@ impl RejectionReason {
             Self::OutbidByBetterOffer => "another offer gave a better price",
             Self::DisplacedByExclusiveRule => "another offer cannot be combined with this one",
             Self::NoBenefit => "the promotion would take nothing off",
+            Self::MarkdownExcluded => "it does not apply to goods already marked down",
+            Self::CustomerLimitReached => "this shopper has already used this promotion",
+            Self::CustomerUsageUnknown => {
+                "this shop cannot tell how often this shopper has used it"
+            }
         }
     }
 }

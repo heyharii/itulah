@@ -13,13 +13,12 @@ import { Timeline } from "@/components/ui/timeline"
 import { moment } from "@/lib/format"
 import {
   attendancePeriods,
-  boundedTo,
   closePeriod,
   reopenPeriod,
   rosterKeys,
-  useReach,
 } from "@/lib/queries/people"
 import { queryState } from "@/lib/query-state"
+import { UnitChoice, useUnit } from "@/screens/people/parts"
 import type { PeriodView } from "@itulah/contract"
 
 /// Signing the month off — and being honest about what the signature covers.
@@ -47,10 +46,9 @@ function statusTone(status: string) {
 }
 
 export function Periods() {
-  const reach = useReach()
-  const place = reach.data?.place_id ?? null
-  const bounded = boundedTo(reach.data)
-  const employer = bounded === null
+  const unit = useUnit()
+  const place = unit.place
+  const employer = unit.employer
 
   const periods = useQuery({
     queryKey: rosterKeys.periods(place ?? ""),
@@ -65,8 +63,15 @@ export function Periods() {
         title="Period close"
         sub={
           employer
-            ? "What each place has signed off, and what head office has sent back."
-            : `Signing ${bounded}'s months off. Closing freezes the roster as well as the facts.`
+            ? `What ${unit.name ?? "this place"} has signed off, and what head office has sent back. Pick another unit to read its months.`
+            : `Signing ${unit.name ?? "your place"}'s months off. Closing freezes the roster as well as the facts.`
+        }
+        actions={
+          <UnitChoice
+            place={place}
+            places={unit.places}
+            onChange={unit.setPlace}
+          />
         }
       />
 
@@ -77,7 +82,7 @@ export function Periods() {
         decided. A close records that the punch checks were not made.
       </Banner>
 
-      {place === null && (
+      {place === null && !unit.choosing && (
         <Banner tone="bad" className="mb-4">
           You are not posted anywhere, so there is no month to close.
         </Banner>

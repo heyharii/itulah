@@ -13,6 +13,8 @@ import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { ExceptionQueue } from "@/components/ui/exception-queue"
 import { Field, Input, Select, Textarea } from "@/components/ui/field"
+import { FilterPanel } from "@/components/ui/filter-panel"
+import { Choices } from "@/components/ui/form"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import {
@@ -22,15 +24,24 @@ import {
   MiniTable,
   SubHead,
 } from "@/components/ui/rows"
+import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState, ErrorState } from "@/components/ui/states"
+import {
+  Banner,
+  EmptyState,
+  ErrorState,
+  Truncated,
+} from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { Tag } from "@/components/ui/tag"
 import { Timeline } from "@/components/ui/timeline"
+import { useFilters } from "@/lib/filters"
 import { count, day, moment } from "@/lib/format"
 import type { Tone } from "@/lib/format"
 import {
   AMENDABLE_FIELDS,
+  accountKeys,
+  accountTargets,
   addContract,
   amendPersonalData,
   applyTransition,
@@ -45,6 +56,7 @@ import {
   leaveStateLabel,
   linkAccount,
   listEmployees,
+  provisionAccount,
   releaseAccount,
   expiringContracts,
   peopleKeys,
@@ -59,12 +71,14 @@ import {
   type Transition,
 } from "@/lib/queries/people"
 import { queryState } from "@/lib/query-state"
+import { usePeopleAudience } from "@/screens/people/scope"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import type {
   AccountBinding,
   EmployeeSummary,
   ProfileAmendmentView,
+  ProvisionedAccount,
 } from "@itulah/contract"
 import { Quiet } from "@/screens/people/parts"
 
@@ -112,6 +126,8 @@ const columns: ColumnDef<TableSetup, EmployeeSummary>[] = [
     accessorKey: "employee_code",
     header: "Number",
     size: 120,
+    // No filter on this or on Name: both are looked up rather than narrowed
+    // by, and the search box in the header already reads them.
     cell: ({ row }) => (
       <span className="font-mono text-id text-body">
         {row.original.employee_code}
@@ -136,6 +152,9 @@ const columns: ColumnDef<TableSetup, EmployeeSummary>[] = [
     accessorKey: "status",
     header: "Status",
     size: 160,
+    /// The same words the pill wears, so a clause reads like the column it
+    /// came from rather than like the enum underneath it.
+    meta: { filter: { kind: "option", format: statusLabel } },
     cell: ({ row }) => (
       <Pill tone={statusTone(row.original.status)}>
         {statusLabel(row.original.status)}
@@ -147,6 +166,11 @@ const columns: ColumnDef<TableSetup, EmployeeSummary>[] = [
     accessorFn: (row) => row.place_name ?? row.place_id ?? "",
     header: "Posted to",
     size: 160,
+    /// Faceted from the rows the server already bounded to this caller's own
+    /// reach, which is the only list of places that can be right here — and
+    /// the empty string an unposted person carries is what makes "is empty"
+    /// ask for exactly them.
+    meta: { filter: { kind: "option" } },
     cell: ({ row }) =>
       row.original.place_id ? (
         (row.original.place_name ?? row.original.place_id)
@@ -158,6 +182,7 @@ const columns: ColumnDef<TableSetup, EmployeeSummary>[] = [
     accessorKey: "position",
     header: "Job",
     size: 160,
+    meta: { filter: { kind: "option" } },
     cell: ({ row }) =>
       row.original.position ?? <span className="text-mute">—</span>,
   },
@@ -165,6 +190,9 @@ const columns: ColumnDef<TableSetup, EmployeeSummary>[] = [
     accessorKey: "contract_kind",
     header: "Contract",
     size: 110,
+    /// PKWT against PKWTT — fixed term against permanent — which is the
+    /// question the expiry column beside it cannot be asked (see below).
+    meta: { filter: { kind: "option" } },
     cell: ({ row }) =>
       row.original.contract_kind ? (
         <Tag tone={row.original.contract_kind === "PKWT" ? "warn" : "neutral"}>
@@ -179,6 +207,13 @@ const columns: ColumnDef<TableSetup, EmployeeSummary>[] = [
     accessorFn: (row) => daysUntil(row.contract_ends_on) ?? PERMANENT,
     header: "Term ends in",
     size: 140,
+    /// **Not filterable, because of the accessor directly above.** A permanent
+    /// contract has no end date and is stood in for by `PERMANENT` so that it
+    /// sorts last. A clause cannot see that substitution: "ends in more than
+    /// 90 days" would answer with every permanent employee in the company,
+    /// each one reported as a term running out in nine quadrillion days. Ask
+    /// Contract instead — PKWT is the set with a term at all — and the
+    /// exception queue above already carries the ones running out.
     meta: { align: "right" },
     // The decision metric, and why this list sorts by it ascending: the first
     // screenful is whoever needs a renewal — and above them, anybody already
@@ -204,6 +239,18 @@ const columns: ColumnDef<TableSetup, EmployeeSummary>[] = [
     accessorFn: (row) => (row.username === null ? 0 : 1),
     header: "Login",
     size: 100,
+    /// The options are named rather than faceted raw, because the accessor is
+    /// a 0 and a 1 and "Login is 0" is a sentence about a database. The counts
+    /// beside them are still the table's own.
+    meta: {
+      filter: {
+        kind: "option",
+        options: [
+          { value: "1", label: "Linked" },
+          { value: "0", label: "None" },
+        ],
+      },
+    },
     cell: ({ row }) =>
       row.original.username ? (
         <span className="text-text">Linked</span>
@@ -212,6 +259,13 @@ const columns: ColumnDef<TableSetup, EmployeeSummary>[] = [
       ),
   },
 ]
+
+/// What this screen asks for, named once so the banner and the request cannot
+/// disagree. It is the server's ceiling, not a page size: the search and the
+/// sort below both run in the BROWSER, over whatever this fetched, so the
+/// number here is also the number past which this screen stops being able to
+/// answer the question it appears to answer.
+const CAP = 1000
 
 export function Directory() {
   const [query, setQuery] = useState("")
@@ -231,24 +285,30 @@ export function Directory() {
   // and is small enough to hold, and `<DataTable>` virtualises past 150 rows,
   // so nothing is ever sliced away to make it fast.
   const people = useQuery({
-    queryKey: peopleKeys.employees({ limit: 1000 }),
-    queryFn: ({ signal }) => listEmployees({ limit: 1000 }, signal),
+    queryKey: peopleKeys.employees({ limit: CAP }),
+    queryFn: ({ signal }) => listEmployees({ limit: CAP }, signal),
   })
 
   const rows = useMemo(() => people.data ?? [], [people.data])
+
+  const filters = useFilters(columns)
 
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
         data: rows,
-        columns,
+        columns: filters.columns,
         getRowId: (row: EmployeeSummary) => row.employee_id,
-        state: { globalFilter: query, sorting },
+        state: {
+          columnFilters: filters.columnFilters,
+          globalFilter: query,
+          sorting,
+        },
         onSortingChange: setSorting,
         onGlobalFilterChange: setQuery,
       }),
-      [rows, query, sorting]
+      [rows, filters.columns, filters.columnFilters, query, sorting]
     )
   )
 
@@ -316,6 +376,15 @@ export function Directory() {
         />
       )}
 
+      <Toolbar>
+        <FilterPanel model={filters} table={table} />
+      </Toolbar>
+
+      {/* Only when the answer came back exactly as large as the question. A
+          shorter answer proves there was nothing more to send; this length
+          proves nothing either way, which is the whole point of saying so. */}
+      {rows.length >= CAP && <Truncated limit={CAP} noun="employees" />}
+
       <Card className="overflow-hidden">
         {queryState(people, {
           loading: "Loading the workforce…",
@@ -330,7 +399,15 @@ export function Directory() {
                 table={table}
                 onRowClick={(row) => employee.open(row.employee_id)}
                 isSelected={(row) => row.employee_id === employee.value}
-                empty="Nobody matches that search."
+                // The count is the difference between "nobody works here" and
+                // "nobody here matches what you typed". Without it an empty box
+                // after a search reads as a company with no employees.
+                empty={
+                  <>
+                    None of the {rows.length.toLocaleString("id-ID")} people
+                    loaded match this search and the filters in force.
+                  </>
+                }
                 className="max-h-[calc(100vh-14rem)]"
               />
             ),
@@ -353,6 +430,24 @@ const TABS = [
   { value: "change", label: "Change" },
 ] as const
 
+/// The tabs this caller is actually offered.
+///
+/// Every form behind **Change** — employment status, posting, contract,
+/// employee number, the login, personal data — is an employer act, and every
+/// one of the six is `Role::Admin` on the server. A place manager was being
+/// shown the tab anyway, so the one screen a store opens daily carried six
+/// forms whose Save could only ever answer 403: an offer the app cannot keep.
+///
+/// Hiding it is not the permission — the routes stay the permission. This only
+/// stops the screen promising something it will be refused.
+///
+/// `null` from the audience hook means "not yet known", and that is read as
+/// "not offered": a tab that appears a moment late is better than one that is
+/// drawn and then taken away under the reader's cursor.
+function tabsFor(employer: boolean): readonly (typeof TABS)[number][] {
+  return employer ? TABS : TABS.filter((one) => one.value !== "change")
+}
+
 function EmployeeSheet({
   id,
   listed,
@@ -363,6 +458,12 @@ function EmployeeSheet({
   onClose: () => void
 }) {
   const [tab, setTab] = useState<string>("record")
+  const employer = usePeopleAudience() === "employer"
+  const tabs = tabsFor(employer)
+  // A tab the caller may no longer be offered falls back rather than rendering
+  // nothing: reach arrives after the first paint, so "change" can be selected
+  // for a moment before we know the answer.
+  const shown = tabs.some((one) => one.value === tab) ? tab : "record"
 
   const detail = useQuery({
     queryKey: peopleKeys.employee(id ?? ""),
@@ -422,9 +523,9 @@ function EmployeeSheet({
             </Facts>
 
             <div>
-              <SubTabs tabs={TABS} value={tab} onChange={setTab} />
+              <SubTabs tabs={tabs} value={shown} onChange={setTab} />
 
-              {tab === "record" && (
+              {shown === "record" && (
                 <div className="flex flex-col gap-5">
                   <div>
                     <SubHead>Employment</SubHead>
@@ -514,13 +615,15 @@ function EmployeeSheet({
                 </div>
               )}
 
-              {tab === "leave" && <LeaveTab employeeId={person.employee_id} />}
+              {shown === "leave" && (
+                <LeaveTab employeeId={person.employee_id} />
+              )}
 
-              {tab === "contracts" && (
+              {shown === "contracts" && (
                 <Contracts employeeId={person.employee_id} />
               )}
 
-              {tab === "change" && (
+              {shown === "change" && (
                 <Changes
                   employeeId={person.employee_id}
                   account={person.account}
@@ -1172,15 +1275,33 @@ function CodeForm({ employeeId }: { employeeId: string }) {
   )
 }
 
-/// The login this record signs in with: bound here, and released here.
+/// The login this record signs in with: issued here, bound here, released here.
 ///
-/// Two acts behind one entry rather than two, because they are the same
-/// decision made in opposite directions and a person who has picked "the login"
-/// wants to see the one they have before choosing. What this form deliberately
-/// cannot do is *close* an account: a release says the credential is not this
-/// person's, and closing somebody's login is either ending their employment —
-/// which does it as part of the same act — or an administrator's decision in
-/// System > Accounts.
+/// Three acts behind one entry rather than three, because they are the same
+/// decision in different directions and a person who has picked "the login"
+/// wants to see the one they have before choosing.
+///
+/// # Issuing was the half that had no screen
+///
+/// `POST /employees/{id}/account/provision` and its `…/account/targets` list
+/// have been live since 0097, and nothing in the app had ever called either.
+/// So head office could *bind* a login that already existed and could not
+/// *create* one — meaning a new hire's credential had to be made in System >
+/// Accounts and then found again here by typing the username back in by hand.
+/// Two screens and a name retyped, for one act the server already performs
+/// atomically, along with the till grant that has to go with it.
+///
+/// The till grant is why this belongs here rather than in System. Whether
+/// somebody signs in at a shop's node, and at what rung, is a fact about their
+/// **posting** — it is HR's answer, not the account administrator's, and the
+/// targets endpoint exists precisely so this form can ask "which till does this
+/// person's place have" without the browser having to know that
+/// `org_place.site_id` and `sync_origin_credential.site_id` are one vocabulary.
+///
+/// What this form still deliberately cannot do is *close* an account: a release
+/// says the credential is not this person's, and closing somebody's login is
+/// either ending their employment — which does it as part of the same act — or
+/// an administrator's decision in System > Accounts.
 function AccountForm({
   employeeId,
   account,
@@ -1191,6 +1312,8 @@ function AccountForm({
   const client = useQueryClient()
   const [username, setUsername] = useState("")
   const [reason, setReason] = useState("")
+  const [how, setHow] = useState<"link" | "issue">("link")
+  const [fresh, setFresh] = useState<FreshLogin>(BLANK_LOGIN)
 
   const refresh = () => {
     client.invalidateQueries({ queryKey: peopleKeys.employee(employeeId) })
@@ -1199,10 +1322,42 @@ function AccountForm({
     })
     setUsername("")
     setReason("")
+    setFresh(BLANK_LOGIN)
   }
+
+  // Only asked for once issuing is the chosen act. A place with no till has no
+  // targets, and asking for them while somebody is typing a username they
+  // already have is a request nobody's answer depends on.
+  const targets = useQuery({
+    queryKey: accountKeys.targets(employeeId),
+    queryFn: ({ signal }) => accountTargets(employeeId, signal),
+    enabled: account === null && how === "issue",
+  })
 
   const link = useMutation({
     mutationFn: () => linkAccount(employeeId, username.trim(), reason.trim()),
+    onSuccess: refresh,
+  })
+  const issue = useMutation({
+    mutationFn: () =>
+      provisionAccount(employeeId, {
+        username: fresh.username.trim(),
+        displayName: fresh.displayName.trim(),
+        password: fresh.password,
+        role: fresh.role,
+        // Omitted rather than sent empty: no grant at all and a grant with no
+        // node are different requests, and the server reads the second as a
+        // mistake.
+        edge:
+          fresh.origin === ""
+            ? undefined
+            : {
+                originId: fresh.origin,
+                role: fresh.edgeRole,
+                edgePassword: fresh.edgePassword,
+              },
+        reason: reason.trim(),
+      }),
     onSuccess: refresh,
   })
   const release = useMutation({
@@ -1213,6 +1368,11 @@ function AccountForm({
   if (account !== null) {
     return (
       <div className="flex flex-col gap-4">
+        {/* Rendered here as well as below, because issuing succeeds *into* this
+            branch: the moment the account exists this is the form on screen,
+            and a confirmation that only the other branch draws is one nobody
+            ever reads. */}
+        {issue.data !== undefined && <IssuedNotice issued={issue.data} />}
         {release.isError && <ErrorState error={release.error} />}
         {release.isSuccess && (
           <Banner tone="ok">
@@ -1251,34 +1411,264 @@ function AccountForm({
     )
   }
 
+  const issued = issue.data ?? null
+  const readyToIssue =
+    fresh.username.trim() !== "" &&
+    fresh.displayName.trim() !== "" &&
+    fresh.password !== "" &&
+    reason.trim() !== "" &&
+    // A node was picked but no PIN typed for it is a grant that cannot be used.
+    (fresh.origin === "" || fresh.edgePassword !== "")
+
   return (
     <div className="flex flex-col gap-4">
       {link.isError && <ErrorState error={link.error} />}
+      {issue.isError && <ErrorState error={issue.error} />}
       {link.isSuccess && (
         <Banner tone="ok">Linked. This record now has a way to sign in.</Banner>
       )}
+      {issued !== null && <IssuedNotice issued={issued} />}
 
-      <Field
-        label="Username"
-        hint="An account that already exists, and that nobody else is. Creating one is a different privilege and a different screen."
-      >
-        <Input
-          value={username}
-          onChange={(event) => setUsername(event.target.value)}
-          placeholder="siti.rahayu"
-        />
-      </Field>
-
-      <Reason value={reason} onChange={setReason} />
-
-      <Submit
-        label="Link the login"
-        busy={link.isPending}
-        disabled={username.trim() === "" || reason.trim() === ""}
-        onClick={() => link.mutate()}
+      <Choices
+        label="How this record gets a login"
+        options={HOW}
+        value={how}
+        onChange={setHow}
+        columns={1}
       />
+
+      {how === "link" ? (
+        <>
+          <Field
+            label="Username"
+            hint="An account that already exists, and that nobody else is."
+          >
+            <Input
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
+              placeholder="siti.rahayu"
+            />
+          </Field>
+
+          <Reason value={reason} onChange={setReason} />
+
+          <Submit
+            label="Link the login"
+            busy={link.isPending}
+            disabled={username.trim() === "" || reason.trim() === ""}
+            onClick={() => link.mutate()}
+          />
+        </>
+      ) : (
+        <>
+          <Field label="Username" hint="Lower case, and nobody else's.">
+            <Input
+              value={fresh.username}
+              onChange={(event) =>
+                setFresh({ ...fresh, username: event.target.value })
+              }
+              placeholder="siti.rahayu"
+            />
+          </Field>
+          <Field label="Display name">
+            <Input
+              value={fresh.displayName}
+              onChange={(event) =>
+                setFresh({ ...fresh, displayName: event.target.value })
+              }
+              placeholder="Siti Rahayu"
+            />
+          </Field>
+          <Field
+            label="Password"
+            hint="Typed once and never echoed back. Hand it over, and have them change it."
+          >
+            <Input
+              type="password"
+              autoComplete="new-password"
+              value={fresh.password}
+              onChange={(event) =>
+                setFresh({ ...fresh, password: event.target.value })
+              }
+            />
+          </Field>
+          <Field
+            label="Rung"
+            hint="What they may do in the console. Where they may do it comes from their posting, not from here."
+          >
+            <Select
+              value={fresh.role}
+              onChange={(next) =>
+                setFresh({ ...fresh, role: next as FreshLogin["role"] })
+              }
+            >
+              {RUNGS.map((rung) => (
+                <option key={rung.value} value={rung.value}>
+                  {rung.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+
+          {/* The till grant. It lives here rather than in System because
+              whether somebody signs in at a shop's node is a fact about their
+              posting, and the posting is this module's answer. */}
+          {queryState(targets, {
+            loading: "Looking up this person's nodes…",
+            render: (nodes) =>
+              nodes.length === 0 ? (
+                <Banner tone="info">
+                  This person&rsquo;s place is served by no syncing node, so
+                  there is no till to grant. Head office staff usually are not.
+                </Banner>
+              ) : (
+                <>
+                  <Field
+                    label="Also signs in at"
+                    hint="Optional. A place's own node, for somebody who works a till."
+                  >
+                    <Select
+                      value={fresh.origin}
+                      onChange={(next) => setFresh({ ...fresh, origin: next })}
+                    >
+                      <option value="">No node — console only</option>
+                      {nodes.map((one) => (
+                        <option
+                          key={one.origin_id}
+                          value={one.origin_id}
+                          disabled={one.granted}
+                        >
+                          {one.label ?? one.origin_id}
+                          {one.granted
+                            ? ` — already granted${
+                                one.granted_role === null
+                                  ? ""
+                                  : ` (${rungLabel(one.granted_role)})`
+                              }`
+                            : ""}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                  {fresh.origin !== "" && (
+                    <>
+                      <Field label="Rung at that node">
+                        <Select
+                          value={fresh.edgeRole}
+                          onChange={(next) =>
+                            setFresh({
+                              ...fresh,
+                              edgeRole: next as FreshLogin["edgeRole"],
+                            })
+                          }
+                        >
+                          {RUNGS.map((rung) => (
+                            <option key={rung.value} value={rung.value}>
+                              {rung.label}
+                            </option>
+                          ))}
+                        </Select>
+                      </Field>
+                      <Field
+                        label="Password at that node"
+                        hint="The till is a separate credential — it has to keep working when the shop is offline."
+                      >
+                        <Input
+                          type="password"
+                          autoComplete="new-password"
+                          value={fresh.edgePassword}
+                          onChange={(event) =>
+                            setFresh({
+                              ...fresh,
+                              edgePassword: event.target.value,
+                            })
+                          }
+                        />
+                      </Field>
+                    </>
+                  )}
+                </>
+              ),
+          })}
+
+          <Reason value={reason} onChange={setReason} />
+
+          <Submit
+            label="Issue the login"
+            busy={issue.isPending}
+            disabled={!readyToIssue}
+            onClick={() => issue.mutate()}
+          />
+        </>
+      )}
     </div>
   )
+}
+
+/// What was issued, named back. The username matters because it is what the
+/// person types; the node and its rung matter because they are the half of the
+/// act that is easy to forget was even asked for. The password is deliberately
+/// absent — the server does not echo it and neither does this.
+function IssuedNotice({ issued }: { issued: ProvisionedAccount }) {
+  return (
+    <Banner tone="ok">
+      Issued <b>{issued.username}</b> at {rungLabel(issued.role)} and bound it
+      to this record
+      {issued.edge_origin_id !== null &&
+        `, with ${rungLabel(issued.edge_role ?? "")} at ${issued.edge_origin_id}${
+          issued.policy_version === null
+            ? ""
+            : ` (policy ${issued.policy_version})`
+        }`}
+      . The password is not shown again — whoever typed it has it.
+    </Banner>
+  )
+}
+
+/// The two ways a record gets a login, said as two tiles rather than left to a
+/// reader to work out from a username box that will refuse a name nobody has.
+const HOW = [
+  {
+    value: "link" as const,
+    label: "Link one that exists",
+    note: "They already sign in — bind that account to this record.",
+  },
+  {
+    value: "issue" as const,
+    label: "Issue a new one",
+    note: "Create the credential, and the till grant that goes with their posting, in one act.",
+  },
+]
+
+const RUNGS = [
+  { value: "CASHIER", label: "Cashier" },
+  { value: "SUPERVISOR", label: "Supervisor" },
+  { value: "ADMIN", label: "Admin" },
+] as const
+
+function rungLabel(role: string): string {
+  return RUNGS.find((rung) => rung.value === role)?.label ?? role
+}
+
+interface FreshLogin {
+  username: string
+  displayName: string
+  password: string
+  role: "CASHIER" | "SUPERVISOR" | "ADMIN"
+  /// Empty means "console only" — no node grant at all.
+  origin: string
+  edgeRole: "CASHIER" | "SUPERVISOR" | "ADMIN"
+  edgePassword: string
+}
+
+const BLANK_LOGIN: FreshLogin = {
+  username: "",
+  displayName: "",
+  password: "",
+  role: "CASHIER",
+  origin: "",
+  edgeRole: "CASHIER",
+  edgePassword: "",
 }
 
 /// Amending personal data, without ever reading it.

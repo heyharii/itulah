@@ -9,11 +9,14 @@ import { AppLink } from "@/components/ui/app-link"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Input } from "@/components/ui/field"
+import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
 import { MiniTable, TotalsLadder } from "@/components/ui/rows"
+import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { EmptyState } from "@/components/ui/states"
+import { EmptyState, Truncated } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
+import { useFilters } from "@/lib/filters"
 import { count, label, money, moment } from "@/lib/format"
 import {
   listReturns,
@@ -44,6 +47,11 @@ const columns: ColumnDef<TableSetup, StoreRow>[] = [
     accessorKey: "site_id",
     header: "Store",
     size: 170,
+    /// The shop ids as the SALES rolled up here spell them, because that is
+    /// the only spelling these rows carry: the centre says `dc` where the box
+    /// standing in the same place says `dc-01`, and a facet built from a site
+    /// register instead would offer a shop that matches none of them.
+    meta: { filter: { kind: "option" } },
     cell: ({ row }) => (
       <span className="font-medium text-ink">{row.original.site_id}</span>
     ),
@@ -52,9 +60,9 @@ const columns: ColumnDef<TableSetup, StoreRow>[] = [
     accessorKey: "open_count",
     header: "Tills open",
     size: 110,
-    meta: { align: "right" },
     // The exception, and the reason for the default sort: an open sale is a
     // basket somebody walked away from or is standing at right now.
+    meta: { align: "right", filter: { kind: "number", unit: "tills" } },
     cell: ({ row }) => (
       <span
         className={
@@ -69,7 +77,10 @@ const columns: ColumnDef<TableSetup, StoreRow>[] = [
     accessorKey: "owing_minor",
     header: "Owing",
     size: 140,
-    meta: { align: "right" },
+    meta: {
+      align: "right",
+      filter: { kind: "number", unit: "Rp" },
+    },
     cell: ({ row }) =>
       row.original.owing_minor > 0 ? (
         <span className="text-warn-fg">{money(row.original.owing_minor)}</span>
@@ -81,6 +92,9 @@ const columns: ColumnDef<TableSetup, StoreRow>[] = [
     accessorKey: "completed_count",
     header: "Sales",
     size: 100,
+    // No filter: it is the denominator beside Takings rather than a question
+    // anybody opens this list to ask, and one more clause in the panel is one
+    // more row nobody reads.
     meta: { align: "right" },
     cell: ({ row }) => count(row.original.completed_count),
   },
@@ -88,14 +102,25 @@ const columns: ColumnDef<TableSetup, StoreRow>[] = [
     accessorKey: "takings_minor",
     header: "Takings",
     size: 150,
-    meta: { align: "right" },
+    /// **No `scale`, despite the `_minor` in the name.** `lib/format.ts` says
+    /// it plainly — IDR has no minor unit in practice, so the server's "minor"
+    /// is already whole rupiah, and `money()` prints it without dividing.
+    /// A `scale: 100` here would multiply every bound by a hundred: somebody
+    /// asking for shops over ten million would be asking for a billion and get
+    /// an empty list with a chip above it saying otherwise.
+    meta: {
+      align: "right",
+      filter: { kind: "number", unit: "Rp" },
+    },
     cell: ({ row }) => money(row.original.takings_minor),
   },
   {
     accessorKey: "voided_count",
     header: "Voided",
     size: 100,
-    meta: { align: "right" },
+    /// "At least 1" is the supervisor's question, and it is a real one: a shop
+    /// voiding sales is either training or something worse.
+    meta: { align: "right", filter: { kind: "number", unit: "sales" } },
     cell: ({ row }) =>
       row.original.voided_count > 0 ? (
         count(row.original.voided_count)
@@ -107,7 +132,10 @@ const columns: ColumnDef<TableSetup, StoreRow>[] = [
     accessorKey: "refunded_minor",
     header: "Refunded",
     size: 140,
-    meta: { align: "right" },
+    meta: {
+      align: "right",
+      filter: { kind: "number", unit: "Rp" },
+    },
     cell: ({ row }) =>
       row.original.refunded_minor > 0 ? (
         money(row.original.refunded_minor)
@@ -116,6 +144,11 @@ const columns: ColumnDef<TableSetup, StoreRow>[] = [
       ),
   },
 ]
+
+/// What each of the two source lists asks for, named once so the banner and
+/// the requests cannot disagree. Every figure on a row here is a sum over
+/// whichever of them arrived.
+const CAP = 500
 
 export function Stores() {
   const [query, setQuery] = useState("")
@@ -126,32 +159,45 @@ export function Stores() {
 
   const sales = useQuery({
     queryKey: storeopsKeys.sales("any"),
-    queryFn: ({ signal }) => listSales({ limit: 500 }, signal),
+    queryFn: ({ signal }) => listSales({ limit: CAP }, signal),
   })
   const returns = useQuery({
     queryKey: storeopsKeys.returns(),
-    queryFn: ({ signal }) => listReturns({ limit: 500 }, signal),
+    queryFn: ({ signal }) => listReturns({ limit: CAP }, signal),
   })
 
   const rows = useMemo(
-    () => rollUp(sales.data ?? [], returns.data ?? []),
+    () => rollUp(sales.data ?? [], returns.data?.rows ?? []),
     [sales.data, returns.data]
   )
+
+  const filters = useFilters(columns)
 
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
         data: rows,
-        columns,
+        columns: filters.columns,
         getRowId: (row: StoreRow) => row.site_id,
-        state: { globalFilter: query, sorting },
+        state: {
+          columnFilters: filters.columnFilters,
+          globalFilter: query,
+          sorting,
+        },
         onSortingChange: setSorting,
         onGlobalFilterChange: setQuery,
       }),
-      [rows, query, sorting]
+      [rows, filters.columns, filters.columnFilters, query, sorting]
     )
   )
+
+  /// The roll-up's arithmetic is only as complete as the two lists under it,
+  /// and neither says how much it left behind. A cap reached on EITHER is a
+  /// figure on every row that is a partial sum — which is worth saying out
+  /// loud now that the panel above can narrow the rows further.
+  const capped =
+    (sales.data?.length ?? 0) >= CAP || (returns.data?.rows.length ?? 0) >= CAP
 
   return (
     <PageContent>
@@ -169,6 +215,17 @@ export function Stores() {
         }
       />
 
+      <Toolbar>
+        <FilterPanel model={filters} table={table} />
+      </Toolbar>
+
+      {capped && (
+        <Truncated
+          limit={CAP}
+          noun="sales and returns the roll-up is built from"
+        />
+      )}
+
       <Card className="overflow-hidden">
         {queryState(sales, {
           loading: "Loading the fleet…",
@@ -182,7 +239,12 @@ export function Stores() {
                 table={table}
                 onRowClick={(row) => store.open(row.site_id)}
                 isSelected={(row) => row.site_id === store.value}
-                empty="No store matches that search."
+                empty={
+                  <>
+                    None of the {rows.length.toLocaleString("id-ID")} shops
+                    trading here match this search and the filters in force.
+                  </>
+                }
                 className="max-h-[calc(100vh-14rem)]"
               />
             ),
@@ -193,7 +255,7 @@ export function Stores() {
         siteId={store.value ?? null}
         onClose={store.close}
         sales={sales.data ?? []}
-        returns={returns.data ?? []}
+        returns={returns.data?.rows ?? []}
       />
     </PageContent>
   )

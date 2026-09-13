@@ -8,8 +8,8 @@ use crate::edge::{
     IntakeRequest, MoveRequest, NodeContext, OfficialCountEntriesRequest,
     OfficialCountSubmitRequest, OpenGoodsReceiptRequest, OperationalPool, PackKoliRequest,
     PickRequest, PoolBalance, PurchaseCountRequest, PurchaseVerifyRequest, ReceiveBatchRequest,
-    ReceiveRequest, RecordInvoiceRequest, SaleRequest, StoreInvoiceDocumentRequest,
-    TaggingConfirmRequest, RFID_OBSERVATION_PATH,
+    ReceiveRequest, RecordInvoiceRequest, RejectDeliveryRequest, SaleRequest,
+    StoreInvoiceDocumentRequest, TaggingConfirmRequest, RFID_OBSERVATION_PATH,
 };
 use crate::security::{self, CSRF_COOKIE, SESSION_COOKIE};
 use axum::{
@@ -217,6 +217,10 @@ pub fn dc_router_with_sync(
             post(dc_record_receipt_invoice),
         )
         .route(
+            "/api/v1/dc/goods-receipts/{receipt_id}/reject",
+            post(dc_reject_delivery),
+        )
+        .route(
             "/api/v1/dc/goods-receipts/{receipt_id}/invoice-document",
             get(dc_invoice_document).post(dc_store_invoice_document),
         )
@@ -286,6 +290,20 @@ pub fn store_router_with_sync(
         .route("/api/v1/store/receive-batch", post(store_receive_batch))
         .route("/api/v1/store/movements", post(move_stock))
         .route("/api/v1/store/sales", post(store_sale))
+        // The attempt, declared before the terminal is asked for money. Four
+        // routes rather than one because the till drives a card reader between
+        // them, and every step in that conversation has to be able to fail
+        // without losing what came before it.
+        .route("/api/v1/store/checkouts", post(begin_checkout))
+        .route(
+            "/api/v1/store/checkouts/tender",
+            post(record_tender_outcome),
+        )
+        .route("/api/v1/store/checkouts/resolve", post(resolve_checkout))
+        .route(
+            "/api/v1/store/checkouts/unresolved",
+            get(unresolved_checkouts),
+        )
         // Price a basket without selling it. POST because a basket is a body,
         // not because anything is written: no sale, no movement, no usage.
         .route("/api/v1/store/quote", post(store_quote))
@@ -315,6 +333,20 @@ pub fn store_router_with_sync(
         .route(
             "/api/v1/store/shifts/{shift_id}/close",
             post(store_close_shift),
+        )
+        // ── The shop's small money ──────────────────────────────────────
+        //
+        // Petty cash, and nothing that can reach the drawer. Under `/store`
+        // like everything else a shop does, and named after the two things
+        // they are — what was spent, and what is in the tin.
+        .route(
+            "/api/v1/store/expenses",
+            get(store_expenses).post(store_record_expense),
+        )
+        .route("/api/v1/store/petty-cash", get(store_petty_cash))
+        .route(
+            "/api/v1/store/petty-cash/top-ups",
+            post(store_petty_cash_top_up),
         )
         .route("/api/v1/store/sales/{sale_id}/void", post(store_void_sale))
         .route("/api/v1/store/returns", post(store_return))
@@ -515,6 +547,7 @@ fn present_pools(node: &NodeContext, balances: Vec<PoolBalance>) -> Result<Vec<V
             "stock":balance.stock,
             "allotted":balance.allotted,
             "on_hand":balance.on_hand,
+            "shortfall":balance.shortfall,
             "missing":balance.missing,
             "observed":Value::Null,
             "lost_rate":Value::Null,
@@ -1304,6 +1337,62 @@ async fn store_quote(
     Ok(Json(quote))
 }
 
+/// Declare a checkout before asking anybody for money.
+///
+/// `StoreSale` and not a new permission: whoever may take money may say they
+/// are about to. A separate permission would let a shop be configured so that
+/// selling is allowed and recording the attempt is not, which is the worst of
+/// the two states.
+async fn begin_checkout(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Json(mut request): Json<crate::edge::contracts::BeginCheckoutRequest>,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    if let Some(principal) = require_permission(&state, principal, EdgePermission::StoreSale)? {
+        request.actor_id = principal.username;
+    }
+    let result = run_blocking(move || state.inventory.begin_checkout(request)).await?;
+    Ok((StatusCode::CREATED, Json(serde_json::to_value(result)?)))
+}
+
+/// Record what an acquirer said about one tender.
+async fn record_tender_outcome(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Json(request): Json<crate::edge::contracts::TenderOutcomeRequest>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::StoreSale)?;
+    let result = run_blocking(move || state.inventory.record_tender_outcome(request)).await?;
+    Ok(Json(serde_json::to_value(result)?))
+}
+
+/// Close a checkout that did not become a sale.
+async fn resolve_checkout(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Json(mut request): Json<crate::edge::contracts::ResolveCheckoutRequest>,
+) -> Result<Json<Value>, ApiError> {
+    if let Some(principal) = require_permission(&state, principal, EdgePermission::StoreSale)? {
+        request.actor_id = principal.username;
+    }
+    let result = run_blocking(move || state.inventory.resolve_checkout(request)).await?;
+    Ok(Json(serde_json::to_value(result)?))
+}
+
+/// Checkouts that never finished — the query a till runs when it starts.
+///
+/// `InventoryRead`, because reading the list changes nothing and a manager who
+/// can see the shop's trade should be able to see money it may be holding
+/// against no sale. Acting on one needs `StoreSale`.
+async fn unresolved_checkouts(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    let rows = run_blocking(move || state.inventory.unresolved_checkouts()).await?;
+    Ok(Json(serde_json::json!({ "rows": rows })))
+}
+
 async fn store_sale(
     State(state): State<EdgeState>,
     principal: Option<Extension<EdgePrincipal>>,
@@ -1439,6 +1528,65 @@ async fn store_cash_movement(
     let report =
         run_blocking(move || state.inventory.record_cash_movement(&shift_id, request)).await?;
     Ok((StatusCode::CREATED, Json(serde_json::to_value(report)?)))
+}
+
+/// What the shop spent out of petty cash, over a span.
+///
+/// `InventoryRead` rather than a permission of its own: this is the shop's own
+/// book, and anybody trusted to see its stock is trusted to see that it bought
+/// a ream of paper. Writing one is a different question, below.
+async fn store_expenses(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Query(query): Query<crate::edge::petty::ExpenseWindowQuery>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    let window = run_blocking(move || state.inventory.expense_window(query)).await?;
+    Ok(Json(serde_json::to_value(window)?))
+}
+
+/// Record what the shop spent.
+///
+/// `StoreSale` — the same permission a cash movement takes — because the person
+/// who bought the thing is whoever was at the counter. The control is not the
+/// session: it is the supervisor step-up the domain demands on every row, and
+/// the rule that the supervisor is not the claimant. Gating this at supervisor
+/// level as well would mean the manager keying in their own expenses and
+/// approving them, which is exactly the arrangement the maker/checker rule
+/// exists to prevent.
+async fn store_record_expense(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Json(mut request): Json<crate::edge::petty::RecordExpenseRequest>,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    if let Some(principal) = require_permission(&state, principal, EdgePermission::StoreSale)? {
+        request.actor_id = principal.username;
+    }
+    let recorded = run_blocking(move || state.inventory.record_expense(request)).await?;
+    Ok((StatusCode::CREATED, Json(serde_json::to_value(recorded)?)))
+}
+
+/// What is in the tin: handed over, spent, left.
+async fn store_petty_cash(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    let position = run_blocking(move || state.inventory.petty_cash_position()).await?;
+    Ok(Json(serde_json::to_value(position)?))
+}
+
+/// Record the float head office handed over.
+async fn store_petty_cash_top_up(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Json(mut request): Json<crate::edge::petty::PettyCashTopUpRequest>,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    if let Some(principal) = require_permission(&state, principal, EdgePermission::StoreSale)? {
+        request.actor_id = principal.username;
+    }
+    let recorded = run_blocking(move || state.inventory.record_petty_cash_top_up(request)).await?;
+    Ok((StatusCode::CREATED, Json(serde_json::to_value(recorded)?)))
 }
 
 async fn store_close_shift(
@@ -2275,6 +2423,24 @@ async fn dc_open_goods_receipt(
     }
     let result = run_blocking(move || state.inventory.open_goods_receipt(request)).await?;
     Ok((StatusCode::CREATED, Json(serde_json::to_value(result)?)))
+}
+
+/// Turn a whole delivery away: wet cartons, goods nobody ordered, the wrong
+/// supplier's lorry. The arrival stays on the record with the reason on it —
+/// three refused deliveries is the most useful thing anyone will ever know
+/// about a supplier, and deleting the document is how that gets lost.
+async fn dc_reject_delivery(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Path(receipt_id): Path<Uuid>,
+    Json(mut request): Json<RejectDeliveryRequest>,
+) -> Result<Json<Value>, ApiError> {
+    if let Some(principal) = require_permission(&state, principal, EdgePermission::DcOperate)? {
+        request.actor_id = principal.username;
+    }
+    request.receipt_id = receipt_id;
+    let result = run_blocking(move || state.inventory.reject_delivery(request)).await?;
+    Ok(Json(serde_json::to_value(result)?))
 }
 
 /// Record the supplier's invoice against a delivery. The verifier is holding

@@ -26,4 +26,25 @@ export type SaleTender = { method: PaymentMethod, amount_minor: number,
  * than trusting a caller — a card number that reaches a database is a
  * card number that has to be erased from backups.
  */
-reference: string | null, };
+reference: string | null, 
+/**
+ * The hold the centre granted against a voucher, for a `Voucher` tender.
+ *
+ * **Required for that method and refused on every other.** A voucher is
+ * scarce stored value held in one place, and a till that takes one on its
+ * own word cannot know another till is spending the same card at the same
+ * moment. Until this field existed, `complete_sale` accepted any string at
+ * all as a voucher reference: no balance read, no code checked, nobody
+ * asked. Two shops could settle two baskets against one card and neither
+ * would find out until the sales synced.
+ *
+ * Its presence is what makes the tender online-only, which is the locked
+ * V1 rule. A shop with the line down cannot obtain one and therefore
+ * cannot offer the tender — the same answer Shopify POS gives for gift
+ * cards, and for the same reason.
+ *
+ * `#[serde(default)]` so that a message written before this field existed
+ * still parses. It then fails the check below, which is the right way
+ * round: an old till is refused the tender, not trusted with it.
+ */
+voucher_authorization_id: string | null, };

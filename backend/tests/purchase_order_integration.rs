@@ -573,13 +573,16 @@ async fn accepting_reports_a_price_difference_without_holding_the_goods(pool: Pg
         "the delivery settled while the price is still being argued"
     );
 
-    let inbox = cloud::pending_price_amendments(&pool)
+    // `total` rather than the old `pending`, and `rows` rather than `items`:
+    // the inbox answers in the same envelope every other list does now, and
+    // the count is the whole pile rather than the page's length.
+    let inbox = cloud::pending_price_amendments(&pool, &cloud::PriceAmendmentScope::default())
         .await
         .unwrap_or_else(|e| panic!("inbox: {e}"));
-    assert_eq!(inbox["pending"], 1);
-    assert_eq!(inbox["items"][0]["ordered_price_minor"], 300_000);
-    assert_eq!(inbox["items"][0]["invoiced_price_minor"], 310_000);
-    assert_eq!(inbox["items"][0]["difference_minor"], 10_000);
+    assert_eq!(inbox.total, 1);
+    assert_eq!(inbox.rows[0].ordered_price_minor, 300_000);
+    assert_eq!(inbox.rows[0].invoiced_price_minor, 310_000);
+    assert_eq!(inbox.rows[0].difference_minor, 10_000);
 
     // --- The buyer updates the price -------------------------------------
     cloud::decide_price_amendment(
@@ -657,9 +660,10 @@ async fn a_matching_invoice_raises_no_query(pool: PgPool) {
     assert_eq!(accepted.price_amendment_request_id, None);
     sync(&dc, &pool).await;
     assert_eq!(
-        cloud::pending_price_amendments(&pool)
+        cloud::pending_price_amendments(&pool, &cloud::PriceAmendmentScope::default())
             .await
-            .unwrap_or_else(|e| panic!("inbox: {e}"))["pending"],
+            .unwrap_or_else(|e| panic!("inbox: {e}"))
+            .total,
         0,
         "nobody should be asked to look at a price that matches"
     );
@@ -1048,4 +1052,370 @@ async fn a_fully_received_line_cannot_be_closed_short(pool: PgPool) {
         error.to_string().contains("nothing is outstanding"),
         "{error}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// What the order could not take, what an approval reaches, and where an order
+// stands. Slice A.
+// ---------------------------------------------------------------------------
+
+/// Accept a count with a second pair of hands, and hand back what it did.
+fn accept(
+    dc: &SqliteEdge,
+    count_id: Uuid,
+    key: &str,
+) -> inventory_backend::edge::PurchaseVerifyResult {
+    dc.verify_purchase(PurchaseVerifyRequest {
+        count_id,
+        verifier_actor_id: "pemeriksa-1".into(),
+        decision: PurchaseVerifyDecision::Accept,
+        note: None,
+        invoiced_price_minor: None,
+        idempotency_key: key.into(),
+    })
+    .unwrap_or_else(|e| panic!("accept {key}: {e}"))
+}
+
+fn count_of(dc: &SqliteEdge, po_line_id: Uuid, quantity: i64, key: &str) -> Uuid {
+    dc.count_purchase(PurchaseCountRequest {
+        receipt_id: delivery(dc),
+        po_line_id,
+        counted_quantity: quantity,
+        actor_id: "penerima-1".into(),
+        idempotency_key: key.into(),
+    })
+    .unwrap_or_else(|e| panic!("count {key}: {e}"))
+    .count_id
+}
+
+/// A hundred and twenty were ordered; a hundred and thirty turned up.
+///
+/// The checker writes down what is on the pallet. Nobody trims it to fit the
+/// order, and nobody quietly buys the extra ten either: the goods are in the
+/// warehouse and the order's position says a hundred and twenty, which is what
+/// the company agreed to.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn more_arrives_than_the_order_can_take_so_the_count_stands_and_the_excess_waits(
+    pool: PgPool,
+) {
+    enrol_dc(&pool).await;
+    let dc = distribution_centre();
+    let (po_id, _, _) = cloud::create_purchase_order(&pool, &order_for(DC_SITE))
+        .await
+        .unwrap_or_else(|e| panic!("raise: {e}"));
+    sync(&dc, &pool).await;
+    let po_line_id = line_of(&pool, po_id).await;
+
+    let accepted = accept(
+        &dc,
+        count_of(&dc, po_line_id, 130, "count-130"),
+        "verify-130",
+    );
+    assert_eq!(
+        accepted.accepted_quantity,
+        Some(130),
+        "the count is not trimmed"
+    );
+    assert_eq!(accepted.matched_quantity, Some(120));
+    assert_eq!(accepted.excess_quantity, Some(10));
+    assert_eq!(
+        accepted.agreed_unit_price_minor,
+        Some(300_000),
+        "the acceptance carries the price that applied to it"
+    );
+
+    // Every piece is physically in the warehouse. Excess is a commercial
+    // problem, not a reason to pretend ten shirts are not on the floor.
+    assert_eq!(stock(&dc), (0, 130));
+
+    sync(&dc, &pool).await;
+    let detail = cloud::purchase_order_status(&pool, po_id)
+        .await
+        .unwrap_or_else(|e| panic!("status: {e}"));
+    assert_eq!(detail["lines"][0]["received_quantity"], 120);
+    assert_eq!(detail["lines"][0]["excess_quantity"], 10);
+    assert_eq!(detail["lines"][0]["outstanding_stock_units"], 0);
+    assert_eq!(
+        detail["lines"][0]["expected_value_minor"],
+        120 * 300_000i64,
+        "the ten nobody ordered are worth nothing until a buyer says they are ours"
+    );
+    assert_eq!(detail["lifecycle"], "FULLY_RECEIVED");
+}
+
+/// The order was filled in March; another full lorry arrives in April.
+///
+/// This is the case that used to read as an order twice over: six hundred
+/// received against three hundred ordered, and six hundred expected to be
+/// paid for.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_second_delivery_against_a_filled_order_is_all_excess(pool: PgPool) {
+    enrol_dc(&pool).await;
+    let dc = distribution_centre();
+    let (po_id, _, _) = cloud::create_purchase_order(&pool, &order_for(DC_SITE))
+        .await
+        .unwrap_or_else(|e| panic!("raise: {e}"));
+    sync(&dc, &pool).await;
+    let po_line_id = line_of(&pool, po_id).await;
+
+    accept(&dc, count_of(&dc, po_line_id, 120, "count-a"), "verify-a");
+    let second = accept(&dc, count_of(&dc, po_line_id, 120, "count-b"), "verify-b");
+    assert_eq!(
+        second.matched_quantity,
+        Some(0),
+        "the order had nothing left to fill"
+    );
+    assert_eq!(second.excess_quantity, Some(120));
+
+    sync(&dc, &pool).await;
+    let detail = cloud::purchase_order_status(&pool, po_id)
+        .await
+        .unwrap_or_else(|e| panic!("status: {e}"));
+    assert_eq!(detail["lines"][0]["received_quantity"], 120);
+    assert_eq!(detail["lines"][0]["excess_quantity"], 120);
+    assert_eq!(detail["expected_value_minor"], 120 * 300_000i64);
+}
+
+/// A delivery from one supplier cannot answer another supplier's order.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_lorry_from_one_supplier_cannot_answer_another_suppliers_order(pool: PgPool) {
+    enrol_dc(&pool).await;
+    let dc = distribution_centre();
+    let (first, _, _) = cloud::create_purchase_order(&pool, &order_for(DC_SITE))
+        .await
+        .unwrap_or_else(|e| panic!("raise: {e}"));
+    let mut other = order_for(DC_SITE);
+    other.supplier_id = "SUP-02".into();
+    other.supplier_name = Some("PT Tekstil Kedua".into());
+    cloud::create_purchase_order(&pool, &other)
+        .await
+        .unwrap_or_else(|e| panic!("raise second: {e}"));
+    sync(&dc, &pool).await;
+
+    let from_the_second_supplier = dc
+        .open_goods_receipt(OpenGoodsReceiptRequest {
+            supplier_id: "SUP-02".into(),
+            arrived_at: None,
+            actor_id: "penerima-1".into(),
+            idempotency_key: "grn-sup-02".into(),
+        })
+        .unwrap_or_else(|e| panic!("open: {e}"))
+        .receipt_id;
+
+    let refused = dc.count_purchase(PurchaseCountRequest {
+        receipt_id: from_the_second_supplier,
+        po_line_id: line_of(&pool, first).await,
+        counted_quantity: 10,
+        actor_id: "penerima-1".into(),
+        idempotency_key: "count-wrong-supplier".into(),
+    });
+    let message = refused
+        .expect_err("a supplier's goods on another's order")
+        .to_string();
+    assert!(
+        message.contains("SUP-01") && message.contains("SUP-02"),
+        "the refusal must name both suppliers: {message}"
+    );
+
+    // And a delivery from a supplier this DC is expecting nothing from cannot
+    // be opened at all.
+    let unknown = dc.open_goods_receipt(OpenGoodsReceiptRequest {
+        supplier_id: "SUP-99".into(),
+        arrived_at: None,
+        actor_id: "penerima-1".into(),
+        idempotency_key: "grn-sup-99".into(),
+    });
+    assert!(
+        unknown.is_err(),
+        "a delivery is opened against an order somebody raised"
+    );
+}
+
+/// A buyer agreeing a higher price for one delivery does not restate what an
+/// earlier one was worth, and does not reprice the rest of the order unless
+/// they say so.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn an_approval_settles_the_delivery_it_answers_and_leaves_the_order_alone(pool: PgPool) {
+    enrol_dc(&pool).await;
+    let dc = distribution_centre();
+    let (po_id, _, _) = cloud::create_purchase_order(&pool, &order_for(DC_SITE))
+        .await
+        .unwrap_or_else(|e| panic!("raise: {e}"));
+    sync(&dc, &pool).await;
+    let po_line_id = line_of(&pool, po_id).await;
+
+    // Forty arrive, and the invoice says 310.000 rather than the agreed
+    // 300.000. The goods go in; the query goes up.
+    let first = dc
+        .verify_purchase(PurchaseVerifyRequest {
+            count_id: count_of(&dc, po_line_id, 40, "count-40"),
+            verifier_actor_id: "pemeriksa-1".into(),
+            decision: PurchaseVerifyDecision::Accept,
+            note: Some("faktur 310.000".into()),
+            invoiced_price_minor: Some(310_000),
+            idempotency_key: "verify-40".into(),
+        })
+        .unwrap_or_else(|e| panic!("accept: {e}"));
+    assert_eq!(first.agreed_unit_price_minor, Some(300_000));
+    let request_id = first
+        .price_amendment_request_id
+        .expect("an invoice that disagrees raises a query");
+    sync(&dc, &pool).await;
+
+    cloud::decide_price_amendment(
+        &pool,
+        request_id,
+        inventory_backend::cloud::domain::PriceAmendmentOutcome::Approved,
+        cloud::AmendmentReach::Delivery,
+        "buyer-1",
+        Some("sepakat untuk kiriman ini"),
+    )
+    .await
+    .unwrap_or_else(|e| panic!("decide: {e}"));
+
+    // The approval is recorded against the acceptance it answers, and the
+    // order still carries the price it was raised at.
+    let (approved, scope, on_line): (Option<i64>, Option<String>, Option<Uuid>) = sqlx::query_as(
+        "SELECT approved_unit_price_minor, scope, receipt_line_id
+           FROM purchase_price_amendment WHERE request_id = $1",
+    )
+    .bind(request_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|e| panic!("amendment: {e}"));
+    assert_eq!(approved, Some(310_000));
+    assert_eq!(scope.as_deref(), Some("DELIVERY"));
+    assert!(
+        on_line.is_some(),
+        "the approval names the delivery it settles"
+    );
+
+    let line_price: i64 = sqlx::query_scalar(
+        "SELECT unit_price_minor FROM purchase_order_line WHERE po_line_id = $1",
+    )
+    .bind(po_line_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|e| panic!("price: {e}"));
+    assert_eq!(
+        line_price, 300_000,
+        "settling one delivery must not reprice the order"
+    );
+
+    let detail = cloud::purchase_order_status(&pool, po_id)
+        .await
+        .unwrap_or_else(|e| panic!("status: {e}"));
+    assert_eq!(
+        detail["lines"][0]["expected_value_minor"],
+        40 * 300_000i64,
+        "the acceptance keeps the price it was accepted at; the approval is a separate fact"
+    );
+    assert_eq!(detail["lifecycle"], "PARTIALLY_RECEIVED");
+
+    // The rest of the order arrives at the price it was raised at.
+    sync(&dc, &pool).await;
+    let second = accept(&dc, count_of(&dc, po_line_id, 80, "count-80"), "verify-80");
+    assert_eq!(second.agreed_unit_price_minor, Some(300_000));
+    sync(&dc, &pool).await;
+    let detail = cloud::purchase_order_status(&pool, po_id)
+        .await
+        .unwrap_or_else(|e| panic!("status: {e}"));
+    assert_eq!(detail["expected_value_minor"], 120 * 300_000i64);
+    assert_eq!(detail["lifecycle"], "FULLY_RECEIVED");
+}
+
+/// A lorry that went straight back is still a lorry that came.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_refused_delivery_is_still_a_delivery(pool: PgPool) {
+    enrol_dc(&pool).await;
+    let dc = distribution_centre();
+    cloud::create_purchase_order(&pool, &order_for(DC_SITE))
+        .await
+        .unwrap_or_else(|e| panic!("raise: {e}"));
+    sync(&dc, &pool).await;
+
+    let receipt_id = delivery(&dc);
+    let refused = dc
+        .reject_delivery(inventory_backend::edge::RejectDeliveryRequest {
+            receipt_id,
+            reason: "kardus basah semua, dikembalikan".into(),
+            actor_id: "pemeriksa-1".into(),
+            idempotency_key: "reject-1".into(),
+        })
+        .unwrap_or_else(|e| panic!("reject: {e}"));
+    assert_eq!(refused.status, "REJECTED");
+    assert_eq!(
+        stock(&dc),
+        (0, 0),
+        "nothing was accepted, so nothing exists"
+    );
+
+    sync(&dc, &pool).await;
+    let (status, reason): (String, Option<String>) =
+        sqlx::query_as("SELECT status, rejected_reason FROM goods_receipt WHERE receipt_id = $1")
+            .bind(receipt_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|e| panic!("delivery: {e}"));
+    assert_eq!(status, "REJECTED");
+    assert_eq!(reason.as_deref(), Some("kardus basah semua, dikembalikan"));
+}
+
+/// The checker's list is work, not history.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_filled_line_leaves_the_checkers_list(pool: PgPool) {
+    enrol_dc(&pool).await;
+    let dc = distribution_centre();
+    let (po_id, _, _) = cloud::create_purchase_order(&pool, &order_for(DC_SITE))
+        .await
+        .unwrap_or_else(|e| panic!("raise: {e}"));
+    sync(&dc, &pool).await;
+    let po_line_id = line_of(&pool, po_id).await;
+    assert_eq!(dc.open_purchase_lines().unwrap_or_default().len(), 1);
+
+    accept(&dc, count_of(&dc, po_line_id, 60, "count-60"), "verify-60");
+    assert_eq!(
+        dc.open_purchase_lines().unwrap_or_default().len(),
+        1,
+        "half a delivery still owes the other half"
+    );
+
+    accept(
+        &dc,
+        count_of(&dc, po_line_id, 60, "count-rest"),
+        "verify-rest",
+    );
+    assert!(
+        dc.open_purchase_lines().unwrap_or_default().is_empty(),
+        "a line nobody owes a delivery against is not work"
+    );
+}
+
+/// Article Setup takes the quantity the company bought and leaves the rest.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn identification_is_offered_the_matched_quantity_and_not_the_excess(pool: PgPool) {
+    enrol_dc(&pool).await;
+    let dc = distribution_centre();
+    let (po_id, _, _) = cloud::create_purchase_order(&pool, &order_for(DC_SITE))
+        .await
+        .unwrap_or_else(|e| panic!("raise: {e}"));
+    sync(&dc, &pool).await;
+    let po_line_id = line_of(&pool, po_id).await;
+
+    accept(
+        &dc,
+        count_of(&dc, po_line_id, 130, "count-130"),
+        "verify-130",
+    );
+    sync(&dc, &pool).await;
+
+    let waiting = cloud::unidentified_receipts(&pool)
+        .await
+        .unwrap_or_else(|e| panic!("queue: {e}"));
+    assert_eq!(waiting.len(), 1);
+    assert_eq!(
+        waiting[0]["quantity"], 120,
+        "identification works what the order bought"
+    );
+    assert_eq!(waiting[0]["excess_quantity"], 10);
 }

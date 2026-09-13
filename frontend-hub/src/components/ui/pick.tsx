@@ -39,7 +39,7 @@ export interface Choice {
 /// compacts it the way `<Day>` is compacted — `min-h-8 px-2.5
 /// text-[0.71875rem]` — and twMerge lets those win.
 const FIELD =
-  "flex min-h-9 w-full items-center gap-1.5 rounded-full border border-transparent bg-soft-2 px-3.5 py-1 text-left text-[0.84375rem] transition-colors hover:border-hairline-2 hover:bg-soft-3 has-[input:focus-visible]:border-line has-[input:focus-visible]:bg-canvas"
+  "flex min-h-10 w-full items-center gap-1.5 rounded-inner border border-hairline-2 bg-canvas px-3 py-1 text-left text-[0.875rem] transition-colors hover:border-hairline-strong has-[input:focus-visible]:border-accent"
 
 function match(choices: readonly Choice[], query: string): readonly Choice[] {
   const needle = query.trim().toLowerCase()

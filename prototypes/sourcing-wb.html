@@ -1,0 +1,1500 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sourcing — product grid in the finance design system</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap">
+<style>
+:root{
+  --ink:#1c1c1a; --ink-2:#3f3f3c; --ink-3:#6b6b66; --ink-4:#9c9c95;
+  --canvas:#fff; --side:#fafaf9; --rail:#f5f5f2; --inset:#fafaf9;
+  --hover:#f2f2ef; --line:#e9e9e5; --line-2:#dededa; --field:#f2f2ef;
+  --black:#191917; --blue:#2563EB; --blue-soft:#eff5ff;
+  --ok:#15803D; --warn:#B45309; --warn-soft:#fdf4e7; --bad:#BE123C;
+  --usul:#6D28D9; --usul-soft:#f5f1fe;
+  --shadow-btn:0 1px 2px rgba(20,20,20,.05);
+  --shadow-pop:0 12px 40px rgba(20,20,20,.16),0 0 0 1px rgba(20,20,20,.06);
+  --shadow-sheet:0 24px 60px rgba(20,20,20,.14),0 2px 8px rgba(20,20,20,.06);
+  --ease:cubic-bezier(.23,1,.32,1); color-scheme:light;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--canvas);color:var(--ink);
+  font-family:Inter,system-ui,-apple-system,sans-serif;font-size:14px;line-height:1.45;
+  -webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;cursor:pointer;border:0;background:none;padding:0;text-align:left}
+.mono{font-family:"JetBrains Mono",ui-monospace,Menlo,monospace}
+:focus-visible{outline:2px solid var(--blue);outline-offset:1px;border-radius:6px}
+.app{display:flex;height:100dvh;overflow:hidden}
+
+.rail{width:56px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:3px;
+  background:var(--rail);border-right:1px solid var(--line);padding:11px 0;overflow-y:auto;
+  scrollbar-width:none}
+.rail::-webkit-scrollbar{display:none}
+.rail .logo{width:30px;height:30px;border-radius:9px;background:var(--black);color:#fff;
+  display:grid;place-items:center;font-size:12px;font-weight:600;margin-bottom:9px;flex-shrink:0}
+.rail .r{width:32px;height:32px;border-radius:8px;display:grid;place-items:center;
+  color:var(--ink-4);flex-shrink:0;transition:background-color .12s var(--ease)}
+.rail .r:hover{background:var(--hover);color:var(--ink-2)}
+.rail .r.on{background:var(--canvas);color:var(--ink);box-shadow:var(--shadow-btn)}
+.rail .sep{width:24px;height:1px;background:var(--line-2);margin:7px 0;flex-shrink:0}
+
+.side{width:250px;flex-shrink:0;display:flex;flex-direction:column;gap:1px;background:var(--side);
+  border-right:1px solid var(--line);padding:11px 8px;overflow-y:auto;scrollbar-width:none}
+.side::-webkit-scrollbar{display:none}
+.side .top{display:flex;align-items:center;gap:9px;padding:5px 7px;margin-bottom:4px}
+.side .top .mk{width:26px;height:26px;border-radius:7px;background:var(--black);color:#fff;
+  display:grid;place-items:center;font-size:11px;font-weight:600}
+.side .top .nm{font-size:15px;font-weight:600;letter-spacing:-.01em}
+.side .src{padding:0 8px 9px;font-size:11.5px;line-height:1.5;color:var(--ink-4);
+  overflow-wrap:anywhere}
+.side .src b{color:var(--ink-3);font-weight:500}
+.grp{padding:13px 9px 4px;font-size:13px;color:var(--ink-4)}
+.item{display:flex;align-items:center;gap:10px;width:100%;padding:7px 9px;border-radius:8px;
+  font-size:15px;line-height:20px;font-weight:500;color:var(--ink-2);
+  transition:background-color .12s var(--ease)}
+.item:hover{background:var(--hover);color:var(--ink)}
+.item.on{background:var(--hover);color:var(--ink);font-weight:600}
+.item .no{font-size:11.5px;color:var(--ink-4);width:15px;flex-shrink:0;text-align:right}
+.item .lbl{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.item .n{font-size:12.5px;color:var(--ink-4);font-weight:400}
+.anakmenu{display:flex;flex-direction:column;gap:1px;margin:2px 0 6px 9px;
+  padding-left:9px;border-left:1px solid var(--line-2)}
+.anakmenu .sub{display:flex;align-items:center;gap:8px;width:100%;padding:5px 9px;
+  border-radius:7px;font-size:14px;line-height:19px;color:var(--ink-3);
+  transition:background-color .12s var(--ease)}
+.anakmenu .sub:hover{background:var(--hover);color:var(--ink)}
+.anakmenu .sub.on{background:var(--canvas);color:var(--ink);font-weight:600;
+  box-shadow:var(--shadow-btn)}
+.anakmenu .sub .n{margin-left:auto;font-size:11.5px;color:var(--ink-4);font-weight:400}
+
+.main{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden}
+.head{display:flex;align-items:flex-start;gap:14px;padding:13px 16px 12px;
+  border-bottom:1px solid var(--line);flex-shrink:0;flex-wrap:wrap}
+.head > div:first-child{flex:1 1 24rem;min-width:0}
+.head .right{flex-wrap:wrap;justify-content:flex-end}
+.head .t1{font-size:12.5px;color:var(--ink-4)}
+.head h1{margin:0;font-size:22px;line-height:1.2;letter-spacing:-.022em;font-weight:600}
+.head .sub{margin-top:3px;font-size:14px;color:var(--ink-3);max-width:74ch}
+.head .right{margin-left:auto;display:flex;align-items:center;gap:8px;flex-shrink:0}
+
+.btn{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 10px;border-radius:8px;
+  font-size:14px;line-height:20px;font-weight:500;color:var(--ink-2);border:1px solid var(--line-2);
+  background:var(--canvas);box-shadow:var(--shadow-btn);white-space:nowrap;
+  transition:background-color .12s var(--ease)}
+.btn:hover{background:var(--hover);color:var(--ink)}
+.btn.dark{background:var(--black);border-color:var(--black);color:#fff}
+.btn.dark:hover{background:#000}
+.btn.usul{border-color:color-mix(in oklab,var(--usul) 32%,#fff);color:var(--usul);
+  background:var(--usul-soft);box-shadow:none}
+.btn.usul:hover{background:color-mix(in oklab,var(--usul) 12%,#fff)}
+.btn.sm{height:27px;padding:0 9px;font-size:13px}
+.unit{display:inline-flex;align-items:center;gap:7px;height:32px;padding:0 10px;border-radius:8px;
+  border:1px solid var(--line-2);background:var(--canvas);box-shadow:var(--shadow-btn);font-size:14px}
+.unit select{border:0;background:none;font:inherit;color:var(--ink);outline:none;font-weight:500;cursor:pointer}
+.unit .k{color:var(--ink-4)}
+
+.meta{display:flex;flex-wrap:wrap;padding:0 16px;border-bottom:1px solid var(--line);
+  flex-shrink:0;background:var(--inset)}
+.meta > div{padding:9px 16px 9px 0;margin-right:16px;font-size:13px;line-height:1.5;
+  color:var(--ink-2);max-width:46ch}
+.meta .k{display:block;font-size:11px;letter-spacing:.04em;text-transform:uppercase;
+  color:var(--ink-4);margin-bottom:2px}
+
+.tabs{display:flex;align-items:center;gap:2px;padding:0 13px;border-bottom:1px solid var(--line);
+  flex-shrink:0;overflow-x:auto;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tabs button{display:flex;align-items:center;gap:7px;padding:9px 10px;font-size:14px;font-weight:500;
+  color:var(--ink-3);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap}
+.tabs button:hover{color:var(--ink)}
+.tabs button.on{color:var(--ink);font-weight:600;border-bottom-color:var(--black)}
+.tabs button .n{font-weight:400;color:var(--ink-4)}
+
+.bar{display:flex;align-items:center;gap:8px;padding:9px 16px;border-bottom:1px solid var(--line);
+  flex-shrink:0;flex-wrap:wrap}
+.bar .lab{font-size:12px;color:var(--ink-4)}
+.chip{display:inline-flex;align-items:center;height:26px;padding:0 10px;border-radius:7px;
+  border:1px solid var(--line-2);background:var(--canvas);font-size:13px;color:var(--ink-2);
+  box-shadow:var(--shadow-btn)}
+.bar .why{margin-left:auto;font-size:12px;color:var(--ink-4)}
+
+.body{flex:1;min-height:0;overflow:auto}
+.purpose{margin:0;padding:11px 16px;font-size:13.5px;line-height:1.55;color:var(--ink-3);
+  background:var(--inset);border-bottom:1px solid var(--line)}
+.purpose b{color:var(--ink-2);font-weight:500}
+
+table{border-collapse:separate;border-spacing:0;width:100%;table-layout:fixed;height:100%;
+  min-width:var(--lebar,54rem)}
+thead th{position:sticky;top:0;z-index:2;background:var(--canvas);text-align:left;height:40px;
+  padding:0 14px;font-size:14.5px;font-weight:400;color:var(--ink-3);white-space:nowrap;
+  overflow:hidden;border-bottom:1px solid var(--line);border-right:1px solid var(--line)}
+thead th:last-child{border-right:0}
+thead th.r{text-align:right}
+tbody td{height:48px;padding:9px 14px;font-size:15px;color:var(--ink-2);white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;border-bottom:1px solid var(--line);
+  border-right:1px solid var(--line)}
+tbody td:last-child{border-right:0}
+tbody td.r{text-align:right;font-variant-numeric:tabular-nums}
+tbody tr{cursor:pointer}
+tbody tr:hover td{background:#fbfbfa}
+tbody tr.open td{background:var(--blue-soft)}
+tr.filler{height:100%}
+tr.filler td{border-bottom:0;padding:0}
+td.first{color:var(--ink);font-weight:500}
+tfoot td{position:sticky;bottom:0;height:44px;padding:0 14px;font-size:13.5px;color:var(--ink-4);
+  white-space:nowrap;overflow:hidden;background:var(--canvas);border-top:1px solid var(--line)}
+.tag{display:inline-flex;align-items:center;height:25px;padding:0 9px;border-radius:6px;
+  font-size:13.5px;font-weight:500;white-space:nowrap;color:var(--tone);background:#fff;
+  border:1px solid color-mix(in oklab,var(--tone) 30%,#fff)}
+
+.kosong{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;
+  padding:60px 24px;text-align:center;height:100%}
+.kosong .e1{font-size:15px;font-weight:600}
+.kosong .e2{font-size:14px;color:var(--ink-3);max-width:58ch;line-height:1.55}
+.kosong .e3{font-size:12px;color:var(--ink-4);margin-top:4px}
+
+.ref h3{margin:0;padding:16px 16px 8px;font-size:15px;font-weight:600}
+.ref table{min-width:64rem}
+
+/* ── lapisan: veil, panel, palet ───────────────────────────────────────── */
+.scrim{position:fixed;inset:0;background:rgba(250,250,249,.62);backdrop-filter:blur(2px);z-index:40;
+  animation:fade .18s var(--ease) both}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+.sheet{position:fixed;top:20px;right:20px;bottom:20px;width:min(54rem,92vw);z-index:41;
+  background:var(--canvas);border:1px solid var(--line-2);border-radius:16px;
+  box-shadow:var(--shadow-sheet);display:flex;flex-direction:column;overflow:hidden;
+  animation:slide .24s var(--ease) both}
+.sheet.form{width:min(36rem,92vw);z-index:43}
+.sheet.kecil{width:min(30rem,92vw);z-index:45}
+.scrim.l2{z-index:42;background:rgba(250,250,249,.5)}
+.scrim.l3{z-index:44;background:rgba(250,250,249,.4)}
+@keyframes slide{from{opacity:0;transform:translateX(1.5rem) scale(.99)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.sheet,.scrim,.palet{animation:none}}
+.sheet-h{display:flex;align-items:flex-start;gap:12px;padding:16px 20px 13px;
+  border-bottom:1px solid var(--line)}
+.sheet-h h3{margin:0;font-size:18px;line-height:24px;font-weight:600;letter-spacing:-.1px}
+.sheet-h .s2{font-size:12px;color:var(--ink-3);margin-top:2px}
+.sheet-h .x{margin-left:auto;width:26px;height:26px;border-radius:6px;display:grid;
+  place-items:center;color:var(--ink-4);flex-shrink:0;font-size:16px;line-height:1}
+.sheet-h .x:hover{background:var(--hover);color:var(--ink)}
+.sub-tabs{display:flex;gap:2px;padding:0 14px;border-bottom:1px solid var(--line);flex-shrink:0;
+  overflow-x:auto;scrollbar-width:none}
+.sub-tabs::-webkit-scrollbar{display:none}
+.sub-tabs button{padding:8px 9px;font-size:13px;font-weight:500;color:var(--ink-3);
+  border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap}
+.sub-tabs button.on{color:var(--ink);font-weight:600;border-bottom-color:var(--black)}
+.sheet-b{flex:1;min-height:0;overflow-y:auto;padding:17px 20px 24px;display:flex;
+  flex-direction:column;gap:18px}
+.sheet-f{display:flex;align-items:center;gap:7px;padding:11px 20px;border-top:1px solid var(--line);
+  flex-shrink:0;flex-wrap:wrap}
+.sheet-f .hint{flex:1;min-width:12ch;font-size:11.5px;color:var(--ink-4);line-height:1.45}
+
+ol.urut{margin:0;padding-left:1.35rem;display:flex;flex-direction:column;gap:6px;
+  font-size:13px;line-height:1.55;color:var(--ink-2)}
+ol.urut::marker{color:var(--ink-4)}
+.sect h5{margin:0 0 8px;font-size:11px;font-weight:500;letter-spacing:.04em;text-transform:uppercase;
+  color:var(--ink-4)}
+.kv{display:flex;flex-direction:column}
+.kv>div{display:grid;grid-template-columns:11rem 1fr;gap:12px;padding:7px 0;font-size:14px;
+  border-bottom:1px solid var(--line)}
+.kv>div:last-child{border-bottom:0}
+.kv dt{margin:0;color:var(--ink-3)}
+.kv dd{margin:0;color:var(--ink)}
+.say{margin:0;font-size:14px;line-height:1.6;color:var(--ink-2)}
+.say.q{padding-left:12px;border-left:2px solid var(--line-2);color:var(--ink-3)}
+.flow{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:13.5px;color:var(--ink-2)}
+.flow span{padding:4px 9px;border-radius:7px;background:var(--field)}
+.flow i{font-style:normal;color:var(--ink-4)}
+
+/* tabel anak di dalam panel */
+.anak{border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.anak .hh{display:flex;align-items:center;gap:8px;padding:9px 12px;background:var(--inset);
+  border-bottom:1px solid var(--line);font-size:13px;font-weight:600}
+.anak .hh .kode{font-family:"JetBrains Mono",monospace;font-size:11px;color:var(--ink-4);
+  font-weight:400}
+.anak .sc{overflow-x:auto}
+.anak table{min-width:100%;height:auto;table-layout:auto}
+.anak thead th{position:static;height:32px;font-size:12px;padding:0 10px;background:var(--canvas)}
+.anak tbody td{height:36px;font-size:13px;padding:6px 10px;white-space:nowrap}
+.anak tbody tr{cursor:default}
+.anak .aturan{padding:9px 12px;border-top:1px solid var(--line);font-size:12px;line-height:1.55;
+  color:var(--ink-4)}
+.anak .aturan b{color:var(--ink-3);font-weight:500}
+
+/* daftar tombol sheet 17 */
+.tbl{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:10px;
+  overflow:hidden}
+.tbl button{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;
+  padding:10px 12px;border-bottom:1px solid var(--line);transition:background-color .12s var(--ease)}
+.tbl button:last-child{border-bottom:0}
+.tbl button:hover{background:var(--blue-soft)}
+.tbl .nm{font-size:14px;font-weight:500;color:var(--ink)}
+.tbl .ps{display:block;font-size:11.5px;color:var(--ink-4);margin-top:1px}
+.tbl .fk{font-family:"JetBrains Mono",monospace;font-size:11px;padding:2px 6px;border-radius:5px;
+  background:var(--field);color:var(--ink-3)}
+.tbl .go{color:var(--ink-4)}
+
+/* field form */
+.fld{display:flex;flex-direction:column;gap:5px;padding:11px 0;border-bottom:1px solid var(--line)}
+.fld:last-child{border-bottom:0}
+.fld .top{display:flex;align-items:baseline;gap:8px}
+.fld label{font-size:14px;font-weight:500;color:var(--ink)}
+.fld .wajib{font-size:11px;padding:1px 6px;border-radius:5px;background:var(--warn-soft);color:#8a4308}
+.fld .wajib.ya{background:#fdeff2;color:#9f0f33}
+.fld .wajib.auto{background:var(--field);color:var(--ink-3)}
+.fld .inp{display:flex;align-items:center;min-height:34px;padding:6px 11px;border-radius:8px;
+  border:1px solid var(--line-2);background:var(--field);font-size:14px;color:var(--ink-4)}
+.fld .inp.ro{background:#fbfbfa;border-style:dashed}
+.fld .note{font-size:12px;line-height:1.5;color:var(--ink-4)}
+.fld .note b{color:var(--ink-3);font-weight:500}
+/* Form yang benar-benar diisi: input asli, kesalahan menempel pada fieldnya,
+   dan isian tidak hilang ketika penyimpanan gagal. */
+.fld input,.fld select,.fld textarea{width:100%;min-height:34px;padding:6px 11px;
+  border-radius:8px;border:1px solid var(--line-2);background:var(--canvas);
+  font:inherit;font-size:14px;color:var(--ink)}
+.fld textarea{min-height:64px;resize:vertical;line-height:1.5}
+.fld input[readonly]{background:#fbfbfa;border-style:dashed;color:var(--ink-4)}
+.fld input:focus,.fld select:focus,.fld textarea:focus{border-color:var(--ink-3);outline:none;
+  box-shadow:0 0 0 3px color-mix(in oklab,var(--ink) 9%,transparent)}
+.fld.salah input,.fld.salah select,.fld.salah textarea{border-color:var(--bad);
+  background:#fffafb}
+.fld .galat{display:flex;align-items:flex-start;gap:6px;font-size:12.5px;color:var(--bad);
+  line-height:1.45}
+.fld .galat::before{content:"▲";font-size:9px;line-height:1.7}
+.ringkas-galat{display:flex;flex-direction:column;gap:5px;padding:11px 13px;border-radius:9px;
+  background:#fffafb;border:1px solid #f3d3da;font-size:13px;color:#9f0f33;margin-bottom:6px}
+.ringkas-galat b{font-weight:600}
+.ringkas-galat button{text-align:left;font-size:12.5px;color:#9f0f33;text-decoration:underline}
+.hasil{display:flex;flex-direction:column;gap:14px;padding:4px 0 8px}
+.hasil .kepala{display:flex;align-items:center;gap:9px}
+.hasil .cek{width:26px;height:26px;border-radius:50%;background:var(--ok);color:#fff;
+  display:grid;place-items:center;font-size:14px;flex:0 0 auto}
+.hasil h4{margin:0;font-size:16px;font-weight:600}
+.hasil .lanjut{display:flex;flex-direction:column;gap:7px}
+.hasil .lanjut a{font-size:13px;color:var(--ink-2);text-decoration:underline;cursor:pointer}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.sebab-mati{font-size:12px;color:var(--warn);max-width:34ch;line-height:1.45;text-align:right}
+
+.note{font-size:12px;line-height:1.6;color:var(--ink-4);margin:0}
+.warn{display:flex;gap:10px;padding:11px 13px;border-radius:9px;font-size:13px;line-height:1.55;
+  background:var(--warn-soft);color:#8a4308}
+.usul-tag{display:inline-flex;align-items:center;height:20px;padding:0 7px;border-radius:5px;
+  font-size:11px;font-weight:500;background:var(--usul-soft);color:var(--usul);
+  border:1px solid color-mix(in oklab,var(--usul) 25%,#fff)}
+
+/* ── palet "+ Buat" ────────────────────────────────────────────────────── */
+.palet{position:fixed;top:64px;left:50%;transform:translateX(-50%);width:min(46rem,94vw);
+  max-height:min(78vh,44rem);z-index:41;background:var(--canvas);border:1px solid var(--line-2);
+  border-radius:14px;box-shadow:var(--shadow-pop);display:flex;flex-direction:column;
+  overflow:hidden;animation:turun .18s var(--ease) both}
+@keyframes turun{from{opacity:0;transform:translateX(-50%) translateY(-8px)}
+  to{opacity:1;transform:translateX(-50%)}}
+.palet .cari{display:flex;align-items:center;gap:9px;padding:13px 16px;border-bottom:1px solid var(--line)}
+.palet .cari input{flex:1;border:0;outline:none;font:inherit;font-size:16px;color:var(--ink);
+  background:none}
+.palet .cari input::placeholder{color:var(--ink-4)}
+.palet .cari .unitnow{font-size:12px;color:var(--ink-4);white-space:nowrap}
+.palet .isi{flex:1;min-height:0;overflow-y:auto;padding:6px 0 10px}
+.palet .gh{padding:12px 16px 5px;font-size:11px;letter-spacing:.04em;text-transform:uppercase;
+  color:var(--ink-4)}
+.palet .op{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:baseline;
+  width:100%;padding:8px 16px;transition:background-color .1s var(--ease)}
+.palet .op:hover,.palet .op.sorot{background:var(--blue-soft)}
+.palet .op .n1{font-size:14.5px;font-weight:500;color:var(--ink)}
+.palet .op .n2{display:block;font-size:12.5px;color:var(--ink-3);margin-top:1px;line-height:1.45}
+.palet .op .fk{font-family:"JetBrains Mono",monospace;font-size:11px;color:var(--ink-4)}
+.palet .op .awas{display:inline-block;margin-top:3px;font-size:11.5px;color:#8a4308}
+.palet .kaki{padding:10px 16px;border-top:1px solid var(--line);font-size:11.5px;
+  line-height:1.5;color:var(--ink-4)}
+
+/* ── QB ────────────────────────────────────────────────────────────────── */
+.qb{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:0;height:100%}
+@media (max-width:1000px){.qb{grid-template-columns:1fr;height:auto}}
+.qb .kiri{border-right:1px solid var(--line);overflow-y:auto}
+.qb .kanan{overflow-y:auto;background:var(--inset)}
+.qb .blok{padding:13px 16px;border-bottom:1px solid var(--line)}
+.qb .blok h4{margin:0 0 5px;font-size:12px;letter-spacing:.03em;text-transform:uppercase;
+  color:var(--ink-4);font-weight:500}
+.qb .blok p{margin:0;font-size:14px;line-height:1.55;color:var(--ink-2)}
+.qb .simpan{padding:13px 16px;border-bottom:1px solid var(--line)}
+.qb .simpan h4{margin:0 0 9px;font-size:12px;letter-spacing:.03em;text-transform:uppercase;
+  color:var(--ink-4);font-weight:500}
+.qb .view{display:block;width:100%;padding:10px 12px;border:1px solid var(--line);
+  border-radius:9px;margin-bottom:7px;background:var(--canvas);
+  transition:background-color .12s var(--ease)}
+.qb .view:hover{background:var(--blue-soft);border-color:color-mix(in oklab,var(--blue) 28%,#fff)}
+.qb .view b{display:block;font-size:14px;font-weight:600;color:var(--ink)}
+.qb .view i{display:block;font-style:normal;font-size:12.5px;color:var(--ink-3);margin-top:2px;
+  line-height:1.45}
+.qb .view u{display:block;text-decoration:none;font-size:12px;color:var(--ink-4);margin-top:3px}
+
+/* ── toolbar daftar: search, filter, group, sort, columns, views ─────── */
+.views{display:flex;align-items:center;gap:6px;padding:10px 16px 0;flex-wrap:wrap}
+.views button{padding:5px 11px;border-radius:8px;font-size:13.5px;font-weight:500;
+  color:var(--ink-3);border:1px solid transparent;transition:background-color .12s var(--ease)}
+.views button:hover{background:var(--hover);color:var(--ink)}
+.views button.on{background:var(--black);color:#fff}
+.views .simpanview{margin-left:auto;border:1px dashed var(--line-2);color:var(--ink-4)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(10rem,1fr));
+  border-bottom:1px solid var(--line);border-top:1px solid var(--line);margin-top:10px}
+.tiles > div{padding:11px 16px;border-right:1px solid var(--line)}
+.tiles > div:last-child{border-right:0}
+.tiles .k{display:block;font-size:11px;letter-spacing:.04em;text-transform:uppercase;
+  color:var(--ink-4);margin-bottom:3px}
+.tiles .v{font-size:18px;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.tiles .v.bad{color:var(--bad)} .tiles .v.ok{color:var(--ok)}
+.tiles .s{display:block;font-size:11.5px;color:var(--ink-4);margin-top:2px}
+.alat{display:flex;align-items:center;gap:7px;padding:10px 16px;flex-wrap:wrap;
+  border-bottom:1px solid var(--line)}
+.alat .cari{display:flex;align-items:center;gap:7px;height:30px;padding:0 10px;
+  border-radius:8px;border:1px solid var(--line-2);background:var(--canvas);min-width:15rem}
+.alat .cari input{flex:1;border:0;outline:none;font:inherit;font-size:13.5px;background:none}
+.alat .kanan{margin-left:auto;display:flex;gap:7px;flex-wrap:wrap}
+.aktif{display:flex;align-items:center;gap:6px;padding:8px 16px;flex-wrap:wrap;
+  background:var(--blue-soft);border-bottom:1px solid var(--line)}
+.aktif .lab{font-size:12px;color:var(--ink-3)}
+.aktif .fc{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;
+  border-radius:7px;background:var(--canvas);border:1px solid color-mix(in oklab,var(--blue) 25%,#fff);
+  font-size:12.5px;color:var(--ink-2)}
+.aktif .fc b{color:var(--ink)}
+.aktif .bersih{margin-left:auto;font-size:12.5px;color:var(--blue);font-weight:500}
+.pop{position:absolute;z-index:30;margin-top:4px;min-width:14rem;max-height:20rem;overflow-y:auto;
+  background:var(--canvas);border:1px solid var(--line-2);border-radius:10px;
+  box-shadow:var(--shadow-pop);padding:5px}
+.pop button{display:flex;align-items:center;gap:8px;width:100%;padding:6px 9px;border-radius:7px;
+  font-size:13.5px;color:var(--ink-2)}
+.pop button:hover{background:var(--hover)}
+.pop button.on{font-weight:600;color:var(--ink)}
+.pop .hh{padding:6px 9px 3px;font-size:11px;letter-spacing:.04em;text-transform:uppercase;
+  color:var(--ink-4)}
+.grup-kepala td{background:var(--inset);font-weight:600;color:var(--ink)}
+
+/* ── pemilih tampilan & halaman supplier ──────────────────────────────── */
+.pilih{display:inline-flex;height:28px;border:1px solid var(--line-2);border-radius:8px;
+  overflow:hidden;background:var(--canvas);box-shadow:var(--shadow-btn)}
+.pilih button{padding:0 11px;font-size:13px;font-weight:500;color:var(--ink-3);
+  text-align:center;border-right:1px solid var(--line)}
+.pilih button:last-child{border-right:0}
+.pilih button.on{background:var(--black);color:#fff}
+.sup-h{display:flex;align-items:flex-start;gap:14px;padding:14px 16px;
+  border-bottom:1px solid var(--line);flex-wrap:wrap}
+.sup-h h2{margin:0;font-size:19px;font-weight:600;letter-spacing:-.01em}
+.sup-h .k{font-size:12px;color:var(--ink-4);margin-top:2px}
+.sup-h .aksi{margin-left:auto;display:flex;gap:7px;flex-wrap:wrap}
+.angka{display:grid;grid-template-columns:repeat(auto-fit,minmax(11rem,1fr));gap:0;
+  border-bottom:1px solid var(--line)}
+.angka > div{padding:12px 16px;border-right:1px solid var(--line)}
+.angka > div:last-child{border-right:0}
+.angka .k{display:block;font-size:11px;letter-spacing:.04em;text-transform:uppercase;
+  color:var(--ink-4);margin-bottom:3px}
+.angka .v{font-size:19px;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.angka .v.bad{color:var(--bad)}
+.angka .v.ok{color:var(--ok)}
+.angka .s{display:block;font-size:12px;color:var(--ink-4);margin-top:2px}
+.saring{display:flex;align-items:center;gap:7px;padding:9px 16px;flex-wrap:wrap;
+  border-bottom:1px solid var(--line)}
+.saring button{padding:4px 10px;border-radius:7px;font-size:13px;color:var(--ink-3);
+  border:1px solid var(--line-2);background:var(--canvas)}
+.saring button.on{background:var(--black);border-color:var(--black);color:#fff}
+
+/* ── delapan keadaan layar ────────────────────────────────────────────── */
+.pita-keadaan{display:flex;align-items:center;gap:6px;padding:7px 16px;flex-wrap:wrap;
+  border-bottom:1px solid var(--line);background:var(--inset)}
+.pita-keadaan .lab{font-size:11px;letter-spacing:.04em;text-transform:uppercase;
+  color:var(--ink-4);margin-right:3px}
+.pita-keadaan button{padding:3px 9px;border-radius:6px;font-size:12.5px;color:var(--ink-3);
+  border:1px solid transparent;background:transparent}
+.pita-keadaan button:hover{border-color:var(--line-2);background:var(--canvas)}
+.pita-keadaan button.on{background:var(--black);border-color:var(--black);color:#fff}
+/* Rangka isi, bukan layar kosong: pengguna melihat bentuk yang sedang datang. */
+.ska{display:inline-block;height:11px;border-radius:4px;vertical-align:middle;
+  background:linear-gradient(90deg,var(--inset) 0%,var(--line) 50%,var(--inset) 100%);
+  background-size:200% 100%;animation:kilau 1.25s ease-in-out infinite}
+@keyframes kilau{from{background-position:200% 0}to{background-position:-200% 0}}
+@media (prefers-reduced-motion:reduce){.ska{animation:none}}
+.aktif{display:flex;align-items:center;gap:10px;padding:10px 16px;
+  border-bottom:1px solid var(--line);background:var(--inset)}
+.aktif .lab{font-size:11px;letter-spacing:.04em;text-transform:uppercase;font-weight:600}
+.aktif .fc{font-size:13px;color:var(--ink-2)}
+.aktif .bersih{margin-left:auto;font-size:12.5px;text-decoration:underline;cursor:pointer}
+
+/* ── kenyamanan harian: fokus, status, angka, header lengket ──────────── */
+/* Fokus keyboard harus terlihat di mana pun, termasuk di atas latar hitam. */
+:focus-visible{outline:2px solid var(--ink);outline-offset:2px;border-radius:5px}
+.btn.dark:focus-visible,.pilih button.on:focus-visible,
+.pita-keadaan button.on:focus-visible{outline-color:#fff;outline-offset:-4px}
+a.lompat{position:absolute;left:-9999px;top:0;z-index:99;padding:8px 14px;
+  background:var(--black);color:#fff;border-radius:0 0 8px 0;font-size:13px}
+a.lompat:focus{left:0}
+/* Status tidak pernah dibedakan dengan warna saja: selalu ada bentuk penanda
+   di depannya, supaya terbaca juga oleh yang tidak membedakan warna. */
+.tag::before{content:"";width:6px;height:6px;border-radius:50%;flex:0 0 auto;
+  background:currentColor;opacity:.85}
+.tag[data-bentuk="kotak"]::before{border-radius:1px}
+.tag[data-bentuk="segitiga"]::before{border-radius:0;width:0;height:0;background:none;
+  border-left:3.5px solid transparent;border-right:3.5px solid transparent;
+  border-bottom:6px solid currentColor}
+.tag[data-bentuk="garis"]::before{border-radius:1px;height:2px;width:8px}
+/* Angka: satu format, rata kanan, digit selebar sama, negatif dalam kurung. */
+td.r,th.r,.tiles .v,.angka .v{font-variant-numeric:tabular-nums}
+.neg{color:var(--bad)}
+/* Header tabel dan barisnya tetap terlihat saat daftar panjang digulir. */
+thead th{position:sticky;top:0;z-index:2}
+tfoot td{position:sticky;bottom:0;z-index:2;background:var(--inset)}
+/* Kolom penting tidak hilang saat layar menyempit — yang menyempit adalah
+   kolom keterangan, dan tabelnya menggeser sendiri di dalam wadahnya. */
+@media (max-width:820px){
+  .sup-h .aksi{margin-left:0;width:100%}
+  .angka{grid-template-columns:repeat(2,1fr)}
+  .tiles{grid-template-columns:repeat(2,1fr)}
+  td.opsional,th.opsional{display:none}
+}
+
+/* ── bagan ────────────────────────────────────────────────────────────────
+   Visual menunjukkan pola; klik membuka rincian; rincian menuju dokumen. */
+.bagan{margin:0;padding:14px 16px 10px;border-bottom:1px solid var(--line)}
+.bagan figcaption{display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap}
+.bagan figcaption .j{font-size:13px;font-weight:600;color:var(--ink-2)}
+.bagan figcaption .k{font-size:12px;color:var(--ink-4)}
+.bagan figcaption > .pilih{margin-left:auto}
+.bagan svg{display:block;max-width:100%;height:auto;font-variant-numeric:tabular-nums}
+.bagan .tt:hover circle{r:5.5}
+.legenda{display:flex;gap:14px;flex-wrap:wrap;margin-top:7px;font-size:11.5px;color:var(--ink-3)}
+.legenda span{display:inline-flex;align-items:center;gap:5px}
+.legenda i{width:11px;height:3px;border-radius:2px;display:inline-block}
+.bagan-baris{display:grid;grid-template-columns:repeat(auto-fit,minmax(22rem,1fr));
+  border-bottom:1px solid var(--line)}
+.bagan-baris > .bagan{border-bottom:0;border-right:1px solid var(--line)}
+.bagan-baris > .bagan:last-child{border-right:0}
+@media (max-width:900px){.bagan-baris{grid-template-columns:1fr}
+  .bagan-baris > .bagan{border-right:0;border-bottom:1px solid var(--line)}}
+table.panas{--lebar:auto;width:auto;min-width:100%}
+table.panas th{font-size:11.5px;color:var(--ink-4);font-weight:500;text-align:center;
+  padding:6px 10px;background:var(--canvas);position:static}
+table.panas th[scope="row"]{text-align:left;white-space:nowrap;font-weight:500;color:var(--ink-2)}
+table.panas td{text-align:right;font-variant-numeric:tabular-nums;font-size:12.5px;
+  padding:7px 11px;height:auto;border-bottom:1px solid var(--line)}
+table.panas td[data-kuat]{font-weight:600}
+.progres{display:flex;flex-direction:column;gap:11px;padding:14px 16px}
+.progres .atas{display:flex;justify-content:space-between;font-size:12.5px;color:var(--ink-2);
+  margin-bottom:4px}
+.progres .atas b{font-variant-numeric:tabular-nums;font-weight:500;color:var(--ink-4)}
+.progres .bar{height:7px;border-radius:4px;background:var(--inset);overflow:hidden}
+.progres .bar span{display:block;height:100%;border-radius:4px}
+
+/* ── bagan hubungan dokumen ───────────────────────────────────────────── */
+.rantai{display:flex;gap:0;padding:16px;overflow-x:auto;align-items:stretch}
+.rantai .kol{display:flex;flex-direction:column;gap:9px;min-width:13rem;position:relative;
+  padding-right:26px}
+.rantai .kol:last-child{padding-right:0}
+.rantai .kj{font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-4)}
+.rantai .simpul{border:1px solid var(--line-2);border-radius:10px;padding:10px 12px;
+  background:var(--canvas);box-shadow:var(--shadow-btn);display:flex;flex-direction:column;gap:4px}
+.rantai .simpul.pucat{border-style:dashed;box-shadow:none;background:var(--inset);opacity:.75}
+.rantai .simpul .no{font-size:13px;font-weight:600;font-family:var(--mono)}
+.rantai .simpul .kt{font-size:12px;color:var(--ink-4)}
+.rantai .simpul .tipis{font-size:12px;color:var(--ink-4);font-style:italic}
+.rantai .simpul .rel{font-size:11.5px;color:var(--warn);font-weight:500}
+.rantai .panah{position:absolute;right:4px;top:calc(50% - 8px);color:var(--line-2);font-size:17px}
+
+/* ── editable table ───────────────────────────────────────────────────── */
+input.sel,select.sel{width:100%;border:1px solid transparent;background:transparent;
+  font:inherit;font-size:13.5px;color:var(--ink);padding:4px 6px;border-radius:6px}
+input.sel.r{text-align:right;font-variant-numeric:tabular-nums}
+input.sel:hover,select.sel:hover{border-color:var(--line-2);background:var(--canvas)}
+input.sel:focus,select.sel:focus{border-color:var(--ink-3);background:var(--canvas);
+  outline:none;box-shadow:0 0 0 3px color-mix(in oklab,var(--ink) 9%,transparent)}
+tr.ubah td{background:#fffafb}
+
+/* ── tahapan (form bertahap & penanda tahap) ──────────────────────────── */
+.tahapan{display:flex;gap:0;padding:13px 16px;border-bottom:1px solid var(--line);
+  overflow-x:auto}
+.tahapan .tk{display:flex;align-items:center;gap:9px;padding-right:28px;position:relative;
+  flex:0 0 auto}
+.tahapan .tk::after{content:"";position:absolute;right:10px;top:50%;width:12px;height:1px;
+  background:var(--line-2)}
+.tahapan .tk:last-child::after{display:none}
+.tahapan .bul{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;
+  font-size:11.5px;font-weight:600;background:var(--inset);color:var(--ink-4);
+  border:1px solid var(--line-2);flex:0 0 auto}
+.tahapan .tx{display:flex;flex-direction:column;line-height:1.3}
+.tahapan .tx b{font-size:13px;font-weight:500;color:var(--ink-4)}
+.tahapan .tx i{font-size:11.5px;color:var(--ink-4);font-style:normal}
+.tahapan .lewat .bul{background:var(--ok);border-color:var(--ok);color:#fff}
+.tahapan .lewat .tx b{color:var(--ink-3)}
+.tahapan .kini .bul{background:var(--black);border-color:var(--black);color:#fff}
+.tahapan .kini .tx b{color:var(--ink);font-weight:600}
+.tahapan .gagal .bul{background:var(--bad);border-color:var(--bad);color:#fff}
+.tahapan .gagal .tx b{color:var(--bad);font-weight:600}
+.tahapan.ringkas{padding:9px 16px}
+.tahapan.ringkas .tx i{display:none}
+.unggah{border:1.5px dashed var(--line-2);border-radius:12px;padding:26px;text-align:center;
+  display:flex;flex-direction:column;align-items:center;gap:7px;background:var(--inset)}
+.unggah b{font-size:14px}
+.unggah span{font-size:12.5px;color:var(--ink-4)}
+
+/* ── pratinjau dokumen berdampingan ───────────────────────────────────── */
+.damping{display:grid;grid-template-columns:1fr 1fr;gap:0;border-bottom:1px solid var(--line)}
+.damping .sisi{border-right:1px solid var(--line);display:flex;flex-direction:column}
+.damping .sisi:last-child{border-right:0}
+.damping .sh{padding:10px 14px;border-bottom:1px solid var(--line);background:var(--inset);
+  display:flex;align-items:baseline;gap:9px}
+.damping .sh b{font-size:13px}
+.damping .sh span{font-size:11.5px;color:var(--ink-4);font-family:var(--mono)}
+.damping .sk{margin-top:auto;padding:11px 14px;border-top:1px solid var(--line);
+  display:flex;gap:7px;flex-wrap:wrap}
+.kertas-kecil{margin:14px;padding:14px;background:#fff;border:1px solid var(--line-2);
+  border-radius:6px;box-shadow:0 2px 10px rgba(28,26,23,.07);color:#1a1a1a}
+.kertas-kecil .fk-kop{display:flex;flex-direction:column;gap:2px;padding-bottom:9px;
+  margin-bottom:9px;border-bottom:1.5px solid #1a1a1a}
+.kertas-kecil .fk-kop b{font-size:11pt}
+.kertas-kecil .fk-kop span{font-size:8.5pt;color:#555}
+.kertas-kecil .fk-kaki{margin-top:9px;padding-top:7px;border-top:1px solid #ddd;
+  font-size:8pt;color:#555}
+@media (max-width:900px){.damping{grid-template-columns:1fr}
+  .damping .sisi{border-right:0;border-bottom:1px solid var(--line)}}
+
+/* ── kalender pajak ───────────────────────────────────────────────────── */
+.kalender-pajak{display:grid;grid-template-columns:repeat(auto-fill,minmax(14rem,1fr));gap:9px}
+.kalender-pajak .kp{border:1px solid var(--line-2);border-left:3px solid var(--ink-3);
+  border-radius:9px;padding:10px 12px;background:var(--canvas);display:flex;
+  flex-direction:column;gap:4px}
+.kalender-pajak .kp.lewat{border-left-color:var(--bad);background:#fffafb}
+.kalender-pajak .kp.beres{border-left-color:var(--ok)}
+.kalender-pajak .tg{font-size:11.5px;color:var(--ink-4);font-weight:500}
+.kalender-pajak .js{font-size:13.5px;font-weight:500;display:flex;flex-direction:column}
+.kalender-pajak .js span{font-size:11.5px;color:var(--ink-4);font-weight:400}
+.kalender-pajak .nl{font-size:15px;font-weight:600;font-variant-numeric:tabular-nums}
+.kalender-pajak .st3{display:flex;gap:5px;margin-top:3px}
+.kalender-pajak .st3 span{font-size:10.5px;padding:1px 6px;border-radius:5px;
+  display:inline-flex;align-items:center;gap:3px}
+.kalender-pajak .st3 span::before{content:"○";font-size:8px}
+.kalender-pajak .st3 .y{background:#f1f7f2;color:#14532d}
+.kalender-pajak .st3 .y::before{content:"●"}
+.kalender-pajak .st3 .n{background:var(--inset);color:var(--ink-4)}
+
+/* ── papan cerita sheet 22 ─────────────────────────────────────────────── */
+.cerita{padding:18px 16px 40px;display:flex;flex-direction:column;gap:22px;max-width:74rem}
+.cerita .tajuk{font-size:13px;color:var(--ink-3);line-height:1.55;max-width:64ch;margin:0}
+.cerita .pasang{display:grid;grid-template-columns:minmax(0,18rem) minmax(0,1fr);gap:18px;
+  align-items:start}
+@media (max-width:900px){.cerita .pasang{grid-template-columns:1fr}}
+.mock{border:1px solid var(--line-2);border-radius:12px;overflow:hidden;background:var(--canvas);
+  box-shadow:var(--shadow-btn)}
+.mock .bar{display:flex;align-items:center;justify-content:space-between;padding:10px 13px;
+  background:var(--black);color:#fff;font-size:12.5px;font-weight:600;letter-spacing:.02em;
+  border:0}
+.mock .bar span:last-child{opacity:.6;font-weight:400}
+.mock .isi{padding:4px 13px 13px}
+.mock .sub{font-size:12px;color:var(--ink-3);padding:9px 0 0}
+.mock .tabs2{display:flex;gap:14px;padding:9px 0 0;font-size:12.5px;color:var(--ink-4);
+  border-bottom:1px solid var(--line);margin-bottom:4px;flex-wrap:wrap}
+.mock .tabs2 b:first-child{color:var(--ink);font-weight:600}
+.mock .kvr{display:grid;grid-template-columns:9rem 1fr;gap:10px;padding:7px 0;font-size:13.5px;
+  border-bottom:1px solid var(--line)}
+.mock .kvr dt{color:var(--ink-3)}
+.mock .kvr dd{margin:0;color:var(--ink)}
+.mock .uang{display:flex;justify-content:space-between;gap:10px;padding:7px 0;font-size:13.5px;
+  border-bottom:1px solid var(--line)}
+.mock .uang b{font-variant-numeric:tabular-nums;font-weight:500}
+.mock .seksi{padding:12px 0 3px;font-size:11px;letter-spacing:.04em;text-transform:uppercase;
+  color:var(--ink-4)}
+.mock .cat{margin:9px 0 0;font-size:12px;line-height:1.55;color:var(--ink-4)}
+.mock .aksi{display:flex;gap:8px;padding:12px 0 0;flex-wrap:wrap}
+.mock .aksi span{display:inline-flex;align-items:center;height:30px;padding:0 12px;
+  border-radius:8px;font-size:13px;font-weight:500;border:1px solid var(--line-2);
+  background:var(--canvas);color:var(--ink-2)}
+.mock .aksi span:first-child{background:var(--black);border-color:var(--black);color:#fff}
+.mock table{min-width:0;height:auto;table-layout:auto}
+.mock thead th{position:static;height:30px;font-size:11.5px;padding:0 10px;background:var(--inset)}
+.mock tbody td{height:36px;font-size:13px;padding:6px 10px}
+.mock tbody tr{cursor:default}
+
+.dua-kolom{display:grid;grid-template-columns:1fr 1fr;gap:0;border-bottom:1px solid var(--line)}
+.dua-kolom > div:first-child{border-right:1px solid var(--line)}
+@media (max-width:1000px){.dua-kolom{grid-template-columns:1fr}
+  .dua-kolom > div:first-child{border-right:0;border-bottom:1px solid var(--line)}}
+table.mini{min-width:0;height:auto;table-layout:auto}
+table.mini thead th{position:static;height:32px;font-size:12px;padding:0 10px}
+table.mini tbody td{height:38px;font-size:13px;padding:6px 10px}
+table.mini tbody tr:last-child td{border-bottom:0}
+
+/* ── dokumen cetak ────────────────────────────────────────────────────────
+   Tiga jenis keluaran, tiga format: dokumen transaksi A4 tegak, statement A4
+   tegak dengan saldo berjalan, register A4 mendatar. Mencetak tampilan layar
+   apa adanya tidak cukup — kolom terpotong, header tidak berulang, dan cakupan
+   laporannya tidak ikut tercetak. */
+@page{size:A4 portrait;margin:14mm 12mm}
+.cetak-lapis{position:fixed;inset:0;z-index:60;background:#8a8a85;overflow:auto;
+  padding:22px 16px 40px;animation:fade .18s var(--ease) both}
+.cetak-bar{position:sticky;top:-22px;z-index:2;display:flex;align-items:center;gap:8px;
+  max-width:210mm;margin:0 auto 14px;padding:10px 12px;background:var(--canvas);
+  border:1px solid var(--line-2);border-radius:10px;box-shadow:var(--shadow-btn)}
+.cetak-bar .jud{font-size:13.5px;font-weight:600}
+.cetak-bar .sub{font-size:12px;color:var(--ink-4)}
+.cetak-bar .kanan{margin-left:auto;display:flex;gap:7px}
+.kertas{width:210mm;min-height:297mm;margin:0 auto;padding:14mm 12mm;background:#fff;
+  box-shadow:0 8px 30px rgba(0,0,0,.28);font-size:10.5pt;line-height:1.42;color:#111}
+.kertas.lebar{width:297mm;min-height:210mm}
+.kertas h1{margin:0;font-size:14pt;letter-spacing:.02em}
+.kertas h2{margin:0 0 2mm;font-size:11.5pt;font-weight:700;letter-spacing:.04em;
+  text-transform:uppercase}
+.kop{display:flex;justify-content:space-between;align-items:flex-start;gap:10mm;
+  padding-bottom:4mm;border-bottom:1.5pt solid #111;margin-bottom:5mm}
+.kop .ent{font-size:12pt;font-weight:700}
+.kop .al{font-size:9pt;color:#444;margin-top:1mm;max-width:80mm}
+.kop .cap{text-align:right;font-size:9pt;color:#444}
+.cap .st{display:inline-block;margin-top:1.5mm;padding:1mm 3mm;border:1pt solid #111;
+  border-radius:2mm;font-size:9pt;font-weight:700;letter-spacing:.06em}
+.cap .st.draf{border-style:dashed;color:#8a4308;border-color:#8a4308}
+.pasangan{display:grid;grid-template-columns:1fr 1fr;gap:6mm;margin-bottom:5mm}
+.pasangan dl{margin:0}
+.pasangan div{display:grid;grid-template-columns:34mm 1fr;gap:3mm;padding:1mm 0}
+.pasangan dt{color:#555}
+.pasangan dd{margin:0;font-weight:500}
+/* Tabel kertas tidak mewarisi aturan tabel daftar: di layar daftar, height
+   100% dipakai supaya tabel mengisi layar; di kertas ia meregangkan satu baris
+   menjadi setengah halaman. */
+table.doc{width:100%;border-collapse:collapse;margin:3mm 0 4mm;font-size:9.5pt;
+  height:auto;min-width:0;table-layout:auto}
+table.doc tbody tr{height:auto;cursor:default}
+table.doc tbody td{height:auto;white-space:normal;overflow:visible}
+table.doc thead th{position:static;height:auto;white-space:normal;font-size:9.5pt;
+  color:#111;border-bottom:.6pt solid #999}
+table.doc tfoot td{position:static;height:auto;white-space:normal}
+table.doc th{background:#f1f1ee;border:.6pt solid #999;padding:1.6mm 2mm;text-align:left;
+  font-weight:700}
+table.doc td{border:.6pt solid #bbb;padding:1.6mm 2mm;vertical-align:top}
+table.doc td.r,table.doc th.r{text-align:right;font-variant-numeric:tabular-nums}
+table.doc tfoot td{background:#fafaf7;font-weight:700}
+.jumlah{margin-left:auto;width:92mm}
+.jumlah div{display:flex;justify-content:space-between;gap:6mm;padding:1.4mm 0;
+  border-bottom:.5pt solid #ddd;font-size:10pt}
+.jumlah div.tebal{border-top:1pt solid #111;border-bottom:1.5pt double #111;font-weight:700;
+  margin-top:1mm}
+.jumlah .ket{color:#555;font-weight:400}
+.ttd{display:grid;grid-template-columns:repeat(3,1fr);gap:8mm;margin-top:10mm;
+  page-break-inside:avoid}
+.ttd > div{border-top:.6pt solid #999;padding-top:2mm;font-size:9pt}
+.ttd .peran{font-weight:700;margin-bottom:1mm}
+.ttd .kosong{color:#999;font-style:italic}
+.kaki{margin-top:8mm;padding-top:2.5mm;border-top:.5pt solid #ccc;font-size:8pt;color:#666;
+  display:flex;justify-content:space-between;gap:6mm}
+.catatan-cetak{font-size:9pt;color:#444;border:.6pt dashed #bbb;padding:2.5mm 3mm;
+  border-radius:1.5mm;margin:3mm 0}
+@media print{
+  body > .app,#lapis > :not(.cetak-lapis){display:none!important}
+  .cetak-lapis{position:static;padding:0;background:#fff;overflow:visible}
+  .cetak-bar{display:none!important}
+  .kertas{width:auto;min-height:0;margin:0;padding:0;box-shadow:none}
+  table.doc thead{display:table-header-group}
+  table.doc tr{page-break-inside:avoid}
+}
+
+@media (max-width:1099px){
+  .side{width:194px}
+  .side .src,.side .n{display:none}
+  .side .item{font-size:14px;padding:6px 8px}
+}
+@media (max-width:767px){
+  .app{flex-direction:column;height:auto}
+  .rail{width:100%;flex-direction:row;border-right:0;border-bottom:1px solid var(--line);padding:8px 10px}
+  .rail .logo{margin-bottom:0;margin-right:6px}
+  .rail .sep{width:1px;height:24px;margin:0 5px}
+  .side{width:100%;border-right:0;border-bottom:1px solid var(--line);flex-direction:row;
+    overflow-x:auto;padding:8px 10px;align-items:center;gap:3px}
+  .side .item{width:auto;white-space:nowrap;flex-shrink:0}
+  .side .item .no,.side .top{display:none}
+  .side .grp{padding:0 6px 0 10px;white-space:nowrap;flex-shrink:0;
+    border-left:1px solid var(--line-2);margin-left:6px}
+  .head{flex-wrap:wrap;gap:10px}
+  .head > div:first-child{flex:1 1 100%;min-width:0}
+  .head .right{margin-left:0;width:100%;flex-wrap:wrap}
+  .sheet,.sheet.form,.sheet.kecil{top:auto;left:0;right:0;bottom:0;width:auto;max-height:88vh;
+    border-radius:14px 14px 0 0}
+  .palet{top:8px;width:96vw;max-height:90vh}
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   TAMBAHAN: katalog sebagai kisi kartu
+   ──────────────────────────────────────────────────────────────────────────
+   Sistem di atas ini dibangun untuk tabel: garis rambut, baris 48px, angka
+   rata kanan. Sourcing tidak bisa memakainya apa adanya — pembeli datang
+   TANPA tahu apa yang dicarinya, dan tabel menyuruhnya membaca dua belas
+   baris teks sebelum ada yang menarik matanya. Maka katalognya jadi kisi
+   kartu, memakai token yang sama persis: garis --line-2, sudut yang sama,
+   --shadow-btn yang sama, angka tabular yang sama. Yang berubah bentuknya,
+   bukan bahasanya.
+
+   Kisinya berdiri di atas --inset, bukan --canvas. Kartu putih di atas putih
+   perlu bayangan untuk terpisah, dan bayangan bukan bahasa sistem ini; latar
+   yang setingkat lebih gelap memisahkannya dengan satu garis saja. */
+.kisi{display:grid;grid-template-columns:repeat(auto-fill,minmax(12.5rem,1fr));
+  gap:13px;padding:14px 16px 28px;background:var(--inset);min-height:100%;
+  align-content:start}
+.kartu{display:flex;flex-direction:column;background:var(--canvas);
+  border:1px solid var(--line-2);border-radius:12px;overflow:hidden;
+  box-shadow:var(--shadow-btn);transition:box-shadow .14s var(--ease),
+  border-color .14s var(--ease),transform .14s var(--ease)}
+.kartu:hover{border-color:var(--ink-4);box-shadow:0 4px 16px rgba(20,20,20,.09);
+  transform:translateY(-1px)}
+.kartu:focus-within{border-color:var(--ink-3)}
+/* Foto: potret 4:5, dipotong dari atas. Katalog ini foto baju — memotong dari
+   tengah memenggal kepala dan menyisakan lantai. */
+.kartu .foto{position:relative;display:block;width:100%;aspect-ratio:4/5;
+  background:var(--field);overflow:hidden;border-bottom:1px solid var(--line)}
+.kartu .foto img{width:100%;height:100%;object-fit:cover;object-position:center 12%;
+  display:block;background:var(--field)}
+.kartu .foto .takada{display:grid;place-items:center;width:100%;height:100%;
+  font-size:11.5px;color:var(--ink-4);text-align:center;padding:0 10px}
+/* Dua penanda di atas foto, dan hanya dua. Yang kiri menyebut BENDANYA apa;
+   yang kanan menyebut apa yang sudah KITA lakukan padanya — karena itu ia
+   terbalik warnanya, dan hilang sama sekali ketika angkanya nol. */
+.kartu .bagi{position:absolute;top:8px;left:8px;display:inline-flex;align-items:center;
+  height:20px;padding:0 8px;border-radius:6px;background:rgba(255,255,255,.95);
+  backdrop-filter:blur(5px);font-size:11px;font-weight:600;color:var(--ink);
+  box-shadow:0 1px 3px rgba(20,20,20,.12);letter-spacing:.01em}
+.kartu .ambil{position:absolute;top:8px;right:8px;display:inline-flex;align-items:center;
+  gap:4px;height:20px;padding:0 8px;border-radius:6px;background:rgba(25,25,23,.92);
+  backdrop-filter:blur(5px);font-size:11px;font-weight:600;color:#fff;
+  font-variant-numeric:tabular-nums}
+.kartu .isi{display:flex;flex-direction:column;padding:10px 12px 11px;gap:0;flex:1;min-width:0}
+.kartu .nama{display:block;width:100%;font-size:14px;font-weight:500;color:var(--ink);
+  line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kartu .nama:hover{text-decoration:underline;text-underline-offset:2px}
+/* Warna dan ukuran adalah SATU kalimat — "navy atau hitam, S sampai XXL" —
+   jadi keduanya sebaris, bukan dua kolom dengan lubang di tengah. */
+.kartu .var{display:flex;align-items:center;gap:7px;margin-top:6px;min-width:0}
+.warna{display:inline-flex;align-items:center;gap:3px;flex-shrink:0}
+.warna i{width:11px;height:11px;border-radius:50%;display:inline-block;
+  box-shadow:inset 0 0 0 1px rgba(20,20,20,.16)}
+.warna i.kosong{background:var(--canvas)}
+.warna b{font-size:11px;font-weight:400;color:var(--ink-4);font-variant-numeric:tabular-nums;
+  margin-left:1px}
+.kartu .uk{font-size:11.5px;color:var(--ink-3);white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;min-width:0}
+.kartu .harga{margin-top:7px;font-size:16px;font-weight:600;color:var(--ink);
+  font-variant-numeric:tabular-nums;letter-spacing:-.012em}
+.kartu .toko{display:flex;align-items:center;gap:5px;width:100%;margin-top:7px;
+  font-size:11.5px;color:var(--ink-3);min-width:0}
+.kartu .toko:hover{color:var(--ink);text-decoration:underline;text-underline-offset:2px}
+.kartu .toko svg{flex-shrink:0;color:var(--ink-4)}
+.kartu .toko span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Label barang bukan status, jadi ia tidak memakai .tag — .tag punya titik
+   penanda di depannya, dan titik itu berjanji "ini keadaan", yang bohong. */
+.label{display:flex;flex-wrap:wrap;gap:4px;margin-top:7px}
+.label span{display:inline-flex;align-items:center;height:19px;padding:0 6px;
+  border-radius:5px;background:var(--field);font-size:10.5px;color:var(--ink-3);
+  white-space:nowrap}
+.label .sisa{background:none;padding:0 2px;color:var(--ink-4);
+  font-variant-numeric:tabular-nums}
+.kartu .kaki{display:flex;align-items:center;gap:8px;margin-top:auto;padding-top:10px}
+/* Satu-satunya angka di kartu yang bercerita tentang KITA, bukan tentang
+   pemasok — jadi ia satu-satunya yang berwarna. Hilang di nol: pesanan
+   pertama bukan peringatan. */
+.pernah{min-width:0;flex:1;text-align:center;padding:3px 7px;border-radius:6px;
+  background:var(--blue-soft);font-size:11px;font-weight:500;color:#1d4ed8;
+  font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kartu .kaki .btn{margin-left:auto;flex-shrink:0}
+
+/* Baris kedua kisi: tabel yang sama, dengan foto 34px di kolom pertama.
+   Pembeli yang sudah tahu apa yang dicarinya sedang membandingkan HARGA, dan
+   empat puluh kartu adalah cara paling mahal untuk membaca empat puluh angka. */
+td .mini-foto{display:flex;align-items:center;gap:10px;min-width:0}
+td .mini-foto img{width:34px;height:42px;object-fit:cover;object-position:center 12%;
+  border-radius:5px;background:var(--field);flex-shrink:0;border:1px solid var(--line)}
+td .mini-foto .kosongf{width:34px;height:42px;border-radius:5px;background:var(--field);
+  flex-shrink:0;border:1px solid var(--line)}
+td .mini-foto span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+tbody td.tebal{color:var(--ink);font-weight:500}
+
+/* Omnibox: satu kotak untuk dua pertanyaan. Mencari dan menyaring dulunya dua
+   kendali di dua sudut, padahal ia satu pikiran — "kaus, kidswear, bukan dari
+   pemasok itu" diucapkan pembeli dalam satu tarikan napas. */
+.omni{display:flex;align-items:center;gap:7px;flex:1;min-width:18rem;min-height:34px;
+  padding:4px 9px;border-radius:9px;border:1px solid var(--line-2);background:var(--canvas);
+  box-shadow:var(--shadow-btn);flex-wrap:wrap;position:relative}
+.omni:focus-within{border-color:var(--ink-3);
+  box-shadow:0 0 0 3px color-mix(in oklab,var(--ink) 8%,transparent)}
+.omni > svg{color:var(--ink-4);flex-shrink:0}
+.omni input{flex:1;min-width:8rem;border:0;outline:none;background:none;font:inherit;
+  font-size:13.5px;color:var(--ink);padding:3px 0}
+.omni input::placeholder{color:var(--ink-4)}
+.klausa{display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 5px 0 8px;
+  border-radius:6px;background:var(--field);border:1px solid var(--line-2);
+  font-size:12.5px;color:var(--ink-2);white-space:nowrap}
+.klausa b{font-weight:600;color:var(--ink)}
+.klausa i{font-style:normal;color:var(--ink-4);font-size:11.5px}
+.klausa .buang{display:grid;place-items:center;width:16px;height:16px;border-radius:4px;
+  color:var(--ink-4);font-size:13px;line-height:1}
+.klausa .buang:hover{background:var(--line-2);color:var(--ink)}
+.omni .tambah{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 8px;
+  border-radius:6px;font-size:12.5px;color:var(--ink-4);border:1px dashed var(--line-2)}
+.omni .tambah:hover{color:var(--ink-2);border-color:var(--ink-4);background:var(--hover)}
+/* Daftar facet: jumlahnya dihitung server atas SEMUA yang cocok, bukan atas
+   halaman ini dan bukan atas pilihan yang sedang aktif — memilih satu divisi
+   tidak boleh membuat divisi lain terbaca nol, karena daftar inilah cara
+   pembeli melihat apa lagi yang ada di sana. */
+.pop .fj{display:flex;align-items:center;gap:8px;width:100%}
+.pop .fj .n{margin-left:auto;font-size:11.5px;color:var(--ink-4);
+  font-variant-numeric:tabular-nums}
+.pop .kotak{width:13px;height:13px;border-radius:4px;border:1px solid var(--line-2);
+  flex-shrink:0;display:grid;place-items:center;font-size:9px;color:#fff}
+.pop button.on .kotak{background:var(--black);border-color:var(--black)}
+
+/* Ringkasan hasil di atas kisi: berapa yang terlihat dari berapa. */
+.hasilbar{display:flex;align-items:center;gap:10px;padding:9px 16px;flex-wrap:wrap;
+  border-bottom:1px solid var(--line)}
+.hasilbar .jml{font-size:13px;color:var(--ink-3)}
+.hasilbar .jml b{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+.hasilbar .kanan{margin-left:auto;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.hasilbar .urut{font-size:11.5px;color:var(--ink-4);margin-right:1px}
+
+/* Rangka kartu selagi menunggu: pembeli melihat BENTUK yang sedang datang,
+   bukan layar kosong yang menyerupai kegagalan. */
+.rangka{background:var(--canvas);border:1px solid var(--line);border-radius:12px;
+  overflow:hidden}
+.rangka .f{width:100%;aspect-ratio:4/5;background:linear-gradient(90deg,
+  var(--inset) 0%,var(--line) 50%,var(--inset) 100%);background-size:200% 100%;
+  animation:kilau 1.25s ease-in-out infinite}
+.rangka .b{padding:11px 12px;display:flex;flex-direction:column;gap:7px}
+
+.muat{display:flex;justify-content:center;padding:6px 16px 26px;background:var(--inset)}
+
+/* Halaman pemasok memakai .sup-h dan .angka yang sudah ada di sistem — tidak
+   ada komponen baru untuk itu. Yang ditambah hanya lencana lingkaran di kiri
+   namanya, sepadan dengan .rail .logo. */
+.sup-h .ikon{display:grid;place-items:center;width:42px;height:42px;border-radius:11px;
+  background:var(--field);color:var(--ink-2);flex-shrink:0}
+.sup-h .kiri{display:flex;align-items:flex-start;gap:12px;min-width:0;flex:1}
+.sup-h .balik{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;
+  color:var(--ink-3);margin-bottom:9px}
+.sup-h .balik:hover{color:var(--ink)}
+.sup-kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(9rem,1fr));gap:10px 18px;
+  padding:12px 16px;border-bottom:1px solid var(--line)}
+.sup-kv .k{display:block;font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;
+  color:var(--ink-4);margin-bottom:2px}
+.sup-kv .v{font-size:13px;color:var(--ink)}
+.sup-kv .v.hampa{color:var(--ink-4)}
+
+/* Keranjang: baris, bukan kartu. Di sini pembeli sudah memilih; yang tersisa
+   adalah membetulkan angka, dan angka dibetulkan dalam baris. */
+.krj{display:flex;align-items:center;gap:11px;padding:10px 0;border-bottom:1px solid var(--line)}
+.krj:last-child{border-bottom:0}
+.krj img{width:40px;height:50px;object-fit:cover;object-position:center 12%;border-radius:6px;
+  background:var(--field);flex-shrink:0;border:1px solid var(--line)}
+.krj .t{flex:1;min-width:0}
+.krj .t b{display:block;font-size:13.5px;font-weight:500;color:var(--ink);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.krj .t span{display:block;font-size:11.5px;color:var(--ink-4);margin-top:2px}
+.krj input{width:60px;text-align:right;font-variant-numeric:tabular-nums;
+  padding:5px 8px;border-radius:7px;border:1px solid var(--line-2);background:var(--canvas);
+  font:inherit;font-size:13px}
+.krj .jum{width:7.5rem;text-align:right;font-size:13.5px;font-weight:500;
+  font-variant-numeric:tabular-nums;flex-shrink:0}
+.krj .buang{color:var(--ink-4);font-size:15px;line-height:1;padding:2px 5px;border-radius:5px}
+.krj .buang:hover{background:var(--hover);color:var(--bad)}
+.total{display:flex;justify-content:space-between;align-items:baseline;padding:12px 0 2px;
+  border-top:1.5px solid var(--ink);margin-top:4px;font-size:15px;font-weight:600}
+.total span{font-variant-numeric:tabular-nums}
+
+.sheet.rinci{width:min(40rem,92vw)}
+
+#layar{flex:1;min-height:0;display:flex;flex-direction:column}
+
+/* Lebar kolom kisi diukur dari WADAHNYA, bukan dari jendela: yang tersisa
+   untuk katalog adalah lebar jendela dikurangi rel dan panel modul, dan pada
+   iPad tegak itu tinggal setengahnya. Dua kartu raksasa bukan kepadatan. */
+@media (max-width:1099px){
+  .kisi{grid-template-columns:repeat(auto-fill,minmax(9.5rem,1fr));gap:11px;padding:12px 13px 24px}
+  .kartu .nama{font-size:13.5px}
+  .kartu .harga{font-size:15px}
+}
+@media (max-width:600px){
+  .kisi{grid-template-columns:repeat(auto-fill,minmax(8.5rem,1fr));gap:9px;padding:10px}
+  .kartu .isi{padding:9px 10px 10px}
+  .kartu .harga{font-size:15px}
+}
+</style>
+
+<a class="lompat" href="#isi">Skip to the catalogue</a>
+<div class="app">
+  <nav class="rail" aria-label="Modules"><span class="logo">CD</span><button class="r" title="Home"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V20h13V9.5"/></svg></button><button class="r" title="Assistant"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.7 5.1a2 2 0 0 0 1.2 1.2L20 11l-5.1 1.7a2 2 0 0 0-1.2 1.2L12 19l-1.7-5.1a2 2 0 0 0-1.2-1.2L4 11l5.1-1.7a2 2 0 0 0 1.2-1.2z"/></svg></button><span class="sep"></span><button class="r" title="Inventory"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 7.5 12 3l8.5 4.5v9L12 21l-8.5-4.5z"/><path d="M3.5 7.5 12 12l8.5-4.5M12 12v9"/></svg></button><button class="r on" title="Procurement" aria-current="page"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><circle cx="9.5" cy="19" r="1.4"/><circle cx="17" cy="19" r="1.4"/><path d="M2.5 3.5h2.6l2.3 11h11L21 7H6"/></svg></button><button class="r" title="Commercial"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M3.6 12.4V4.4a.8.8 0 0 1 .8-.8h8l8 8-8.8 8.8z"/><circle cx="7.9" cy="7.9" r="1.3"/></svg></button><button class="r" title="People"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c0-3 2.5-4.8 5.5-4.8s5.5 1.8 5.5 4.8"/><path d="M16.5 6.4a3 3 0 0 1 0 5.6M17.5 14.6c2 .6 3.2 2.2 3.2 4.4"/></svg></button><button class="r" title="Finance"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><rect x="2.8" y="6" width="18.4" height="12" rx="2.4"/><circle cx="12" cy="12" r="2.6"/></svg></button><button class="r" title="Sales"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></button><button class="r" title="Master data"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><rect x="3.6" y="3.6" width="7" height="7" rx="1.6"/><rect x="13.4" y="3.6" width="7" height="7" rx="1.6"/><rect x="3.6" y="13.4" width="7" height="7" rx="1.6"/><rect x="13.4" y="13.4" width="7" height="7" rx="1.6"/></svg></button><span class="sep"></span><button class="r" title="Settings"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1"/></svg></button></nav>
+
+  <nav class="side" aria-label="Procurement">
+    <div class="top"><span class="mk">CD</span><span class="nm">Procurement</span></div>
+    <div class="src">Prototype of <b>/procurement/sourcing</b> drawn in the finance design system. Data is the dev catalogue: 2.814 supplier items across 30 suppliers.</div>
+    <button class="item"><span class="lbl">Purchase orders</span><span class="n">18</span></button>
+    <button class="item on" aria-current="page"><span class="lbl">Sourcing</span><span class="n">2.814</span></button>
+    <button class="item"><span class="lbl">Outstanding</span><span class="n">4</span></button>
+    <button class="item"><span class="lbl">Price amendments</span><span class="n">2</span></button>
+    <button class="item"><span class="lbl">Catalogue</span></button>
+    <button class="item"><span class="lbl">Destinations</span></button>
+    <div class="grp">Elsewhere</div>
+    <button class="item"><span class="lbl">Suppliers</span><span class="n">30</span></button>
+    <button class="item"><span class="lbl">Articles</span></button>
+  </nav>
+
+  <main class="main" id="isi"><div id="layar"></div></main>
+</div>
+<div id="lapis"></div>
+
+<script>
+/* ─────────────────────────────────────────────────────────────────────────
+   Katalog contoh: 48 baris pertama supplier_item dari basis data dev, apa
+   adanya — nama, pemasok, kode, harga, divisi, warna (dengan hex dari master
+   warna), ukuran dan label. Fotonya URL R2 yang sama yang dibaca aplikasi.
+   Tidak ada satu pun yang dikarang; yang dikarang hanya riwayat pembelian di
+   bawah, dan itu ditandai.  ───────────────────────────────────────────── */
+const ITEMS=
+[{"name":"Love leggings 2PACK-superspeed","supplier":"Srikandi Busana Mandiri","supplier_code":"SUP28","code":"0375248024","price":87000,"division":"KIDS","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0375248024.jpg","colours":[{"label" : "Natural", "hex" : "#D9CFC1"}, {"label" : "Beige", "hex" : "#D8C3A5"}, {"label" : "Khaki", "hex" : "#A89A6B"}, {"label" : "Brown", "hex" : "#6B4A2F"}, {"label" : "Navy", "hex" : "#1F2A44"}],"sizes":["01", "02", "03", "04"],"tags":["Basic", "Kaos"]}, 
+ {"name":"SWEATPANTS OC","supplier":"Gemilang Sandang Persada","supplier_code":"SUP11","code":"0364297030","price":141000,"division":"KIDS","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0364297030.jpg","colours":[{"label" : "Natural", "hex" : "#D9CFC1"}, {"label" : "Beige", "hex" : "#D8C3A5"}, {"label" : "Khaki", "hex" : "#A89A6B"}, {"label" : "Brown", "hex" : "#6B4A2F"}],"sizes":["02", "03", "04", "05"],"tags":["Basic", "Kaos"]}, 
+ {"name":"S.Skinny L.W Epic","supplier":"Bintang Konveksi Utama","supplier_code":"SUP04","code":"0399087042","price":376000,"division":"DIVIDED","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0399087042.jpg","colours":[{"label" : "Black", "hex" : "#111111"}, {"label" : "Red", "hex" : "#C0392B"}, {"label" : "Maroon", "hex" : "#6E1E1E"}, {"label" : "Pink", "hex" : "#E89AB0"}, {"label" : "Purple", "hex" : "#6B4FA0"}],"sizes":["02", "03", "04", "05", "06"],"tags":["Celana", "Denim"]}, 
+ {"name":"Basic LS Raglan t-shirt","supplier":"Sentosa Tekstil Mandiri","supplier_code":"SUP18","code":"0354246002","price":137000,"division":"KIDS","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0354246002.jpg","colours":[{"label" : "Off White", "hex" : "#F2EFE6"}, {"label" : "Natural", "hex" : "#D9CFC1"}, {"label" : "Beige", "hex" : "#D8C3A5"}, {"label" : "Khaki", "hex" : "#A89A6B"}, {"label" : "Brown", "hex" : "#6B4A2F"}],"sizes":["02", "03", "04", "05"],"tags":["Basic", "Kaos", "Lengan Pendek"]}, 
+ {"name":"Cosy 1p Lounge sock","supplier":"Sentosa Tekstil Mandiri","supplier_code":"SUP18","code":"0304778010","price":49000,"division":"WOMENSWEAR","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0304778010.jpg","colours":[{"label" : "Beige", "hex" : "#D8C3A5"}, {"label" : "Khaki", "hex" : "#A89A6B"}],"sizes":["02", "03", "04", "05"],"tags":["Kaus Kaki"]}, 
+ {"name":"BEN basic crewneck SB","supplier":"Bintang Konveksi Utama","supplier_code":"SUP04","code":"0413911011","price":54000,"division":"KIDS","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0413911011.jpg","colours":[{"label" : "Grey", "hex" : "#808080"}, {"label" : "White", "hex" : "#FFFFFF"}, {"label" : "Off White", "hex" : "#F2EFE6"}],"sizes":["01", "02", "03", "04", "05", "06"],"tags":["Basic", "Kaos"]}, 
+ {"name":"MUMS (1)","supplier":"Arjuna Garmen Lestari","supplier_code":"SUP26","code":"0395730028","price":88000,"division":"KIDS","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0395730028.jpg","colours":[{"label" : "Yellow", "hex" : "#F2C230"}, {"label" : "Mustard", "hex" : "#C9A227"}, {"label" : "Orange", "hex" : "#E8762C"}],"sizes":["02", "03", "04", "05"],"tags":["Basic", "Kaos"]}, 
+ {"name":"Otto Beanie","supplier":"Sumber Kain Makmur","supplier_code":"SUP07","code":"0315497018","price":150000,"division":"ACCESSORY","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0315497018.jpg","colours":[{"label" : "Black", "hex" : "#111111"}, {"label" : "Charcoal", "hex" : "#36454F"}, {"label" : "Grey", "hex" : "#808080"}, {"label" : "Purple", "hex" : "#6B4FA0"}],"sizes":["08"],"tags":["Aksesori"]}, 
+ {"name":"Svea Cropped Tank","supplier":"Mitra Sandang Perkasa","supplier_code":"SUP05","code":"0377277023","price":154000,"division":"DIVIDED","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0377277023.jpg","colours":[{"label" : "Blue", "hex" : "#2563EB"}, {"label" : "Light Blue", "hex" : "#7EA6E0"}, {"label" : "Denim", "hex" : "#4A6D8C"}],"sizes":["01", "02", "03", "04", "05", "06"],"tags":["Basic", "Kaos", "Lengan Pendek"]}, 
+ {"name":"Hilly Brief 2pk LT","supplier":"Harapan Jaya Tekstil","supplier_code":"SUP08","code":"0307239004","price":148000,"division":"WOMENSWEAR","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0307239004.jpg","colours":[{"label" : "Brown", "hex" : "#6B4A2F"}, {"label" : "Navy", "hex" : "#1F2A44"}, {"label" : "Blue", "hex" : "#2563EB"}, {"label" : "Light Blue", "hex" : "#7EA6E0"}, {"label" : "Denim", "hex" : "#4A6D8C"}],"sizes":["01", "02", "03", "04"],"tags":["Pakaian Dalam"]}, 
+ {"name":"Hood W Zip","supplier":"Gemilang Sandang Persada","supplier_code":"SUP11","code":"0422106016","price":124000,"division":"MENSWEAR","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0422106016.jpg","colours":[{"label" : "Natural", "hex" : "#D9CFC1"}, {"label" : "Beige", "hex" : "#D8C3A5"}, {"label" : "Khaki", "hex" : "#A89A6B"}, {"label" : "Brown", "hex" : "#6B4A2F"}, {"label" : "Navy", "hex" : "#1F2A44"}],"sizes":["01", "02", "03", "04"],"tags":["Basic", "Kaos"]}, 
+ {"name":"Shirtdress Lou","supplier":"Cemerlang Tekstil Jaya","supplier_code":"SUP13","code":"0301656029","price":201000,"division":"DIVIDED","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0301656029.jpg","colours":[{"label" : "Charcoal", "hex" : "#36454F"}, {"label" : "Grey", "hex" : "#808080"}, {"label" : "White", "hex" : "#FFFFFF"}, {"label" : "Off White", "hex" : "#F2EFE6"}, {"label" : "Natural", "hex" : "#D9CFC1"}],"sizes":["02", "03", "04", "05"],"tags":["Celana", "Denim"]}, 
+ {"name":"Pinocchio hat","supplier":"Karya Benang Abadi","supplier_code":"SUP06","code":"0224314013","price":176000,"division":"ACCESSORY","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0224314013.jpg","colours":[{"label" : "Black", "hex" : "#111111"}, {"label" : "Charcoal", "hex" : "#36454F"}, {"label" : "Maroon", "hex" : "#6E1E1E"}, {"label" : "Pink", "hex" : "#E89AB0"}, {"label" : "Purple", "hex" : "#6B4FA0"}],"sizes":["08"],"tags":["Aksesori"]}, 
+ {"name":"Alcazar strap dress","supplier":"Rukun Sandang Nusantara","supplier_code":"SUP20","code":"0212629040","price":105000,"division":"DIVIDED","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0212629040.jpg","colours":[{"label" : "Beige", "hex" : "#D8C3A5"}, {"label" : "Khaki", "hex" : "#A89A6B"}, {"label" : "Brown", "hex" : "#6B4A2F"}],"sizes":["01", "02", "03", "04", "05"],"tags":["Basic", "Kaos"]}, 
+ {"name":"Beanie Pelle wool mix","supplier":"Arjuna Garmen Lestari","supplier_code":"SUP26","code":"0322322009","price":52000,"division":"ACCESSORY","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0322322009.jpg","colours":[{"label" : "Yellow", "hex" : "#F2C230"}, {"label" : "Mustard", "hex" : "#C9A227"}],"sizes":["08"],"tags":["Aksesori"]}, 
+ {"name":"Icona premium beanie","supplier":"Bintang Konveksi Utama","supplier_code":"SUP04","code":"0402389009","price":157000,"division":"ACCESSORY","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0402389009.jpg","colours":[{"label" : "Olive", "hex" : "#6B7A3A"}, {"label" : "Mint", "hex" : "#A8D8C0"}, {"label" : "Yellow", "hex" : "#F2C230"}],"sizes":["08"],"tags":["Aksesori"]}, 
+ {"name":"2-p basic cotton tights SG","supplier":"Wijaya Tekstil Abadi","supplier_code":"SUP22","code":"0293433022","price":51000,"division":"KIDS","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0293433022.jpg","colours":[{"label" : "Charcoal", "hex" : "#36454F"}, {"label" : "Grey", "hex" : "#808080"}, {"label" : "White", "hex" : "#FFFFFF"}, {"label" : "Off White", "hex" : "#F2EFE6"}, {"label" : "Natural", "hex" : "#D9CFC1"}],"sizes":["01", "02", "03", "04", "05", "06"],"tags":["Kaus Kaki"]}, 
+ {"name":"CORBY TANK","supplier":"Gemilang Sandang Persada","supplier_code":"SUP11","code":"0392269014","price":173000,"division":"MENSWEAR","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0392269014.jpg","colours":[{"label" : "Light Blue", "hex" : "#7EA6E0"}, {"label" : "Denim", "hex" : "#4A6D8C"}, {"label" : "Teal", "hex" : "#2A7D7D"}, {"label" : "Green", "hex" : "#2E7D46"}, {"label" : "Olive", "hex" : "#6B7A3A"}],"sizes":["02", "03", "04"],"tags":["Kaos", "Lengan Pendek"]}, 
+ {"name":"X-mas 2p Heavy Socks","supplier":"Tunas Busana Lestari","supplier_code":"SUP10","code":"0408664008","price":32000,"division":"WOMENSWEAR","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0408664008.jpg","colours":[{"label" : "Mint", "hex" : "#A8D8C0"}, {"label" : "Yellow", "hex" : "#F2C230"}, {"label" : "Mustard", "hex" : "#C9A227"}, {"label" : "Orange", "hex" : "#E8762C"}],"sizes":["02", "03", "04"],"tags":["Kaus Kaki"]}, 
+ {"name":"Svea Cropped Tank","supplier":"Sumber Kain Makmur","supplier_code":"SUP07","code":"0377277031","price":98000,"division":"DIVIDED","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0377277031.jpg","colours":[{"label" : "Brown", "hex" : "#6B4A2F"}, {"label" : "Navy", "hex" : "#1F2A44"}, {"label" : "Blue", "hex" : "#2563EB"}, {"label" : "Light Blue", "hex" : "#7EA6E0"}],"sizes":["02", "03", "04"],"tags":["Basic", "Kaos", "Lengan Pendek"]}, 
+ {"name":"Flirty Chantal earring","supplier":"Maju Bersama Konveksi","supplier_code":"SUP19","code":"0292453025","price":131000,"division":"ACCESSORY","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0292453025.jpg","colours":[{"label" : "Red", "hex" : "#C0392B"}, {"label" : "Maroon", "hex" : "#6E1E1E"}],"sizes":["08"],"tags":["Aksesori"]}, 
+ {"name":"WAFFLE L/S CTN basic","supplier":"Kencana Konveksi Jaya","supplier_code":"SUP24","code":"0362931027","price":89000,"division":"MENSWEAR","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0362931027.jpg","colours":[{"label" : "Black", "hex" : "#111111"}, {"label" : "Charcoal", "hex" : "#36454F"}, {"label" : "Grey", "hex" : "#808080"}, {"label" : "White", "hex" : "#FFFFFF"}, {"label" : "Purple", "hex" : "#6B4FA0"}],"sizes":["01", "02", "03", "04", "05", "06"],"tags":["Basic", "Kaos", "Lengan Pendek"]}, 
+ {"name":"Tail tee","supplier":"Gemilang Sandang Persada","supplier_code":"SUP11","code":"0366686005","price":193000,"division":"MENSWEAR","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0366686005.jpg","colours":[{"label" : "Black", "hex" : "#111111"}, {"label" : "Maroon", "hex" : "#6E1E1E"}, {"label" : "Pink", "hex" : "#E89AB0"}, {"label" : "Purple", "hex" : "#6B4FA0"}],"sizes":["02", "03", "04", "05"],"tags":["Kaos", "Lengan Pendek"]}, 
+ {"name":"Rally 2p tights","supplier":"Kencana Konveksi Jaya","supplier_code":"SUP24","code":"0327144032","price":29000,"division":"KIDS","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0327144032.jpg","colours":[{"label" : "Pink", "hex" : "#E89AB0"}, {"label" : "Purple", "hex" : "#6B4FA0"}],"sizes":["01", "02", "03", "04"],"tags":["Kaus Kaki"]}, 
+ {"name":"2P SS Girly PJ","supplier":"Sinar Tekstil Nusantara","supplier_code":"SUP01","code":"0247072031","price":99000,"division":"KIDS","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0247072031.jpg","colours":[{"label" : "Olive", "hex" : "#6B7A3A"}, {"label" : "Mint", "hex" : "#A8D8C0"}, {"label" : "Yellow", "hex" : "#F2C230"}],"sizes":["02", "03", "04", "05", "06"],"tags":["Pakaian Dalam", "Pakaian Tidur"]}, 
+ {"name":"Black umbrella","supplier":"Sentosa Tekstil Mandiri","supplier_code":"SUP18","code":"0367376002","price":230000,"division":"ACCESSORY","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0367376002.jpg","colours":[{"label" : "Black", "hex" : "#111111"}, {"label" : "Purple", "hex" : "#6B4FA0"}],"sizes":["08"],"tags":["Aksesori"]}, 
+ {"name":"Maria NT 2-pack","supplier":"Cahaya Busana Mandiri","supplier_code":"SUP03","code":"0433414020","price":227000,"division":"WOMENSWEAR","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0433414020.jpg","colours":[{"label" : "Denim", "hex" : "#4A6D8C"}, {"label" : "Teal", "hex" : "#2A7D7D"}, {"label" : "Green", "hex" : "#2E7D46"}],"sizes":["01", "02", "03", "04", "05"],"tags":["Kaos", "Lengan Pendek"]}, 
+ {"name":"Alicia wrap skirt","supplier":"Mitra Sandang Perkasa","supplier_code":"SUP05","code":"0327310014","price":198000,"division":"DIVIDED","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0327310014.jpg","colours":[{"label" : "Yellow", "hex" : "#F2C230"}, {"label" : "Mustard", "hex" : "#C9A227"}],"sizes":["01", "02", "03", "04", "05", "06"],"tags":["Rok"]}, 
+ {"name":"Tina NT s/s","supplier":"Maju Bersama Konveksi","supplier_code":"SUP19","code":"0269342021","price":150000,"division":"WOMENSWEAR","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0269342021.jpg","colours":[{"label" : "Khaki", "hex" : "#A89A6B"}, {"label" : "Brown", "hex" : "#6B4A2F"}],"sizes":["01", "02", "03", "04", "05", "06"],"tags":["Kaos", "Lengan Pendek"]}, 
+ {"name":"Sunglasses Edward","supplier":"Sinar Tekstil Nusantara","supplier_code":"SUP01","code":"0360950016","price":87000,"division":"ACCESSORY","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0360950016.jpg","colours":[{"label" : "Black", "hex" : "#111111"}, {"label" : "Purple", "hex" : "#6B4FA0"}],"sizes":["08"],"tags":["Aksesori"]}, 
+ {"name":"Billy cargo pants","supplier":"Srikandi Busana Mandiri","supplier_code":"SUP28","code":"0219075014","price":426000,"division":"MENSWEAR","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0219075014.jpg","colours":[{"label" : "Beige", "hex" : "#D8C3A5"}, {"label" : "Khaki", "hex" : "#A89A6B"}, {"label" : "Brown", "hex" : "#6B4A2F"}],"sizes":["01", "02", "03", "04"],"tags":["Celana"]}, 
+ {"name":"2-p Keri tights SG","supplier":"Sentosa Tekstil Mandiri","supplier_code":"SUP18","code":"0291333012","price":59000,"division":"KIDS","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0291333012.jpg","colours":[{"label" : "Brown", "hex" : "#6B4A2F"}, {"label" : "Navy", "hex" : "#1F2A44"}, {"label" : "Blue", "hex" : "#2563EB"}, {"label" : "Light Blue", "hex" : "#7EA6E0"}],"sizes":["02", "03", "04", "05"],"tags":["Kaus Kaki"]}, 
+ {"name":"Freja Coat","supplier":"Rukun Sandang Nusantara","supplier_code":"SUP20","code":"0300908002","price":732000,"division":"DIVIDED","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0300908002.jpg","colours":[{"label" : "Black", "hex" : "#111111"}, {"label" : "Charcoal", "hex" : "#36454F"}, {"label" : "Grey", "hex" : "#808080"}, {"label" : "Pink", "hex" : "#E89AB0"}, {"label" : "Purple", "hex" : "#6B4FA0"}],"sizes":["02", "03", "04", "05", "06"],"tags":["Jaket"]}, 
+ {"name":"RAKEL 3p","supplier":"Berkah Konveksi Raya","supplier_code":"SUP12","code":"0395864046","price":114000,"division":"KIDS","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0395864046.jpg","colours":[{"label" : "Orange", "hex" : "#E8762C"}, {"label" : "Red", "hex" : "#C0392B"}, {"label" : "Maroon", "hex" : "#6E1E1E"}],"sizes":["02", "03", "04", "05", "06"],"tags":["Pakaian Dalam"]}, 
+ {"name":"Frode outdoor beanie","supplier":"Rukun Sandang Nusantara","supplier_code":"SUP20","code":"0204892024","price":210000,"division":"ACCESSORY","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0204892024.jpg","colours":[{"label" : "Grey", "hex" : "#808080"}, {"label" : "White", "hex" : "#FFFFFF"}, {"label" : "Off White", "hex" : "#F2EFE6"}, {"label" : "Natural", "hex" : "#D9CFC1"}],"sizes":["08"],"tags":["Aksesori"]}, 
+ {"name":"NATE  basic S/S solid tee BB","supplier":"Mitra Sandang Perkasa","supplier_code":"SUP05","code":"0260736029","price":90000,"division":"KIDS","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0260736029.jpg","colours":[{"label" : "Blue", "hex" : "#2563EB"}, {"label" : "Light Blue", "hex" : "#7EA6E0"}, {"label" : "Denim", "hex" : "#4A6D8C"}, {"label" : "Teal", "hex" : "#2A7D7D"}, {"label" : "Green", "hex" : "#2E7D46"}],"sizes":["02", "03", "04", "05"],"tags":["Basic", "Kaos", "Lengan Pendek"]}, 
+ {"name":"Theron (1)","supplier":"Cemerlang Tekstil Jaya","supplier_code":"SUP13","code":"0237347045","price":68000,"division":"WOMENSWEAR","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0237347045.jpg","colours":[{"label" : "Mustard", "hex" : "#C9A227"}, {"label" : "Orange", "hex" : "#E8762C"}, {"label" : "Red", "hex" : "#C0392B"}],"sizes":["02", "03", "04"],"tags":["Basic", "Kaos"]}, 
+ {"name":"Rut Jumper","supplier":"Mustika Sandang Utama","supplier_code":"SUP25","code":"0411013010","price":293000,"division":"DIVIDED","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0411013010.jpg","colours":[{"label" : "Teal", "hex" : "#2A7D7D"}, {"label" : "Green", "hex" : "#2E7D46"}],"sizes":["02", "03", "04", "05", "06"],"tags":["Rajut"]}, 
+ {"name":"Thales printed tanktop","supplier":"Berkah Konveksi Raya","supplier_code":"SUP12","code":"0387348019","price":201000,"division":"MENSWEAR","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0387348019.jpg","colours":[{"label" : "Blue", "hex" : "#2563EB"}, {"label" : "Light Blue", "hex" : "#7EA6E0"}, {"label" : "Denim", "hex" : "#4A6D8C"}],"sizes":["02", "03", "04"],"tags":["Kaos", "Lengan Pendek"]}, 
+ {"name":"Lurex 2p Sock","supplier":"Mitra Sandang Perkasa","supplier_code":"SUP05","code":"0408569009","price":39000,"division":"WOMENSWEAR","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0408569009.jpg","colours":[{"label" : "Olive", "hex" : "#6B7A3A"}, {"label" : "Mint", "hex" : "#A8D8C0"}],"sizes":["01", "02", "03", "04"],"tags":["Kaus Kaki"]}, 
+ {"name":"Kiev pj","supplier":"Bintang Konveksi Utama","supplier_code":"SUP04","code":"0420963007","price":136000,"division":"KIDS","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0420963007.jpg","colours":[{"label" : "Denim", "hex" : "#4A6D8C"}, {"label" : "Teal", "hex" : "#2A7D7D"}],"sizes":["02", "03", "04", "05"],"tags":["Pakaian Dalam", "Pakaian Tidur"]}, 
+ {"name":"Beanie Jimmy Jersey","supplier":"Pelangi Tekstil Sejahtera","supplier_code":"SUP27","code":"0342434007","price":136000,"division":"ACCESSORY","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0342434007.jpg","colours":[{"label" : "Khaki", "hex" : "#A89A6B"}, {"label" : "Brown", "hex" : "#6B4A2F"}],"sizes":["08"],"tags":["Aksesori"]}, 
+ {"name":"Lou Shirt Dress","supplier":"Karya Benang Abadi","supplier_code":"SUP06","code":"0301656018","price":303000,"division":"WOMENSWEAR","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0301656018.jpg","colours":[{"label" : "Olive", "hex" : "#6B7A3A"}, {"label" : "Mint", "hex" : "#A8D8C0"}, {"label" : "Yellow", "hex" : "#F2C230"}, {"label" : "Mustard", "hex" : "#C9A227"}, {"label" : "Orange", "hex" : "#E8762C"}],"sizes":["01", "02", "03", "04", "05"],"tags":["Celana", "Denim"]}, 
+ {"name":"BEN fancy crewneck SB","supplier":"Harapan Jaya Tekstil","supplier_code":"SUP08","code":"0311059031","price":154000,"division":"KIDS","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0311059031.jpg","colours":[{"label" : "Charcoal", "hex" : "#36454F"}, {"label" : "Grey", "hex" : "#808080"}],"sizes":["02", "03", "04"],"tags":["Basic", "Kaos"]}, 
+ {"name":"Dean Drawstring Trousers.","supplier":"Mitra Sandang Perkasa","supplier_code":"SUP05","code":"0212766041","price":331000,"division":"MENSWEAR","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0212766041.jpg","colours":[{"label" : "Brown", "hex" : "#6B4A2F"}, {"label" : "Navy", "hex" : "#1F2A44"}, {"label" : "Blue", "hex" : "#2563EB"}, {"label" : "Light Blue", "hex" : "#7EA6E0"}],"sizes":["01", "02", "03", "04", "05"],"tags":["Celana"]}, 
+ {"name":"Ellen Shortie Daisy Low 3p","supplier":"Wijaya Tekstil Abadi","supplier_code":"SUP22","code":"0426199018","price":147000,"division":"WOMENSWEAR","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0426199018.jpg","colours":[{"label" : "Denim", "hex" : "#4A6D8C"}, {"label" : "Teal", "hex" : "#2A7D7D"}],"sizes":["02", "03", "04", "05", "06"],"tags":["Pakaian Dalam"]}, 
+ {"name":"2-p Keri tights SG","supplier":"Sinar Tekstil Nusantara","supplier_code":"SUP01","code":"0291333018","price":53000,"division":"KIDS","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0291333018.jpg","colours":[{"label" : "Brown", "hex" : "#6B4A2F"}, {"label" : "Navy", "hex" : "#1F2A44"}],"sizes":["01", "02", "03", "04"],"tags":["Kaus Kaki"]}, 
+ {"name":"Classic PU sunglasscase","supplier":"Gemilang Sandang Persada","supplier_code":"SUP11","code":"0324963025","price":230000,"division":"ACCESSORY","img":"https://pub-d53f40cbe4a54e02af563bbef8b0df05.r2.dev/supplier/hm/0324963025.jpg","colours":[{"label" : "Black", "hex" : "#111111"}, {"label" : "Charcoal", "hex" : "#36454F"}, {"label" : "Grey", "hex" : "#808080"}, {"label" : "Pink", "hex" : "#E89AB0"}, {"label" : "Purple", "hex" : "#6B4FA0"}],"sizes":["08"],"tags":["Aksesori"]}]
+;
+
+const SIZ={"00":"No Size","01":"XS","02":"S","03":"M","04":"L","05":"XL","06":"XXL","07":"XXXL",
+  "08":"One Size","11":"EU 37","12":"EU 38","13":"EU 39","14":"EU 40","15":"EU 41"};
+const DIVL={ACCESSORY:"Accessories",DIVIDED:"Divided",FOOTWEAR:"Footwear",KIDS:"Kids",
+  MENSWEAR:"Menswear",WOMENSWEAR:"Womenswear"};
+/* Jumlah facet dihitung server atas SELURUH katalog (2.814 baris), bukan atas
+   48 baris yang dimuat halaman ini — itulah sebabnya angkanya jauh lebih besar
+   daripada yang terlihat, dan memang harus begitu. */
+const FACET_DIV=[["KIDS",751],["WOMENSWEAR",599],["ACCESSORY",505],["DIVIDED",484],
+  ["MENSWEAR",423],["FOOTWEAR",46]];
+const KATALOG=2814, PEMASOK_JML=30;
+/* Riwayat pembelian yang BENAR-BENAR ada di basis data dev: tujuh baris, dan
+   tak satu pun menyentuh 48 barang di halaman ini. Karena itu pada keadaan
+   "Data normal" tidak ada satu kartu pun memakai lencana biru — dan itu jujur.
+   Keadaan "Purchase history" memasang angka ILUSTRASI supaya bentuk kartunya
+   yang satu itu bisa dinilai. */
+const RIWAYAT_ASLI={"0241412034":{u:1,o:1},"0291333013":{u:60,o:1},"0291338004":{u:1,o:1},
+  "0293433029":{u:109,o:3},"0293433042":{u:1,o:1},"0293510001":{u:2,o:2}};
+function riwayatContoh(kode){
+  let h=0; for(const c of kode) h=(h*31+c.charCodeAt(0))>>>0;
+  if(h%5===0) return null;                       /* tak semua pernah dibeli */
+  return {u:(h%18+1)*12, o:h%4+1, contoh:true};
+}
+function riwayat(x){
+  if(V.keadaan==="riwayat") return RIWAYAT_ASLI[x.code]||riwayatContoh(x.code);
+  return RIWAYAT_ASLI[x.code]||null;
+}
+
+let V={tampilan:"kisi", keadaan:"normal", cari:"", divisi:[], pemasok:[], label:[],
+  urut:null, toko:null, buka:null, keranjang:new Map(), pop:null, bukaKeranjang:false,
+  tabSheet:"rincian"};
+
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const nm=n=>new Intl.NumberFormat("id-ID").format(n);
+const rp=n=>"Rp "+nm(n);
+const rentang=s=>!s.length?"—":s.length===1?(SIZ[s[0]]||s[0])
+  :(SIZ[s[0]]||s[0])+"–"+(SIZ[s[s.length-1]]||s[s.length-1]);
+const kodeAman=k=>k.replace(/[^A-Za-z0-9-]/g,"");
+const cari1=(x,q)=>x.name.toLowerCase().includes(q)||x.code.includes(q)
+  ||x.supplier.toLowerCase().includes(q);
+
+const SEMUA_PEMASOK=[...new Set(ITEMS.map(x=>x.supplier))].sort();
+const SEMUA_LABEL=[...new Set(ITEMS.flatMap(x=>x.tags))].sort();
+const menyaring=()=>!!(V.cari.trim()||V.divisi.length||V.pemasok.length||V.label.length);
+
+function baris(){
+  let r=ITEMS.slice();
+  if(V.toko) r=r.filter(x=>x.supplier===V.toko);
+  const q=V.cari.trim().toLowerCase();
+  if(q) r=r.filter(x=>cari1(x,q));
+  if(V.divisi.length) r=r.filter(x=>V.divisi.includes(x.division));
+  if(V.pemasok.length) r=r.filter(x=>V.pemasok.includes(x.supplier));
+  if(V.label.length) r=r.filter(x=>x.tags.some(t=>V.label.includes(t)));
+  if(V.urut==="murah") r.sort((a,b)=>a.price-b.price);
+  else if(V.urut==="mahal") r.sort((a,b)=>b.price-a.price);
+  else if(V.urut==="baru") r.reverse();
+  return r;
+}
+const ambil=k=>V.keranjang.get(k)||0;
+const isiKeranjang=()=>[...V.keranjang.values()].reduce((a,b)=>a+b,0);
+
+/* ── ikon ─────────────────────────────────────────────────────────────── */
+const I=(d,w)=>`<svg width="${w||13}" height="${w||13}" viewBox="0 0 24 24" fill="none"
+  stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+const IK={
+  toko:'<path d="M3.5 9.5V20h17V9.5"/><path d="M2.5 9.5 4.5 4h15l2 5.5a3 3 0 0 1-5.5 1.7 3 3 0 0 1-5 0 3 3 0 0 1-5-.2z"/>',
+  keranjang:'<path d="M5 8h14l-1.2 11H6.2z"/><path d="M8.8 8V6a3.2 3.2 0 0 1 6.4 0v2"/>',
+  cari:'<circle cx="10.8" cy="10.8" r="6.3"/><path d="m15.6 15.6 4 4"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>',
+  balik:'<path d="M19 12H5"/><path d="m11 6-6 6 6 6"/>',
+  bawah:'<path d="m6 9 6 6 6-6"/>'
+};
+
+/* ── kartu ────────────────────────────────────────────────────────────── */
+function kartu(x){
+  const k=esc(x.code), n=ambil(x.code), r=riwayat(x);
+  const warna=x.colours.slice(0,5).map(c=>
+    `<i style="background:${esc(c.hex||"")}" class="${c.hex?"":"kosong"}" title="${esc(c.label)}"></i>`).join("");
+  return `<article class="kartu">
+    <button class="foto" data-buka="${k}" aria-label="${esc(x.name)}">
+      ${x.img?`<img loading="lazy" src="${esc(x.img)}" alt=""
+        onerror="this.replaceWith(Object.assign(document.createElement('span'),
+        {className:'takada',textContent:'No photograph'}))">`
+        :`<span class="takada">No photograph</span>`}
+      ${x.division?`<span class="bagi">${esc(DIVL[x.division]||x.division)}</span>`:""}
+      ${n>0?`<span class="ambil">${I(IK.keranjang,10)}${nm(n)}</span>`:""}
+    </button>
+    <div class="isi">
+      <button class="nama" data-buka="${k}">${esc(x.name)}</button>
+      ${x.colours.length||x.sizes.length?`<div class="var">
+        ${x.colours.length?`<span class="warna">${warna}${x.colours.length>5
+          ?`<b>+${x.colours.length-5}</b>`:""}</span>`:""}
+        ${x.sizes.length?`<span class="uk">${esc(rentang(x.sizes))}</span>`:""}
+      </div>`:""}
+      <div class="harga">${rp(x.price)}</div>
+      <button class="toko" data-toko="${esc(x.supplier)}">${I(IK.toko,12)}<span>${esc(x.supplier)}</span></button>
+      ${x.tags.length?`<div class="label">${x.tags.slice(0,3).map(t=>`<span>${esc(t)}</span>`).join("")}
+        ${x.tags.length>3?`<span class="sisa">+${x.tags.length-3}</span>`:""}</div>`:""}
+      <div class="kaki">
+        ${r?`<span class="pernah" title="${r.contoh?"Illustrative figure":"From the order book"}">${nm(r.u)} bought</span>`:""}
+        <button class="btn sm ${n>0?"":"dark"}" data-tambah="${k}"
+          aria-label="${n===0?"Put "+esc(x.name)+" in the basket":"One more "+esc(x.name)}">
+          ${I(IK.keranjang,12)}Add</button>
+      </div>
+    </div>
+  </article>`;
+}
+
+function tabel(r){
+  /* Lebar kolom di tata-letak tabel tetap bukan saran: kalau jumlahnya
+     melebihi tabelnya, tabelnya yang melar dan dua kolom terakhir hilang di
+     kanan. Jadi jumlah kedelapan angka ini dijaga di bawah lebar kolom isi. */
+  return `<table style="--lebar:64rem"><thead><tr>
+    <th style="width:17rem">Item</th><th style="width:6rem">Division</th>
+    <th style="width:8rem">Comes in</th><th class="r" style="width:6.5rem">Price</th>
+    <th style="width:10rem">Supplier</th><th class="opsional" style="width:7rem">Filed under</th>
+    <th class="r" style="width:5rem">Basket</th><th style="width:4.5rem"></th>
+  </tr></thead><tbody>
+  ${r.map(x=>{const k=esc(x.code),n=ambil(x.code);return `<tr data-buka="${k}">
+    <td class="first"><span class="mini-foto">${x.img
+      ?`<img loading="lazy" src="${esc(x.img)}" alt="" onerror="this.style.visibility='hidden'">`
+      :`<span class="kosongf"></span>`}<span>${esc(x.name)}</span></span></td>
+    <td>${esc(DIVL[x.division]||x.division||"—")}</td>
+    <td>${x.colours.length?`<span class="warna">${x.colours.slice(0,4).map(c=>
+        `<i style="background:${esc(c.hex||"")}" class="${c.hex?"":"kosong"}" title="${esc(c.label)}"></i>`
+      ).join("")}</span> `:""}${esc(rentang(x.sizes))}</td>
+    <td class="r tebal">${rp(x.price)}</td>
+    <td>${esc(x.supplier)}</td>
+    <td class="opsional">${esc(x.tags.slice(0,2).join(", "))||"—"}</td>
+    <td class="r">${n>0?nm(n):"—"}</td>
+    <td><button class="btn sm" data-tambah="${k}">Add</button></td>
+  </tr>`}).join("")}
+  <tr class="filler"><td colspan="8"></td></tr></tbody>
+  <tfoot><tr><td colspan="8">${nm(r.length)} of ${nm(KATALOG)} items · median ${rp(
+    r.length?r.map(x=>x.price).sort((a,b)=>a-b)[Math.floor(r.length/2)]:0)}</td></tr></tfoot></table>`;
+}
+
+/* ── kepala layar ─────────────────────────────────────────────────────── */
+function kepala(){
+  const isi=isiKeranjang();
+  return `<div class="head">
+    <div><div class="t1">Procurement</div><h1>Sourcing</h1>
+      <div class="sub">Every supplier's catalogue in one place. Open a supplier to see only
+        what they sell.</div></div>
+    <div class="right">
+      <button class="btn" data-aksi="baru">${I(IK.plus,13)}Add item</button>
+      <button class="btn ${isi?"dark":""}" data-aksi="keranjang">${I(IK.keranjang,13)}Basket${
+        isi?" · "+nm(isi):""}</button>
+    </div>
+  </div>`;
+}
+
+const NAMA_KEADAAN={normal:"Data normal", riwayat:"Purchase history", memuat:"Loading",
+  takAdaHasil:"No filter results", gagal:"Failed to load", kosong:"Empty catalogue"};
+function pitaKeadaan(){
+  return `<div class="pita-keadaan"><span class="lab">Screen states</span>
+    ${Object.keys(NAMA_KEADAAN).map(k=>`<button class="${k===V.keadaan?"on":""}"
+      data-keadaan="${k}" ${k===V.keadaan?'aria-current="true"':""}>${NAMA_KEADAAN[k]}</button>`).join("")}
+    ${V.keadaan==="riwayat"?`<span class="usul-tag" style="margin-left:auto">figures illustrative</span>`
+      :`<span class="note" style="margin-left:auto">six states</span>`}</div>`;
+}
+
+function tujuan(){
+  return `<p class="purpose"><b>What this screen is for:</b> answering “who sells this, and for
+    how much”, and putting what is chosen into a basket that becomes a purchase order.
+    A buyer arrives <b>without knowing what they want</b> — which is why the catalogue is a grid
+    of photographs and not a table of names. The figures are the dev catalogue as it stands:
+    ${nm(KATALOG)} supplier items, ${PEMASOK_JML} suppliers, 48 loaded here.</p>`;
+}
+
+/* ── omnibox: satu kotak untuk mencari dan menyaring ──────────────────── */
+function klausa(jenis,nilai,label){
+  return `<span class="klausa"><i>${label}</i> <b>${esc(nilai)}</b>
+    <button class="buang" data-buang="${jenis}:${esc(nilai)}" aria-label="Remove">×</button></span>`;
+}
+function alat(){
+  const f=[...V.divisi.map(d=>klausa("divisi",d,"division")),
+           ...V.pemasok.map(p=>klausa("pemasok",p,"supplier")),
+           ...V.label.map(l=>klausa("label",l,"filed under"))].join("");
+  return `<div class="alat">
+    <div class="omni">${I(IK.cari,14)}${f}
+      <input id="q" value="${esc(V.cari)}" placeholder="${V.toko
+        ?"Search in "+esc(V.toko):"Search every supplier’s catalogue, or filter"}">
+      <button class="tambah" data-pop="divisi">${I(IK.plus,11)}Filter</button>
+      ${menyaring()?`<button class="tambah" data-aksi="bersih" style="border-style:solid">Clear</button>`:""}
+    </div>
+    <div class="kanan">
+      <span style="position:relative"><button class="btn sm" data-pop="divisi">Division${
+        V.divisi.length?" · "+V.divisi.length:""} ${I(IK.bawah,11)}</button>${popup("divisi")}</span>
+      <span style="position:relative"><button class="btn sm" data-pop="pemasok">Supplier${
+        V.pemasok.length?" · "+V.pemasok.length:""} ${I(IK.bawah,11)}</button>${popup("pemasok")}</span>
+      <span style="position:relative"><button class="btn sm" data-pop="label">Filed under${
+        V.label.length?" · "+V.label.length:""} ${I(IK.bawah,11)}</button>${popup("label")}</span>
+    </div>
+  </div>`;
+}
+function popup(jenis){
+  if(V.pop!==jenis) return "";
+  const pilihan = jenis==="divisi" ? FACET_DIV.map(([c,n])=>[c,DIVL[c]||c,n])
+    : jenis==="pemasok" ? SEMUA_PEMASOK.map(s=>[s,s,ITEMS.filter(x=>x.supplier===s).length])
+    : SEMUA_LABEL.map(t=>[t,t,ITEMS.filter(x=>x.tags.includes(t)).length]);
+  const aktif=V[jenis];
+  return `<div class="pop" style="right:0">
+    <div class="hh">${jenis==="divisi"?"Division":jenis==="pemasok"?"Supplier":"Filed under"}
+      ${jenis==="divisi"?" · counted over the whole catalogue":" · counted over what is loaded"}</div>
+    ${pilihan.map(([c,l,n])=>`<button class="${aktif.includes(c)?"on":""}" data-pilih="${jenis}:${esc(c)}">
+      <span class="fj"><span class="kotak">${aktif.includes(c)?"✓":""}</span>${esc(l)}
+      <span class="n">${nm(n)}</span></span></button>`).join("")}</div>`;
+}
+
+function hasilbar(r){
+  const urut=[[null,"Best match"],["baru","Newest"],["murah","Price low"],["mahal","Price high"]];
+  return `<div class="hasilbar">
+    <span class="jml"><b>${nm(r.length)}</b> ${menyaring()||V.toko
+      ? (r.length===1?"item matches":"items match")
+      : "of "+nm(KATALOG)+" shown"}</span>
+    <div class="kanan">
+      <span class="urut">Sort</span>
+      <span class="pilih">${urut.map(([u,l])=>`<button class="${(V.urut??null)===u?"on":""}"
+        data-urut="${u??""}">${l}</button>`).join("")}</span>
+      <span class="pilih" style="margin-left:5px">
+        <button class="${V.tampilan==="kisi"?"on":""}" data-tampilan="kisi">Grid</button>
+        <button class="${V.tampilan==="tabel"?"on":""}" data-tampilan="tabel">Table</button></span>
+    </div></div>`;
+}
+
+/* ── halaman pemasok: memakai .sup-h dan .angka yang sudah ada ────────── */
+function halamanToko(r){
+  const punya=ITEMS.filter(x=>x.supplier===V.toko);
+  const kode=punya[0]?.supplier_code||"—";
+  const harga=punya.map(x=>x.price).sort((a,b)=>a-b);
+  const fakta=[["Code",kode],["Contact",""],["Phone",""],["Email",""],["Address",""]];
+  return `<div class="sup-h">
+    <div class="kiri">
+      <span class="ikon">${I(IK.toko,19)}</span>
+      <div style="min-width:0">
+        <button class="balik" data-aksi="semua">${I(IK.balik,13)}All suppliers</button>
+        <h2>${esc(V.toko)}</h2>
+        <div class="k"><span class="mono">${esc(kode)}</span> · <span class="tag" style="--tone:var(--ok)">Active</span></div>
+      </div>
+    </div>
+    <div class="aksi"><button class="btn" data-aksi="baru">${I(IK.plus,13)}Add item</button>
+      <button class="btn ${isiKeranjang()?"dark":""}" data-aksi="keranjang">${I(IK.keranjang,13)}Basket${
+        isiKeranjang()?" · "+nm(isiKeranjang()):""}</button></div>
+  </div>
+  <div class="angka">
+    <div><span class="k">On offer</span><span class="v">${nm(punya.length)}</span>
+      <span class="s">items loaded here</span></div>
+    <div><span class="k">Cheapest</span><span class="v">${rp(harga[0]||0)}</span></div>
+    <div><span class="k">Dearest</span><span class="v">${rp(harga[harga.length-1]||0)}</span></div>
+    <div><span class="k">In basket</span><span class="v ${punya.some(x=>ambil(x.code))?"ok":""}">${
+      nm(punya.reduce((a,x)=>a+ambil(x.code),0))}</span></div>
+  </div>
+  <div class="sup-kv">${fakta.map(([k,v])=>`<div><span class="k">${k}</span>
+    <span class="v ${v?"":"hampa"}">${v?esc(v):"—"}</span></div>`).join("")}</div>
+  <p class="purpose">Deliberately small: this system knows a supplier’s code, who to ring and
+    where they are, and <b>nothing</b> about ratings, response times or how long they have been
+    trading. In the dev database even the contact fields are empty — so the screen says so
+    rather than inventing them.</p>`;
+}
+
+/* ── isi: kisi, rangka, atau kekosongan yang menjelaskan dirinya ──────── */
+function isiLayar(r){
+  if(V.keadaan==="memuat")
+    return `<div class="kisi">${Array.from({length:10},()=>`<div class="rangka">
+      <div class="f"></div><div class="b"><span class="ska" style="width:80%"></span>
+      <span class="ska" style="width:45%"></span><span class="ska" style="width:60%;height:14px"></span>
+      <span class="ska" style="width:70%"></span></div></div>`).join("")}</div>`;
+  if(V.keadaan==="gagal")
+    return `<div class="kosong"><div class="e1">The catalogue did not answer</div>
+      <div class="e2">The request for <span class="mono">/api/v1/supplier-items</span> failed.
+        Nothing was lost — what is in the basket is still there.</div>
+      <button class="btn dark" style="margin-top:10px" data-keadaan="normal">Try again</button>
+      <div class="e3">Failed at 15:42 · attempt 1</div></div>`;
+  if(V.keadaan==="kosong")
+    return `<div class="kosong"><div class="e1">No supplier has offered anything yet</div>
+      <div class="e2">A supplier item is created on <b>Catalogue</b>, not here — this screen
+        browses what that screen makes.</div>
+      <button class="btn dark" style="margin-top:10px" data-aksi="baru">Add the first item</button>
+      <div class="e3">Only a user with <span class="mono">procurement.write</span> sees this button.</div></div>`;
+  if(!r.length)
+    return `<div class="kosong"><div class="e1">Nothing here matches</div>
+      <div class="e2">${V.toko?"This supplier sells nothing that matches. ":""}Widen the filters,
+        or search every supplier’s catalogue.</div>
+      <button class="btn" style="margin-top:10px" data-aksi="bersih">Clear the filters</button></div>`;
+  if(V.tampilan==="tabel") return tabel(r);
+  return `<div class="kisi">${r.map(kartu).join("")}</div>
+    <div class="muat"><button class="btn">Show more</button></div>`;
+}
+
+/* ── panel barang ─────────────────────────────────────────────────────── */
+function sheetBarang(){
+  const x=ITEMS.find(i=>i.code===V.buka); if(!x) return "";
+  const n=ambil(x.code), r=riwayat(x);
+  const rincian=`<div class="sect"><h5>What it is</h5><dl class="kv">
+      <div><dt>Supplier code</dt><dd class="mono">${esc(x.code)}</dd></div>
+      <div><dt>Division</dt><dd>${esc(DIVL[x.division]||x.division||"—")}</dd></div>
+      <div><dt>Unit price</dt><dd>${rp(x.price)}</dd></div>
+      <div><dt>Sizes</dt><dd>${x.sizes.length?x.sizes.map(s=>esc(SIZ[s]||s)).join(" · "):"—"}</dd></div>
+      <div><dt>Filed under</dt><dd>${x.tags.length?x.tags.map(esc).join(", "):"—"}</dd></div>
+    </dl></div>
+    <div class="sect"><h5>Colourways · ${nm(x.colours.length)}</h5>
+      ${x.colours.length?`<div style="display:flex;flex-wrap:wrap;gap:7px">${x.colours.map(c=>
+        `<span class="klausa"><i style="width:12px;height:12px;border-radius:50%;
+          background:${esc(c.hex||"transparent")};box-shadow:inset 0 0 0 1px rgba(20,20,20,.18)"></i>
+          ${esc(c.label)}</span>`).join("")}</div>
+        ${x.colours.length>=10?`<div class="warn" style="margin-top:9px"><span>Ten colourways is
+          the ceiling an article may carry. This one is at it.</span></div>`:""}`
+        :`<p class="note">The supplier has not said.</p>`}</div>
+    <div class="sect"><h5>What we have bought</h5>${r
+      ?`<div class="anak"><div class="hh">Purchase history
+          ${r.contoh?`<span class="usul-tag" style="margin-left:auto">illustrative</span>`
+          :`<span class="kode" style="margin-left:auto">from the order book</span>`}</div>
+        <div class="sc"><table><thead><tr><th>Orders</th><th class="r">Units</th>
+          <th class="r">At</th></tr></thead><tbody><tr><td>${nm(r.o)}</td>
+          <td class="r">${nm(r.u)}</td><td class="r">${rp(x.price)}</td></tr></tbody></table></div>
+        <div class="aturan">Counted over <b>issued</b> orders only. A draft is not a purchase.</div></div>`
+      :`<p class="note">Never ordered. A first order is not a warning — it is simply the first.</p>`}</div>`;
+  const pemasok=`<div class="sect"><h5>Who sells it</h5><dl class="kv">
+      <div><dt>Supplier</dt><dd>${esc(x.supplier)}</dd></div>
+      <div><dt>Code</dt><dd class="mono">${esc(x.supplier_code)}</dd></div>
+      <div><dt>Status</dt><dd><span class="tag" style="--tone:var(--ok)">Active</span></dd></div>
+    </dl></div>
+    <p class="note">Everything else a supplier record holds — contact, phone, address — is
+      empty in the dev database. <b>Suppliers</b> in Master data is where it is filled in.</p>
+    <button class="btn" data-toko="${esc(x.supplier)}" style="align-self:flex-start">
+      ${I(IK.toko,13)}See everything they sell</button>`;
+  const isi = V.tabSheet==="pemasok" ? pemasok : rincian;
+  return `<div class="scrim" data-tutup="1"></div>
+  <aside class="sheet rinci" role="dialog" aria-label="${esc(x.name)}">
+    <div class="sheet-h">
+      ${x.img?`<img src="${esc(x.img)}" alt="" style="width:54px;height:68px;object-fit:cover;
+        object-position:center 12%;border-radius:8px;border:1px solid var(--line)">`:""}
+      <div style="min-width:0"><h3>${esc(x.name)}</h3>
+        <div class="s2"><span class="mono">${esc(x.code)}</span> · ${esc(x.supplier)}</div></div>
+      <button class="x" data-tutup="1" aria-label="Close">×</button>
+    </div>
+    <div class="sub-tabs">
+      <button class="${V.tabSheet==="rincian"?"on":""}" data-tabsheet="rincian">Details</button>
+      <button class="${V.tabSheet==="pemasok"?"on":""}" data-tabsheet="pemasok">Supplier</button>
+    </div>
+    <div class="sheet-b">${isi}</div>
+    <div class="sheet-f">
+      <span class="hint">${n>0?`${nm(n)} already in the basket. Quantities are corrected in
+        the basket, which is the screen that exists for exactly that.`
+        :"Adding puts one in the basket. Nothing is ordered until a purchase order is issued."}</span>
+      <button class="btn" data-tutup="1">Close</button>
+      <button class="btn dark" data-tambah="${esc(x.code)}">${I(IK.keranjang,13)}Add to basket</button>
+    </div>
+  </aside>`;
+}
+
+/* ── panel keranjang ──────────────────────────────────────────────────── */
+function sheetKeranjang(){
+  const isi=[...V.keranjang.entries()].map(([k,q])=>[ITEMS.find(i=>i.code===k),q]).filter(([x])=>x);
+  const total=isi.reduce((a,[x,q])=>a+x.price*q,0);
+  const toko=new Set(isi.map(([x])=>x.supplier));
+  return `<div class="scrim" data-tutup="1"></div>
+  <aside class="sheet form" role="dialog" aria-label="Basket">
+    <div class="sheet-h"><div><h3>Basket</h3>
+      <div class="s2">${isi.length?`${nm(isi.length)} lines · ${nm(toko.size)} supplier${
+        toko.size===1?"":"s"}`:"Nothing picked yet"}</div></div>
+      <button class="x" data-tutup="1" aria-label="Close">×</button></div>
+    <div class="sheet-b">
+      ${isi.length?`<div>${isi.map(([x,q])=>`<div class="krj">
+        ${x.img?`<img src="${esc(x.img)}" alt="" loading="lazy">`:`<span class="kosongf"></span>`}
+        <div class="t"><b>${esc(x.name)}</b><span>${esc(x.supplier)} · ${rp(x.price)}</span></div>
+        <input type="number" min="1" value="${q}" data-jumlah="${esc(x.code)}" aria-label="Quantity">
+        <span class="jum">${rp(x.price*q)}</span>
+        <button class="buang" data-hapus="${esc(x.code)}" aria-label="Remove">×</button>
+      </div>`).join("")}
+      <div class="total"><span>Total</span><span>${rp(total)}</span></div></div>
+      ${toko.size>1?`<div class="warn"><span>This basket spans ${nm(toko.size)} suppliers. A purchase
+        order goes to <b>one</b> supplier, so issuing will split it into ${nm(toko.size)} orders —
+        one per supplier, each with its own number.</span></div>`:""}
+      <p class="note">A basket is not an order. Nothing reaches a supplier until a purchase order
+        is <b>issued</b>, and prices are re-read from the catalogue at that moment.</p>`
+      :`<div class="kosong" style="padding:40px 10px"><div class="e1">The basket is empty</div>
+        <div class="e2">Pick something from the catalogue — one click on a card, no need to open it.</div>
+        <button class="btn" style="margin-top:10px" data-tutup="1">Back to the catalogue</button></div>`}
+    </div>
+    ${isi.length?`<div class="sheet-f"><span class="hint">Issuing creates ${nm(toko.size)}
+      draft purchase order${toko.size===1?"":"s"}.</span>
+      <button class="btn" data-aksi="kosongkan">Empty it</button>
+      <button class="btn dark" data-tutup="1">Create purchase order${toko.size===1?"":"s"}</button></div>`:""}
+  </aside>`;
+}
+
+/* ── gambar ───────────────────────────────────────────────────────────── */
+function gambar(){
+  const r=baris();
+  const kepalanya = V.toko ? halamanToko(r) : kepala()+tujuan();
+  document.getElementById("layar").innerHTML =
+    kepalanya + pitaKeadaan() + alat() + hasilbar(r) +
+    `<div class="body">${isiLayar(r)}</div>`;
+  document.getElementById("lapis").innerHTML =
+    (V.buka?sheetBarang():"") + (V.bukaKeranjang?sheetKeranjang():"");
+  const q=document.getElementById("q");
+  if(q && document.activeElement!==q && V.fokus){ q.focus(); q.setSelectionRange(q.value.length,q.value.length) }
+}
+
+/* ── panel "Add item": form sungguhan, bukan gambar form ──────────────── */
+function sheetBaru(){
+  return `<div class="scrim l2" data-tutup="1"></div>
+  <aside class="sheet form" role="dialog" aria-label="Add supplier item" style="z-index:43">
+    <div class="sheet-h"><div><h3>Add supplier item</h3>
+      <div class="s2">What a supplier offers, not what we sell</div></div>
+      <button class="x" data-tutup="1" aria-label="Close">×</button></div>
+    <div class="sheet-b">
+      <div class="fld"><div class="top"><label for="f1">Supplier</label>
+        <span class="wajib ya">required</span></div>
+        <select id="f1">${SEMUA_PEMASOK.map(s=>`<option ${s===V.toko?"selected":""}>${esc(s)}</option>`).join("")}</select>
+        <span class="note">Whose catalogue this lands in. It cannot be changed afterwards —
+          a different supplier is a different offer.</span></div>
+      <div class="fld"><div class="top"><label for="f2">Supplier’s own code</label>
+        <span class="wajib ya">required</span></div>
+        <input id="f2" placeholder="0375248024" class="mono">
+        <span class="note">Eleven digits, as the supplier writes it. Unique <b>per supplier</b>:
+          two suppliers may use the same number for different things.</span></div>
+      <div class="fld"><div class="top"><label for="f3">Name</label>
+        <span class="wajib ya">required</span></div>
+        <input id="f3" placeholder="Basic LS Raglan t-shirt"></div>
+      <div class="fld"><div class="top"><label for="f4">Unit price</label>
+        <span class="wajib ya">required</span></div>
+        <input id="f4" placeholder="137.000" inputmode="numeric" style="text-align:right">
+        <span class="note">In rupiah, whole. A price change later is an <b>amendment</b> that
+          somebody accepts or refuses — it does not overwrite this quietly.</span></div>
+      <div class="fld"><div class="top"><label for="f5">Division</label></div>
+        <select id="f5"><option value="">—</option>${Object.entries(DIVL).map(([c,l])=>
+          `<option value="${c}">${l}</option>`).join("")}</select></div>
+      <div class="fld"><div class="top"><label>Colourways</label>
+        <span class="wajib auto">from the master</span></div>
+        <div class="inp ro">Picked from the colour master — never typed</div>
+        <span class="note">Colour stopped being free text on 2026-09-02. A typed “navy” and a
+          typed “Navy” are two colours to a database and one to a person.</span></div>
+      <div class="fld"><div class="top"><label for="f7">Photograph</label></div>
+        <div class="unggah" id="f7"><b>Drop an image, or choose a file</b>
+          <span>A URL is not a photograph. Much of this catalogue points at images that no
+            longer resolve.</span></div></div>
+    </div>
+    <div class="sheet-f"><span class="hint">Saving creates the item and leaves you here, so a
+      second one from the same supplier is three fields away.</span>
+      <button class="btn" data-tutup="1">Cancel</button>
+      <button class="btn dark" data-tutup="1">Save item</button></div>
+  </aside>`;
+}
+
+/* ── peristiwa ────────────────────────────────────────────────────────── */
+function tutupSemua(){ V.buka=null; V.bukaKeranjang=false; V.baru=false; V.pop=null }
+
+document.addEventListener("click",e=>{
+  const t=e.target.closest("[data-keadaan],[data-tampilan],[data-urut],[data-pop],[data-pilih],"+
+    "[data-buang],[data-buka],[data-tambah],[data-toko],[data-tutup],[data-tabsheet],"+
+    "[data-hapus],[data-aksi]");
+  if(!t){ if(V.pop){ V.pop=null; gambar() } return }
+  const d=t.dataset;
+  V.fokus=false;
+
+  if(d.tambah!==undefined){ e.stopPropagation();
+    V.keranjang.set(d.tambah,(V.keranjang.get(d.tambah)||0)+1); gambar(); return }
+  if(d.hapus!==undefined){ V.keranjang.delete(d.hapus); gambar(); return }
+  if(d.toko!==undefined){ V.toko=d.toko; V.buka=null; V.pop=null; gambar(); return }
+  if(d.buka!==undefined){ V.buka=d.buka; V.tabSheet="rincian"; gambar(); return }
+  if(d.tabsheet!==undefined){ V.tabSheet=d.tabsheet; gambar(); return }
+  if(d.tutup!==undefined){ tutupSemua(); gambar(); return }
+  if(d.keadaan!==undefined){ V.keadaan=d.keadaan; V.pop=null; gambar(); return }
+  if(d.tampilan!==undefined){ V.tampilan=d.tampilan; gambar(); return }
+  if(d.urut!==undefined){ V.urut=d.urut||null; gambar(); return }
+  if(d.pop!==undefined){ V.pop=V.pop===d.pop?null:d.pop; gambar(); return }
+  if(d.pilih!==undefined){
+    const [jenis,...sisa]=d.pilih.split(":"); const nilai=sisa.join(":");
+    V[jenis]=V[jenis].includes(nilai)?V[jenis].filter(x=>x!==nilai):[...V[jenis],nilai];
+    gambar(); return }
+  if(d.buang!==undefined){
+    const [jenis,...sisa]=d.buang.split(":"); const nilai=sisa.join(":");
+    V[jenis]=V[jenis].filter(x=>x!==nilai); gambar(); return }
+  if(d.aksi!==undefined){
+    if(d.aksi==="keranjang"){ V.bukaKeranjang=true }
+    else if(d.aksi==="baru"){ V.baru=true }
+    else if(d.aksi==="bersih"){ V.cari="";V.divisi=[];V.pemasok=[];V.label=[];V.pop=null }
+    else if(d.aksi==="semua"){ V.toko=null }
+    else if(d.aksi==="kosongkan"){ V.keranjang.clear() }
+    gambar(); return }
+});
+
+document.addEventListener("input",e=>{
+  if(e.target.id==="q"){ V.cari=e.target.value; V.fokus=true; gambar(); return }
+  if(e.target.dataset.jumlah!==undefined){
+    const n=Math.max(1,parseInt(e.target.value||"1",10));
+    V.keranjang.set(e.target.dataset.jumlah,n); gambar(); }
+});
+
+document.addEventListener("keydown",e=>{
+  if(e.key==="Escape"){ if(V.pop){V.pop=null} else {tutupSemua()} gambar() }
+});
+
+/* Panel "Add item" ikut lapisan yang sama dengan dua panel lain. */
+const gambarAsli=gambar;
+gambar=function(){ gambarAsli();
+  if(V.baru) document.getElementById("lapis").insertAdjacentHTML("beforeend",sheetBaru()); };
+
+gambar();
+</script>

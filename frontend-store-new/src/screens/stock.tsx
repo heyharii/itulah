@@ -204,7 +204,7 @@ export function Stock() {
               Drop
             </Button>
             <Button
-              variant="dark"
+              variant="primary"
               size="lg"
               block
               disabled={!ready || move.isPending}

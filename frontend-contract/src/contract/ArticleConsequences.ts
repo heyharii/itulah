@@ -12,11 +12,13 @@ export type ArticleConsequences = { article_code: string,
  */
 scheduled: Array<ArticleConsequence>, 
 /**
- * Promotions already running that this article's SKUs are inside.
+ * Promotions already running whose selector this edit would have moved
+ * the article across, had they not already been resolved.
  *
- * Informational, and honest about which way it cuts — see
- * `started_note`. Never the loud half of a warning: an edit that changes
- * nothing anybody can act on is noise.
+ * Listed precisely because that is the thing somebody fears when they
+ * untick a tag, and answered rather than left to be guessed: their
+ * membership was fixed when the window opened and this edit does not
+ * touch it. Never the loud half of a warning — see `started_note`.
  */
 started: Array<ArticleConsequence>, 
 /**

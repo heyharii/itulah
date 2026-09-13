@@ -104,11 +104,34 @@ export interface MemberRow {
   readonly segment: SegmentKey
 }
 
+/// One value the directory can be narrowed by, and how many members it would
+/// leave. Counted over what the SEARCH leaves, ignoring the segment currently
+/// applied — so "Lapsing 41" means there are 41 lapsing members, not 41 among
+/// the ones you already narrowed to lapsing.
+export interface MemberFacet {
+  readonly value: string
+  readonly label: string | null
+  readonly count: number
+}
+
+export interface MemberFacets {
+  /// In the six's own reading order, which is the order the segment book
+  /// prints them in. Only the ones with anybody in them.
+  readonly segments: readonly MemberFacet[]
+}
+
 export interface MemberDirectory {
   readonly members: readonly MemberRow[]
   /// Everybody enrolled, not just this page, so a filtered list can say what
   /// it is a fraction of.
   readonly member_count: number
+  /// Opaque. Pass it back as `cursor` for the next page; `null` means this was
+  /// the last one.
+  readonly next_cursor: string | null
+  /// Everybody the search and the segment match — as against `member_count`,
+  /// which is the whole scheme. A screen wants both: "41 of 9,320".
+  readonly total: number
+  readonly facets: MemberFacets
 }
 
 export interface SegmentRow {
@@ -136,13 +159,27 @@ export interface SegmentBook {
   readonly lapsing_days: number
 }
 
+/// The sorts the server names. Anything else falls back to `spent`, the house
+/// order, rather than being refused — a sort arrives from a URL somebody may
+/// have kept from an older build.
+export type MemberSort = "spent" | "name" | "card" | "joined" | "last_purchase"
+
 export interface MemberQuery {
   readonly segment?: SegmentKey
   /// A saved segment, by id. The id and not its clauses: a caller holding
   /// clauses is holding a copy, and the list would stop agreeing with the
   /// count on the card that linked to it the moment somebody edited it.
   readonly segmentId?: string
+  /// Card number or name. The server runs it, and over those two columns only
+  /// — never a phone number or anything else somebody could look a person up
+  /// by without being granted it.
   readonly q?: string
+  readonly sort?: MemberSort
+  /// Absent means each key's own natural direction: money and recency read
+  /// downwards, names and card numbers upwards.
+  readonly dir?: "asc" | "desc"
+  /// A `next_cursor` from the previous page, verbatim.
+  readonly cursor?: string
   readonly limit?: number
 }
 
@@ -216,6 +253,9 @@ export const memberKeys = {
       query.segment ?? "all",
       query.segmentId ?? "",
       query.q ?? "",
+      query.sort ?? "spent",
+      query.dir ?? "",
+      query.cursor ?? "",
     ] as const,
   segments: () => ["members", "segments"] as const,
 }
@@ -228,6 +268,9 @@ export function listMembers(
   if (query.segment) params.set("segment", query.segment)
   if (query.segmentId) params.set("segment_id", query.segmentId)
   if (query.q) params.set("q", query.q)
+  if (query.sort) params.set("sort", query.sort)
+  if (query.dir) params.set("dir", query.dir)
+  if (query.cursor) params.set("cursor", query.cursor)
   if (query.limit !== undefined) params.set("limit", String(query.limit))
   const encoded = params.toString()
   return node.get<MemberDirectory>(

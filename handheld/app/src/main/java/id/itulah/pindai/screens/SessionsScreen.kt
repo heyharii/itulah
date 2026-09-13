@@ -1,8 +1,6 @@
 package id.itulah.pindai.screens
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
@@ -14,6 +12,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import id.itulah.pindai.ui.kit.*
 import id.itulah.pindai.ui.theme.*
+
+/** Clear of the tab squircles and the float they sit on. */
+private val FootClearance = 120.dp
 
 /**
  * Who is counting what, right now.
@@ -40,86 +41,86 @@ fun SessionsScreen(vm: SweepViewModel, state: SweepState, onBack: () -> Unit) {
         return
     }
 
-    Column(Modifier.fillMaxSize().background(Surface.canvas)) {
-        LazyColumn(
-            modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(Space.lg),
-            verticalArrangement = Arrangement.spacedBy(Space.sm),
-        ) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().background(Surface.canvas),
+        contentPadding = PaddingValues(
+            start = Space.lg, end = Space.lg, top = Space.sm, bottom = FootClearance,
+        ),
+        verticalArrangement = Arrangement.spacedBy(Space.sm),
+    ) {
+        item {
+            Text(
+                "Sessions are named, not owned. Several handhelds filing under " +
+                    "one name are one count — the same tag seen twice is still " +
+                    "one garment.",
+                style = Type.cell, color = Ink.body,
+                modifier = Modifier.padding(bottom = Space.sm),
+            )
+        }
+
+        if (state.sessionCode.isNotBlank()) {
+            item {
+                HubCard {
+                    SectionLabel("You are in")
+                    Spacer(Modifier.height(Space.xs))
+                    Text(state.sessionCode, style = Type.hero, color = Ink.ink)
+                    Spacer(Modifier.height(Space.md))
+                    QuietButton("Leave and work alone",
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = { vm.setSessionCode("") })
+                }
+            }
+        }
+
+        item {
+            SectionLabel("Active on this node", Modifier.padding(top = Space.sm))
+        }
+
+        if (state.sessions.isEmpty()) {
             item {
                 Text(
-                    "Sessions are named, not owned. Several handhelds filing under " +
-                        "one name are one count — the same tag seen twice is still " +
-                        "one garment.",
-                    style = Type.caption, color = Ink.text(.74f),
+                    if (state.sessionsLoaded) "Nothing being counted right now."
+                    else "Loading…",
+                    style = Type.cell, color = Ink.body,
                 )
-                Spacer(Modifier.height(Space.sm))
             }
-
-            if (state.sessionCode.isNotBlank()) {
-                item {
-                    PlanetCard {
-                        SectionLabel("You are in")
-                        Spacer(Modifier.height(Space.xs))
-                        Text(state.sessionCode, style = Type.anchor, color = Ink.text())
-                        Spacer(Modifier.height(Space.sm))
-                        QuietButton("Leave and work alone",
-                            onClick = { vm.setSessionCode("") })
-                    }
-                    Spacer(Modifier.height(Space.sm))
+        } else {
+            items(state.sessions.size, key = { state.sessions[it].code }) { index ->
+                val session = state.sessions[index]
+                SessionListRow(session, joined = session.code == state.sessionCode) {
+                    chosen = session
                 }
             }
+        }
 
-            item { SectionLabel("Active on this node") }
-
-            if (state.sessions.isEmpty()) {
-                item {
-                    Text(
-                        if (state.sessionsLoaded) "Nothing being counted right now."
-                        else "Loading…",
-                        style = Type.caption, color = Ink.text(.60f),
-                    )
-                }
-            } else {
-                items(state.sessions.size, key = { state.sessions[it].code }) { index ->
-                    val session = state.sessions[index]
-                    SessionListRow(session, joined = session.code == state.sessionCode) {
-                        chosen = session
-                    }
-                }
-            }
-
-            item {
-                Spacer(Modifier.height(Space.sm))
-                QuietButton("Start a new session", onClick = vm::newSessionCode)
-            }
+        item {
+            QuietButton("Start a new session",
+                modifier = Modifier.fillMaxWidth().padding(top = Space.sm),
+                onClick = vm::newSessionCode)
         }
     }
 }
 
 @Composable
 private fun SessionListRow(session: SessionBrief, joined: Boolean, onClick: () -> Unit) {
-    Surface(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
-        shape = CardShape,
-        color = Surface.card,
-        border = BorderStroke(1.dp, Ink.border(.04f)),
+    HubCard(
+        onPress = onClick,
+        padding = PaddingValues(horizontal = Space.lg, vertical = Space.md),
     ) {
-        Row(
-            Modifier.padding(horizontal = Space.lg, vertical = Space.md),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(session.code, style = Type.body, color = Ink.text())
+                Text(session.code, style = Type.cardTitle, color = Ink.ink)
                 Text(
                     "${session.tagCount} tags · ${session.deviceCount} readers",
-                    style = Type.micro, color = Ink.text(.60f),
+                    style = Type.meta, color = Ink.mute,
                 )
             }
-            if (joined) StatusDot(Blue, "joined")
-            Spacer(Modifier.width(Space.sm))
+            if (joined) {
+                Pill(Tone.ACCENT, "joined")
+                Spacer(Modifier.width(Space.sm))
+            }
             Icon(Icons.Outlined.ChevronRight, contentDescription = null,
-                modifier = Modifier.size(18.dp), tint = Ink.text(.36f))
+                modifier = Modifier.size(18.dp), tint = Ink.faint)
         }
     }
 }
@@ -132,26 +133,32 @@ private fun SessionDetail(
     onJoin: () -> Unit,
     onBack: () -> Unit,
 ) {
-    Column(Modifier.fillMaxSize().background(Surface.canvas).padding(Space.lg),
-        verticalArrangement = Arrangement.spacedBy(Space.md)) {
-        PlanetCard {
+    Column(
+        Modifier.fillMaxSize().background(Surface.canvas)
+            .padding(start = Space.lg, end = Space.lg, top = Space.sm, bottom = FootClearance),
+        verticalArrangement = Arrangement.spacedBy(Space.md),
+    ) {
+        HubCard {
             SectionLabel("Session")
             Spacer(Modifier.height(Space.xs))
-            Text(brief.code, style = Type.anchor, color = Ink.text())
-            Spacer(Modifier.height(Space.md))
+            Text(brief.code, style = Type.hero, color = Ink.ink)
+            Spacer(Modifier.height(Space.lg))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Column {
+                    // Two figures side by side, so neither is the screen's one
+                    // number: `kpi`, not `total`. A screen with two 32 dp
+                    // numbers on it has no primary number at all.
                     SectionLabel("Tags")
-                    RollingNumber(brief.tagCount, Type.hero, Ink.text())
+                    RollingNumber(brief.tagCount, Type.kpi, Ink.ink)
                 }
                 Column(horizontalAlignment = Alignment.End) {
                     SectionLabel("Readers")
-                    RollingNumber(brief.deviceCount, Type.hero, Ink.text())
+                    RollingNumber(brief.deviceCount, Type.kpi, Ink.ink)
                 }
             }
             brief.lastSeenAt?.let {
                 Spacer(Modifier.height(Space.sm))
-                Text("last filing $it", style = Type.micro, color = Ink.text(.60f))
+                Text("last filing $it", style = Type.meta, color = Ink.mute)
             }
         }
 
@@ -159,15 +166,16 @@ private fun SessionDetail(
             "Joining files this handheld's sweeps under this name. Nothing already " +
                 "counted is transferred, and nothing is taken over — you simply " +
                 "add to the same total.",
-            style = Type.caption, color = Ink.text(.74f),
+            style = Type.cell, color = Ink.body,
         )
 
         Spacer(Modifier.weight(1f))
         if (joined) {
-            Text("Already joined", style = Type.body, color = Ink.text(.60f))
+            Text("Already joined", style = Type.cell, color = Ink.mute)
         } else {
-            PrimaryButton("Join ${brief.code}", onClick = onJoin)
+            PrimaryButton("Join ${brief.code}", onClick = onJoin,
+                modifier = Modifier.fillMaxWidth(), big = true)
         }
-        QuietButton("Back", onClick = onBack)
+        QuietButton("Back", onClick = onBack, modifier = Modifier.fillMaxWidth())
     }
 }

@@ -4,23 +4,23 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import id.itulah.pindai.core.Reader
 import id.itulah.pindai.data.Api
 import id.itulah.pindai.data.ConfigStore
-import id.itulah.pindai.data.Settings
 import id.itulah.pindai.ui.kit.*
 import id.itulah.pindai.ui.theme.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+/** Clear of the tab squircles and the float they sit on. */
+private val FootClearance = 120.dp
 
 @Composable
 fun SettingsScreen(store: ConfigStore, reader: Reader, onSaved: () -> Unit) {
@@ -30,54 +30,59 @@ fun SettingsScreen(store: ConfigStore, reader: Reader, onSaved: () -> Unit) {
     var busy by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
-    Column(Modifier.fillMaxSize().background(Surface.canvas)
-        .verticalScroll(rememberScrollState()).padding(Space.lg),
-        verticalArrangement = Arrangement.spacedBy(Space.md)) {
+    Column(
+        Modifier.fillMaxSize().background(Surface.canvas)
+            .verticalScroll(rememberScrollState())
+            .padding(start = Space.lg, end = Space.lg, top = Space.sm, bottom = FootClearance),
+        verticalArrangement = Arrangement.spacedBy(Space.sm),
+    ) {
 
-        PlanetCard {
+        HubCard {
             SectionLabel("Node")
-            Spacer(Modifier.height(Space.sm))
+            Spacer(Modifier.height(Space.md))
             Field("Edge URL", settings.baseUrl) { settings = settings.copy(baseUrl = it) }
             Field("Site ID", settings.siteId) { settings = settings.copy(siteId = it) }
             Field("Pool", settings.pool) { settings = settings.copy(pool = it) }
-            Spacer(Modifier.height(Space.sm))
+            Spacer(Modifier.height(Space.md))
             Text("One build serves a DC and a shop; which one a handheld belongs to is a " +
                 "deployment fact, not a code fact.",
-                style = Type.micro, color = Ink.text(.60f))
+                style = Type.meta, color = Ink.mute)
         }
 
-        PlanetCard {
+        HubCard {
             SectionLabel("Device identity")
-            Spacer(Modifier.height(Space.sm))
+            Spacer(Modifier.height(Space.md))
             Field("Device ID", settings.deviceId) { settings = settings.copy(deviceId = it) }
             Field("Device key", settings.deviceKey, secret = true) {
                 settings = settings.copy(deviceKey = it)
             }
-            Spacer(Modifier.height(Space.sm))
+            Spacer(Modifier.height(Space.md))
             Text("This key signs every batch of evidence. It proves WHICH READER read — " +
                 "never who was holding it.",
-                style = Type.micro, color = Ink.text(.60f))
+                style = Type.meta, color = Ink.mute)
         }
 
         ReaderPowerCard(store, reader) { settings = settings.copy(readerPower = it) }
 
-        PlanetCard {
+        HubCard {
             SectionLabel("Operator (optional)")
-            Spacer(Modifier.height(Space.sm))
+            Spacer(Modifier.height(Space.md))
             Field("Bearer token", settings.operatorToken, secret = true) {
                 settings = settings.copy(operatorToken = it)
             }
-            Spacer(Modifier.height(Space.sm))
+            Spacer(Modifier.height(Space.md))
             Text("For audit attribution, and for packing, receiving and counting, which " +
                 "do need a human session.",
-                style = Type.micro, color = Ink.text(.60f))
+                style = Type.meta, color = Ink.mute)
         }
 
         status?.let {
-            Text(it, style = Type.caption, color = if (failed) Destructive else Success)
+            Text(it, style = Type.cell, color = if (failed) BadFg else OkFg,
+                modifier = Modifier.padding(top = Space.xs))
         }
 
-        QuietButton("Test connection", enabled = !busy, onClick = {
+        QuietButton("Test connection", enabled = !busy,
+            modifier = Modifier.fillMaxWidth().padding(top = Space.xs), onClick = {
             busy = true; status = null
             scope.launch {
                 val result = withContext(Dispatchers.IO) {
@@ -92,7 +97,8 @@ fun SettingsScreen(store: ConfigStore, reader: Reader, onSaved: () -> Unit) {
             }
         })
 
-        PrimaryButton("Save", enabled = !busy, onClick = {
+        PrimaryButton("Save", enabled = !busy, big = true,
+            modifier = Modifier.fillMaxWidth(), onClick = {
             store.save(settings); settings = store.load()
             failed = false; status = "saved"; onSaved()
         })
@@ -151,7 +157,7 @@ private fun ReaderPowerCard(store: ConfigStore, reader: Reader, onApplied: (Int)
         }.onFailure { note = it.message ?: "reader unavailable" }
     }
 
-    PlanetCard {
+    HubCard {
         SectionLabel("Reader power")
         Spacer(Modifier.height(Space.sm))
         Row(
@@ -160,15 +166,21 @@ private fun ReaderPowerCard(store: ConfigStore, reader: Reader, onApplied: (Int)
             verticalAlignment = Alignment.Bottom,
         ) {
             Row(verticalAlignment = Alignment.Bottom) {
-                Text("$power", style = Type.hero, color = Ink.text())
+                Text("$power", style = Type.total, color = Ink.ink)
                 Spacer(Modifier.width(Space.xs))
-                Text("dBm", style = Type.caption, color = Ink.text(.60f),
-                    modifier = Modifier.padding(bottom = 5.dp))
+                Text("dBm", style = Type.meta, color = Ink.mute,
+                    modifier = Modifier.padding(bottom = 6.dp))
             }
             note?.let {
-                Text(it, style = Type.micro,
-                    color = Ink.text(if (applying) .74f else if (asleep) .36f else .60f),
-                    modifier = Modifier.padding(bottom = 4.dp))
+                Text(it, style = Type.meta,
+                    // Three states, three greys: what the module just said, what
+                    // it said a while ago, and what nobody has confirmed at all.
+                    color = when {
+                        applying -> Ink.text
+                        asleep -> Ink.faint
+                        else -> Ink.mute
+                    },
+                    modifier = Modifier.padding(bottom = 5.dp))
             }
         }
         Spacer(Modifier.height(Space.md))
@@ -203,18 +215,19 @@ private fun ReaderPowerCard(store: ConfigStore, reader: Reader, onApplied: (Int)
         Spacer(Modifier.height(Space.sm))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("${Reader.MIN_POWER} · the shelf in front of you",
-                style = Type.micro, color = Ink.text(.60f))
+                style = Type.meta, color = Ink.mute)
             Text("${Reader.MAX_POWER} · the whole aisle",
-                style = Type.micro, color = Ink.text(.60f))
+                style = Type.meta, color = Ink.mute)
         }
-        Spacer(Modifier.height(Space.sm))
+        Spacer(Modifier.height(Space.md))
         Text("Full power reads the back of a rack, and through a wall. A count " +
             "that quietly includes the next room is wrong in the one way nobody " +
             "checks — so this belongs to the job, not to the device.",
-            style = Type.micro, color = Ink.text(.60f))
+            style = Type.meta, color = Ink.mute)
     }
 }
 
+/** A settings line. The chrome is [HubField]'s; this only names the line. */
 @Composable
 private fun Field(
     label: String,
@@ -222,14 +235,11 @@ private fun Field(
     secret: Boolean = false,
     onChange: (String) -> Unit,
 ) {
-    OutlinedTextField(
+    HubField(
         value = value,
-        onValueChange = onChange,
-        label = { Text(label, style = Type.caption) },
-        singleLine = true,
-        visualTransformation = if (secret) PasswordVisualTransformation() else
-            androidx.compose.ui.text.input.VisualTransformation.None,
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        shape = ControlShape,
+        onChange = onChange,
+        label = label,
+        secret = secret,
+        modifier = Modifier.padding(bottom = Space.md),
     )
 }

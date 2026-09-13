@@ -47,6 +47,22 @@ impl WindowQuery {
     }
 }
 
+/// How much of what one campaign set out to shift has shifted.
+///
+/// `Path` beside `Query` because this is the one performance read that is about
+/// a single campaign: sell-through needs the styles that campaign's offers name,
+/// and there is no fleet-wide version of that question.
+pub async fn campaign_sell_through(
+    State(state): State<AppState>,
+    axum::extract::Path(campaign_id): axum::extract::Path<String>,
+    Query(query): Query<WindowQuery>,
+) -> Result<Json<Value>, AppError> {
+    let window = query.window()?;
+    Ok(Json(
+        infrastructure::campaign_sell_through(&state.db, &campaign_id, &window).await?,
+    ))
+}
+
 /// What each campaign gave away and what came back through the tills.
 pub async fn campaign_performance(
     State(state): State<AppState>,

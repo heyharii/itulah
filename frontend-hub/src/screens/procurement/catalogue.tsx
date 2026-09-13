@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Input } from "@/components/ui/field"
-import { FilterBar } from "@/components/ui/filter-bar"
+import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { MiniTable } from "@/components/ui/rows"
@@ -119,7 +119,7 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
     size: 130,
     meta: {
       align: "right",
-      filter: { kind: "number", scale: 100, unit: "Rp" },
+      filter: { kind: "number", unit: "Rp" },
     },
     cell: ({ row }) => money(row.original.item.unit_price_minor),
   },
@@ -297,7 +297,7 @@ export function Catalogue() {
               value={status}
               onChange={setStatus}
             />
-            <FilterBar model={filters} table={table} />
+            <FilterPanel model={filters} table={table} />
             <Toolbar.Spacer />
             <span className="text-[0.75rem] text-mute tabular-nums">
               {count(unfinished)} of {count(matching)} shown still need

@@ -1,230 +1,188 @@
-import { Lock, Unlock } from "lucide-react"
 import { useState } from "react"
 
+import { PageContent } from "@/components/shell/app-shell"
+import { Button } from "@/components/ui/button"
+import { Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
-import { Tag } from "@/components/ui/tag"
-import { cn } from "@/lib/utils"
-import { useBook } from "@/screens/finance-lab/state"
+import { Pill } from "@/components/ui/pill"
+import { Sheet } from "@/components/ui/sheet"
+import { EmptyState } from "@/components/ui/states"
 import {
   Amount,
-  Blocked,
   Cell,
-  CheckMark,
   EntryView,
-  Panel,
   Row,
   Section,
-  SimBadge,
   Table,
+  count,
+  FILTER_W,
 } from "@/screens/finance-lab/parts"
+import { CloseBoard, type Check } from "@/screens/finance-lab/signature"
+import { useBook } from "@/screens/finance-lab/state"
 
-/// Accounting & Close — the journal, the trial balance, and the lock.
+/// Accounting & Close.
 ///
-/// # Why the trial balance is on the same screen as the periods
-///
-/// Because "may this month close" is answered by looking at them together. A
-/// period that closes without the books balancing is a period whose close
-/// asserted only that somebody pressed a button, and the plan is explicit that
-/// the lock, the audit and the trial balance arrive together with posting
-/// rather than in a later release.
+/// Signature visual is the close board, because the question this menu answers
+/// is *may the month be closed* and that is a checklist, not a figure. The one
+/// working list underneath is the journal; the trial balance lives on Reports
+/// and the periods on Setup, so this page has one job.
+const MONTHS = ["2026-05", "2026-06", "2026-07", "2026-08", "2026-09"]
+
 export function LabClose() {
   const b = useBook()
-  const [openEntry, setOpenEntry] = useState<string | null>(null)
-  const [said, setSaid] = useState<string | null>(null)
+  const [month, setMonth] = useState("2026-07")
+  const [kind, setKind] = useState("")
+  const [open, setOpen] = useState<string | null>(null)
 
   const tb = b.ledger.trialBalance({ book_id: "CFS" })
-  const entries = b.ledger.allEntries()
-  const periods = b.ledger.allPeriods()
-  const shown = openEntry ? b.ledger.entry(openEntry) : undefined
+  const period = b.ledger.allPeriods().find((p) => p.period === month)
+  const entries = b.ledger.allEntries().filter((e) => e.dates.period === month)
+  const rows = entries.filter((e) => !kind || e.source_kind === kind)
+  const kinds = [
+    ...new Set(b.ledger.allEntries().map((e) => e.source_kind)),
+  ].sort()
+
+  const unbalanced = entries.filter(
+    (e) =>
+      e.lines.reduce((n, l) => n + l.debit, 0) !==
+      e.lines.reduce((n, l) => n + l.credit, 0)
+  )
+  const depreciation = b.depreciationEntry("C006", month)
+  const drafts = b.payments
+    .all()
+    .filter((p) => p.status !== "SETTLED" && p.dates.period === month)
+
+  const checks: Check[] = [
+    {
+      label: "Journal balanced",
+      state: unbalanced.length === 0 ? "done" : "todo",
+      detail: `${count(entries.length, "entry")}`,
+    },
+    { label: "Trial balance balanced", state: tb.balanced ? "done" : "todo" },
+    {
+      label: "Depreciation posted",
+      state: depreciation ? "done" : "todo",
+      detail: depreciation?.entry_number,
+    },
+    {
+      label: "Payments done",
+      state: drafts.length === 0 ? "done" : "partial",
+      detail: drafts.length ? `${drafts.length} not yet settle` : undefined,
+    },
+    { label: "Bank reconciled", state: "partial", detail: "3 lines unmatched" },
+    {
+      label: "Affiliation agreed both ways",
+      state: "todo",
+      detail: "head office journal not supplied",
+    },
+  ]
+
+  const entry = open ? b.ledger.entry(open) : undefined
 
   return (
-    <div>
+    <PageContent>
       <PageHeader
-        crumb="Finance lab"
-        title="Accounting & Close"
-        sub="Buku simulasi:
-        setiap entri lewat satu pintu, seimbang per buku, dan tidak bisa masuk bulan yang terkunci."
-        actions={<SimBadge />}
+        crumb="Accounting & close"
+        title="Period close"
+        actions={
+          <div className="flex items-center gap-2">
+            <Select value={month} onChange={setMonth} className={FILTER_W}>
+              {MONTHS.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </Select>
+            <Button
+              variant="primary"
+              disabled={period?.status === "CLOSED"}
+              onClick={() => b.setPeriod(month, true)}
+            >
+              {period?.status === "CLOSED" ? "Closed" : "Close month"}
+            </Button>
+          </div>
+        }
       />
 
-      <Section title="Periode" sub="Menutup bulan menolak posting berikutnya — dicoba di skenario G.">
-        <Panel>
-          <Table head={["Periode", "Buku", "Status", ">Entri", "Ditutup oleh", ""]}>
-            {periods.map((p) => {
-              const n = entries.filter((e) => e.dates.period === p.period).length
-              return (
-                <Row key={`${p.book_id}/${p.period}`}>
-                  <Cell mono>{p.period}</Cell>
-                  <Cell>{p.book_id}</Cell>
-                  <Cell>
-                    <Tag tone={p.status === "CLOSED" ? "bad" : "ok"}>{p.status}</Tag>
-                  </Cell>
-                  <Cell right>{n}</Cell>
-                  <Cell className="text-mute">{p.closed_by ?? "—"}</Cell>
-                  <Cell>
-                    <button
-                      type="button"
-                      onClick={() => b.setPeriod(p.period, p.status !== "CLOSED")}
-                      className="inline-flex items-center gap-1.5 rounded-md border border-hairline px-2 py-1 text-[0.75rem] font-medium text-ink hover:bg-soft-1"
-                    >
-                      {p.status === "CLOSED" ? (
-                        <>
-                          <Unlock className="size-3" /> Buka
-                        </>
-                      ) : (
-                        <>
-                          <Lock className="size-3" /> Tutup
-                        </>
-                      )}
-                    </button>
-                  </Cell>
-                </Row>
-              )
-            })}
-          </Table>
-        </Panel>
-        <p className="mt-2 text-[0.75rem] text-mute">
-          Juni sengaja ditutup pada saat buku ini dibentuk. Itulah sebabnya uang muka AC bulan Juni
-          gagal diposting dan aset itu muncul di Assets dengan harga perolehan yang belum penuh masuk
-          buku.
-        </p>
+      <Section
+        title={`Close readiness ${month}`}
+        right={
+          <Pill tone={period?.status === "CLOSED" ? "bad" : "ok"}>
+            {period?.status === "CLOSED" ? "closed" : "open"}
+          </Pill>
+        }
+      >
+        <CloseBoard checks={checks} />
       </Section>
 
       <Section
-        title="Trial balance"
-        sub="Dijumlah dari jurnal setiap kali dibaca. Tidak ada saldo yang disimpan."
+        title={`Journal — ${rows.length}`}
         right={
-          <span
-            className={cn(
-              "rounded-md px-2 py-0.5 text-[0.75rem] font-semibold",
-              tb.balanced ? "bg-ok-bg text-ok-fg" : "bg-bad-bg text-bad-fg"
-            )}
-          >
-            {tb.balanced ? "Seimbang" : "TIDAK SEIMBANG"}
-          </span>
+          <Select value={kind} onChange={setKind} className={FILTER_W}>
+            <option value="">All sources</option>
+            {kinds.map((k) => (
+              <option key={k} value={k}>
+                {k}
+              </option>
+            ))}
+          </Select>
         }
       >
-        <Panel>
-          <Table head={["Akun", "Kode", "Unit", ">Debit", ">Kredit"]}>
-            {tb.rows.map((r) => (
-              <Row key={`${r.code}/${r.unit}`}>
-                <Cell>{r.name}</Cell>
-                <Cell mono>{r.code}</Cell>
-                <Cell>{r.unit}</Cell>
-                <Cell right>
-                  <Amount minor={r.debit} muted />
-                </Cell>
-                <Cell right>
-                  <Amount minor={r.credit} muted />
-                </Cell>
-              </Row>
-            ))}
-            <Row className="border-t border-hairline font-semibold">
-              <Cell colSpan={3}>{tb.rows.length} akun</Cell>
-              <Cell right>
-                <Amount minor={tb.total_debit} />
-              </Cell>
-              <Cell right>
-                <Amount minor={tb.total_credit} />
-              </Cell>
-            </Row>
-          </Table>
-        </Panel>
-      </Section>
-
-      <Section title="Jurnal" sub={`${entries.length} entri, semuanya dibentuk oleh aturan bernama versi.`}>
-        <Panel>
-          <Table head={["Nomor", "Tanggal", "Sumber", "Dokumen", "Aturan", ">Total", ""]}>
-            {entries.map((e) => (
-              <Row
-                key={e.entry_id}
-                className={cn("cursor-pointer hover:bg-soft-1", openEntry === e.entry_id && "bg-accent-bg")}
-              >
-                <Cell mono onClick={() => setOpenEntry(e.entry_id)}>
+        {rows.length === 0 ? (
+          <EmptyState>Nothing has been posted in this period.</EmptyState>
+        ) : (
+          <Table
+            head={["Number", "Date", "Source", "Document", "Rule", ">Total"]}
+          >
+            {rows.map((e) => (
+              <Row key={e.entry_id} className="hover:bg-soft-1 cursor-pointer">
+                <Cell mono onClick={() => setOpen(e.entry_id)}>
                   {e.entry_number}
                 </Cell>
-                <Cell onClick={() => setOpenEntry(e.entry_id)}>{e.dates.posting_on}</Cell>
+                <Cell className="whitespace-nowrap">{e.dates.posting_on}</Cell>
                 <Cell>
-                  <Tag tone="accent">{e.source_kind}</Tag>
+                  <Pill tone="accent">{e.source_kind.toLowerCase()}</Pill>
                 </Cell>
-                <Cell mono>{e.document_ref}</Cell>
+                <Cell mono className="text-mute">
+                  {e.document_ref}
+                </Cell>
                 <Cell mono className="text-mute">
                   {e.rule_version}
                 </Cell>
                 <Cell right>
                   <Amount minor={e.total} />
                 </Cell>
-                <Cell className="w-8">
-                  <CheckMark
-                    pass={
-                      e.lines.reduce((n, l) => n + l.debit, 0) ===
-                      e.lines.reduce((n, l) => n + l.credit, 0)
-                    }
-                  />
-                </Cell>
               </Row>
             ))}
+            <Row tone="total">
+              <Cell colSpan={5}>{count(rows.length, "entry")}</Cell>
+              <Cell right>
+                <Amount minor={rows.reduce((n, e) => n + e.total, 0)} />
+              </Cell>
+            </Row>
           </Table>
-        </Panel>
-      </Section>
-
-      {shown && (
-        <Section
-          title={`Entri ${shown.entry_number}`}
-          right={
-            shown.source_kind === "REVERSAL" ||
-            b.ledger.allEntries().some((e) => e.reverses === shown.entry_id) ? (
-              <span className="text-[0.75rem] text-mute">
-                {shown.source_kind === "REVERSAL" ? "Ini entri pembalik" : "Sudah dibalik"}
-              </span>
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  const r = b.reverseEntry(shown.entry_id, "2026-09-09", "koreksi dari layar")
-                  setSaid(
-                    r.ok
-                      ? `Dibalik oleh ${r.entry.entry_number}, memakai akun entri asli.`
-                      : `Ditolak: ${r.message}`
-                  )
-                }}
-                className="rounded-lg border border-hairline bg-canvas px-2.5 py-1 text-[0.75rem] font-semibold text-ink shadow-soft hover:bg-soft-1"
-              >
-                Balikkan
-              </button>
-            )
-          }
-        >
-          {said && <p className="mb-2 text-[0.8125rem] text-body">{said}</p>}
-          <EntryView entry={shown} />
-          <p className="mt-2 text-[0.75rem] text-mute">
-            Pembalikan memakai kode akun entri asli, bukan hasil resolver hari ini. Kalau binding
-            sudah pindah, entri pembalik tetap menyentuh akun yang sama — dibuktikan di skenario H.
-          </p>
-        </Section>
-      )}
-
-      <Section title="Yang gagal saat buku ini dibentuk" sub="Ditampilkan, tidak disembunyikan.">
-        {b.log.filter((f) => !f.outcome.ok).length === 0 ? (
-          <Panel>
-            <p className="px-3.5 py-3 text-[0.8125rem] text-mute">Tidak ada.</p>
-          </Panel>
-        ) : (
-          <div className="space-y-2">
-            {b.log
-              .filter((f) => !f.outcome.ok)
-              .map((f, i) => {
-                const o = f.outcome as { ok: false; code: string; message: string }
-                return (
-                  <Blocked key={i}>
-                    <span className="font-semibold">{f.label}</span> —{" "}
-                    <span className="font-mono text-[0.75rem]">{o.code}</span> {o.message}
-                  </Blocked>
-                )
-              })}
-          </div>
         )}
       </Section>
-    </div>
+
+      <Sheet
+        open={Boolean(entry)}
+        onOpenChange={(o) => !o && setOpen(null)}
+        title={entry?.memo ?? "Journal"}
+        id={entry?.entry_number}
+        actions={
+          entry && !entry.reverses ? (
+            <Button
+              onClick={() =>
+                b.reverseEntry(entry.entry_id, "2026-09-09", "koreksi")
+              }
+            >
+              Reverse
+            </Button>
+          ) : undefined
+        }
+      >
+        {entry && <EntryView entry={entry} />}
+      </Sheet>
+    </PageContent>
   )
 }

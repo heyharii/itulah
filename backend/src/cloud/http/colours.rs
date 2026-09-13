@@ -8,6 +8,8 @@ use super::articles::{expected_version, idempotency_key, request_digest, version
 use super::auth::Principal;
 use crate::cloud::{
     application::{AppError, AppState},
+    domain::RecordKind,
+    http::audit::DeclaredSubject,
     postgres::{self as infrastructure, CreateColourRequest, UpdateColourRequest},
 };
 use axum::{
@@ -35,6 +37,7 @@ pub async fn list_colours(
 pub async fn create_colour(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
+    Extension(acted_on): Extension<DeclaredSubject>,
     headers: HeaderMap,
     Json(request): Json<CreateColourRequest>,
 ) -> Result<Response, AppError> {
@@ -44,6 +47,7 @@ pub async fn create_colour(
         "request": &request,
     }))?;
     let colour = infrastructure::create_colour(&state.db, request, &key, &digest).await?;
+    acted_on.set(RecordKind::Colour, colour.code.clone());
     let version = colour.version;
     versioned_response(StatusCode::CREATED, colour, version)
 }

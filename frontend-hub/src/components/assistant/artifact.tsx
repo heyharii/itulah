@@ -65,48 +65,48 @@ function Table({
     // page it is what lets the cap be forty without the card taking over the
     // conversation.
     <div className="max-h-[24rem] overflow-auto">
-    {/* `min-w` and not a breakpoint: the constraint is the container, and this
+      {/* `min-w` and not a breakpoint: the constraint is the container, and this
         table has two of them — a 30rem panel and a phone. Below that width the
         card scrolls sideways rather than squeezing three columns into
         "COMP…" and "Rp 1.1…", which is a table that costs a tap to read and
         answers nothing at a glance. */}
-    <table className="w-full min-w-[26rem] table-fixed border-collapse">
-      <thead>
-        <tr>
-          {head.map((column, index) => (
-            <th
-              key={column}
-              className={cn(
-                "sticky top-0 z-1 border-b border-hairline bg-canvas px-3 py-1.5 text-eyebrow font-semibold text-mute uppercase",
-                index === 0 ? "text-left" : "text-right",
-                index === 0 ? "w-1/2" : undefined
-              )}
-            >
-              {column}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row, index) => (
-          <tr key={index} className="border-b border-hairline last:border-0">
-            {row.map((cell, column) => (
-              <td
+      <table className="w-full min-w-[26rem] table-fixed border-collapse">
+        <thead>
+          <tr>
+            {head.map((column, index) => (
+              <th
                 key={column}
                 className={cn(
-                  "truncate px-3 py-[0.4375rem] text-cell",
-                  column === 0
-                    ? "text-left text-ink"
-                    : "text-right text-body tabular-nums"
+                  "sticky top-0 z-1 border-b border-hairline bg-canvas px-3 py-1.5 text-eyebrow font-semibold text-mute uppercase",
+                  index === 0 ? "text-left" : "text-right",
+                  index === 0 ? "w-1/2" : undefined
                 )}
               >
-                {cell}
-              </td>
+                {column}
+              </th>
             ))}
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {rows.map((row, index) => (
+            <tr key={index} className="border-b border-hairline last:border-0">
+              {row.map((cell, column) => (
+                <td
+                  key={column}
+                  className={cn(
+                    "truncate px-3 py-[0.4375rem] text-cell",
+                    column === 0
+                      ? "text-left text-ink"
+                      : "text-right text-body tabular-nums"
+                  )}
+                >
+                  {cell}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }

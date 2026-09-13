@@ -8,9 +8,11 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { ConfirmButton, Panel } from "@/components/ui/dialog"
+import { FilterPanel } from "@/components/ui/filter-panel"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { MiniTable } from "@/components/ui/rows"
+import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import {
   EmptyState,
@@ -20,6 +22,7 @@ import {
 } from "@/components/ui/states"
 import { LabelSurface, RunPill } from "@/screens/operations/tagging/print-queue"
 import { dc } from "@/lib/api"
+import { useFilters } from "@/lib/filters"
 import { ago, count, day } from "@/lib/format"
 import { keys } from "@/lib/operations/keys"
 import { queryState } from "@/lib/query-state"
@@ -50,6 +53,10 @@ const columns: ColumnDef<TableSetup, TaggingWorkJob>[] = [
     accessorKey: "article_code",
     header: "Article",
     size: 260,
+    // There is no search box on this screen, so `contains` is the only way to
+    // reach one article in a queue of forty — and the code is what is printed
+    // on the docket somebody is holding while they look.
+    meta: { filter: { kind: "text", label: "Article" } },
     cell: ({ row }) => (
       <span className="min-w-0">
         <span className="block truncate font-medium text-ink">
@@ -73,7 +80,13 @@ const columns: ColumnDef<TableSetup, TaggingWorkJob>[] = [
     accessorKey: "total_quantity",
     header: "Labels",
     size: 100,
-    meta: { align: "right" },
+    // How much work a job is, which is how a floor decides what to start
+    // before the shift ends: five hundred labels is an afternoon and twelve is
+    // ten minutes.
+    meta: {
+      align: "right",
+      filter: { kind: "number", label: "Labels", unit: "labels" },
+    },
     cell: ({ row }) => (
       <span className="font-medium text-ink">
         {count(row.original.total_quantity)}
@@ -84,6 +97,7 @@ const columns: ColumnDef<TableSetup, TaggingWorkJob>[] = [
     accessorKey: "issued_at",
     header: "Issued",
     size: 140,
+    meta: { filter: { kind: "date", label: "Issued" } },
     // The decision metric, and the default sort. An article the centre issued
     // four days ago is stock the warehouse cannot sell yet.
     cell: ({ row }) => (
@@ -107,9 +121,16 @@ export function Tagging() {
   const rows = useMemo(() => jobs.data ?? [], [jobs.data])
   const printed = rows.find((row) => row.job_id === printing.value)
 
+  /// Asked of the three columns above, not of the two below.
+  ///
+  /// The print pill and the button carry no data — nothing to ask them — and
+  /// taking the predicate from the stable module-scope array is also what
+  /// keeps it out of the rebuild `printing` already causes below.
+  const filters = useFilters(columns)
+
   const columnsWithPrint = useMemo<ColumnDef<TableSetup, TaggingWorkJob>[]>(
     () => [
-      ...columns,
+      ...filters.columns,
       {
         // A row does not leave this list when its labels print — printed is
         // not attached, and the row is waiting for somebody to say the tags
@@ -140,7 +161,7 @@ export function Tagging() {
         ),
       },
     ],
-    [printing]
+    [filters.columns, printing]
   )
 
   const table = useTable(
@@ -150,10 +171,10 @@ export function Tagging() {
         data: rows,
         columns: columnsWithPrint,
         getRowId: (row: TaggingWorkJob) => row.job_id,
-        state: { sorting },
+        state: { columnFilters: filters.columnFilters, sorting },
         onSortingChange: setSorting,
       }),
-      [rows, columnsWithPrint, sorting]
+      [rows, columnsWithPrint, filters.columnFilters, sorting]
     )
   )
 
@@ -186,6 +207,12 @@ export function Tagging() {
           delta="since the centre issued it"
         />
       </KpiStrip>
+
+      {/* The figures above are about the whole queue and stay that way; the
+          clauses here change only which rows are listed underneath. */}
+      <Toolbar>
+        <FilterPanel model={filters} table={table} />
+      </Toolbar>
 
       <Card className="overflow-hidden">
         {queryState(jobs, {

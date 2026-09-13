@@ -10,12 +10,14 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Input } from "@/components/ui/field"
+import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { EmptyState } from "@/components/ui/states"
+import { EmptyState, NoMatch, Truncated } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
+import { useFilters } from "@/lib/filters"
 import { count, day, money } from "@/lib/format"
 import {
   describeSegment,
@@ -53,13 +55,18 @@ import { EnrolCard, IssueCode } from "@/screens/members/counter"
 /// **Segment goes to the server; the search box does not.** A segment changes
 /// which population is being read, so it is a query the database answers. The
 /// search box narrows what is already on screen, which is instant and costs
-/// nothing — at the price stated in the toolbar: it can only find somebody
-/// inside the page that was loaded. When a directory outgrows that, `q` moves
-/// to the server, which already takes it.
+/// nothing — at a price the banner states the moment it is being paid: it can
+/// only find somebody inside the page that was loaded. When a directory
+/// outgrows that, `q` moves to the server, which already takes it.
 
 /// One read, big enough that the client-side search is honest for a real
 /// membership, and capped where the server caps it.
-const PAGE = 1_000
+///
+/// Named once so the request and the banner below cannot drift apart, and
+/// named a ceiling rather than a page because nothing here asks for a second
+/// one: past this number the directory stops being able to answer the question
+/// it appears to answer.
+const CAP = 1_000
 
 /// Tint by how far gone somebody is, not by how much they are worth.
 ///
@@ -154,7 +161,12 @@ function columnsFor(
       accessorFn: (row) => row.spent_minor,
       header: "Spent",
       size: 130,
-      meta: { align: "right" },
+      // Minor units on the wire, whole rupiah in the box: a manager picking
+      // out the members worth a call types 5000000 and means five million.
+      meta: {
+        align: "right",
+        filter: { kind: "number", unit: "Rp" },
+      },
       cell: ({ row }) => (
         <span className="tabular-nums">{money(row.original.spent_minor)}</span>
       ),
@@ -182,7 +194,13 @@ function columnsFor(
       accessorFn: (row) => row.voucher_balance_minor,
       header: "On voucher",
       size: 130,
-      meta: { align: "right" },
+      // A liability, so it is the one money column somebody narrows rather
+      // than reads: "who is still holding voucher money" is a question about
+      // what the shop owes, not about who its best customers are.
+      meta: {
+        align: "right",
+        filter: { kind: "number", unit: "Rp" },
+      },
       // Money the shop owes this person specifically. It is a liability, so it
       // is drawn even when the rest of the row is empty.
       cell: ({ row }) =>
@@ -201,7 +219,15 @@ function columnsFor(
       accessorFn: (row) => row.days_since_purchase ?? Number.MAX_SAFE_INTEGER,
       header: "Last seen",
       size: 130,
-      meta: { align: "right" },
+      // Days, because that is what the accessor holds — and somebody who has
+      // never bought rides at the far end of it rather than dropping out, the
+      // same bargain the sort above makes. "At least 90 days" therefore means
+      // "including the ones who never came back", which is what a reader
+      // hunting lapsed members means by it.
+      meta: {
+        align: "right",
+        filter: { kind: "number", unit: "days" },
+      },
       cell: ({ row }) => (
         <span
           className={
@@ -219,6 +245,15 @@ function columnsFor(
       accessorFn: (row) => (row.paired ? 1 : 0),
       header: "App",
       size: 100,
+      // The difference between a customer the shop can REACH and one it can
+      // only serve, which is the whole of what a campaign needs to know. The
+      // accessor is 1/0 for sorting, so the two arms are named here.
+      meta: {
+        filter: {
+          kind: "option",
+          format: (value) => (value === "1" ? "Paired" : "Card only"),
+        },
+      },
       // The difference between a customer the shop can reach and one it can
       // only serve. Not a fault when it is absent — most cards never pair —
       // which is why the unpaired case is neutral rather than a warning.
@@ -256,17 +291,25 @@ export function Members() {
   const enrolling = useSheet("enrol")
   const [sorting, setSorting] = useState<SortingState>([])
 
+  /// The search now runs on the SERVER, over the card number and the name.
+  /// It was running in the browser over whatever the first thousand rows
+  /// happened to be, which is a search of the page rather than of the scheme —
+  /// and the membership this is built for is larger than the page. The table's
+  /// own `globalFilter` stays below: every row the server sent already matches,
+  /// so it narrows nothing further and is one fewer thing to move.
   const directory = useQuery({
     queryKey: memberKeys.directory({
       segment: segment.value,
       segmentId: written.value,
+      q: search.value,
     }),
     queryFn: ({ signal }) =>
       listMembers(
         {
           segment: segment.value,
           segmentId: written.value,
-          limit: PAGE,
+          q: search.value,
+          limit: CAP,
         },
         signal
       ),
@@ -304,17 +347,23 @@ export function Members() {
   const columns = useMemo(() => columnsFor(windows), [windows])
   const rows = useMemo(() => directory.data?.members ?? [], [directory.data])
 
+  const filters = useFilters(columns)
+
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
         data: rows,
-        columns,
+        columns: filters.columns,
         getRowId: (row: MemberRow) => row.member_id,
-        state: { globalFilter: search.value ?? "", sorting },
+        state: {
+          columnFilters: filters.columnFilters,
+          globalFilter: search.value ?? "",
+          sorting,
+        },
         onSortingChange: setSorting,
       }),
-      [rows, columns, search.value, sorting]
+      [rows, filters.columns, filters.columnFilters, search.value, sorting]
     )
   )
 
@@ -380,6 +429,12 @@ export function Members() {
             <X className="size-3.5 text-line-ico" />
           </button>
         )}
+        {/* Segment is deliberately not among the questions in here. The strip
+            to the left asks it on the WIRE, over the whole membership; a
+            second copy in the panel would ask it in the browser over the first
+            thousand rows, and the two would disagree the day the scheme
+            outgrows the page. */}
+        <FilterPanel model={filters} table={table} />
         <Toolbar.Spacer />
         <span className="text-[0.75rem] text-mute tabular-nums">
           {/* Two different numbers, and the difference is the point: the second
@@ -387,12 +442,30 @@ export function Members() {
               fraction of. */}
           {count(rows.length)} shown ·{" "}
           {count(directory.data?.member_count ?? 0)} enrolled
-          {rows.length === PAGE && " · first 1,000 only"}
         </span>
       </Toolbar>
 
+      {/* This replaced a "· first 1,000 only" tacked onto the chip above, which
+          was the same fact whispered: it sat in grey nine-point type at the end
+          of a line whose first half is a count, where it read as a caption
+          rather than as a warning that the count is not one. Only when the
+          answer came back exactly as large as the question — a shorter one
+          proves there was nothing more to send. */}
+      {/* The server now says how many there really are, so the banner appears
+          when the answer is short of the truth rather than merely as long as
+          the question — which was a proxy that could not tell a full page from
+          a full scheme. */}
+      {(directory.data?.total ?? 0) > rows.length && (
+        <Truncated limit={CAP} noun="members" />
+      )}
+
       <Card className="overflow-hidden">
         {queryState(directory, {
+          // No refusal state, and the absence is the finding: `required_role`
+          // sends every GET outside `/finance` and the admin prefixes to
+          // CASHIER, the lowest role there is, so `GET /members` cannot answer
+          // 403 to anybody holding a session at all. A state nobody can reach
+          // would be a claim that somebody can.
           loading: "Reading the directory…",
           render: (data) =>
             data.members.length === 0 ? (
@@ -408,7 +481,17 @@ export function Members() {
                 table={table}
                 onRowClick={(row) => open.open(row.member_id)}
                 isSelected={(row) => row.member_id === open.value}
-                empty="No member on this page matches that search."
+                // The held count is the loaded rows and not `member_count`: the
+                // search runs over what is on this page, and answering "there
+                // are 4.812 members and none of them match" would be true of
+                // the scheme and false of the search that was actually run.
+                empty={
+                  <NoMatch
+                    what="members"
+                    held={rows.length}
+                    onClear={() => search.close()}
+                  />
+                }
                 className="max-h-[calc(100vh-17rem)]"
               />
             ),

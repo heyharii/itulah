@@ -18,7 +18,7 @@
 
 use crate::cloud::application::AppError;
 use chrono::NaiveDate;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
@@ -416,12 +416,44 @@ pub struct MoneyStatementRef {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct MoneyAccountRow {
     pub semantic_key: String,
+    /// Which pot this account is, decided HERE rather than by the reader.
+    ///
+    /// Every client of this endpoint has to group these rows — a treasurer
+    /// counts pots, not semantic keys — and a screen that worked it out from
+    /// the key by substring would get `card_receivable_credit` wrong the first
+    /// time somebody wrote `if key.contains("cash")`. It is also what the
+    /// facet counts below are grouped by, and a facet the server counts one
+    /// way while the client labels another is a filter that lies about how
+    /// many rows it will leave.
+    pub pot: MoneyPot,
     /// Which bank, which scheme. Empty when the meaning needs no narrowing.
     pub qualifier: String,
     pub site_id: String,
     pub account_code: String,
-    /// The client's own name, never translated.
+    /// The client's own name, never translated and never trimmed.
+    ///
+    /// This is the string a bookkeeper matches against their own reports, so
+    /// it stays exactly as the chart spells it. The client's chart is mostly
+    /// Indonesian — 4,129 of its 7,476 accounts, against 154 in English, and
+    /// not one containing the word "receivable" — so translating `Piutang
+    /// Kartu Kredit` to `Credit card receivable` would put a name on screen
+    /// that appears in none of their reports and none of their conversations.
+    ///
+    /// A trimmed twin was tried alongside it on 2026-09-10 and removed the
+    /// same day: the chart ends every account with its unit (`… C001`), and
+    /// dropping that left every row on a single-kind list reading `Cash on
+    /// Hand`. A column whose every cell says the same word says nothing, and
+    /// the repetition it was removing was the lesser fault — `C001` is the
+    /// CLIENT's name for the shop, and the location column is ours.
     pub account_name: String,
+    /// What the site is called, rather than what this system files it under.
+    ///
+    /// `site_id` is ours — `store-01`, `dc` — and it appears on no document
+    /// anybody outside this system holds. Worse, on the head-office rows it
+    /// contradicts the account's own name: the chart says `HO` and the id says
+    /// `dc`, because head office and the distribution centre share a building
+    /// and this system files them under one site.
+    pub site_name: String,
     /// The ledger balance as at the reporting date: debits minus credits, in
     /// the account's own sign and deliberately not flipped. `giro_outstanding`
     /// is a liability and comes back negative, which is what it is; a report
@@ -437,6 +469,92 @@ pub struct MoneyAccountRow {
     pub difference_minor: Option<i64>,
 }
 
+/// Which pot a money account belongs to.
+///
+/// Five, and the grouping is by HOW THE MONEY IS GOVERNED rather than by where
+/// it physically is. Cash in a drawer and a cashier's float are the same notes
+/// in the same till and are opposite kinds of money: one must be banked every
+/// day, the other must never be spent. A screen that showed them as one pot is
+/// a screen that lets a shop spend its float and call it takings.
+///
+/// `giro_outstanding` sits with the banks because it is the other half of a
+/// giro — money promised and not yet taken — and it is exactly the figure that
+/// explains a bank balance the books and the statement disagree about. Card
+/// receivables are their own pot because they are not held at all: they are
+/// owed by a scheme, on a timetable.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub enum MoneyPot {
+    Cash,
+    PettyCash,
+    CashierFloat,
+    Bank,
+    CardReceivable,
+}
+
+impl MoneyPot {
+    /// The wire spelling, which is also what a facet filter sends back.
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Cash => "CASH",
+            Self::PettyCash => "PETTY_CASH",
+            Self::CashierFloat => "CASHIER_FLOAT",
+            Self::Bank => "BANK",
+            Self::CardReceivable => "CARD_RECEIVABLE",
+        }
+    }
+
+    fn from_wire(raw: &str) -> Option<Self> {
+        Some(match raw {
+            "CASH" => Self::Cash,
+            "PETTY_CASH" => Self::PettyCash,
+            "CASHIER_FLOAT" => Self::CashierFloat,
+            "BANK" => Self::Bank,
+            "CARD_RECEIVABLE" => Self::CardReceivable,
+            _ => return None,
+        })
+    }
+}
+
+/// One value a filter can take, and how many rows would still be there.
+///
+/// The count is what makes a filter panel usable rather than a guessing game:
+/// a value that would leave nothing is a value nobody should have to click to
+/// find out about. Counted over everything the SEARCH matches, deliberately
+/// ignoring which facets are currently ticked — so the number reads as "how
+/// many of these there are", which is the question somebody has while choosing.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct MoneyFacet {
+    /// What to send back as the filter. The client's own vocabulary for the
+    /// thing — a site id, a pot name — never a display string.
+    pub value: String,
+    /// What to draw, when it differs from the value.
+    ///
+    /// Absent for a pot, whose words belong to the screen ("Cash in hand" is
+    /// ours, not the server's). Present for a site, because `store-01` is an
+    /// id this system files it under and the list beside the filter shows
+    /// `Store 01` — one panel naming things one way and the column beside it
+    /// another is the reader's problem, not the schema's.
+    pub label: Option<String>,
+    pub count: i64,
+}
+
+/// The three things this list can be narrowed by.
+///
+/// `flags` is not a property of an account, it is a property of its STATE
+/// today — and it is the one somebody opening this screen actually came for.
+/// "Show me what disagrees with the bank" is the question; scrolling 139 rows
+/// looking for red is the workaround it replaces.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct MoneyFacets {
+    pub pots: Vec<MoneyFacet>,
+    pub sites: Vec<MoneyFacet>,
+    pub flags: Vec<MoneyFacet>,
+}
+
 /// Where the money is, and whether the bank agrees.
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
@@ -444,7 +562,188 @@ pub struct MoneyOverview {
     pub as_of: NaiveDate,
     pub site_id: Option<String>,
     pub rows: Vec<MoneyAccountRow>,
+    /// Opaque. Pass it back as `cursor` for the next page; absent means this
+    /// was the last one.
+    ///
+    /// Deliberately not an offset. Rows here are keyed on the account map,
+    /// which somebody may be editing on the next screen while a treasurer
+    /// scrolls — and an offset would then skip or repeat rows without anything
+    /// saying so.
+    ///
+    /// **Always absent when the caller sent no `limit`.** Paging is opt-in for
+    /// exactly one reason: this endpoint already has a caller that asks for the
+    /// whole list and sums it, and quietly starting to answer that caller with
+    /// the first fifty rows would be a silent wrong total in a finance screen.
+    pub next_cursor: Option<String>,
+    /// Every row the search and filters match, not just this page. Without it a
+    /// screen can only say "50 accounts", which is a statement about the page
+    /// size rather than about the business.
+    pub total: i64,
+    /// What those rows come to, added HERE.
+    ///
+    /// Only the server has every row. A paged list summed in the browser gives
+    /// a figure that grows while somebody reads, and on a finance screen a
+    /// total that changes as you scroll is worse than no total at all.
+    ///
+    /// Summed in each account's own sign, unflipped, exactly as
+    /// `per_books_minor` is — so a `giro_outstanding` subtracts, which is what
+    /// a liability does to the money on hand.
+    pub total_minor: i64,
+    pub facets: MoneyFacets,
 }
+
+/// What a caller is asking the money list for.
+#[derive(Clone, Debug, Default)]
+pub struct MoneyScope {
+    pub as_of: Option<NaiveDate>,
+    /// Free text, tried against the account's name, its code and its location.
+    pub needle: Option<String>,
+    /// Pots to keep. Empty means every pot — an empty filter and no filter are
+    /// the same request, and treating them differently is how a screen ends up
+    /// showing nothing the moment somebody unticks the last box.
+    pub pots: Vec<String>,
+    pub sites: Vec<String>,
+    /// State to narrow by: `DIFFERS`, `NO_STATEMENT`, `UNMATCHED`, `NEGATIVE`.
+    pub flags: Vec<String>,
+    /// `default`, `balance` or `name`. Anything else falls back to `default`
+    /// rather than refusing: a sort arrives from a URL somebody may have kept
+    /// from an older build, and a 400 for a stale bookmark is a worse answer
+    /// than the rows in the house order.
+    pub sort: Option<String>,
+    /// `true` for descending. Only read for `balance` and `name`; the default
+    /// order is the client's own chart order and reversing it means nothing.
+    pub desc: bool,
+    pub cursor: Option<String>,
+    /// Absent asks for everything, unpaged. See `next_cursor`.
+    pub limit: Option<i64>,
+}
+
+/// Where the previous page stopped — as a ROW, not as a position.
+///
+/// It carries the natural key of `account_map` (semantic key, qualifier,
+/// site) and nothing else, whatever the list is sorted by. The seek re-reads
+/// that row's own sort value in SQL, so one cursor shape serves every order.
+///
+/// The alternative — encoding the sort value into the cursor — needs a
+/// different cursor per sort, and the version where somebody adds a fourth
+/// sort and forgets the fourth cursor is the version that silently repeats
+/// rows. The cost here is one extra row lookup per page, which is nothing
+/// against a query that already scans the map.
+#[derive(Serialize, Deserialize)]
+struct MoneyCursor {
+    semantic_key: String,
+    qualifier: String,
+    site_id: String,
+}
+
+impl MoneyCursor {
+    fn encode(&self) -> Result<String, AppError> {
+        Ok(hex::encode(serde_json::to_vec(self)?))
+    }
+
+    fn decode(raw: &str) -> Result<Self, AppError> {
+        let bytes = hex::decode(raw).map_err(|_| {
+            AppError::Validation("cursor is not a cursor this server issued".into())
+        })?;
+        serde_json::from_slice(&bytes)
+            .map_err(|_| AppError::Validation("cursor is not a cursor this server issued".into()))
+    }
+}
+
+/// One money row, defined once.
+///
+/// Used by the page query and by the facet query, and that is the whole reason
+/// it is a constant: the facets are only honest if they count exactly what the
+/// page can show. Two copies of this would agree on every ordinary day and part
+/// company the moment somebody adds a ninth money key.
+///
+/// Binds: `$1` as_of, `$2` the money keys, `$3` the search pattern or NULL.
+///
+/// It stops at the SEARCH. The facet filters are applied outside it, by each
+/// caller, and that is what lets one definition answer two different questions
+/// from the same rows: the page wants what the search AND the filters leave,
+/// while the filter panel's counts want what the search alone leaves — because
+/// "Bank 69" has to mean "there are 69 banks", not "there are 69 banks among
+/// the ones you have already narrowed to banks".
+///
+/// `ord` and `dc_last` are computed here rather than only in `ORDER BY`
+/// because the keyset in the page query has to compare against them, and a
+/// sort expression that is not also a column is one a `WHERE` cannot see.
+const MONEY_ROWS: &str = "
+    SELECT *,
+           -- Derived once, here, because three different places ask about
+           -- them: the flag facet counts them, the filter narrows by them and
+           -- the sort orders by one of them. Three spellings of \"is this
+           -- account in disagreement\" is three chances to disagree.
+           (closing_minor IS NOT NULL) AS has_statement,
+           (per_books - closing_minor) AS difference
+      FROM (
+    SELECT m.semantic_key, m.qualifier, m.site_id, m.account_code,
+           a.name AS account_name,
+           CASE m.semantic_key
+               WHEN 'cash' THEN 'CASH'
+               WHEN 'petty_cash' THEN 'PETTY_CASH'
+               WHEN 'cashier_float' THEN 'CASHIER_FLOAT'
+               WHEN 'bank_giro' THEN 'BANK'
+               WHEN 'bank_savings' THEN 'BANK'
+               WHEN 'giro_outstanding' THEN 'BANK'
+               ELSE 'CARD_RECEIVABLE'
+           END AS pot,
+           array_position($2::text[], m.semantic_key) AS ord,
+           (st.kind <> 'DC') AS dc_last,
+           COALESCE((SELECT SUM(l.debit_minor - l.credit_minor)
+                       FROM journal_line l JOIN journal_entry e USING (entry_id)
+                      WHERE l.account_code = m.account_code
+                        AND l.site_id = m.site_id
+                        AND e.posting_date <= $1), 0)::bigint AS per_books,
+           st.name AS site_name,
+           s.statement_id, s.period_end, s.closing_minor, s.unmatched
+      FROM account_map m
+      JOIN ledger_account a ON a.account_code = m.account_code
+      JOIN site st ON st.id = m.site_id
+      -- The latest statement for this account at this location, and how much
+      -- of it is still unexplained. A lateral join rather than a window, so
+      -- the planner stops at the first row per account; the import date breaks
+      -- a tie, because the same period can legitimately be uploaded twice and
+      -- the later upload is the one in force.
+      LEFT JOIN LATERAL (
+          SELECT b.statement_id, b.period_end, b.closing_minor,
+                 -- Not merely unclaimed: not yet FULLY claimed. Since 0213 a
+                 -- line may hold several claims, and a half-allocated line is
+                 -- still a line somebody has to finish.
+                 (SELECT COUNT(*)::bigint FROM bank_statement_line bl
+                   WHERE bl.statement_id = b.statement_id
+                     AND COALESCE((SELECT SUM(bm.allocated_minor)
+                                     FROM bank_line_match bm
+                                    WHERE bm.line_id = bl.line_id), 0)
+                         < GREATEST(bl.debit_minor, bl.credit_minor)) AS unmatched
+            FROM bank_statement b
+           WHERE b.account_code = m.account_code
+             AND b.site_id = m.site_id
+             AND b.period_end <= $1
+           ORDER BY b.period_end DESC, b.imported_at DESC
+           LIMIT 1
+      ) s ON true
+     WHERE m.semantic_key = ANY($2)
+       -- Name, code and location. Three fields because those are the three
+       -- things somebody actually has in front of them: the name off a
+       -- statement, the code off a journal, the shop off a phone call.
+       AND ($3::text IS NULL
+            OR a.name ILIKE $3 OR m.account_code ILIKE $3 OR m.site_id ILIKE $3)
+    ) base
+";
+
+/// One row's flags, as SQL. Written against the columns `MONEY_ROWS` exposes.
+///
+/// A row can carry more than one, so this is a set rather than a category —
+/// which is why the facet counts here can add up to more than the total, and
+/// why that is correct rather than a bug.
+const FLAG_CLAUSE: &str = "
+    CASE WHEN difference IS NOT NULL AND difference <> 0 THEN 'DIFFERS' END,
+    CASE WHEN pot = 'BANK' AND NOT has_statement THEN 'NO_STATEMENT' END,
+    CASE WHEN unmatched > 0 THEN 'UNMATCHED' END,
+    CASE WHEN per_books < 0 THEN 'NEGATIVE' END
+";
 
 /// Every mapped money account, per location, beside the last bank statement.
 ///
@@ -465,79 +764,294 @@ pub struct MoneyOverview {
 /// posting can only ever land on that exact code. A prefix would be the same
 /// answer today and would quietly start summing a longer code the day the
 /// client added one.
-pub async fn money_overview(
-    pool: &PgPool,
-    as_of: NaiveDate,
-    site_id: Option<&str>,
-) -> Result<MoneyOverview, AppError> {
-    let rows = sqlx::query(
-        "SELECT m.semantic_key, m.qualifier, m.site_id, m.account_code,
-                a.name AS account_name,
-                COALESCE((SELECT SUM(l.debit_minor - l.credit_minor)
-                            FROM journal_line l JOIN journal_entry e USING (entry_id)
-                           WHERE l.account_code = m.account_code
-                             AND l.site_id = m.site_id
-                             AND e.posting_date <= $1), 0)::bigint AS per_books,
-                s.statement_id, s.period_end, s.closing_minor, s.unmatched
-           FROM account_map m
-           JOIN ledger_account a ON a.account_code = m.account_code
-           JOIN site st ON st.id = m.site_id
-           -- The latest statement for this account at this location, and how
-           -- much of it is still unexplained. A lateral join rather than a
-           -- window, so the planner stops at the first row per account; the
-           -- import date breaks a tie, because the same period can legitimately
-           -- be uploaded twice and the later upload is the one in force.
-           LEFT JOIN LATERAL (
-               SELECT b.statement_id, b.period_end, b.closing_minor,
-                      (SELECT COUNT(*)::bigint FROM bank_statement_line bl
-                        WHERE bl.statement_id = b.statement_id
-                          AND NOT EXISTS (SELECT 1 FROM bank_line_match bm
-                                           WHERE bm.line_id = bl.line_id)) AS unmatched
-                 FROM bank_statement b
-                WHERE b.account_code = m.account_code
-                  AND b.site_id = m.site_id
-                  AND b.period_end <= $1
-                ORDER BY b.period_end DESC, b.imported_at DESC
-                LIMIT 1
-           ) s ON true
-          WHERE m.semantic_key = ANY($2)
-            AND ($3::text IS NULL OR m.site_id = $3)
-          ORDER BY array_position($2::text[], m.semantic_key), m.qualifier,
-                   (st.kind <> 'DC'), m.site_id",
-    )
-    .bind(as_of)
-    .bind(&MONEY_KEYS[..])
-    .bind(site_id)
-    .fetch_all(pool)
-    .await?;
+pub async fn money_overview(pool: &PgPool, scope: MoneyScope) -> Result<MoneyOverview, AppError> {
+    let as_of = scope
+        .as_of
+        .unwrap_or_else(|| chrono::Utc::now().date_naive());
+    // A blank search is not a search. `Some("")` would compile to `ILIKE '%%'`,
+    // which matches everything and costs a scan to say so.
+    let needle = scope
+        .needle
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(|text| format!("%{text}%"));
+
+    // An unknown value is dropped rather than refused, for the reason given on
+    // `MoneyScope::sort`. Empty means "no filter", never "nothing passes" —
+    // otherwise a screen shows nothing the moment somebody unticks the last
+    // box, which reads as broken rather than as unfiltered.
+    let pots = keep_known(&scope.pots, |raw| MoneyPot::from_wire(raw).is_some());
+    let sites = (!scope.sites.is_empty()).then(|| scope.sites.clone());
+    let flags = keep_known(&scope.flags, |raw| {
+        matches!(raw, "DIFFERS" | "NO_STATEMENT" | "UNMATCHED" | "NEGATIVE")
+    });
+
+    // The sort, and the tie-break that makes it total. Every order ends in the
+    // natural key of `account_map`, so no two rows can ever compare equal —
+    // which is what stops a keyset from repeating or losing the rows that tie.
+    //
+    // TWO spellings of the same thing, and they are not interchangeable:
+    // `ORDER BY` takes directions, a ROW EXPRESSION does not. Writing
+    // `(a ASC, b) > (…)` is a syntax error, and it is one the compiler cannot
+    // catch because the whole clause is a string.
+    let (lead, descending): (&str, bool) = match scope.sort.as_deref() {
+        Some("balance") => ("per_books", scope.desc),
+        Some("name") => ("account_name", scope.desc),
+        // The house order: the client's own chart order, then head office
+        // before the shops. Reversing it would mean nothing, so `dir` is not
+        // read here.
+        _ => ("ord, dc_last", false),
+    };
+    let cols = format!("{lead}, semantic_key, qualifier, site_id");
+    let dir = if descending { "DESC" } else { "ASC" };
+    let order = format!(
+        "{} {dir}, semantic_key {dir}, qualifier {dir}, site_id {dir}",
+        lead.replace(", ", &format!(" {dir}, "))
+    );
+    // Which way the seek points follows the direction, or paging a descending
+    // list walks back up it.
+    let seek = if descending { "<" } else { ">" };
+
+    let cursor = scope
+        .cursor
+        .as_deref()
+        .map(MoneyCursor::decode)
+        .transpose()?;
+    // 200 whatever a caller asks for: a page is something a person scrolls, and
+    // a client asking for ten thousand has decided this is a bulk export. It is
+    // not one.
+    let limit = scope.limit.map(|value| value.clamp(1, 200));
+
+    // The seek re-reads the previous row's own sort value rather than trusting
+    // one encoded in the cursor — see `MoneyCursor`.
+    // `NOT MATERIALIZED`: `kept` is referenced twice — as the page and
+    // inside the seek — and two references makes PostgreSQL materialise a
+    // CTE, which is an optimisation fence the `ORDER BY … LIMIT` cannot be
+    // pushed through. Materialised, this reads the whole table and sorts it
+    // to hand back one page; inlined, it seeks the index. See
+    // `postgres::audit::list_audit`, where the difference was measured.
+    let sql = format!(
+        "WITH searched AS NOT MATERIALIZED ({MONEY_ROWS}),
+              kept AS NOT MATERIALIZED (
+             SELECT * FROM searched
+              WHERE ($4::text[] IS NULL OR pot = ANY($4))
+                AND ($5::text[] IS NULL OR site_id = ANY($5))
+                AND ($6::text[] IS NULL OR ARRAY[{FLAG_CLAUSE}] && $6)
+         )
+         SELECT * FROM kept
+          WHERE $7::text IS NULL
+             OR ({cols}) {seek} (SELECT {cols} FROM kept
+                                  WHERE semantic_key = $7 AND qualifier = $8
+                                    AND site_id = $9)
+          ORDER BY {order}
+          LIMIT $10"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(as_of)
+        .bind(&MONEY_KEYS[..])
+        .bind(&needle)
+        .bind(&pots)
+        .bind(&sites)
+        .bind(&flags)
+        .bind(cursor.as_ref().map(|c| c.semantic_key.clone()))
+        .bind(cursor.as_ref().map(|c| c.qualifier.clone()))
+        .bind(cursor.as_ref().map(|c| c.site_id.clone()))
+        // No limit means no limit. `NULL` is how Postgres spells that in
+        // `LIMIT`, which is why this is an Option rather than a large number
+        // standing in for one.
+        .bind(limit)
+        .fetch_all(pool)
+        .await?;
+
+    let next_cursor = match limit {
+        // Unpaged: there is no next page by construction, and issuing a cursor
+        // would invite a caller to page through an answer it already has.
+        None => None,
+        Some(limit) if (rows.len() as i64) < limit => None,
+        Some(_) => match rows.last() {
+            Some(row) => Some(
+                MoneyCursor {
+                    semantic_key: row.try_get("semantic_key")?,
+                    qualifier: row.try_get("qualifier")?,
+                    site_id: row.try_get("site_id")?,
+                }
+                .encode()?,
+            ),
+            None => None,
+        },
+    };
 
     let mut out = Vec::with_capacity(rows.len());
     for row in &rows {
-        let per_books: i64 = row.try_get("per_books")?;
-        let statement = match row.try_get::<Option<Uuid>, _>("statement_id")? {
-            Some(statement_id) => Some(MoneyStatementRef {
-                statement_id,
-                period_end: row.try_get("period_end")?,
-                closing_minor: row.try_get("closing_minor")?,
-                unmatched_count: row.try_get("unmatched")?,
-            }),
-            None => None,
-        };
-        out.push(MoneyAccountRow {
-            semantic_key: row.try_get("semantic_key")?,
-            qualifier: row.try_get("qualifier")?,
-            site_id: row.try_get("site_id")?,
-            account_code: row.try_get("account_code")?,
-            account_name: row.try_get("account_name")?,
-            per_books_minor: per_books,
-            difference_minor: statement.as_ref().map(|s| per_books - s.closing_minor),
-            last_statement: statement,
-        });
+        out.push(money_row_from(row)?);
     }
 
+    let (total, total_minor, facets) =
+        money_facets(pool, as_of, needle.as_deref(), &pots, &sites, &flags).await?;
     Ok(MoneyOverview {
         as_of,
-        site_id: site_id.map(str::to_string),
+        // What the caller narrowed to, echoed back — and only meaningful when
+        // they named exactly one. A list of three sites has no single answer
+        // and must not pretend to.
+        site_id: match scope.sites.as_slice() {
+            [only] => Some(only.clone()),
+            _ => None,
+        },
         rows: out,
+        next_cursor,
+        total,
+        total_minor,
+        facets,
     })
+}
+
+/// The values this server recognises, and nothing else.
+///
+/// `None` for an empty result, which every caller reads as "no filter". A
+/// filter naming only values this build has never heard of is the same request
+/// as no filter — and answering it with an empty list would blame the reader
+/// for a URL that went stale.
+fn keep_known(raw: &[String], known: impl Fn(&str) -> bool) -> Option<Vec<String>> {
+    let kept: Vec<String> = raw.iter().filter(|value| known(value)).cloned().collect();
+    (!kept.is_empty()).then_some(kept)
+}
+
+/// One row of `MONEY_ROWS`, as the type a screen reads.
+fn money_row_from(row: &sqlx::postgres::PgRow) -> Result<MoneyAccountRow, AppError> {
+    let per_books: i64 = row.try_get("per_books")?;
+    let statement = match row.try_get::<Option<Uuid>, _>("statement_id")? {
+        Some(statement_id) => Some(MoneyStatementRef {
+            statement_id,
+            period_end: row.try_get("period_end")?,
+            closing_minor: row.try_get("closing_minor")?,
+            unmatched_count: row.try_get("unmatched")?,
+        }),
+        None => None,
+    };
+    let pot_wire: String = row.try_get("pot")?;
+    Ok(MoneyAccountRow {
+        semantic_key: row.try_get("semantic_key")?,
+        // The CASE in `MONEY_ROWS` covers every key in `MONEY_KEYS`, and the
+        // WHERE restricts to those, so this cannot miss. Falling back rather
+        // than erroring keeps a new key from taking the whole screen down: it
+        // will appear in the wrong pot, visibly, which is a bug somebody
+        // reports rather than a 500 nobody can act on.
+        pot: MoneyPot::from_wire(&pot_wire).unwrap_or(MoneyPot::Cash),
+        qualifier: row.try_get("qualifier")?,
+        site_id: row.try_get("site_id")?,
+        account_code: row.try_get("account_code")?,
+        account_name: row.try_get("account_name")?,
+        site_name: row.try_get("site_name")?,
+        per_books_minor: per_books,
+        difference_minor: statement
+            .as_ref()
+            .map(|statement| per_books - statement.closing_minor),
+        last_statement: statement,
+    })
+}
+
+/// How many rows there are, what they come to, and how they split.
+///
+/// Counted from the SAME `MONEY_ROWS` the page is drawn from. Two copies of
+/// the row definition would agree on every ordinary day and part company the
+/// moment somebody adds a ninth money key — and the symptom would be a filter
+/// promising eleven rows and delivering nine.
+///
+/// The two scopes here are deliberate and were once wrongly the same number:
+///
+///   per-value counts read the SEARCHED set, ignoring what is ticked. The
+///     number beside `Bank` answers "how many banks are there", which is the
+///     question somebody has while deciding whether to tick it. Counting the
+///     already-filtered set instead shows every ticked box its own row count
+///     and every unticked one a zero.
+///   the total and the sum read the FILTERED set, because they describe the
+///     list on screen. When these were one number the page showed 69 rows
+///     under a heading that said 139.
+async fn money_facets(
+    pool: &PgPool,
+    as_of: NaiveDate,
+    needle: Option<&str>,
+    pots: &Option<Vec<String>>,
+    sites: &Option<Vec<String>>,
+    flags: &Option<Vec<String>>,
+) -> Result<(i64, i64, MoneyFacets), AppError> {
+    let sql = format!(
+        "WITH searched AS ({MONEY_ROWS}), kept AS (
+             SELECT * FROM searched
+              WHERE ($4::text[] IS NULL OR pot = ANY($4))
+                AND ($5::text[] IS NULL OR site_id = ANY($5))
+                AND ($6::text[] IS NULL OR ARRAY[{FLAG_CLAUSE}] && $6)
+         )
+         SELECT 'pot' AS kind, pot AS value, NULL::text AS label, COUNT(*)::bigint AS n
+           FROM searched GROUP BY pot
+          UNION ALL
+         SELECT 'site', site_id, site_name, COUNT(*)::bigint FROM searched GROUP BY site_id, site_name
+          UNION ALL
+         -- A row can carry several flags, so these counts can add up to more
+         -- than the total. That is the shape of the question, not an error.
+         SELECT 'flag', flag, NULL::text, COUNT(*)::bigint
+           FROM searched, unnest(ARRAY[{FLAG_CLAUSE}]) AS flag
+          WHERE flag IS NOT NULL GROUP BY flag
+          UNION ALL
+         SELECT 'all', '', NULL::text, COUNT(*)::bigint FROM kept
+          UNION ALL
+         SELECT 'sum', '', NULL::text, COALESCE(SUM(per_books), 0)::bigint FROM kept"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(as_of)
+        .bind(&MONEY_KEYS[..])
+        .bind(needle)
+        .bind(pots)
+        .bind(sites)
+        .bind(flags)
+        .fetch_all(pool)
+        .await?;
+
+    let mut total = 0i64;
+    let mut total_minor = 0i64;
+    let mut pots_out = Vec::new();
+    let mut sites_out = Vec::new();
+    let mut flags_out = Vec::new();
+    for row in &rows {
+        let kind: String = row.try_get("kind")?;
+        let value: String = row.try_get("value")?;
+        let label: Option<String> = row.try_get("label")?;
+        let n: i64 = row.try_get("n")?;
+        match kind.as_str() {
+            "pot" => pots_out.push(MoneyFacet {
+                value,
+                label,
+                count: n,
+            }),
+            "site" => sites_out.push(MoneyFacet {
+                value,
+                label,
+                count: n,
+            }),
+            "flag" => flags_out.push(MoneyFacet {
+                value,
+                label,
+                count: n,
+            }),
+            "sum" => total_minor = n,
+            _ => total = n,
+        }
+    }
+    // Biggest first: a filter list is read top-down and the value somebody is
+    // most likely to want is the one with the most behind it. Ties break on the
+    // name so the order is stable between calls — a list that reshuffles under
+    // the cursor is a list nobody can click.
+    for list in [&mut pots_out, &mut sites_out, &mut flags_out] {
+        list.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.value.cmp(&b.value)));
+    }
+    Ok((
+        total,
+        total_minor,
+        MoneyFacets {
+            pots: pots_out,
+            sites: sites_out,
+            flags: flags_out,
+        },
+    ))
 }

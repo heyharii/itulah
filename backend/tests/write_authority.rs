@@ -108,11 +108,26 @@ const MATRIX: &[Authority] = &[
                  own customers and would double-count the fleet's",
     },
     Authority {
+        // A VIEW since 0179 — `commercial_publication_rollout` filtered to the
+        // ACTIVE rows. Kept in the matrix on purpose even though nothing writes
+        // the name any more: the six readers that ask "is this shop running
+        // this book" still read it, and a row that vanishes from this list is a
+        // table somebody may start writing again without anybody noticing.
         table: "commercial_publication_activation",
         writers: &["src/cloud/postgres/sync.rs"],
         reason: "a shop reports activating a book in the transaction that \
                  activates it. Nobody ticks this off by hand, which is the whole \
                  reason it can be trusted",
+    },
+    Authority {
+        table: "commercial_publication_rollout",
+        writers: &["src/cloud/postgres/rollout.rs"],
+        reason: "one module owns the three states and the rule that moves \
+                 between them; the publish path and the two fact appliers call \
+                 into it rather than writing the table themselves. Three \
+                 writers encoding the same transition in three ON CONFLICT \
+                 clauses is how a shop that failed and recovered ends up \
+                 reported as failed for ever",
     },
     Authority {
         table: "edge_sale",
@@ -174,6 +189,23 @@ const MATRIX: &[Authority] = &[
         reason: "a shopper's proof of holding a card. Anything else minting a \
                  row here would be issuing that proof without the code that is \
                  supposed to buy it",
+    },
+    Authority {
+        table: "comment",
+        writers: &["src/cloud/postgres/records.rs"],
+        reason: "one writer on purpose. A comment is the one row on a record \
+                 that a person may edit and delete, so the rule that it is \
+                 theirs — `author = $2` in the WHERE — has to live in exactly \
+                 one statement. A second writer is a second place that rule \
+                 could be forgotten",
+    },
+    Authority {
+        table: "record_tag",
+        writers: &["src/cloud/postgres/records.rs"],
+        reason: "and NOT article_tag, which is merchandising data the pricing \
+                 engine reads through. The two tables are separate so that \
+                 filing an order under a word cannot move what a live \
+                 promotion covers; one writer each is what keeps them so",
     },
 ];
 

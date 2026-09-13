@@ -368,8 +368,7 @@ struct BillCursor {
 /// `PARTIALLY_PAID`, `PAID` it is. `CROSS JOIN LATERAL` rather than a plain
 /// join because the view is keyed on the invoice and always returns exactly
 /// one row for it.
-const BILL_STANDING: &str =
-    "JOIN supplier_invoice_standing st ON st.invoice_id = i.invoice_id";
+const BILL_STANDING: &str = "JOIN supplier_invoice_standing st ON st.invoice_id = i.invoice_id";
 
 const BILL_COLUMNS: &str = "i.invoice_id, i.invoice_number, i.supplier_id, i.supplier_name,
      i.site_id, i.invoice_date, i.due_date, i.currency, i.subtotal_minor, i.tax_minor,

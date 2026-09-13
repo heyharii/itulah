@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Input } from "@/components/ui/field"
-import { FilterBar } from "@/components/ui/filter-bar"
+import { FilterPanel } from "@/components/ui/filter-panel"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { Meter } from "@/components/ui/meter"
 import { PageHeader } from "@/components/ui/page-header"
@@ -83,13 +83,13 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
     meta: { filter: { kind: "option" } },
   },
   {
-    accessorKey: "order_status",
+    accessorKey: "lifecycle",
     header: "Status",
     size: 140,
     meta: { filter: { kind: "option", format: label } },
     cell: ({ row }) => (
-      <Pill tone={toneFor(row.original.order_status)}>
-        {label(row.original.order_status)}
+      <Pill tone={toneFor(row.original.lifecycle)}>
+        {label(row.original.lifecycle)}
       </Pill>
     ),
   },
@@ -202,7 +202,7 @@ export function Outstanding() {
           value={age}
           onChange={setAge}
         />
-        <FilterBar model={filters} table={table} />
+        <FilterPanel model={filters} table={table} />
       </Toolbar>
 
       <Card className="overflow-hidden">
@@ -291,8 +291,8 @@ function ChaseSheet({
           return (
             <div className="flex flex-col gap-5">
               <div>
-                <Pill tone={toneFor(order.order_status)}>
-                  {label(order.order_status)}
+                <Pill tone={toneFor(order.lifecycle)}>
+                  {label(order.lifecycle)}
                 </Pill>
               </div>
 
@@ -303,7 +303,13 @@ function ChaseSheet({
               <Facts>
                 <Fact term="Destination">{order.destination_site_id}</Fact>
                 <Fact term="Issued">{day(order.issued_at)}</Fact>
-                <Fact term="Payable">{money(order.payable_minor)}</Fact>
+                {/* What the deliveries are EXPECTED to be worth, at the prices
+                    they were accepted at. Not a payable: nothing has validated
+                    it and nothing is in the ledger until Finance matches a
+                    supplier bill against it. */}
+                <Fact term="Expected value">
+                  {money(order.expected_value_minor)}
+                </Fact>
                 <Fact term="Raised by">{order.created_by}</Fact>
               </Facts>
 

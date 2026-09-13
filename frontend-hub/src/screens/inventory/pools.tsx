@@ -6,7 +6,7 @@ import type {
   SortingState,
 } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { ChevronRight } from "lucide-react"
+import { ChevronRight, Search } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -15,17 +15,23 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Field, Input } from "@/components/ui/field"
-import { FilterBar } from "@/components/ui/filter-bar"
+import { FilterPanel } from "@/components/ui/filter-panel"
+import {
+  ColumnsMenu,
+  DockedFilters,
+  SortMenu,
+  ViewPicker,
+} from "@/components/ui/list-chrome"
 import { Dial } from "@/components/ui/meter"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { MiniTable } from "@/components/ui/rows"
-import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilters } from "@/lib/filters"
 import { ago, count, label as humanise, moment } from "@/lib/format"
+import { usePanelDock } from "@/lib/layout"
 import {
   allotmentsByPool,
   correctPlacement,
@@ -101,6 +107,16 @@ export interface PoolRow {
   /// this field existed. Counts, sightings, allotments and the pool's own
   /// detail are all Cloud records; all four ask with this.
   readonly poolId: string
+  /// What kind of shelf this is — `WAREHOUSE`, `OUTBOUND`, `REJECT`,
+  /// `PENDING`, `STORE_INVENTORY`. Null on a site row, which is a heading and
+  /// not a shelf.
+  ///
+  /// It is the one thing about a pool that is a closed SET rather than a name
+  /// or a number, which is what makes it the only column here the filter panel
+  /// can offer in one tap. Everything else this table holds is a band — over
+  /// two hundred pieces, never counted — and a band is typed rather than
+  /// picked.
+  readonly group: string | null
   /// Set when a second source for the same shelf reports a different quantity.
   /// The fold picks the authoritative one; this is what it did not pick, so a
   /// disagreement between the centre and a node is visible rather than
@@ -240,6 +256,20 @@ function poolColumns(open: {
       },
     },
     {
+      accessorKey: "group",
+      header: "Kind",
+      size: 130,
+      /// The only column here the filter panel can offer as a list, because it
+      /// is the only one whose values are a closed set. Blank on a site row:
+      /// the heading is not a shelf, and a made-up kind on it would be a value
+      /// somebody could filter by and get nothing.
+      meta: { priority: 2, filter: { kind: "option", format: humanise } },
+      cell: ({ row }) =>
+        row.original.group === null ? null : (
+          <span className="text-mute">{humanise(row.original.group)}</span>
+        ),
+    },
+    {
       accessorKey: "stock",
       header: "Stock",
       size: 100,
@@ -250,18 +280,22 @@ function poolColumns(open: {
       accessorKey: "on_hand",
       header: "On hand",
       size: 100,
-      meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
+      /// Not filterable, and none of the three derived readings beside it are.
+      ///
+      /// The panel is a list of questions somebody has, not of columns that
+      /// happen to hold numbers: "which shelves hold more than 200" is asked of
+      /// Stock and "which are short" of Missing, and a band typed over On hand,
+      /// Allotted or Observed answers neither of them any better. Eight rows of
+      /// identical band buttons is what the panel looked like with all of them
+      /// declared, and six of the eight were furniture.
+      meta: { align: "right" },
       cell: ({ row }) => count(row.original.on_hand),
     },
     {
       accessorKey: "allotted",
       header: "Allotted",
       size: 100,
-      meta: {
-        align: "right",
-        priority: 2,
-        filter: { kind: "number", unit: "pcs" },
-      },
+      meta: { align: "right", priority: 2 },
       /// A promise is made of instructions, and this is the only number on the
       /// row that names records rather than pieces. Clicking it asks which ones.
       cell: ({ row }) => {
@@ -281,11 +315,7 @@ function poolColumns(open: {
       accessorKey: "observed",
       header: "Observed",
       size: 120,
-      meta: {
-        align: "right",
-        priority: 3,
-        filter: { kind: "number", unit: "tags" },
-      },
+      meta: { align: "right", priority: 3 },
       /// Distinct tags a reader saw in the window. Evidence rather than a
       /// balance, so what is behind it is a list of readings — which is a
       /// different record from the movements behind Stock, and opens its own
@@ -350,6 +380,9 @@ function poolColumns(open: {
 /// findable in ⌘K for anyone who arrives at a pool from a link.
 export function PoolsBody() {
   const [query, setQuery] = useState("")
+  /// Whether the filter panel has room to stand beside the list. Below it the
+  /// same model is a sheet behind a Filter button, and the panel unmounts.
+  const docked = usePanelDock()
   const pool = useSheet("pool")
   const poolAllotments = useSheet("pool-allotments")
   const poolSightings = useSheet("pool-sightings")
@@ -518,6 +551,7 @@ export function PoolsBody() {
               missing: lead.missing,
               last_count: lastCounts.get(poolId) ?? null,
               counted: lead.authority.included_in_fleet_total,
+              group: lead.group,
               disputed:
                 rival === undefined
                   ? null
@@ -578,6 +612,8 @@ export function PoolsBody() {
           missing: sum((row) => row.missing),
           last_count: latest,
           counted: true,
+          // A site is a heading over shelves of several kinds, not a shelf.
+          group: null,
           disputed: null,
           subRows: children,
         }
@@ -622,50 +658,95 @@ export function PoolsBody() {
 
   return (
     <>
-      <Toolbar>
-        <Input
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search pools"
-          className="h-8 w-64"
-        />
-        <FilterBar model={filters} table={table} />
-        <Toolbar.Spacer />
-        {fleet.data && (
-          <span className="text-[0.71875rem] text-mute tabular-nums">
-            Sightings counted over the last {fleet.data.observed_window_hours}h
-            · loss measured over {fleet.data.lost_risk_window_days} days
-          </span>
-        )}
-      </Toolbar>
-
-      <Card className="overflow-hidden">
-        {queryState(fleet, {
-          loading: "Reading every node…",
-          render: () =>
-            tree.length === 0 ? (
-              <EmptyState>This node has no active operational pool.</EmptyState>
-            ) : (
-              <DataTable<PoolRow>
-                table={table}
-                // A pool row opens its own page; a site row has none, so the
-                // whole row is the chevron's click target rather than a dead
-                // strip beside a 14-pixel control.
-                onRowClick={(row) => {
-                  if (row.pool) pool.open(row.poolId)
-                  else table.getRow(row.key).toggleExpanded()
-                }}
-                // `row.pool?.id === pool.value` was `undefined === undefined`
-                // on every site row with no sheet open, which tinted all
-                // fourteen of them as selected.
-                isSelected={(row) =>
-                  row.pool !== null && row.pool.id === pool.value
-                }
-                className="max-h-[calc(100vh-16rem)]"
+      {/* The panel docks where there is room for it — narrower than 1440 it is
+          the Filter button in the omnibox above, which is the same model drawn
+          as a sheet. Same shape as the order book and the count book, because
+          it is the same act: narrow a list, order it, name the question. */}
+      <div className="grid min-w-0 items-start gap-5 min-[1440px]:grid-cols-[minmax(0,1fr)_16rem]">
+        <div className="flex min-w-0 flex-col">
+          <div className="mb-3 flex flex-wrap items-center gap-1.5">
+            <span className="relative mr-auto">
+              <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-line-ico" />
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search pools"
+                aria-label="Search pools"
+                className="h-[2.125rem] w-64 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.8125rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent"
               />
-            ),
-        })}
-      </Card>
+            </span>
+            {/* The same model as the panel, as the chips over the table and
+                a Filter button beside them — for every width the panel cannot
+                dock at. Rendered only there: the panel unmounts below the dock
+                width rather than hiding, because both of these carry a sheet
+                on the same `?filters=` key. */}
+            {!docked && (
+              <FilterPanel model={filters} table={table} className="mr-auto" />
+            )}
+            <SortMenu
+              table={table}
+              sorting={sorting}
+              onSort={(id, desc) => setSorting([{ id, desc }])}
+            />
+            <ColumnsMenu table={table} />
+            <span aria-hidden className="mx-1 h-5 w-px bg-hairline" />
+            <ViewPicker model={filters} id="pools" all="Every pool" />
+          </div>
+
+          <Card className="overflow-hidden">
+            {queryState(fleet, {
+              loading: "Reading every node…",
+              render: () =>
+                tree.length === 0 ? (
+                  <EmptyState>
+                    This node has no active operational pool.
+                  </EmptyState>
+                ) : (
+                  <DataTable<PoolRow>
+                    table={table}
+                    // A pool row opens its own page; a site row has none, so
+                    // the whole row is the chevron's click target rather than a
+                    // dead strip beside a 14-pixel control.
+                    onRowClick={(row) => {
+                      if (row.pool) pool.open(row.poolId)
+                      else table.getRow(row.key).toggleExpanded()
+                    }}
+                    // `row.pool?.id === pool.value` was `undefined ===
+                    // undefined` on every site row with no sheet open, which
+                    // tinted all fourteen of them as selected.
+                    isSelected={(row) =>
+                      row.pool !== null && row.pool.id === pool.value
+                    }
+                    className="max-h-[calc(100vh-16rem)]"
+                  />
+                ),
+            })}
+          </Card>
+
+          {/* The two windows the Observed and Missing columns are measured
+              over. Under the table rather than over it: it explains two
+              columns, and it is not a thing anybody acts on. */}
+          {fleet.data && (
+            <p className="mt-2 text-[0.71875rem] text-mute tabular-nums">
+              Sightings counted over the last {fleet.data.observed_window_hours}
+              h · loss measured over {fleet.data.lost_risk_window_days} days
+            </p>
+          )}
+        </div>
+
+        {/* The table is what the panel narrows, and it is handed over because
+            this list is narrowed in the BROWSER: the values a one-tap row
+            offers are the ones the rows actually hold. A server-narrowed list
+            passes `counted` facets instead and needs no table. */}
+        <DockedFilters
+          model={filters}
+          table={table}
+          kpis={fleetKpis(tree)}
+          id="pools"
+          subject="Pool"
+          className="hidden min-[1440px]:flex"
+        />
+      </div>
 
       <PoolSheet id={pool.value ?? null} onClose={pool.close} />
       <PoolAllotmentsSheet
@@ -678,6 +759,33 @@ export function PoolsBody() {
       />
     </>
   )
+}
+
+/// Three figures about the fleet as it stands, over the WHOLE tree rather than
+/// over a page — this list arrives in one read, so these are exact and there is
+/// no "of n shown" to qualify them with.
+///
+/// Not the four the Stock screen prints above this table: those are pieces, and
+/// these are shelves. "Never counted" is the one that changes a decision — a
+/// pool nobody has ever stood in front of is a number nobody has ever checked.
+function fleetKpis(tree: readonly PoolRow[]) {
+  if (tree.length === 0) return undefined
+  const pools = tree.flatMap((site) => site.subRows ?? [])
+  const never = pools.filter((one) => one.last_count === null).length
+  return [
+    { label: "Sites", value: count(tree.length) },
+    { label: "Pools", value: count(pools.length) },
+    {
+      label: "Never counted",
+      value: count(never),
+      note: "Pools no official count has ever been opened against.",
+    },
+    {
+      label: "Disputed",
+      value: count(pools.filter((one) => one.disputed !== null).length),
+      note: "Two sources reporting different quantities for one shelf.",
+    },
+  ]
 }
 
 export function Pools() {

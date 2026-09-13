@@ -149,6 +149,15 @@ struct Aggregate {
     clearance_minor: i64,
     sale_count: i64,
     basket_revenue_minor: i64,
+    /// Items in the baskets this key touched. Whole units, attributed per
+    /// basket like the revenue beside them.
+    units: i64,
+    /// Those units at the last price we agreed to pay for their style, and how
+    /// many of them a price was found for. Gross profit is
+    /// `basket_revenue_minor - cost_minor` and is an ESTIMATE — the screen that
+    /// draws it has `costed_units` to say how much of the basket it covers.
+    cost_minor: i64,
+    costed_units: i64,
     customer_count: i64,
     new_customer_count: i64,
     previous: Value,
@@ -166,6 +175,9 @@ impl Aggregate {
             clearance_minor: 0,
             sale_count: 0,
             basket_revenue_minor: 0,
+            units: 0,
+            cost_minor: 0,
+            costed_units: 0,
             customer_count: 0,
             new_customer_count: 0,
             previous: json!({
@@ -173,6 +185,9 @@ impl Aggregate {
                 "clearance_minor": 0,
                 "sale_count": 0,
                 "basket_revenue_minor": 0,
+                "units": 0,
+                "cost_minor": 0,
+                "costed_units": 0,
                 "customer_count": 0,
                 "new_customer_count": 0,
             }),
@@ -199,6 +214,9 @@ impl Aggregate {
             "basket_revenue_minor".into(),
             json!(self.basket_revenue_minor),
         );
+        object.insert("units".into(), json!(self.units));
+        object.insert("cost_minor".into(), json!(self.cost_minor));
+        object.insert("costed_units".into(), json!(self.costed_units));
         object.insert("customer_count".into(), json!(self.customer_count));
         object.insert("new_customer_count".into(), json!(self.new_customer_count));
         object.insert("previous".into(), self.previous);
@@ -247,6 +265,56 @@ const CLEARANCE_ARM: &str = "
                 AND ($4::text IS NULL OR s.site_id = $4)
               GROUP BY m.campaign_id, l.sale_id, s.occurred_at, s.total_minor, s.customer_id";
 
+/// What we last agreed to pay for a style, per style.
+///
+/// The SAME basis the pricelist report uses — the unit price on the most recent
+/// ISSUED or CLOSED purchase order — and deliberately the same SQL, because two
+/// readings of "what this cost" that differ by a draft order is the kind of
+/// disagreement nobody can explain months later. A draft has not been agreed
+/// and a cancelled order never was, so neither is evidence of a cost.
+///
+/// **It is per ARTICLE, and the thing sold is a SKU.** A purchase order names a
+/// style; it does not name a size. So every colourway and every size of a style
+/// is costed at the style's price, and the margin below is an ESTIMATE for that
+/// reason and not because the arithmetic is loose. `costed_units` beside it is
+/// what keeps that honest: it says how many of the units sold a cost was
+/// actually found for, so a screen can report the coverage rather than present
+/// a figure drawn from a third of the basket as though it covered all of it.
+const ARTICLE_COST: &str = "
+         article_cost AS (
+             SELECT DISTINCT ON (l.article_code) l.article_code, l.unit_price_minor
+               FROM purchase_order_line l
+               JOIN purchase_order o ON o.purchase_order_id = l.purchase_order_id
+              WHERE o.order_status IN ('ISSUED', 'CLOSED')
+              ORDER BY l.article_code,
+                       COALESCE(o.issued_at, o.created_at) DESC, l.line_number DESC
+         ), basket AS (
+             -- Per SALE, never per promotion: revenue here is attributed by
+             -- basket (see the module note), so what it is measured against has
+             -- to be the same basket. Costing only the discounted line against
+             -- the whole basket's revenue would report a margin no accountant
+             -- would recognise.
+             --
+             -- A line whose style was never ordered contributes its units and
+             -- NOT a cost — left out of the sum rather than counted as free,
+             -- which is the same rule `CLEARANCE_ARM` follows for a line with
+             -- no base price.
+             SELECT l.sale_id,
+                    sum(l.quantity)::bigint AS units,
+                    COALESCE(sum(c.unit_price_minor * l.quantity)
+                        FILTER (WHERE c.unit_price_minor IS NOT NULL), 0)::bigint AS cost_minor,
+                    COALESCE(sum(l.quantity)
+                        FILTER (WHERE c.unit_price_minor IS NOT NULL), 0)::bigint AS costed_units
+               FROM edge_sale_line l
+               JOIN edge_sale s ON s.sale_id = l.sale_id
+               LEFT JOIN sku k ON k.sku_code = l.sku_code
+               LEFT JOIN article a ON a.id = k.article_id
+               LEFT JOIN article_cost c ON c.article_code = a.article_code
+              WHERE s.occurred_at >= $1 AND s.occurred_at < $3
+                AND ($4::text IS NULL OR s.site_id = $4)
+              GROUP BY l.sale_id
+         ),";
+
 /// The one aggregate all three promotion menus are built from.
 ///
 /// It reads the two windows in a single pass. Written as two queries it was two
@@ -285,8 +353,12 @@ async fn aggregate(
         PromotionKey::Campaign => CLEARANCE_ARM,
         PromotionKey::Rule | PromotionKey::Coupon => "",
     };
+    // Always present, for all three menus: a coupon's baskets have a cost in
+    // exactly the way a campaign's do.
+    let cost = ARTICLE_COST;
     let sql = format!(
-        "WITH scoped AS (
+        "WITH {cost}
+         scoped AS (
              SELECT p.{column} AS key, p.sale_id, s.occurred_at, s.total_minor, s.customer_id,
                     sum(p.benefit_minor)::bigint AS benefit_minor,
                     0::bigint                    AS clearance_minor
@@ -309,6 +381,16 @@ async fn aggregate(
                     sum(clearance_minor)::bigint AS clearance_minor
                FROM scoped
               GROUP BY key, sale_id, occurred_at, total_minor, customer_id
+         ), costed AS (
+             -- Joined AFTER the fold, so a campaign whose rule and markdown
+             -- both hit one basket counts that basket\'s units and cost once.
+             -- Joined before it, the union would have doubled them for exactly
+             -- the campaigns run both ways — the same trap `folded` exists for.
+             SELECT f.*,
+                    COALESCE(b.units, 0)        AS units,
+                    COALESCE(b.cost_minor, 0)   AS cost_minor,
+                    COALESCE(b.costed_units, 0) AS costed_units
+               FROM folded f LEFT JOIN basket b ON b.sale_id = f.sale_id
          ), first_sale AS (
              -- A shopper's first purchase anywhere, ever. Not filtered by site
              -- or by window on purpose: somebody who has shopped with us for
@@ -317,16 +399,19 @@ async fn aggregate(
              SELECT customer_id, min(occurred_at) AS first_at
                FROM edge_sale WHERE customer_id IS NOT NULL GROUP BY customer_id
          ), marked AS (
-             SELECT folded.*, (f.first_at >= $2 AND f.first_at < $3) AS new_now,
+             SELECT costed.*, (f.first_at >= $2 AND f.first_at < $3) AS new_now,
                     (f.first_at >= $1 AND f.first_at < $2) AS new_before
-               FROM folded LEFT JOIN first_sale f ON f.customer_id = folded.customer_id
+               FROM costed LEFT JOIN first_sale f ON f.customer_id = costed.customer_id
          ), points AS (
              SELECT key, (occurred_at AT TIME ZONE 'UTC')::date AS day,
                     sum(benefit_minor)::bigint   AS benefit_minor,
                     sum(clearance_minor)::bigint AS clearance_minor,
                     count(*)::bigint             AS sale_count,
-                    sum(total_minor)::bigint     AS basket_revenue_minor
-               FROM folded WHERE occurred_at >= $2
+                    sum(total_minor)::bigint     AS basket_revenue_minor,
+                    sum(units)::bigint           AS units,
+                    sum(cost_minor)::bigint      AS cost_minor,
+                    sum(costed_units)::bigint    AS costed_units
+               FROM costed WHERE occurred_at >= $2
               GROUP BY key, (occurred_at AT TIME ZONE 'UTC')::date
          ), series AS (
              SELECT key, jsonb_agg(jsonb_build_object(
@@ -334,7 +419,10 @@ async fn aggregate(
                         'benefit_minor', benefit_minor,
                         'clearance_minor', clearance_minor,
                         'sale_count', sale_count,
-                        'basket_revenue_minor', basket_revenue_minor
+                        'basket_revenue_minor', basket_revenue_minor,
+                        'units', units,
+                        'cost_minor', cost_minor,
+                        'costed_units', costed_units
                     ) ORDER BY day) AS series
                FROM points GROUP BY key
          ), totals AS (
@@ -343,12 +431,18 @@ async fn aggregate(
                     COALESCE(sum(m.clearance_minor) FILTER (WHERE m.occurred_at >= $2), 0)::bigint AS clearance_minor,
                     count(*) FILTER (WHERE m.occurred_at >= $2)                        AS sale_count,
                     COALESCE(sum(m.total_minor) FILTER (WHERE m.occurred_at >= $2), 0)::bigint AS basket_revenue_minor,
+                    COALESCE(sum(m.units) FILTER (WHERE m.occurred_at >= $2), 0)::bigint AS units,
+                    COALESCE(sum(m.cost_minor) FILTER (WHERE m.occurred_at >= $2), 0)::bigint AS cost_minor,
+                    COALESCE(sum(m.costed_units) FILTER (WHERE m.occurred_at >= $2), 0)::bigint AS costed_units,
                     count(DISTINCT m.customer_id) FILTER (WHERE m.occurred_at >= $2)   AS customer_count,
                     count(DISTINCT m.customer_id) FILTER (WHERE m.occurred_at >= $2 AND m.new_now) AS new_customer_count,
                     COALESCE(sum(m.benefit_minor) FILTER (WHERE m.occurred_at < $2), 0)::bigint AS prev_benefit_minor,
                     COALESCE(sum(m.clearance_minor) FILTER (WHERE m.occurred_at < $2), 0)::bigint AS prev_clearance_minor,
                     count(*) FILTER (WHERE m.occurred_at < $2)                         AS prev_sale_count,
                     COALESCE(sum(m.total_minor) FILTER (WHERE m.occurred_at < $2), 0)::bigint AS prev_basket_revenue_minor,
+                    COALESCE(sum(m.units) FILTER (WHERE m.occurred_at < $2), 0)::bigint AS prev_units,
+                    COALESCE(sum(m.cost_minor) FILTER (WHERE m.occurred_at < $2), 0)::bigint AS prev_cost_minor,
+                    COALESCE(sum(m.costed_units) FILTER (WHERE m.occurred_at < $2), 0)::bigint AS prev_costed_units,
                     count(DISTINCT m.customer_id) FILTER (WHERE m.occurred_at < $2)    AS prev_customer_count,
                     count(DISTINCT m.customer_id) FILTER (WHERE m.occurred_at < $2 AND m.new_before) AS prev_new_customer_count
                FROM marked m GROUP BY m.key
@@ -372,6 +466,9 @@ async fn aggregate(
             clearance_minor: row.get("clearance_minor"),
             sale_count: row.get("sale_count"),
             basket_revenue_minor: row.get("basket_revenue_minor"),
+            units: row.get("units"),
+            cost_minor: row.get("cost_minor"),
+            costed_units: row.get("costed_units"),
             customer_count: row.get("customer_count"),
             new_customer_count: row.get("new_customer_count"),
             previous: json!({
@@ -379,6 +476,9 @@ async fn aggregate(
                 "clearance_minor": row.get::<i64, _>("prev_clearance_minor"),
                 "sale_count": row.get::<i64, _>("prev_sale_count"),
                 "basket_revenue_minor": row.get::<i64, _>("prev_basket_revenue_minor"),
+                "units": row.get::<i64, _>("prev_units"),
+                "cost_minor": row.get::<i64, _>("prev_cost_minor"),
+                "costed_units": row.get::<i64, _>("prev_costed_units"),
                 "customer_count": row.get::<i64, _>("prev_customer_count"),
                 "new_customer_count": row.get::<i64, _>("prev_new_customer_count"),
             }),
@@ -870,4 +970,249 @@ pub async fn pricelist_performance(
         object.insert("skus".into(), Value::Array(items));
     }
     Ok(body)
+}
+
+// ── sell-through, for the one objective that is about stock ────────────────
+//
+// Every other metric on a campaign is read from `edge_sale_promotion`: money
+// the offers gave away, and the baskets that came back. "Clear seasonal
+// inventory" is not that question. It does not ask what the discount cost, it
+// asks whether the stock moved — and stock is not in the sale facts alone.
+//
+// Three properties of this number are worth stating once here rather than being
+// rediscovered from a figure that looks wrong.
+//
+// **It counts every sale of those styles, not only the discounted ones.** A
+// campaign run to clear a style succeeded if the style cleared. Half of it
+// going out at full price beside the promotion is the campaign working, not a
+// sale the campaign failed to touch, and narrowing this to promoted baskets
+// would report a clearance as a failure precisely when it worked best.
+//
+// **On hand is AS OF NOW, never as of the window's end.** The projection holds
+// one quantity per place and no history, so a finished campaign is scored
+// against today's shelf rather than against the shelf on its closing day. For a
+// running campaign — which is when somebody asks — that is exactly right. For
+// one that ended last quarter it drifts, and `as_of` on the response is what
+// says so.
+//
+// **A campaign that names no product cannot have one.** Sell-through is
+// attributed to the styles the campaign's rules apply to; a whole-basket offer
+// applies to everything, and "sell-through of the entire catalogue" is not a
+// measure of anything. Such a campaign answers `null` with its reason rather
+// than a number nobody could act on.
+
+/// The styles a campaign's offers actually land on.
+///
+/// Read from each rule's own `scope.applicability`, which is the same document
+/// the till applies — never re-derived from columns. A division or a tag is
+/// resolved to the styles filed under it, because the stock sits on styles.
+#[derive(Default)]
+struct ScopedProducts {
+    articles: Vec<String>,
+    skus: Vec<String>,
+    divisions: Vec<String>,
+    tags: Vec<String>,
+    /// Rules that apply to the whole basket, or to nothing in particular. They
+    /// are counted rather than ignored: one of them is why a campaign has no
+    /// sell-through, and the screen has to be able to say which.
+    unscoped: i64,
+    rules: i64,
+}
+
+fn scope_of(definition: &Value, into: &mut ScopedProducts) {
+    into.rules += 1;
+    let Some(on) = definition.get("scope").and_then(|s| s.get("applicability")) else {
+        into.unscoped += 1;
+        return;
+    };
+    let list = |key: &str| -> Vec<String> {
+        on.get(key)
+            .and_then(Value::as_array)
+            .map(|values| {
+                values
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    match on.get("on").and_then(Value::as_str) {
+        Some("ARTICLE") => into.articles.extend(list("article_codes")),
+        Some("SKU") => into.skus.extend(list("sku_codes")),
+        Some("DIVISION") => into.divisions.extend(list("divisions")),
+        Some("TAG") => into.tags.extend(list("tags")),
+        // `WHOLE_CART`, `null`, and anything a later build introduces that this
+        // one has not been told about. Counted as unscoped rather than guessed:
+        // a scope we cannot read must not quietly narrow the measure.
+        _ => into.unscoped += 1,
+    }
+}
+
+/// How much of what a campaign set out to shift has actually shifted.
+pub async fn campaign_sell_through(
+    pool: &PgPool,
+    campaign_id: &str,
+    window: &PerformanceWindow,
+) -> Result<Value, AppError> {
+    let campaign_id = campaign_id.trim();
+    // The newest published book that names each rule owns it — the same rule a
+    // shop applies when it replaces on `rule_id`. Without `DISTINCT ON`, a rule
+    // restated three times would have its scope counted three times.
+    let rules = sqlx::query(
+        "SELECT DISTINCT ON (r.rule_id) r.rule_id, r.definition
+           FROM commercial_rule r
+           JOIN commercial_publication p ON p.id = r.publication_id
+          WHERE p.status = 'PUBLISHED'
+            AND r.definition->>'campaign_id' = $1
+          ORDER BY r.rule_id, p.version DESC",
+    )
+    .bind(campaign_id)
+    .fetch_all(pool)
+    .await?;
+
+    let mut scope = ScopedProducts::default();
+    for row in &rules {
+        scope_of(&row.get::<Value, _>("definition"), &mut scope);
+    }
+
+    let codes: Vec<String> = sqlx::query(
+        "SELECT DISTINCT a.article_code
+           FROM article a
+           LEFT JOIN sku k ON k.article_id = a.id
+           LEFT JOIN article_tag t ON t.article_id = a.id
+          WHERE a.article_code = ANY($1)
+             OR k.sku_code = ANY($2)
+             OR a.division_code = ANY($3)
+             OR t.tag_code = ANY($4)
+          ORDER BY a.article_code",
+    )
+    .bind(&scope.articles)
+    .bind(&scope.skus)
+    .bind(&scope.divisions)
+    .bind(&scope.tags)
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|row| row.get::<String, _>("article_code"))
+    .collect();
+
+    let scope_note = json!({
+        "rules": scope.rules,
+        "unscoped_rules": scope.unscoped,
+        "articles": codes.len(),
+    });
+
+    if codes.is_empty() {
+        return Ok(json!({
+            "campaign_id": campaign_id,
+            "as_of": Utc::now(),
+            "from": window.from,
+            "to": window.to,
+            "site_id": window.site(),
+            "scope": scope_note,
+            "units_sold": 0,
+            "on_hand": 0,
+            // Not zero per cent. Zero would read as "nothing sold", and the
+            // truth is that there is nothing this campaign can be measured
+            // against — which is a different thing to tell somebody.
+            "sell_through_bps": Value::Null,
+            "articles": [],
+        }));
+    }
+
+    let rows = sqlx::query(
+        "WITH scope AS (SELECT unnest($1::text[]) AS article_code),
+              sold AS (
+                  SELECT a.article_code, sum(l.quantity)::bigint AS units
+                    FROM edge_sale_line l
+                    JOIN edge_sale s ON s.sale_id = l.sale_id
+                    JOIN sku k ON k.sku_code = l.sku_code
+                    JOIN article a ON a.id = k.article_id
+                   WHERE a.article_code = ANY($1)
+                     AND s.occurred_at >= $2 AND s.occurred_at < $3
+                     AND ($4::text IS NULL OR s.site_id = $4)
+                   GROUP BY a.article_code
+              ),
+              held AS (
+                  -- Stock the fleet can still sell: operational places in a
+                  -- NORMAL state. A unit in a MISSING place is not on hand, and
+                  -- counting it would flatter the sell-through of exactly the
+                  -- styles somebody has lost track of.
+                  SELECT a.article_code, sum(pr.quantity)::bigint AS on_hand
+                    FROM inventory_projection pr
+                    JOIN inventory_place pl ON pl.id = pr.place_id
+                    JOIN operational_pool op ON op.id = pl.pool_id
+                    JOIN inventory_subject sub ON sub.id = pr.subject_id
+                    JOIN sku k ON k.id = sub.sku_id
+                    JOIN article a ON a.id = k.article_id
+                   WHERE a.article_code = ANY($1)
+                     AND pl.kind = 'OPERATIONAL' AND pl.state = 'NORMAL'
+                     AND ($4::text IS NULL OR op.site_id = $4)
+                   GROUP BY a.article_code
+              )
+         SELECT sc.article_code,
+                ar.name,
+                COALESCE(sold.units, 0)::bigint   AS units,
+                COALESCE(held.on_hand, 0)::bigint AS on_hand
+           FROM scope sc
+           LEFT JOIN article ar ON ar.article_code = sc.article_code
+           LEFT JOIN sold ON sold.article_code = sc.article_code
+           LEFT JOIN held ON held.article_code = sc.article_code
+          ORDER BY sc.article_code",
+    )
+    .bind(&codes)
+    .bind(window.from)
+    .bind(window.to)
+    .bind(window.site())
+    .fetch_all(pool)
+    .await?;
+
+    let mut sold_total: i64 = 0;
+    let mut held_total: i64 = 0;
+    let articles: Vec<Value> = rows
+        .iter()
+        .map(|row| {
+            let units: i64 = row.get("units");
+            let on_hand: i64 = row.get("on_hand");
+            sold_total += units;
+            held_total += on_hand;
+            json!({
+                "article_code": row.get::<String, _>("article_code"),
+                "name": row.get::<Option<String>, _>("name"),
+                "units_sold": units,
+                "on_hand": on_hand,
+                "sell_through_bps": through(units, on_hand),
+            })
+        })
+        .collect();
+
+    Ok(json!({
+        "campaign_id": campaign_id,
+        // When the shelf was read. Not the end of the window — see the module
+        // note: on hand has no history, so this is the date the denominator
+        // came from.
+        "as_of": Utc::now(),
+        "from": window.from,
+        "to": window.to,
+        "site_id": window.site(),
+        "scope": scope_note,
+        "units_sold": sold_total,
+        "on_hand": held_total,
+        "sell_through_bps": through(sold_total, held_total),
+        "articles": articles,
+    }))
+}
+
+/// Sold over what was ever available to sell, in basis points.
+///
+/// `None` when the two are both nought: a style that sold nothing and holds
+/// nothing was never in the campaign's way, and 0% would put it at the top of a
+/// list of things that are not shifting.
+fn through(sold: i64, on_hand: i64) -> Option<i64> {
+    let available = sold + on_hand;
+    if available <= 0 {
+        return None;
+    }
+    Some((sold * 10_000) / available)
 }

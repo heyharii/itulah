@@ -31,12 +31,24 @@ export const CHIP =
 /// measures that list to sit the chosen row over the trigger — and a second
 /// scroll box wrapped around it makes the popup open in the wrong place.
 export const PANEL =
-  "z-50 min-w-[13rem] rounded-inner border border-hairline bg-canvas p-1 text-meta shadow-pop outline-none"
+  "z-50 min-w-[12rem] rounded-card border border-hairline bg-canvas p-[0.3125rem] text-[0.875rem] shadow-pop outline-none"
 
 export const POPUP = `${PANEL} max-h-[22rem] overflow-y-auto`
 
+/// The layer, which has to go on the POSITIONER rather than on the popup.
+///
+/// `PANEL` says `z-50` and that class does nothing: Base UI paints a popup
+/// inside a positioner, the popup is `position: static`, and `z-index` only
+/// applies to a positioned element. Over a page nobody noticed — a menu is
+/// above the page whatever it claims — but a menu opened INSIDE `<Sheet>`,
+/// whose panel is `z-40` and fixed, painted underneath the panel that opened
+/// it: the rows were in the accessibility tree, visible nowhere, and a click
+/// landed on the sheet's own text. That is what the filter panel does with
+/// every one of its controls, so the layer is declared where the position is.
+export const POSITIONER = "z-50"
+
 export const ITEM =
-  "flex w-full cursor-pointer items-center gap-2 rounded-[calc(var(--r-inner)-0.25rem)] px-2.5 py-1.5 text-left text-body outline-none select-none data-[highlighted]:bg-soft-2 data-[highlighted]:text-ink"
+  "flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-[0.4375rem] text-left text-text outline-none select-none data-[highlighted]:bg-soft-2 data-[highlighted]:text-ink"
 
 /// Keep the values that still mean something when the operator changes.
 ///

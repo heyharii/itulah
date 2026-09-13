@@ -61,7 +61,7 @@ function MovementCard({ row }: { row: MovementView }) {
         </Pill>
       }
     >
-      <div className="flex items-center gap-2 px-3 pt-3 text-[0.84375rem] text-ink">
+      <div className="flex items-center gap-2 px-3 pt-3 text-cell text-ink">
         <span className="min-w-0 flex-1 truncate">{place(row.from)}</span>
         <ArrowRight className="size-4 shrink-0 text-line-ico" />
         <span className="min-w-0 flex-1 truncate text-right">

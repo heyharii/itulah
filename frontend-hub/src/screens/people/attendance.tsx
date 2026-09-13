@@ -4,14 +4,13 @@ import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
 
-import { PageContent } from "@/components/shell/app-shell"
 import { Day } from "@/components/ui/day"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Field, Input, Textarea } from "@/components/ui/field"
-import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
+import { Toolbar } from "@/components/ui/segmented"
 import { KeyValue } from "@/components/ui/rows"
 import { Banner, EmptyState, ErrorState } from "@/components/ui/states"
 import { count, day } from "@/lib/format"
@@ -39,6 +38,20 @@ import type { PolicyVersionView } from "@itulah/contract"
 /// A version is never edited. Writing a new one closes the version it
 /// supersedes, on the day before this one starts, in the same transaction — a
 /// schedule with two open versions does not load back.
+///
+/// # Why there is no filter panel here
+///
+/// Because this is not a list of things; it is one policy's history beside the
+/// form that extends it. The rows are versions of a single record — a handful,
+/// written years apart — and the two questions anybody asks of them are
+/// already answered without a clause: which one is in force (the card to the
+/// right) and what the rules were on a given day (the As at box, which is a
+/// REQUEST parameter and re-reads the schedule).
+///
+/// The layout says the same thing. The panel's wide form claims the shell's
+/// right column, and this screen has already spent that column on the version
+/// in force and the editor beneath it; docking a second one would leave the
+/// table narrower than the four tolerance columns it has to show.
 
 const columns: ColumnDef<TableSetup, PolicyVersionView>[] = [
   {
@@ -142,17 +155,16 @@ export function AttendancePolicy() {
   )
 
   return (
-    <PageContent>
-      <PageHeader
-        crumb="People"
-        title="Attendance policy"
-        sub="The tolerances a month of arrivals is judged against. Anybody signed in may read them; only head office may change them."
-        actions={
-          <Field label="" className="w-52">
-            <Day value={asOf} label="As at" onChange={setAsOf} />
-          </Field>
-        }
-      />
+    <>
+      {/* The date this panel is asking about. It was the page header's action
+          until the four setup screens became one tabbed screen; a tab cannot
+          own the page title, so the control that belongs to this tab sits in
+          the tab. */}
+      <Toolbar>
+        <Field label="" className="w-52">
+          <Day value={asOf} label="As at" onChange={setAsOf} />
+        </Field>
+      </Toolbar>
 
       {/* `uncovered` is sent rather than derived from the flags, because "no
           version is in force" is the state that matters and a screen working it
@@ -231,7 +243,7 @@ export function AttendancePolicy() {
           />
         </div>
       </div>
-    </PageContent>
+    </>
   )
 }
 

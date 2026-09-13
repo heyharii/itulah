@@ -6,7 +6,7 @@
 
 use super::allotments::{insert_allotment_event, LineIdentity};
 use super::payload_digest;
-use crate::cloud::application::AppError;
+use crate::cloud::application::{AppError, DeadLetterQuery};
 use crate::cloud::domain::{
     cooldown_after_failure, ingest_rejection_reason, BreakerPolicy, DestinationType, IngestBatch,
     IngestResponse, MovementCommand, RejectedFact, SyncFact,
@@ -33,6 +33,7 @@ use crate::sync::workflow::{
     INVENTORY_OFFICIAL_COUNT_RESULT_V1, INVENTORY_PICK_V1,
 };
 use chrono::{DateTime, Duration, Utc};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use std::{
@@ -839,30 +840,271 @@ pub async fn sync_snapshot(pool: &PgPool) -> Result<SyncSnapshot, AppError> {
 }
 
 /// Dead letters for the operator, newest first.
-pub async fn list_dead_letters(pool: &PgPool, limit: i64) -> Result<Value, AppError> {
-    let rows = sqlx::query(
-        "SELECT origin_id, generation, seq, event_id, event_type, payload, reason, rejected_at
-         FROM sync_dead_letter ORDER BY rejected_at DESC LIMIT $1",
-    )
-    .bind(limit.clamp(1, 500))
+/// One rejected event, as the sync console lists it.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct DeadLetterRow {
+    pub origin_id: String,
+    pub generation: i64,
+    pub seq: i64,
+    pub event_id: Uuid,
+    pub event_type: String,
+    /// What the node actually sent. Typed as `unknown` for the browser rather
+    /// than `any`: a reader has to narrow it before using it, which is correct
+    /// — its contents depend on which lane produced the event.
+    #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))]
+    pub payload: Value,
+    pub reason: String,
+    pub rejected_at: DateTime<Utc>,
+}
+
+/// One value a filter can take, and how many rejections would still be there.
+/// Counted over what the SEARCH leaves, ignoring the filters currently applied.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct DeadLetterFacet {
+    pub value: String,
+    pub label: Option<String>,
+    pub count: i64,
+}
+
+/// The three things the rejection list can be narrowed by.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct DeadLetterFacets {
+    /// Which node is producing them. The first question a rejection raises: one
+    /// shop misbehaving and the whole fleet misbehaving are different faults.
+    pub origins: Vec<DeadLetterFacet>,
+    pub event_types: Vec<DeadLetterFacet>,
+    /// Why they were refused. The column that says whether this is one bug or
+    /// thirty.
+    pub reasons: Vec<DeadLetterFacet>,
+}
+
+/// A page of rejections, and the shape of everything it was drawn from.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct DeadLetterList {
+    pub rows: Vec<DeadLetterRow>,
+    pub next_cursor: Option<String>,
+    /// Every rejection the search and the filters match, not just this page.
+    /// The number the sync console could not previously state: it asked for a
+    /// hundred and had no way of knowing whether that was the backlog.
+    pub total: i64,
+    pub facets: DeadLetterFacets,
+}
+
+/// Where the previous page stopped — as a ROW, not a position.
+///
+/// Three fields because the table's key is three: a node, a generation and a
+/// sequence number. Anything less would stop at the first pair of rejections
+/// that share it, which is every replayed batch.
+#[derive(Serialize, Deserialize)]
+struct DeadLetterCursor {
+    origin_id: String,
+    generation: i64,
+    seq: i64,
+}
+
+impl DeadLetterCursor {
+    fn encode(&self) -> Result<String, AppError> {
+        Ok(hex::encode(serde_json::to_vec(self)?))
+    }
+
+    fn decode(raw: &str) -> Result<Self, AppError> {
+        let bytes = hex::decode(raw).map_err(|_| {
+            AppError::Validation("cursor is not a cursor this server issued".into())
+        })?;
+        serde_json::from_slice(&bytes)
+            .map_err(|_| AppError::Validation("cursor is not a cursor this server issued".into()))
+    }
+}
+
+const DEAD_LETTER_DEFAULT_LIMIT: i64 = 100;
+const DEAD_LETTER_MAX_LIMIT: i64 = 500;
+
+/// One rejection row, defined once.
+///
+/// Used by the page query and by the facet counts, which is the whole reason it
+/// is a constant: the facets are only honest if they count exactly what the
+/// page can show.
+///
+/// It stops at the SEARCH; the node, type and reason filters are applied
+/// outside by each caller, so one definition answers two questions.
+///
+/// Every column a sort can name is NOT NULL — `rejected_at`, `origin_id`,
+/// `event_type` — so no `COALESCE` sentinel is needed. Worth stating rather
+/// than rediscovering: a row comparison against NULL is NULL rather than true,
+/// so a nullable sort key added here would end paging at the first NULL, in
+/// silence.
+///
+/// Binds: `$1` the search pattern or NULL.
+const DEAD_LETTER_ROWS: &str = "
+    SELECT origin_id, generation, seq, event_id, event_type, payload, reason,
+           rejected_at
+      FROM sync_dead_letter
+     WHERE ($1::text IS NULL
+            OR origin_id ILIKE $1
+            OR event_type ILIKE $1
+            OR reason ILIKE $1)
+";
+
+/// Every filter, in one place, so the page and the total cannot drift.
+const DEAD_LETTER_FILTERS: &str = "
+    WHERE ($2::text IS NULL OR origin_id = $2)
+      AND ($3::text IS NULL OR event_type = $3)
+      AND ($4::text IS NULL OR reason = $4)
+";
+
+/// What the fleet sent that this server would not take, one page at a time.
+pub async fn list_dead_letters(
+    pool: &PgPool,
+    query: DeadLetterQuery,
+) -> Result<DeadLetterList, AppError> {
+    // A blank search is not a search: `Some("")` compiles to `ILIKE '%%'`,
+    // which matches everything and costs a scan to say so.
+    let needle = query
+        .q
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| format!("%{value}%"));
+
+    // The sort, and the tie-break that makes it total: every order ends in the
+    // table's own three-column key, so no two rows can compare equal.
+    //
+    // TWO spellings of the same thing, and they are not interchangeable:
+    // `ORDER BY` takes directions, a ROW EXPRESSION does not.
+    let lead = match query.sort.as_deref() {
+        Some("origin") => "origin_id",
+        Some("type") => "event_type",
+        _ => "rejected_at",
+    };
+    let descending = query.dir.as_deref() != Some("asc");
+    let cols = format!("{lead}, origin_id, generation, seq");
+    let dir = if descending { "DESC" } else { "ASC" };
+    let order = format!("{lead} {dir}, origin_id {dir}, generation {dir}, seq {dir}");
+    let seek = if descending { "<" } else { ">" };
+
+    let cursor = query
+        .cursor
+        .as_deref()
+        .map(DeadLetterCursor::decode)
+        .transpose()?;
+    let limit = query
+        .limit
+        .unwrap_or(DEAD_LETTER_DEFAULT_LIMIT)
+        .clamp(1, DEAD_LETTER_MAX_LIMIT);
+
+    // `NOT MATERIALIZED`: `kept` is referenced twice — as the page and
+    // inside the seek — and two references makes PostgreSQL materialise a
+    // CTE, which is an optimisation fence the `ORDER BY … LIMIT` cannot be
+    // pushed through. Materialised, this reads the whole table and sorts it
+    // to hand back one page; inlined, it seeks the index. See
+    // `postgres::audit::list_audit`, where the difference was measured.
+    let rows = sqlx::query(&format!(
+        "WITH searched AS NOT MATERIALIZED ({DEAD_LETTER_ROWS}),
+              kept AS NOT MATERIALIZED (
+             SELECT * FROM searched {DEAD_LETTER_FILTERS}
+         )
+         SELECT * FROM kept
+          WHERE $5::text IS NULL
+             OR ({cols}) {seek} (SELECT {cols} FROM kept
+                                  WHERE origin_id = $5 AND generation = $6 AND seq = $7)
+          ORDER BY {order}
+          LIMIT $8"
+    ))
+    .bind(&needle)
+    .bind(&query.origin_id)
+    .bind(&query.event_type)
+    .bind(&query.reason)
+    .bind(cursor.as_ref().map(|one| one.origin_id.clone()))
+    .bind(cursor.as_ref().map(|one| one.generation))
+    .bind(cursor.as_ref().map(|one| one.seq))
+    .bind(limit)
     .fetch_all(pool)
     .await?;
-    let items: Vec<Value> = rows
-        .into_iter()
-        .map(|r| {
-            json!({
-                "origin_id": r.get::<String, _>("origin_id"),
-                "generation": r.get::<i64, _>("generation"),
-                "seq": r.get::<i64, _>("seq"),
-                "event_id": r.get::<Uuid, _>("event_id"),
-                "event_type": r.get::<String, _>("event_type"),
-                "payload": r.get::<Value, _>("payload"),
-                "reason": r.get::<String, _>("reason"),
-                "rejected_at": r.get::<DateTime<Utc>, _>("rejected_at"),
+
+    let next_cursor = match rows.last() {
+        Some(row) if rows.len() as i64 == limit => Some(
+            DeadLetterCursor {
+                origin_id: row.try_get("origin_id")?,
+                generation: row.try_get("generation")?,
+                seq: row.try_get("seq")?,
+            }
+            .encode()?,
+        ),
+        _ => None,
+    };
+
+    let out = rows
+        .iter()
+        .map(|row| {
+            Ok(DeadLetterRow {
+                origin_id: row.try_get("origin_id")?,
+                generation: row.try_get("generation")?,
+                seq: row.try_get("seq")?,
+                event_id: row.try_get("event_id")?,
+                event_type: row.try_get("event_type")?,
+                payload: row.try_get("payload")?,
+                reason: row.try_get("reason")?,
+                rejected_at: row.try_get("rejected_at")?,
             })
         })
-        .collect();
-    Ok(json!({ "items": items }))
+        .collect::<Result<Vec<_>, AppError>>()?;
+
+    let counted = sqlx::query(&format!(
+        "WITH searched AS ({DEAD_LETTER_ROWS}), kept AS (
+             SELECT * FROM searched {DEAD_LETTER_FILTERS}
+         )
+         SELECT 'origin' AS facet, origin_id AS value, COUNT(*)::bigint AS n
+           FROM searched GROUP BY origin_id
+          UNION ALL
+         SELECT 'type', event_type, COUNT(*)::bigint
+           FROM searched GROUP BY event_type
+          UNION ALL
+         SELECT 'reason', reason, COUNT(*)::bigint
+           FROM searched GROUP BY reason
+          UNION ALL
+         SELECT 'all', '', COUNT(*)::bigint FROM kept"
+    ))
+    .bind(&needle)
+    .bind(&query.origin_id)
+    .bind(&query.event_type)
+    .bind(&query.reason)
+    .fetch_all(pool)
+    .await?;
+
+    let mut total = 0i64;
+    let (mut origins, mut types, mut reasons) = (Vec::new(), Vec::new(), Vec::new());
+    for row in &counted {
+        let facet: String = row.try_get("facet")?;
+        let one = DeadLetterFacet {
+            value: row.try_get("value")?,
+            label: None,
+            count: row.try_get("n")?,
+        };
+        match facet.as_str() {
+            "origin" => origins.push(one),
+            "type" => types.push(one),
+            "reason" => reasons.push(one),
+            _ => total = one.count,
+        }
+    }
+    for list in [&mut origins, &mut types, &mut reasons] {
+        list.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.value.cmp(&b.value)));
+    }
+
+    Ok(DeadLetterList {
+        rows: out,
+        next_cursor,
+        total,
+        facets: DeadLetterFacets {
+            origins,
+            event_types: types,
+            reasons,
+        },
+    })
 }
 
 /// Health classification thresholds are policy, so they arrive as arguments.
@@ -1876,6 +2118,21 @@ async fn apply_one(
                     });
                 }
                 false
+            } else if event_type == FACT_GOODS_RECEIPT_REJECTED {
+                let refused = match parse_goods_receipt_rejected(&payload) {
+                    Ok(refused) => refused,
+                    Err(reason) => return Ok(ApplyStep::Blocked { seq: next, reason }),
+                };
+                if let Err(error) =
+                    apply_goods_receipt_rejected(&mut tx, origin_id, generation, next, &refused)
+                        .await
+                {
+                    return Ok(ApplyStep::Blocked {
+                        seq: next,
+                        reason: block_diagnostic(&error),
+                    });
+                }
+                false
             } else if event_type == FACT_GOODS_RECEIPT_INVOICE {
                 let invoice = match parse_goods_receipt_invoice(&payload) {
                     Ok(invoice) => invoice,
@@ -1907,6 +2164,34 @@ async fn apply_one(
                 };
                 if let Err(error) =
                     apply_publication_activated(&mut tx, origin_id, &activated).await
+                {
+                    return Ok(ApplyStep::Blocked {
+                        seq: next,
+                        reason: block_diagnostic(&error),
+                    });
+                }
+                false
+            } else if event_type == crate::cloud::domain::FACT_PUBLICATION_ACTIVATION_FAILED {
+                let failed =
+                    match crate::cloud::domain::parse_publication_activation_failed(&payload) {
+                        Ok(failed) => failed,
+                        Err(reason) => return Ok(ApplyStep::Blocked { seq: next, reason }),
+                    };
+                if let Err(error) =
+                    apply_publication_activation_failed(&mut tx, origin_id, &failed).await
+                {
+                    return Ok(ApplyStep::Blocked {
+                        seq: next,
+                        reason: block_diagnostic(&error),
+                    });
+                }
+                false
+            } else if event_type == crate::cloud::domain::FACT_CHECKOUT_UNRESOLVED {
+                let exception = match crate::cloud::domain::parse_checkout_unresolved(&payload) {
+                    Ok(exception) => exception,
+                    Err(reason) => return Ok(ApplyStep::Blocked { seq: next, reason }),
+                };
+                if let Err(error) = apply_checkout_unresolved(&mut tx, origin_id, &exception).await
                 {
                     return Ok(ApplyStep::Blocked {
                         seq: next,
@@ -5323,8 +5608,9 @@ async fn apply_sale(
         "INSERT INTO edge_sale
              (sale_id, origin_id, generation, seq, movement_group_id, site_id, actor_id,
               occurred_at, currency, total_minor, paid_minor, change_minor,
-              discount_total_minor, points_earned, pricing_trace_id, customer_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+              discount_total_minor, points_earned, pricing_trace_id, customer_id,
+              net_ex_tax_minor, tax_total_minor)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
          ON CONFLICT (sale_id) DO NOTHING",
     )
     .bind(sale.sale_id)
@@ -5351,6 +5637,10 @@ async fn apply_sale(
             .map(str::trim)
             .filter(|id| !id.is_empty()),
     )
+    // The basket's split. `None` from a shop whose book publishes no rate, or
+    // one running a build that predates this — not recorded, never nought.
+    .bind(sale.net_ex_tax_minor)
+    .bind(sale.tax_total_minor)
     .execute(&mut **tx)
     .await?
     .rows_affected()
@@ -5490,8 +5780,9 @@ async fn apply_sale(
             "INSERT INTO edge_sale_line
                  (sale_id, subject_id, epc, sku_code, quantity, unit_price_minor,
                   line_total_minor, price_source, publication_version,
-                  base_unit_price_minor, markdown_id)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
+                  base_unit_price_minor, markdown_id, net_ex_tax_minor, tax_minor,
+                  points_earned)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",
         )
         .bind(sale.sale_id)
         .bind(line.subject_id)
@@ -5506,9 +5797,50 @@ async fn apply_sale(
         .bind(line.publication_version)
         .bind(line.base_unit_price_minor)
         .bind(line.markdown_id.as_deref())
+        // Not recorded, never nought — see `SaleFactLine`.
+        .bind(line.net_ex_tax_minor)
+        .bind(line.tax_minor)
+        .bind(line.points_earned)
         .execute(&mut **tx)
         .await?;
     }
+
+    // ── the points the sale earned, awarded HERE and not at the till ────────
+    //
+    // A till computes an award; the centre accepting the sale is what makes it
+    // spendable. That gap is the whole of the offline rule: a shop selling with
+    // the line down records what the basket earned, and the shopper cannot
+    // spend it until the sale has arrived and been taken. Awarding at the till
+    // would let an offline sale fund a redemption the centre has not yet seen —
+    // and might yet reject.
+    //
+    // Keyed on the sale, so a fact delivered twice awards once: the unique
+    // index on `(sale_id) WHERE entry_type = 'EARN'` decides that rather than a
+    // prior read, and a replay after a lost acknowledgement is silently correct
+    // instead of doubling a member's balance.
+    if let Some(customer_id) = sale
+        .customer_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+    {
+        super::loyalty::earn_from_sale(
+            tx,
+            customer_id,
+            sale.sale_id,
+            sale.points_earned,
+            &sale.actor_id,
+        )
+        .await?;
+    }
+
+    // Nothing here reaches across to the centre's own `sale` row, and that is a
+    // constraint rather than an omission. By the time a shop's fact arrives the
+    // matching `sale` is COMPLETED, and 0003's `sale_finalized_immutable`
+    // refuses to let it be written — so a stamp attempted here would not fail
+    // quietly, it would block this origin's whole sync stream on a loyalty
+    // detail. The crossing happens at `complete_sale` instead, while the sale
+    // is still OPEN. See `sales::carry_customer_from_shop_fact`.
     Ok(())
 }
 
@@ -5530,20 +5862,123 @@ async fn apply_publication_activated(
             .fetch_optional(&mut **tx)
             .await?
             .flatten();
-    sqlx::query(
-        "INSERT INTO commercial_publication_activation
-             (publication_id, origin_id, site_id, version, activated_at, price_rule_count)
-         VALUES ($1,$2,$3,$4,$5,$6)
-         ON CONFLICT (publication_id, origin_id) DO NOTHING",
+    // Settles the row rather than declining to touch it. `DO NOTHING` was right
+    // while the only row that could exist was another activation — but since
+    // 0179 the publish writes a PENDING row when it hands the book over, so
+    // `DO NOTHING` would have left every shop in the fleet reading as
+    // outstanding for ever, and the screen would have been worse than before.
+    //
+    // Still idempotent, and by a stronger rule than the conflict clause was: a
+    // shop already ACTIVE on this book is left untouched entirely, so a
+    // redelivered fact cannot walk `activated_at` forward off the shop's own
+    // clock or count a second attempt that never happened.
+    super::rollout::record_activated(
+        tx,
+        activated.publication_id,
+        origin_id,
+        site_id.as_deref(),
+        activated.version,
+        activated.activated_at,
+        activated.price_rule_count,
+        Utc::now(),
     )
-    .bind(activated.publication_id)
+    .await
+}
+
+/// Record that a shop could not put a price book into service.
+///
+/// The site is resolved from the origin's credential for the same reason the
+/// activation resolves it there: taken from the payload it would be a claim, and
+/// looked up later it would move if the node were re-pointed.
+///
+/// A failure does NOT reopen a shop that has already reported activating this
+/// book — `rollout::settle_rollout` holds that rule and says why.
+async fn apply_publication_activation_failed(
+    tx: &mut Transaction<'_, Postgres>,
+    origin_id: &str,
+    failed: &crate::cloud::domain::PublicationActivationFailedPayload,
+) -> Result<(), AppError> {
+    let site_id: Option<String> =
+        sqlx::query_scalar("SELECT site_id FROM sync_origin_credential WHERE origin_id = $1")
+            .bind(origin_id)
+            .fetch_optional(&mut **tx)
+            .await?
+            .flatten();
+    super::rollout::record_failed(
+        tx,
+        failed.publication_id,
+        origin_id,
+        site_id.as_deref(),
+        failed.version,
+        failed.attempted_at,
+        &failed.error,
+        Utc::now(),
+    )
+    .await
+}
+
+/// A shop reporting money it took without producing a sale.
+///
+/// `DO NOTHING` on conflict rather than an update, and that is the load-bearing
+/// choice: the centre may already have worked this exception — refunded the
+/// customer, written it off — and a fact redelivered by a sync retry must not
+/// reopen a case somebody has closed. The shop's account of what happened does
+/// not change; only head office's answer to it does, and that lives in columns
+/// this never writes.
+async fn apply_checkout_unresolved(
+    tx: &mut Transaction<'_, Postgres>,
+    origin_id: &str,
+    exception: &crate::cloud::domain::CheckoutUnresolvedPayload,
+) -> Result<(), AppError> {
+    let site_id: Option<String> =
+        sqlx::query_scalar("SELECT site_id FROM sync_origin_credential WHERE origin_id = $1")
+            .bind(origin_id)
+            .fetch_optional(&mut **tx)
+            .await?
+            .flatten();
+    let inserted = sqlx::query(
+        "INSERT INTO edge_checkout_exception
+             (checkout_id, origin_id, site_id, actor_id, total_minor,
+              money_held_minor, opened_at, resolved_at, last_error)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         ON CONFLICT (checkout_id) DO NOTHING",
+    )
+    .bind(exception.checkout_id)
     .bind(origin_id)
     .bind(site_id)
-    .bind(activated.version)
-    .bind(activated.activated_at)
-    .bind(activated.price_rule_count)
+    .bind(&exception.actor_id)
+    .bind(exception.total_minor)
+    .bind(exception.money_held_minor)
+    .bind(exception.opened_at)
+    .bind(exception.resolved_at)
+    .bind(exception.last_error.as_deref())
     .execute(&mut **tx)
-    .await?;
+    .await?
+    .rows_affected();
+    // The tenders belong to the row that was just made. Writing them against a
+    // redelivery would rewrite the acquirer references under an exception
+    // somebody is in the middle of chasing.
+    if inserted == 0 {
+        return Ok(());
+    }
+    for tender in &exception.tenders {
+        sqlx::query(
+            "INSERT INTO edge_checkout_exception_tender
+                 (checkout_id, tender_seq, method, amount_minor, status,
+                  external_reference, last_error)
+             VALUES ($1,$2,$3,$4,$5,$6,$7)
+             ON CONFLICT (checkout_id, tender_seq) DO NOTHING",
+        )
+        .bind(exception.checkout_id)
+        .bind(tender.tender_seq)
+        .bind(&tender.method)
+        .bind(tender.amount_minor)
+        .bind(&tender.status)
+        .bind(tender.external_reference.as_deref())
+        .bind(tender.last_error.as_deref())
+        .execute(&mut **tx)
+        .await?;
+    }
     Ok(())
 }
 
@@ -5712,39 +6147,29 @@ pub async fn reconcile_positions(pool: &PgPool) -> Result<Vec<PoolDiscrepancy>, 
              WHERE split_part(place_id,':',2)='on_hand'
              GROUP BY origin_id,split_part(place_id,':',1)
          ),
-         application_allotted AS (
-             SELECT result.origin_id,line.source_pool_id AS pool_id,
-                    COALESCE(sum((item->>'accepted_quantity')::bigint),0)::bigint AS quantity
-             FROM ready r
-             JOIN edge_allotment_application_result result
-               ON result.origin_id=r.origin_id
-              AND (result.generation<r.generation
-                   OR (result.generation=r.generation AND result.seq<=r.snapshot_seq))
-             CROSS JOIN LATERAL jsonb_array_elements(result.lines) item
-             JOIN allotment_line line
-               ON line.id=(item->>'allotment_line_id')::uuid
-             GROUP BY result.origin_id,line.source_pool_id
-         ),
-         pick_released AS (
-             SELECT pick.origin_id,pick.source_pool_id AS pool_id,
-                    COALESCE(sum(pick.quantity),0)::bigint AS quantity
-             FROM ready r
-             JOIN edge_allotment_pick_fact pick
-               ON pick.origin_id=r.origin_id
-              AND (pick.generation<r.generation
-                   OR (pick.generation=r.generation AND pick.seq<=r.snapshot_seq))
-             GROUP BY pick.origin_id,pick.source_pool_id
-         ),
          remaining_allotted AS (
-             SELECT reserved.origin_id,reserved.pool_id,
-                    (reserved.quantity-COALESCE(released.quantity,0))::bigint AS quantity
-             FROM application_allotted reserved
-             LEFT JOIN pick_released released
-               ON released.origin_id=reserved.origin_id
-              AND released.pool_id=reserved.pool_id
+             -- What each origin still has to put into cartons, read off the
+             -- one commitment view.
+             --
+             -- This used to be `accepted − free picks`, and it was the only
+             -- one of the fleet's four spellings that subtracted a FREE pick.
+             -- Neither the centre nor a node has ever done that — picking
+             -- commits to nobody — so the reconciliation was reporting
+             -- disagreements of its own invention against the very nodes it
+             -- was checking.
+             SELECT commitment.origin_id,commitment.source_pool_id AS pool_id,
+                    COALESCE(sum(commitment.to_pack_qty),0)::bigint AS quantity
+             FROM ready r
+             JOIN allotment_line_commitment commitment
+               ON commitment.origin_id=r.origin_id
+             GROUP BY commitment.origin_id,commitment.source_pool_id
          )
          SELECT r.origin_id,r.site_id,pool.pool_id,
-                COALESCE(physical.normal_quantity,0)-COALESCE(reserved.quantity,0)
+                -- On Hand is what may still be spent and stops at nought, on
+                -- both sides of this comparison: the excess is a shortfall,
+                -- and a node that clamps while the centre does not would be
+                -- reported as diverging every time a promise outran a shelf.
+                GREATEST(COALESCE(physical.normal_quantity,0)-COALESCE(reserved.quantity,0),0)
                     AS computed_on_hand,
                 pool.on_hand AS observed_on_hand,
                 COALESCE(reserved.quantity,0) AS computed_allotted,
@@ -5756,7 +6181,7 @@ pub async fn reconcile_positions(pool: &PgPool) -> Result<Vec<PoolDiscrepancy>, 
            ON physical.origin_id=r.origin_id AND physical.pool_id=pool.pool_id
          LEFT JOIN remaining_allotted reserved
            ON reserved.origin_id=r.origin_id AND reserved.pool_id=pool.pool_id
-         WHERE COALESCE(physical.normal_quantity,0)-COALESCE(reserved.quantity,0)
+         WHERE GREATEST(COALESCE(physical.normal_quantity,0)-COALESCE(reserved.quantity,0),0)
                    <> pool.on_hand
             OR COALESCE(reserved.quantity,0) <> COALESCE(pool.allotted,0)
          ORDER BY r.origin_id,pool.pool_id",
@@ -5782,9 +6207,9 @@ pub async fn reconcile_positions(pool: &PgPool) -> Result<Vec<PoolDiscrepancy>, 
 // ---- Purchase orders ------------------------------------------------------
 
 use crate::cloud::domain::{
-    parse_goods_receipt_invoice, parse_goods_receipt_line, parse_purchase_order,
-    PurchaseOrderLinePayload, COMMAND_PURCHASE_ORDER_ACTIVATE, FACT_GOODS_RECEIPT_INVOICE,
-    FACT_GOODS_RECEIPT_LINE,
+    parse_goods_receipt_invoice, parse_goods_receipt_line, parse_goods_receipt_rejected,
+    parse_purchase_order, PurchaseOrderLinePayload, COMMAND_PURCHASE_ORDER_ACTIVATE,
+    FACT_GOODS_RECEIPT_INVOICE, FACT_GOODS_RECEIPT_LINE, FACT_GOODS_RECEIPT_REJECTED,
 };
 
 /// One line as a buyer supplies it.
@@ -6035,6 +6460,138 @@ async fn apply_goods_receipt_line(
     seq: i64,
     line: &crate::cloud::domain::GoodsReceiptLinePayload,
 ) -> Result<(), AppError> {
+    // ---- what the order says, read here rather than taken on trust --------
+    //
+    // Everything below is checked at the centre even though the DC checked it
+    // first. A fact arrives over a wire from a node that may be behind, may
+    // have been rebuilt from an old backup, or may not be the node it claims
+    // to be; "the edge already validated it" is an assumption, and the two
+    // rules this enforces — the right warehouse, the right supplier — are the
+    // ones that put goods on somebody else's order and invoice the wrong
+    // company.
+    let ordered: Option<(Uuid, i64, i64, String, String, i64)> = sqlx::query_as(
+        "SELECT o.purchase_order_id, l.ordered_quantity, l.unit_price_minor,
+                o.destination_site_id, o.supplier_id, o.discount_minor
+           FROM purchase_order_line l
+           JOIN purchase_order o ON o.purchase_order_id = l.purchase_order_id
+          WHERE l.po_line_id = $1
+          FOR UPDATE OF l",
+    )
+    .bind(line.po_line_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+    let Some((
+        purchase_order_id,
+        ordered_quantity,
+        ordered_unit_price,
+        destination_site_id,
+        ordered_from,
+        order_discount,
+    )) = ordered
+    else {
+        return Err(AppError::Validation(format!(
+            "purchase order line {} does not exist here: a receipt arrived against an order the \
+             centre has no record of",
+            line.po_line_id
+        )));
+    };
+
+    let reporting_site: Option<String> =
+        sqlx::query_scalar("SELECT site_id FROM sync_origin_credential WHERE origin_id = $1")
+            .bind(origin_id)
+            .fetch_optional(&mut **tx)
+            .await?;
+    let Some(reporting_site) = reporting_site else {
+        return Err(AppError::Validation(format!(
+            "origin {origin_id} is not registered; it cannot report a delivery"
+        )));
+    };
+    if reporting_site != destination_site_id {
+        return Err(AppError::Validation(format!(
+            "{origin_id} stands in site {reporting_site} and purchase order line {} is to be \
+             delivered to {destination_site_id}; a warehouse cannot receive against another \
+             warehouse's order",
+            line.po_line_id
+        )));
+    }
+    if line.supplier_id.trim() != ordered_from.trim() {
+        return Err(AppError::Validation(format!(
+            "this delivery came from {} and that order is with {ordered_from}; a supplier's goods \
+             cannot be received against another supplier's order",
+            line.supplier_id
+        )));
+    }
+
+    // ---- the split, re-derived from what the centre itself holds ----------
+    //
+    // The DC sends its own answer and this ignores it, because the order lives
+    // here. What arrived beyond the outstanding quantity is real — the goods
+    // are on the floor — but it is not quantity this company agreed to buy,
+    // and it stays out of every figure that says what the order is owed.
+    let already_matched: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(sum(matched_quantity), 0)::bigint
+           FROM goods_receipt_line WHERE po_line_id = $1",
+    )
+    .bind(line.po_line_id)
+    .fetch_one(&mut **tx)
+    .await?;
+    let outstanding = (ordered_quantity - already_matched).max(0);
+    let matched_quantity = line.quantity.min(outstanding);
+    let excess_quantity = line.quantity - matched_quantity;
+
+    // The price as it was when the goods were accepted. The DC writes it down
+    // at that moment; a node too old to send one leaves the order's price as
+    // it stands now, which is the best the centre can honestly do.
+    let agreed_unit_price = line
+        .agreed_unit_price_minor
+        .unwrap_or(ordered_unit_price)
+        .max(0);
+
+    // ---- this receipt's share of the order discount -----------------------
+    //
+    // Allocated by running cumulative value, so the shares add up to the
+    // discount exactly and no receipt's share changes once written. A partial
+    // order allocates only the part it has earned: a discount on goods that
+    // never arrived was never earned.
+    let allocated_discount = if order_discount > 0 {
+        let expected_gross: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(sum(ordered_quantity * unit_price_minor), 0)::bigint
+               FROM purchase_order_line WHERE purchase_order_id = $1",
+        )
+        .bind(purchase_order_id)
+        .fetch_one(&mut **tx)
+        .await?;
+        let (matched_value_so_far, allocated_so_far): (i64, i64) = sqlx::query_as(
+            "SELECT COALESCE(sum(r.matched_quantity
+                                 * COALESCE(r.agreed_unit_price_minor, l.unit_price_minor)), 0)::bigint,
+                    COALESCE(sum(r.allocated_discount_minor), 0)::bigint
+               FROM goods_receipt_line r
+               JOIN purchase_order_line l ON l.po_line_id = r.po_line_id
+              WHERE l.purchase_order_id = $1",
+        )
+        .bind(purchase_order_id)
+        .fetch_one(&mut **tx)
+        .await?;
+        if expected_gross <= 0 {
+            0
+        } else {
+            let cumulative = matched_value_so_far
+                .saturating_add(matched_quantity.saturating_mul(agreed_unit_price));
+            // Rounded half up, on integers, and capped at the whole discount:
+            // the last receipt of a completed order takes whatever rounding
+            // left behind, which is what makes the shares reconcile.
+            let target = ((cumulative as i128 * order_discount as i128 * 2
+                + expected_gross as i128)
+                / (expected_gross as i128 * 2)) as i64;
+            target
+                .min(order_discount)
+                .saturating_sub(allocated_so_far)
+                .max(0)
+        }
+    } else {
+        0
+    };
+
     // The document, upserted. Each accepted line carries the header so no
     // ordering rule is needed between two kinds of fact — the first line to
     // arrive creates the receipt, the rest recognise it.
@@ -6060,15 +6617,22 @@ async fn apply_goods_receipt_line(
 
     let inserted = sqlx::query(
         "INSERT INTO goods_receipt_line
-             (receipt_line_id, receipt_id, po_line_id, quantity, counted_by, verified_by,
-              counted_at, verified_at, movement_group_id, generation, seq)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+             (receipt_line_id, receipt_id, count_id, po_line_id, quantity, matched_quantity,
+              excess_quantity, agreed_unit_price_minor, allocated_discount_minor,
+              counted_by, verified_by, counted_at, verified_at, movement_group_id,
+              generation, seq)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
          ON CONFLICT (receipt_line_id) DO NOTHING",
     )
     .bind(line.receipt_line_id)
     .bind(line.receipt_id)
+    .bind(line.count_id)
     .bind(line.po_line_id)
     .bind(line.quantity)
+    .bind(matched_quantity)
+    .bind(excess_quantity)
+    .bind(agreed_unit_price)
+    .bind(allocated_discount)
     .bind(&line.counted_by)
     .bind(&line.verified_by)
     .bind(line.counted_at)
@@ -6111,6 +6675,37 @@ async fn apply_goods_receipt_line(
                         "receipt_line_id": line.receipt_line_id,
                         "po_line_id": line.po_line_id,
                         "quantity": line.quantity,
+                        "matched_quantity": matched_quantity,
+                        "excess_quantity": excess_quantity,
+                    }),
+                },
+                &recipients,
+            )
+            .await?;
+        }
+        // Quantity nobody ordered is a commercial question, and it is asked
+        // the moment it arrives rather than found weeks later by whoever
+        // reconciles the invoice.
+        if excess_quantity > 0 {
+            let recipients =
+                super::notifications::recipients_with_role(tx, &["ADMIN", "SUPERVISOR"]).await?;
+            super::notifications::raise_notification(
+                tx,
+                super::notifications::NewNotification {
+                    kind: "receipt.excess_awaiting_decision",
+                    title: "More arrived than was ordered".into(),
+                    body: format!(
+                        "{excess_quantity} pieces on {} at {origin_id} are beyond what the order \
+                         had outstanding. They are in the warehouse and are not yet ours to sell: \
+                         keep them or send them back.",
+                        line.receipt_number
+                    ),
+                    subject: Some(("goods_receipt_line", line.receipt_line_id.to_string())),
+                    origin_id: Some(origin_id),
+                    payload: serde_json::json!({
+                        "receipt_line_id": line.receipt_line_id,
+                        "po_line_id": line.po_line_id,
+                        "excess_quantity": excess_quantity,
                     }),
                 },
                 &recipients,
@@ -6118,6 +6713,50 @@ async fn apply_goods_receipt_line(
             .await?;
         }
     }
+    Ok(())
+}
+
+/// A whole delivery turned away at the gate.
+///
+/// No lines, because nothing was accepted — which is exactly why this travels
+/// as its own fact. The header used to arrive only on the back of an accepted
+/// line, so a refused lorry left no trace at the centre at all, and "this
+/// supplier sent damaged goods three times" was unanswerable.
+async fn apply_goods_receipt_rejected(
+    tx: &mut Transaction<'_, Postgres>,
+    origin_id: &str,
+    generation: i64,
+    seq: i64,
+    refused: &crate::cloud::domain::GoodsReceiptRejectedPayload,
+) -> Result<(), AppError> {
+    sqlx::query(
+        "INSERT INTO goods_receipt
+             (receipt_id, receipt_number, origin_id, site_id, supplier_id, arrived_at,
+              opened_by, opened_at, status, closed_by, closed_at, rejected_reason,
+              generation, seq)
+         SELECT $1, $2, $3, c.site_id, $4, $5, $6, $7, 'REJECTED', $8, $9, $10, $11, $12
+         FROM sync_origin_credential c WHERE c.origin_id = $3
+         ON CONFLICT (receipt_id) DO UPDATE
+            SET status          = 'REJECTED',
+                closed_by       = EXCLUDED.closed_by,
+                closed_at       = EXCLUDED.closed_at,
+                rejected_reason = EXCLUDED.rejected_reason
+          WHERE goods_receipt.status <> 'REJECTED'",
+    )
+    .bind(refused.receipt_id)
+    .bind(&refused.receipt_number)
+    .bind(origin_id)
+    .bind(&refused.supplier_id)
+    .bind(refused.arrived_at)
+    .bind(&refused.opened_by)
+    .bind(refused.opened_at)
+    .bind(&refused.rejected_by)
+    .bind(refused.rejected_at)
+    .bind(refused.reason.trim())
+    .bind(generation)
+    .bind(seq)
+    .execute(&mut **tx)
+    .await?;
     Ok(())
 }
 
@@ -6184,8 +6823,23 @@ pub async fn purchase_order_status(pool: &PgPool, id: Uuid) -> Result<Value, App
                 l.cancelled_quantity, l.line_status, l.promised_date,
                 l.closed_short_units, l.closed_short_by, l.closed_short_reason,
                 l.unit_price_minor, l.line_amount_minor,
-                COALESCE((SELECT sum(r.quantity) FROM goods_receipt_line r
+                -- What answered the order, and what arrived beyond it. Two
+                -- numbers because they are two different facts: one is the
+                -- company's purchase, the other is goods it has not agreed to
+                -- buy and may be sending back.
+                COALESCE((SELECT sum(r.matched_quantity) FROM goods_receipt_line r
                           WHERE r.po_line_id = l.po_line_id), 0)::bigint AS received_quantity,
+                COALESCE((SELECT sum(r.excess_quantity) FROM goods_receipt_line r
+                          WHERE r.po_line_id = l.po_line_id), 0)::bigint AS excess_quantity,
+                -- What the acceptances are expected to be worth, at the prices
+                -- that applied when each was accepted and net of the discount
+                -- allocated to it. An estimate for Finance to match against —
+                -- nothing here is owed, and nothing here is posted.
+                COALESCE((SELECT sum(r.matched_quantity
+                                     * COALESCE(r.agreed_unit_price_minor, l.unit_price_minor))
+                                 - sum(r.allocated_discount_minor)
+                          FROM goods_receipt_line r
+                          WHERE r.po_line_id = l.po_line_id), 0)::bigint AS expected_value_minor,
                 COALESCE((SELECT array_agg(t.tag_code ORDER BY t.tag_code)
                           FROM purchase_order_line_tag t
                           WHERE t.po_line_id = l.po_line_id), '{}')::text[] AS tags
@@ -6197,7 +6851,9 @@ pub async fn purchase_order_status(pool: &PgPool, id: Uuid) -> Result<Value, App
     .fetch_all(pool)
     .await?;
     let mut fully_received = true;
-    let mut payable_total: i64 = 0;
+    let mut any_received = false;
+    let mut all_lines_settled = true;
+    let mut expected_value_total: i64 = 0;
     let mut gross_total: i64 = 0;
     let mut promised: Option<chrono::NaiveDate> = None;
     let items: Vec<Value> = lines
@@ -6209,6 +6865,12 @@ pub async fn purchase_order_status(pool: &PgPool, id: Uuid) -> Result<Value, App
             // Both sides are pieces, so the comparison is direct.
             let expected_stock_units = ordered - cancelled;
             let short_units: Option<i64> = r.get("closed_short_units");
+            if received > 0 {
+                any_received = true;
+            }
+            if r.get::<String, _>("line_status") == "OPEN" {
+                all_lines_settled = false;
+            }
             // A line closed short has stopped waiting: nothing is outstanding
             // on it any more, even though it was never filled. The shortfall
             // is still reported, because "settled" and "arrived" are not the
@@ -6230,8 +6892,8 @@ pub async fn purchase_order_status(pool: &PgPool, id: Uuid) -> Result<Value, App
             // Price and receipts are both per piece, so this is a straight
             // multiplication with nothing to convert and nothing to round.
             let unit_price: i64 = r.get("unit_price_minor");
-            let payable_minor = received.checked_mul(unit_price).unwrap_or(0);
-            payable_total += payable_minor;
+            let expected_value_minor: i64 = r.get("expected_value_minor");
+            expected_value_total += expected_value_minor;
             gross_total += r.get::<i64, _>("line_amount_minor");
             // One promise per order, which is how it is agreed and how it is
             // stamped. The earliest of the lines, so a split promise reads as
@@ -6244,7 +6906,10 @@ pub async fn purchase_order_status(pool: &PgPool, id: Uuid) -> Result<Value, App
                 "line_number": r.get::<i32, _>("line_number"),
                 "unit_price_minor": unit_price,
                 "ordered_value_minor": r.get::<i64, _>("line_amount_minor"),
-                "payable_minor": payable_minor,
+                // What the acceptances against this line are expected to be
+                // worth. NOT a payable: nothing has validated it and nothing
+                // is posted until Finance matches a supplier bill.
+                "expected_value_minor": expected_value_minor,
                 "article_code": r.get::<String, _>("article_code"),
                 "article_name": r.get::<String, _>("article_name"),
                 // The picture the buyer chose when the order was raised. It has
@@ -6264,6 +6929,7 @@ pub async fn purchase_order_status(pool: &PgPool, id: Uuid) -> Result<Value, App
                 "cancelled_quantity": cancelled,
                 "expected_stock_units": expected_stock_units,
                 "received_quantity": received,
+                "excess_quantity": r.get::<i64, _>("excess_quantity"),
                 "outstanding_stock_units": outstanding,
                 "closed_short_units": short_units,
                 "closed_short_by": r.get::<Option<String>, _>("closed_short_by"),
@@ -6285,9 +6951,23 @@ pub async fn purchase_order_status(pool: &PgPool, id: Uuid) -> Result<Value, App
         "issued_at": header.get::<Option<DateTime<Utc>>, _>("issued_at"),
         "activation_command_id": header.get::<Option<Uuid>, _>("activation_command_id"),
         "fully_received": fully_received,
-        // The sum of what the deliveries actually earned. An order closed
-        // short settles here, at what arrived, not at what was ordered.
-        "payable_minor": payable_total,
+        // Where the order stands, worked out from its receipts on every read.
+        // The stored `order_status` knows only ISSUED and CLOSED and cannot
+        // tell an order that has arrived in full from one nobody has
+        // delivered against.
+        "lifecycle": if all_lines_settled || header.get::<String, _>("order_status") == "CLOSED" {
+            "CLOSED"
+        } else if fully_received {
+            "FULLY_RECEIVED"
+        } else if any_received {
+            "PARTIALLY_RECEIVED"
+        } else {
+            "ACTIVE"
+        },
+        // What the deliveries are expected to be worth, at the prices that
+        // applied when each was accepted. An operational estimate for Finance
+        // to match against — not a payable, and not in the ledger.
+        "expected_value_minor": expected_value_total,
         // What the order is WORTH, which is a different question and the one
         // the list column and the composer's ladder both answer: the lines,
         // the discount agreed on the whole order, and what will be invoiced.
@@ -6317,8 +6997,238 @@ pub struct PurchaseOrderFilter {
     pub suppliers: Vec<String>,
     pub issued_from: Option<chrono::NaiveDate>,
     pub issued_to: Option<chrono::NaiveDate>,
-    pub limit: i64,
+    /// `issued` (the default), `po_number`, `supplier`, `value` or `expected`.
+    ///
+    /// Anything unrecognised falls back to `issued` rather than refusing: a
+    /// sort arrives from a URL somebody may have kept from an older build, and
+    /// a 400 for a stale bookmark is a worse answer than the rows in the house
+    /// order.
+    ///
+    /// There is deliberately no sort by status. Sorting four state names
+    /// alphabetically groups nothing anybody asked for — "show me the open
+    /// ones" is a filter, and the facet counts are how it is asked.
+    pub sort: Option<String>,
+    /// `asc` or `desc`. Absent means each key's OWN natural direction: the
+    /// newest orders first, the largest amounts first, but a PO number and a
+    /// promised date forwards. An order book that opened on the oldest order
+    /// the company ever raised would be a screen nobody could use.
+    pub dir: Option<String>,
+    pub cursor: Option<String>,
+    /// Absent means [`ORDER_BOOK_DEFAULT_LIMIT`], not "everything".
+    pub limit: Option<i64>,
 }
+
+/// How many orders the book returns when the caller does not say.
+///
+/// Here rather than in the handler, beside the only clamp that enforces it. It
+/// was five hundred in the handler and clamped to two thousand here, which is
+/// two spellings of one number and neither of them a page.
+const ORDER_BOOK_DEFAULT_LIMIT: i64 = 200;
+/// And the most it will return however loudly a caller asks.
+///
+/// Down from two thousand. That ceiling existed because there was no other way
+/// to reach the rest of the book — a buyer looking for the nine-hundredth order
+/// had to ask for a thousand. There is a cursor now, so a large `limit` buys
+/// nothing and costs the server a wider scan and the browser a longer list.
+const ORDER_BOOK_MAX_LIMIT: i64 = 1000;
+
+/// One order, as the book draws it.
+///
+/// Typed rather than hand-built JSON, so the browser's `PurchaseOrderRow` is
+/// generated from this struct instead of transcribed beside it. Two of them
+/// were transcribed — the hub's and the cloud console's — which is the disease
+/// `contract_types` exists to cure.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PurchaseOrderRow {
+    pub purchase_order_id: Uuid,
+    pub po_number: String,
+    pub supplier_id: String,
+    pub supplier_name: Option<String>,
+    pub destination_site_id: String,
+    /// Where the order stands, derived from its receipts every time it is
+    /// asked for: `ACTIVE`, `PARTIALLY_RECEIVED`, `FULLY_RECEIVED`, `CLOSED`.
+    /// This is what a screen shows and what the status facet counts.
+    pub lifecycle: String,
+    /// The stored column, which knows only that an order was issued or that
+    /// every line of it has stopped waiting. Kept for readers that still ask;
+    /// `lifecycle` is the answer to "where is this order".
+    pub order_status: String,
+    pub currency: String,
+    /// Absent while the order is still a draft. That is also why the house
+    /// order needs a sentinel — see [`ORDER_BOOK_ROWS`].
+    pub issued_at: Option<DateTime<Utc>>,
+    /// The date the supplier promised. One per order, because that is how it is
+    /// agreed and how it is stamped — the earliest of the lines, so a split
+    /// promise reads as the first thing due.
+    pub expected_arrival: Option<chrono::NaiveDate>,
+    pub line_count: i64,
+    pub gross_minor: i64,
+    pub discount_minor: i64,
+    /// What the supplier will invoice. Stated here rather than left to the
+    /// browser to subtract, so the figure in the list and the figure on the
+    /// order are one calculation.
+    pub net_minor: i64,
+    pub expected_stock_units: i64,
+    /// Quantity that answered the order. Excess is not in here.
+    pub received_stock_units: i64,
+    pub outstanding_stock_units: i64,
+    /// Quantity that arrived beyond the order and is waiting for a buyer to
+    /// say whether the company is keeping it.
+    pub excess_stock_units: i64,
+    pub fully_received: bool,
+}
+
+/// One value a filter can take, and how many orders would still be there.
+///
+/// Counted over what the SEARCH leaves, ignoring the filters currently applied
+/// — so the number beside a supplier answers "how many of their orders are
+/// there", which is the question somebody has while deciding whether to click
+/// it.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PurchaseOrderFacet {
+    pub value: String,
+    /// The supplier's name beside its code, because `SUP-0004` is what this
+    /// system files an order under and the list beside the filter shows
+    /// `PT Sinar Abadi`. Absent for a status, whose words belong to the screen.
+    pub label: Option<String>,
+    pub count: i64,
+}
+
+/// The two things the order book can be narrowed by that are worth counting.
+///
+/// The issue dates are not among them: a facet is a value somebody ticks, and a
+/// range is not a value.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PurchaseOrderFacets {
+    pub order_status: Vec<PurchaseOrderFacet>,
+    pub supplier: Vec<PurchaseOrderFacet>,
+}
+
+/// A page of the order book, and the shape of everything it was drawn from.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PurchaseOrderPage {
+    pub rows: Vec<PurchaseOrderRow>,
+    /// Opaque. Pass it back as `cursor` for the next page; absent means this
+    /// was the last one.
+    ///
+    /// Deliberately not an offset. Orders are raised, issued and cancelled
+    /// while somebody pages through them, and an offset would skip or repeat
+    /// rows with nothing saying so.
+    pub next_cursor: Option<String>,
+    /// Every order the search and the filters match — not just this page.
+    /// Without it a screen can only say "200 orders", which is a statement
+    /// about the page size rather than about the book.
+    pub total: i64,
+    pub facets: PurchaseOrderFacets,
+}
+
+/// Where the previous page stopped — as a ROW, not as a position.
+///
+/// The order's id, whatever the list is sorted by. The seek re-reads that row's
+/// own sort value in SQL, so one cursor shape serves every order and a sixth
+/// sort cannot arrive without its cursor.
+#[derive(Serialize, Deserialize)]
+struct PurchaseOrderCursor {
+    purchase_order_id: Uuid,
+}
+
+/// One order-book row, defined once.
+///
+/// Used by the page query and by the facet counts, and that is the whole reason
+/// it is a constant: the facets are only honest if they count exactly what the
+/// page can show.
+///
+/// Binds: `$1` the search pattern, or NULL for no search.
+///
+/// It stops at the SEARCH. The status, supplier and date filters are applied
+/// outside it, which is what lets one definition answer two different questions
+/// from the same rows: the page wants what the filters leave, while the filter
+/// panel's counts want what the search alone leaves — because "ISSUED 41" has
+/// to mean "there are 41 issued orders", not "41 among the ones you have
+/// already narrowed to issued".
+///
+/// The `*_key` columns are computed here rather than only in `ORDER BY` because
+/// the keyset has to COMPARE the sort value in a `WHERE`, and a sort expression
+/// that is not also a column is one a `WHERE` cannot see.
+///
+/// **`issued_key` is where `NULLS LAST` used to be, and the swap is the whole
+/// point.** A draft has no issue instant, and the old order said
+/// `issued_at DESC NULLS LAST` to keep drafts at the bottom. `NULLS LAST`
+/// orders a result and says nothing a keyset can seek against: a row comparison
+/// against NULL is NULL rather than true, so the first draft would have ended
+/// paging at whatever row happened to carry it, silently, with the rest of the
+/// book below the fold. `-infinity` is the same decision as a VALUE — the
+/// beginning of time sorts last descending, which is where a draft belongs, and
+/// first ascending, which is honest about what an unissued order is.
+const ORDER_BOOK_ROWS: &str = "
+    SELECT b.*,
+           -- Where the order stands, derived rather than stored.
+           --
+           -- `order_status` only ever reads ISSUED or CLOSED, and nothing sets
+           -- CLOSED except closing every line short — so an order that arrived
+           -- in full stayed ISSUED for ever and the list said it was still
+           -- waiting. A stored lifecycle would be a second copy of what the
+           -- receipts already say, and the two would drift the first time a
+           -- fact was replayed.
+           CASE
+               WHEN b.all_lines_settled OR b.order_status = 'CLOSED' THEN 'CLOSED'
+               WHEN b.expected_stock_units > 0
+                    AND b.received_stock_units >= b.expected_stock_units
+                    THEN 'FULLY_RECEIVED'
+               WHEN b.received_stock_units > 0 THEN 'PARTIALLY_RECEIVED'
+               ELSE 'ACTIVE'
+           END AS lifecycle
+    FROM (
+        SELECT o.purchase_order_id, o.po_number, o.supplier_id, o.supplier_name,
+               o.destination_site_id, o.order_status, o.currency, o.issued_at,
+               o.discount_minor,
+               COALESCE(o.issued_at, TIMESTAMPTZ '-infinity') AS issued_key,
+               COALESCE(o.supplier_name, o.supplier_id)       AS supplier_key,
+               count(l.po_line_id)::bigint AS line_count,
+               min(l.promised_date) AS expected_arrival,
+               -- A promise nobody made sorts after every promise somebody did,
+               -- which is the useful answer when the question is what is due
+               -- next.
+               COALESCE(min(l.promised_date), DATE '9999-12-31') AS expected_key,
+               COALESCE(sum(l.line_amount_minor), 0)::bigint AS gross_minor,
+               (COALESCE(sum(l.line_amount_minor), 0) - o.discount_minor)::bigint AS net_key,
+               COALESCE(sum(l.ordered_quantity - l.cancelled_quantity), 0)::bigint
+                   AS expected_stock_units,
+               -- MATCHED, not everything accepted. Quantity that arrived
+               -- beyond the order was never what the order was waiting for,
+               -- and counting it here is how a second delivery of 300 against
+               -- a filled order of 300 read as an order twice over.
+               COALESCE(sum((SELECT COALESCE(sum(r.matched_quantity), 0)
+                             FROM goods_receipt_line r
+                             WHERE r.po_line_id = l.po_line_id)), 0)::bigint
+                   AS received_stock_units,
+               COALESCE(sum((SELECT COALESCE(sum(r.excess_quantity), 0)
+                             FROM goods_receipt_line r
+                             WHERE r.po_line_id = l.po_line_id)), 0)::bigint
+                   AS excess_stock_units,
+               (count(l.po_line_id) > 0 AND bool_and(l.line_status <> 'OPEN'))
+                   AS all_lines_settled
+        FROM purchase_order o
+        LEFT JOIN purchase_order_line l ON l.purchase_order_id = o.purchase_order_id
+        WHERE ($1::text IS NULL
+               OR o.po_number ILIKE $1
+               OR o.supplier_name ILIKE $1
+               OR o.supplier_id ILIKE $1)
+        GROUP BY o.purchase_order_id
+    ) b
+";
+
+/// The status, supplier and date filters, written once for both queries.
+const ORDER_BOOK_FILTERS: &str = "
+    ($2::text[] IS NULL OR lifecycle = ANY($2))
+    AND ($3::text[] IS NULL OR supplier_id = ANY($3))
+    AND ($4::date IS NULL OR issued_at >= $4::date)
+    AND ($5::date IS NULL OR issued_at < $5::date + 1)
+";
 
 /// The order book, narrowed HERE and not in the browser.
 ///
@@ -6333,120 +7243,207 @@ pub struct PurchaseOrderFilter {
 pub async fn list_purchase_orders(
     pool: &PgPool,
     filter: &PurchaseOrderFilter,
-) -> Result<Value, AppError> {
+) -> Result<PurchaseOrderPage, AppError> {
     // `%` on both sides and the escape hatch none of these has: a buyer types
-    // a fragment of a number, not a pattern.
+    // a fragment of a number, not a pattern. A blank search is not a search —
+    // `Some("")` would compile to `ILIKE '%%'`, which matches everything and
+    // costs a scan to say so.
     let needle = filter
         .q
-        .as_ref()
-        .map(|value| format!("%{}%", value.trim().replace('%', "\\%")));
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| format!("%{}%", value.replace('%', "\\%")));
     let statuses = (!filter.statuses.is_empty()).then(|| filter.statuses.clone());
     let suppliers = (!filter.suppliers.is_empty()).then(|| filter.suppliers.clone());
 
-    let rows = sqlx::query(
-        "SELECT o.purchase_order_id, o.po_number, o.supplier_id, o.supplier_name,
-                o.destination_site_id, o.order_status, o.currency, o.issued_at,
-                o.discount_minor,
-                count(l.po_line_id)::bigint AS line_count,
-                min(l.promised_date) AS expected_arrival,
-                COALESCE(sum(l.line_amount_minor), 0)::bigint AS gross_minor,
-                COALESCE(sum(l.ordered_quantity - l.cancelled_quantity), 0)::bigint
-                    AS expected_stock_units,
-                COALESCE(sum((SELECT COALESCE(sum(r.quantity), 0) FROM goods_receipt_line r
-                              WHERE r.po_line_id = l.po_line_id)), 0)::bigint
-                    AS received_stock_units
-         FROM purchase_order o
-         LEFT JOIN purchase_order_line l ON l.purchase_order_id = o.purchase_order_id
-         WHERE ($1::text IS NULL
-                OR o.po_number ILIKE $1
-                OR o.supplier_name ILIKE $1
-                OR o.supplier_id ILIKE $1)
-           AND ($2::text[] IS NULL OR o.order_status = ANY($2))
-           AND ($3::text[] IS NULL OR o.supplier_id = ANY($3))
-           AND ($4::date IS NULL OR o.issued_at >= $4::date)
-           AND ($5::date IS NULL OR o.issued_at < $5::date + 1)
-         GROUP BY o.purchase_order_id
-         ORDER BY o.issued_at DESC NULLS LAST, o.po_number
-         LIMIT $6",
-    )
-    .bind(needle)
-    .bind(statuses)
-    .bind(suppliers)
-    .bind(filter.issued_from)
-    .bind(filter.issued_to)
-    .bind(filter.limit.clamp(1, 2000))
-    .fetch_all(pool)
-    .await?;
-    let items: Vec<Value> = rows
-        .into_iter()
-        .map(|r| {
-            let expected: i64 = r.get("expected_stock_units");
-            let received: i64 = r.get("received_stock_units");
-            let gross: i64 = r.get("gross_minor");
-            let discount: i64 = r.get("discount_minor");
-            json!({
-                "purchase_order_id": r.get::<Uuid, _>("purchase_order_id"),
-                "po_number": r.get::<String, _>("po_number"),
-                "supplier_id": r.get::<String, _>("supplier_id"),
-                "supplier_name": r.get::<Option<String>, _>("supplier_name"),
-                "destination_site_id": r.get::<String, _>("destination_site_id"),
-                "order_status": r.get::<String, _>("order_status"),
-                "currency": r.get::<String, _>("currency"),
-                "issued_at": r.get::<Option<DateTime<Utc>>, _>("issued_at"),
-                // The date the supplier promised. One per order, because that
-                // is how it is agreed and how it is stamped — the earliest of
-                // the lines, so a split promise reads as the first thing due.
-                "expected_arrival": r.get::<Option<chrono::NaiveDate>, _>("expected_arrival"),
-                "line_count": r.get::<i64, _>("line_count"),
-                "gross_minor": gross,
-                "discount_minor": discount,
-                // What the supplier will invoice. Stated here rather than left
-                // to the browser to subtract, so the figure in the list and the
-                // figure on the order are one calculation.
-                "net_minor": (gross - discount).max(0),
-                "expected_stock_units": expected,
-                "received_stock_units": received,
-                "outstanding_stock_units": (expected - received).max(0),
-                "fully_received": received >= expected,
-            })
-        })
-        .collect();
+    // The sort, and the tie-break that makes it total. Every order ends in the
+    // order's id, which is the primary key, so no two rows can compare equal —
+    // which is what stops a keyset from repeating or losing the rows that tie.
+    // The PO number would nearly do and the issue instant would not: a batch
+    // issued together shares it.
+    let (lead, natural_desc) = match filter.sort.as_deref() {
+        Some("po_number") => ("po_number", false),
+        Some("supplier") => ("supplier_key", false),
+        Some("value") => ("net_key", true),
+        Some("expected") => ("expected_key", false),
+        _ => ("issued_key", true),
+    };
+    let desc = match filter.dir.as_deref() {
+        Some("asc") => false,
+        Some("desc") => true,
+        _ => natural_desc,
+    };
+    let (cols, order) = super::order_by(lead, "purchase_order_id", desc);
+    // Which way the seek points follows the direction, or paging a descending
+    // list walks back up it.
+    let seek = if desc { "<" } else { ">" };
 
-    // What the picker prints beside each option, counted over the WHOLE book
-    // rather than over the rows that survived the filters. The number answers
-    // "is this filter worth pressing" — a count that had already been narrowed
-    // by the filter it is offering would be zero beside every option nobody
-    // has ticked, which reads as a book with nothing in it.
-    let statuses = sqlx::query(
-        "SELECT order_status AS value, count(*)::bigint AS rows
-         FROM purchase_order GROUP BY order_status",
-    )
-    .fetch_all(pool)
-    .await?;
-    let suppliers = sqlx::query(
-        "SELECT supplier_id AS value, count(*)::bigint AS rows
-         FROM purchase_order GROUP BY supplier_id",
-    )
-    .fetch_all(pool)
-    .await?;
-    let counted = |rows: Vec<sqlx::postgres::PgRow>| -> Vec<Value> {
-        rows.into_iter()
-            .map(|r| {
-                json!({
-                    "value": r.get::<String, _>("value"),
-                    "count": r.get::<i64, _>("rows"),
-                })
-            })
-            .collect()
+    let cursor: Option<PurchaseOrderCursor> = filter
+        .cursor
+        .as_deref()
+        .map(super::decode_cursor)
+        .transpose()?;
+    let limit = filter
+        .limit
+        .unwrap_or(ORDER_BOOK_DEFAULT_LIMIT)
+        .clamp(1, ORDER_BOOK_MAX_LIMIT);
+
+    // The seek re-reads the previous row's own sort value rather than trusting
+    // one encoded in the cursor: one cursor shape then serves every order, and
+    // a sixth sort cannot arrive without its cursor.
+    // `NOT MATERIALIZED`: `kept` is referenced twice — as the page and
+    // inside the seek — and two references makes PostgreSQL materialise a
+    // CTE, which is an optimisation fence the `ORDER BY … LIMIT` cannot be
+    // pushed through. Materialised, this reads the whole table and sorts it
+    // to hand back one page; inlined, it seeks the index. See
+    // `postgres::audit::list_audit`, where the difference was measured.
+    let sql = format!(
+        "WITH searched AS NOT MATERIALIZED ({ORDER_BOOK_ROWS}),
+              kept AS NOT MATERIALIZED (
+             SELECT * FROM searched WHERE {ORDER_BOOK_FILTERS}
+         )
+         SELECT * FROM kept
+          WHERE $6::uuid IS NULL
+             OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE purchase_order_id = $6)
+          ORDER BY {order}
+          LIMIT $7"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(&needle)
+        .bind(&statuses)
+        .bind(&suppliers)
+        .bind(filter.issued_from)
+        .bind(filter.issued_to)
+        .bind(cursor.as_ref().map(|c| c.purchase_order_id))
+        .bind(limit)
+        .fetch_all(pool)
+        .await?;
+
+    // A short page is the last page. A full one may not be — the next request
+    // can come back empty — and that is the honest answer: knowing whether more
+    // rows exist without asking costs a second count of the same query.
+    let next_cursor = match rows.last() {
+        Some(row) if rows.len() as i64 == limit => {
+            Some(super::encode_cursor(&PurchaseOrderCursor {
+                purchase_order_id: row.try_get("purchase_order_id")?,
+            })?)
+        }
+        _ => None,
     };
 
-    Ok(json!({
-        "items": items,
-        "facets": {
-            "order_status": counted(statuses),
-            "supplier": counted(suppliers),
+    let mut items = Vec::with_capacity(rows.len());
+    for r in &rows {
+        let expected: i64 = r.try_get("expected_stock_units")?;
+        let received: i64 = r.try_get("received_stock_units")?;
+        let gross: i64 = r.try_get("gross_minor")?;
+        let discount: i64 = r.try_get("discount_minor")?;
+        items.push(PurchaseOrderRow {
+            purchase_order_id: r.try_get("purchase_order_id")?,
+            po_number: r.try_get("po_number")?,
+            supplier_id: r.try_get("supplier_id")?,
+            supplier_name: r.try_get("supplier_name")?,
+            destination_site_id: r.try_get("destination_site_id")?,
+            lifecycle: r.try_get("lifecycle")?,
+            order_status: r.try_get("order_status")?,
+            currency: r.try_get("currency")?,
+            issued_at: r.try_get("issued_at")?,
+            expected_arrival: r.try_get("expected_arrival")?,
+            line_count: r.try_get("line_count")?,
+            gross_minor: gross,
+            discount_minor: discount,
+            net_minor: (gross - discount).max(0),
+            expected_stock_units: expected,
+            received_stock_units: received,
+            outstanding_stock_units: (expected - received).max(0),
+            excess_stock_units: r.try_get("excess_stock_units")?,
+            fully_received: received >= expected,
+        });
+    }
+
+    let (total, facets) = order_book_facets(pool, filter, needle.as_deref()).await?;
+    Ok(PurchaseOrderPage {
+        rows: items,
+        next_cursor,
+        total,
+        facets,
+    })
+}
+
+/// How many orders there are, and how they split.
+///
+/// Counted from the SAME [`ORDER_BOOK_ROWS`] the page is drawn from, so a
+/// change to what a listable order is moves both together. The two scopes are
+/// deliberate:
+///
+///   per-value counts read the SEARCHED set, ignoring which filters are
+///     applied. The number answers "is this filter worth pressing" — a count
+///     already narrowed by the filter it is offering would be zero beside every
+///     option nobody has ticked, which reads as a book with nothing in it.
+///   the total reads the FILTERED set, because it describes the list on screen.
+///
+/// The old version counted the whole `purchase_order` table for both — search
+/// included — so a search with three hits sat under a filter panel promising
+/// hundreds, and the counts described a book the caller was not looking at.
+/// This is the same correction the pricelist's facets already carry.
+async fn order_book_facets(
+    pool: &PgPool,
+    filter: &PurchaseOrderFilter,
+    needle: Option<&str>,
+) -> Result<(i64, PurchaseOrderFacets), AppError> {
+    let statuses = (!filter.statuses.is_empty()).then(|| filter.statuses.clone());
+    let suppliers = (!filter.suppliers.is_empty()).then(|| filter.suppliers.clone());
+    let sql = format!(
+        "WITH searched AS ({ORDER_BOOK_ROWS}), kept AS (
+             SELECT * FROM searched WHERE {ORDER_BOOK_FILTERS}
+         )
+         SELECT 'status' AS facet, lifecycle AS value, NULL::text AS label,
+                count(*)::bigint AS n
+           FROM searched GROUP BY lifecycle
+          UNION ALL
+         SELECT 'supplier', supplier_id, max(supplier_name), count(*)::bigint
+           FROM searched GROUP BY supplier_id
+          UNION ALL
+         SELECT 'all', '', NULL::text, count(*)::bigint FROM kept"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(needle)
+        .bind(&statuses)
+        .bind(&suppliers)
+        .bind(filter.issued_from)
+        .bind(filter.issued_to)
+        .fetch_all(pool)
+        .await?;
+
+    let mut total = 0i64;
+    let mut order_status = Vec::new();
+    let mut supplier = Vec::new();
+    for row in &rows {
+        let facet: String = row.try_get("facet")?;
+        let one = PurchaseOrderFacet {
+            value: row.try_get("value")?,
+            label: row.try_get("label")?,
+            count: row.try_get("n")?,
+        };
+        match facet.as_str() {
+            "status" => order_status.push(one),
+            "supplier" => supplier.push(one),
+            _ => total = one.count,
         }
-    }))
+    }
+    // Biggest first, ties broken on the value, as every other facet panel in
+    // this estate is ordered — a list that reshuffles between calls is a list
+    // nobody can click.
+    for list in [&mut order_status, &mut supplier] {
+        list.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.value.cmp(&b.value)));
+    }
+    Ok((
+        total,
+        PurchaseOrderFacets {
+            order_status,
+            supplier,
+        },
+    ))
 }
 
 // ---- Price amendments: the question, and head office's answer ------------
@@ -6558,44 +7555,270 @@ fn minor(value: i64) -> String {
     }
 }
 
+/// What narrows the buyer's inbox.
+#[derive(Clone, Debug, Default)]
+pub struct PriceAmendmentScope {
+    /// PO number, article code, article name, or who asked. One box: the
+    /// question is "which query was that" and a buyer holding a delivery note
+    /// does not want to be asked which KIND of thing they are holding.
+    pub q: Option<String>,
+    /// Which warehouse asked. Empty means every one of them.
+    pub origins: Vec<String>,
+    /// `requested` (the default), `difference` or `po_number`. Anything
+    /// unrecognised falls back to `requested` rather than refusing.
+    pub sort: Option<String>,
+    /// `asc` or `desc`. Absent means each key's own natural direction: oldest
+    /// question first, because this is a QUEUE and the thing that has been
+    /// waiting longest is the thing to answer — but the biggest gap first when
+    /// sorting by what the supplier over-billed.
+    pub dir: Option<String>,
+    pub cursor: Option<String>,
+    pub limit: Option<i64>,
+}
+
+/// How many questions the inbox returns when the caller does not say.
+const AMENDMENT_DEFAULT_LIMIT: i64 = 200;
+/// And the most it will return however loudly a caller asks.
+const AMENDMENT_MAX_LIMIT: i64 = 1000;
+
+/// One question waiting for head office.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PriceAmendmentRow {
+    pub request_id: Uuid,
+    pub po_number: String,
+    pub po_line_id: Uuid,
+    /// The warehouse that accepted the delivery and found the gap.
+    pub origin_id: String,
+    pub count_id: Uuid,
+    pub article_code: String,
+    pub article_name: String,
+    pub ordered_price_minor: i64,
+    pub invoiced_price_minor: i64,
+    /// What the supplier billed over the agreed price. Signed, because a
+    /// supplier billing UNDER the agreement is also a question and a screen
+    /// that showed it as a positive gap would read it as an overcharge.
+    pub difference_minor: i64,
+    pub note: String,
+    pub requested_by: String,
+    pub requested_at: DateTime<Utc>,
+}
+
+/// One value the inbox can be narrowed by, and how many questions it leaves.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PriceAmendmentFacet {
+    pub value: String,
+    pub count: i64,
+}
+
+/// The one thing this inbox can be narrowed by that is worth counting.
+///
+/// Which warehouse is asking is the first question an unanswered pile raises:
+/// one DC finding gaps on every delivery and the whole fleet finding them are
+/// different faults, and only one of them is about a supplier.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PriceAmendmentFacets {
+    pub origins: Vec<PriceAmendmentFacet>,
+}
+
+/// A page of the buyer's inbox, and the shape of everything it was drawn from.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PriceAmendmentPage {
+    pub rows: Vec<PriceAmendmentRow>,
+    pub next_cursor: Option<String>,
+    /// Every question still waiting, not just this page.
+    ///
+    /// This is the number the navigation badge wants. It used to read the
+    /// array's own `length`, which counts the page — so a pile deeper than a
+    /// page would have advertised itself as exactly one page deep, on the one
+    /// control whose whole job is to say how much is waiting.
+    pub total: i64,
+    pub facets: PriceAmendmentFacets,
+}
+
+/// Where the previous page stopped — as a ROW, not as a position.
+#[derive(Serialize, Deserialize)]
+struct PriceAmendmentCursor {
+    request_id: Uuid,
+}
+
+/// One pending question, defined once.
+///
+/// Used by the page query and by the facet counts, and that is the whole reason
+/// it is a constant: the facets are only honest if they count exactly what the
+/// page can show.
+///
+/// Binds: `$1` the search pattern, or NULL for no search.
+///
+/// `status = 'PENDING'` is not a filter here, it is what this list IS: an
+/// answered query is a decision with a trail, and it is read from the audit,
+/// not from the inbox.
+const AMENDMENT_ROWS: &str = "
+    SELECT a.request_id, a.po_line_id, a.origin_id, a.count_id,
+           a.ordered_price_minor, a.invoiced_price_minor, a.note,
+           a.requested_by, a.requested_at,
+           o.po_number, l.article_code, l.article_name,
+           (a.invoiced_price_minor - a.ordered_price_minor) AS difference_minor
+      FROM purchase_price_amendment a
+      JOIN purchase_order_line l ON l.po_line_id = a.po_line_id
+      JOIN purchase_order o ON o.purchase_order_id = l.purchase_order_id
+     WHERE a.status = 'PENDING'
+       AND ($1::text IS NULL
+            OR o.po_number ILIKE $1
+            OR l.article_code ILIKE $1
+            OR l.article_name ILIKE $1
+            OR a.requested_by ILIKE $1)
+";
+
 /// Questions waiting for head office. The buyer's inbox.
-pub async fn pending_price_amendments(pool: &PgPool) -> Result<Value, AppError> {
-    let rows = sqlx::query(
-        "SELECT a.request_id, a.po_line_id, a.origin_id, a.count_id,
-                a.ordered_price_minor, a.invoiced_price_minor, a.note,
-                a.requested_by, a.requested_at,
-                o.po_number, l.article_code, l.article_name
-         FROM purchase_price_amendment a
-         JOIN purchase_order_line l ON l.po_line_id = a.po_line_id
-         JOIN purchase_order o ON o.purchase_order_id = l.purchase_order_id
-         WHERE a.status = 'PENDING'
-         ORDER BY a.requested_at",
-    )
-    .fetch_all(pool)
-    .await?;
-    let items: Vec<Value> = rows
-        .into_iter()
-        .map(|r| {
-            let ordered: i64 = r.get("ordered_price_minor");
-            let invoiced: i64 = r.get("invoiced_price_minor");
-            json!({
-                "request_id": r.get::<Uuid, _>("request_id"),
-                "po_number": r.get::<String, _>("po_number"),
-                "po_line_id": r.get::<Uuid, _>("po_line_id"),
-                "origin_id": r.get::<String, _>("origin_id"),
-                "count_id": r.get::<Uuid, _>("count_id"),
-                "article_code": r.get::<String, _>("article_code"),
-                "article_name": r.get::<String, _>("article_name"),
-                "ordered_price_minor": ordered,
-                "invoiced_price_minor": invoiced,
-                "difference_minor": invoiced - ordered,
-                "note": r.get::<String, _>("note"),
-                "requested_by": r.get::<String, _>("requested_by"),
-                "requested_at": r.get::<DateTime<Utc>, _>("requested_at"),
-            })
-        })
-        .collect();
-    Ok(json!({ "pending": items.len(), "items": items }))
+///
+/// Paged, and the reason is not today's row count — it is nought. It is that
+/// nothing drains this. A request sits here until somebody at head office
+/// answers it, and the failure mode of a queue nobody empties is that it grows
+/// without any single day's work looking unusual. A bare array would have had
+/// nowhere to put a cursor on the day it mattered, and that day is the one when
+/// the pile is already too deep to read.
+pub async fn pending_price_amendments(
+    pool: &PgPool,
+    scope: &PriceAmendmentScope,
+) -> Result<PriceAmendmentPage, AppError> {
+    let needle = scope
+        .q
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| format!("%{}%", value.replace('%', "\\%")));
+    let origins = (!scope.origins.is_empty()).then(|| scope.origins.clone());
+
+    let (lead, natural_desc) = match scope.sort.as_deref() {
+        Some("difference") => ("difference_minor", true),
+        Some("po_number") => ("po_number", false),
+        _ => ("requested_at", false),
+    };
+    let desc = match scope.dir.as_deref() {
+        Some("asc") => false,
+        Some("desc") => true,
+        _ => natural_desc,
+    };
+    let (cols, order) = super::order_by(lead, "request_id", desc);
+    let seek = if desc { "<" } else { ">" };
+
+    let cursor: Option<PriceAmendmentCursor> = scope
+        .cursor
+        .as_deref()
+        .map(super::decode_cursor)
+        .transpose()?;
+    let limit = scope
+        .limit
+        .unwrap_or(AMENDMENT_DEFAULT_LIMIT)
+        .clamp(1, AMENDMENT_MAX_LIMIT);
+
+    // `NOT MATERIALIZED`: `kept` is referenced twice — as the page and
+    // inside the seek — and two references makes PostgreSQL materialise a
+    // CTE, which is an optimisation fence the `ORDER BY … LIMIT` cannot be
+    // pushed through. Materialised, this reads the whole table and sorts it
+    // to hand back one page; inlined, it seeks the index. See
+    // `postgres::audit::list_audit`, where the difference was measured.
+    let sql = format!(
+        "WITH searched AS NOT MATERIALIZED ({AMENDMENT_ROWS}),
+              kept AS NOT MATERIALIZED (
+             SELECT * FROM searched WHERE ($2::text[] IS NULL OR origin_id = ANY($2))
+         )
+         SELECT * FROM kept
+          WHERE $3::uuid IS NULL
+             OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE request_id = $3)
+          ORDER BY {order}
+          LIMIT $4"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(&needle)
+        .bind(&origins)
+        .bind(cursor.as_ref().map(|c| c.request_id))
+        .bind(limit)
+        .fetch_all(pool)
+        .await?;
+
+    let next_cursor = match rows.last() {
+        Some(row) if rows.len() as i64 == limit => {
+            Some(super::encode_cursor(&PriceAmendmentCursor {
+                request_id: row.try_get("request_id")?,
+            })?)
+        }
+        _ => None,
+    };
+
+    let mut items = Vec::with_capacity(rows.len());
+    for r in &rows {
+        items.push(PriceAmendmentRow {
+            request_id: r.try_get("request_id")?,
+            po_number: r.try_get("po_number")?,
+            po_line_id: r.try_get("po_line_id")?,
+            origin_id: r.try_get("origin_id")?,
+            count_id: r.try_get("count_id")?,
+            article_code: r.try_get("article_code")?,
+            article_name: r.try_get("article_name")?,
+            ordered_price_minor: r.try_get("ordered_price_minor")?,
+            invoiced_price_minor: r.try_get("invoiced_price_minor")?,
+            difference_minor: r.try_get("difference_minor")?,
+            note: r.try_get("note")?,
+            requested_by: r.try_get("requested_by")?,
+            requested_at: r.try_get("requested_at")?,
+        });
+    }
+
+    let (total, facets) = amendment_facets(pool, &origins, needle.as_deref()).await?;
+    Ok(PriceAmendmentPage {
+        rows: items,
+        next_cursor,
+        total,
+        facets,
+    })
+}
+
+/// How many questions are waiting, and which warehouse is asking them.
+///
+/// Counted from the SAME [`AMENDMENT_ROWS`] the page is drawn from. The
+/// per-value counts read the SEARCHED set, ignoring which origin is ticked; the
+/// total reads the FILTERED set, because it describes the list on screen.
+async fn amendment_facets(
+    pool: &PgPool,
+    origins: &Option<Vec<String>>,
+    needle: Option<&str>,
+) -> Result<(i64, PriceAmendmentFacets), AppError> {
+    let sql = format!(
+        "WITH searched AS ({AMENDMENT_ROWS}), kept AS (
+             SELECT * FROM searched WHERE ($2::text[] IS NULL OR origin_id = ANY($2))
+         )
+         SELECT 'origin' AS facet, origin_id AS value, count(*)::bigint AS n
+           FROM searched GROUP BY origin_id
+          UNION ALL
+         SELECT 'all', '', count(*)::bigint FROM kept"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(needle)
+        .bind(origins)
+        .fetch_all(pool)
+        .await?;
+
+    let mut total = 0i64;
+    let mut by_origin = Vec::new();
+    for row in &rows {
+        let facet: String = row.try_get("facet")?;
+        let one = PriceAmendmentFacet {
+            value: row.try_get("value")?,
+            count: row.try_get("n")?,
+        };
+        if facet == "origin" {
+            by_origin.push(one);
+        } else {
+            total = one.count;
+        }
+    }
+    by_origin.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.value.cmp(&b.value)));
+    Ok((total, PriceAmendmentFacets { origins: by_origin }))
 }
 
 /// Head office answers, and the answer travels back to the DC that asked.
@@ -6605,10 +7828,40 @@ pub async fn pending_price_amendments(pool: &PgPool) -> Result<Value, AppError> 
 /// a delivery waiting on an answer that already exists. Rejecting changes
 /// nothing about the order and is still recorded: a supplier who repeatedly
 /// bills above the agreed price leaves a trail here and nowhere else.
+/// How far an approval reaches.
+///
+/// Two different commercial acts. A verifier's query is about the lorry in
+/// front of them: the supplier billed this delivery at a different price, and
+/// the buyer either agrees to pay it for THIS delivery or does not. Changing
+/// what the rest of the order costs is a negotiation, and running them
+/// together is how an order silently changes value because somebody approved
+/// an invoice.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum AmendmentReach {
+    /// Settle this acceptance at the approved price. The order line keeps the
+    /// price it was raised at, and the next delivery is still expected at it.
+    Delivery,
+    /// Settle this acceptance AND make the approved price the agreed price for
+    /// quantity not yet received. Receipts already accepted are untouched:
+    /// each carries the price it was accepted at.
+    Remaining,
+}
+
+impl AmendmentReach {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Delivery => "DELIVERY",
+            Self::Remaining => "REMAINING",
+        }
+    }
+}
+
 pub async fn decide_price_amendment(
     pool: &PgPool,
     request_id: Uuid,
     outcome: PriceAmendmentOutcome,
+    reach: AmendmentReach,
     decided_by: &str,
     note: Option<&str>,
 ) -> Result<(Uuid, Uuid), AppError> {
@@ -6637,28 +7890,44 @@ pub async fn decide_price_amendment(
     let invoiced: i64 = row.get("invoiced_price_minor");
     let decided_at = Utc::now();
 
+    // Which acceptance this answers. The query names the DC's count; the
+    // receipt line carries that count, so the approval can be tied to the
+    // delivery it is about instead of to a column somebody will edit later.
+    let receipt_line_id: Option<Uuid> =
+        sqlx::query_scalar("SELECT receipt_line_id FROM goods_receipt_line WHERE count_id = $1")
+            .bind(count_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+
     let approved_price = match outcome {
         PriceAmendmentOutcome::Approved => {
-            // The order now says what the invoice said. The line amount
-            // follows, because a price and a total that disagree are worse
-            // than either being wrong alone.
-            sqlx::query(
-                "UPDATE purchase_order_line
-                 SET unit_price_minor = $2,
-                     line_amount_minor = $2 * (ordered_quantity - cancelled_quantity)
-                 WHERE po_line_id = $1",
-            )
-            .bind(po_line_id)
-            .bind(invoiced)
-            .execute(&mut *tx)
-            .await?;
+            // Only a REMAINING approval touches the order. A DELIVERY approval
+            // settles the acceptance that raised it, and the acceptance
+            // carries its own price — so rewriting the line here would restate
+            // what every earlier delivery on this order had been worth, which
+            // is exactly the defect this replaced.
+            if reach == AmendmentReach::Remaining {
+                sqlx::query(
+                    "UPDATE purchase_order_line
+                     SET unit_price_minor = $2,
+                         line_amount_minor = $2 * (ordered_quantity - cancelled_quantity)
+                     WHERE po_line_id = $1",
+                )
+                .bind(po_line_id)
+                .bind(invoiced)
+                .execute(&mut *tx)
+                .await?;
+            }
             Some(invoiced)
         }
         PriceAmendmentOutcome::Rejected => None,
     };
     sqlx::query(
         "UPDATE purchase_price_amendment
-         SET status = $2, decided_by = $3, decided_at = $4, decision_note = $5
+         SET status = $2, decided_by = $3, decided_at = $4, decision_note = $5,
+             receipt_line_id = $6,
+             approved_unit_price_minor = $7,
+             scope = $8
          WHERE request_id = $1",
     )
     .bind(request_id)
@@ -6669,6 +7938,9 @@ pub async fn decide_price_amendment(
     .bind(decided_by)
     .bind(decided_at)
     .bind(note)
+    .bind(receipt_line_id)
+    .bind(approved_price)
+    .bind(approved_price.map(|_| reach.as_str()))
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
@@ -6679,6 +7951,7 @@ pub async fn decide_price_amendment(
         "count_id": count_id,
         "outcome": outcome,
         "approved_price_minor": approved_price,
+        "scope": approved_price.map(|_| reach.as_str()),
         "decided_by": decided_by,
         "decision_note": note,
         "decided_at": decided_at,

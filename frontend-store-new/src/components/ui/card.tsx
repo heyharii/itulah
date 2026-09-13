@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils"
 
-/// White card, one hairline, 16px corners, whisper shadow.
+/// White card, one hairline, `--r-card` corners, whisper shadow.
 ///
 /// Cards are lifted by their border, not by shadow — the shadow token exists to
 /// stop the white-on-white edge disappearing, not to float anything.
@@ -62,7 +62,7 @@ export function RecordCard({
     <>
       <CardStrip>
         {icon !== undefined && (
-          <span className="grid size-[1.6875rem] shrink-0 place-items-center rounded-[0.5rem] border border-hairline bg-canvas text-line-ico [&_svg]:size-[0.9375rem]">
+          <span className="grid size-[1.6875rem] shrink-0 place-items-center rounded-inner border border-hairline-2 bg-canvas text-line-ico [&_svg]:size-[0.9375rem]">
             {icon}
           </span>
         )}

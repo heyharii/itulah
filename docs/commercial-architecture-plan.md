@@ -1,5 +1,7 @@
 # Commercial / Pricing Architecture Plan
 
+> **Catatan baseline 12 September 2026:** dokumen ini dipertahankan sebagai latar arsitektur 31 Agustus. Untuk scope dan semantics Commercial V1 terbaru, gunakan [acuan utama](commercial-v1.md) dan [daftar koreksi terhadap draft lama](commercial-v1-change-control.md). Bagian yang berbeda—termasuk strict Campaign budget, offline tender, tax basis, dan advanced capabilities—tidak menjadi kontrak V1. Pernyataan kondisi kode di bawah adalah catatan pada tanggal dokumen, bukan audit implementasi terbaru.
+
 **Status:** Proposed target architecture
 **Date:** 2026-08-31
 **Scope:** Price authoring, deterministic pricing, simulation, release, Store publication, activation, and pricing attribution

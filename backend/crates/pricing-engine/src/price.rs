@@ -22,6 +22,7 @@ use crate::{CartLine, PricingContext};
 /// side by side with a separate `level` field saying which of them to read —
 /// so a row can claim to be a tier price while carrying a store id, and nothing
 /// catches it.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "level", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum PriceLevel {

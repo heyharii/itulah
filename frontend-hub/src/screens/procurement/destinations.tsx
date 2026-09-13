@@ -6,10 +6,13 @@ import { useMemo, useState } from "react"
 import { PageContent } from "@/components/shell/app-shell"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
+import { FilterPanel } from "@/components/ui/filter-panel"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
+import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
+import { useFilters } from "@/lib/filters"
 import { count } from "@/lib/format"
 import {
   listPurchaseOrders,
@@ -62,7 +65,10 @@ const columns: ColumnDef<TableSetup, DestinationRow>[] = [
     header: "Kind",
     size: 130,
     // A buyer routing a full container and a buyer topping up one shop are
-    // making different decisions, and the list says which is which.
+    // making different decisions, and the list says which is which — and it is
+    // the one question worth asking a two-value column, because "only the
+    // warehouses" is how a container is routed.
+    meta: { filter: { kind: "option" } },
     cell: ({ row }) => (
       <Tag tone={row.original.node_role === "DC" ? "accent" : "neutral"}>
         {row.original.node_role}
@@ -73,14 +79,17 @@ const columns: ColumnDef<TableSetup, DestinationRow>[] = [
     accessorKey: "orders",
     header: "Orders routed here",
     size: 170,
-    meta: { align: "right" },
+    // Zero is the interesting end of this column, not the top: a destination
+    // nothing has ever been routed to is either a shop nobody supplies direct
+    // or a site somebody forgot, and `is 0` is the only way to ask which.
+    meta: { align: "right", filter: { kind: "number", unit: "orders" } },
     cell: ({ row }) => count(row.original.orders),
   },
   {
     accessorKey: "outstanding",
     header: "Units still owed",
     size: 160,
-    meta: { align: "right" },
+    meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
     // The decision metric: a destination with a lot in flight is where the
     // receiving effort is about to land.
     cell: ({ row }) => (
@@ -133,17 +142,19 @@ export function Destinations() {
 
   const warehouses = rows.filter((row) => row.node_role === "DC").length
 
+  const filters = useFilters(columns)
+
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
         data: rows,
-        columns,
+        columns: filters.columns,
         getRowId: (row: DestinationRow) => row.site_id,
-        state: { sorting },
+        state: { columnFilters: filters.columnFilters, sorting },
         onSortingChange: setSorting,
       }),
-      [rows, sorting]
+      [rows, filters.columns, filters.columnFilters, sorting]
     )
   )
 
@@ -169,6 +180,14 @@ export function Destinations() {
         />
       </KpiStrip>
 
+      {/* The KPIs above are the whole fleet and the filters below narrow only
+          the table: a strip that moved with the chips would be a second,
+          quieter answer to "how many places can a delivery go", and the
+          question this screen exists to answer is the unnarrowed one. */}
+      <Toolbar>
+        <FilterPanel model={filters} table={table} />
+      </Toolbar>
+
       <Card className="overflow-hidden">
         {queryState(destinations, {
           loading: "Asking where a delivery can go…",
@@ -181,6 +200,7 @@ export function Destinations() {
             ) : (
               <DataTable<DestinationRow>
                 table={table}
+                empty="No destination matches the filters in force."
                 className="max-h-[calc(100vh-20rem)]"
               />
             ),

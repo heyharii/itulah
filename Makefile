@@ -36,8 +36,17 @@ rfid-demo:
 
 # Rewrite the TypeScript the browser uses from the Rust structs the server
 # actually serialises. Run this after changing anything on the wire.
+#
+# Two steps, and the second is not optional. ts-rs writes one file per type and
+# nothing else; the barrel every app imports from is written by
+# `generate-index.mjs`. Leaving that out is worse than forgetting the whole
+# target: `src/contract/TaxRule.ts` exists, `contract-check` sees no drift, and
+# `import type { TaxRule } from "@itulah/contract"` still fails — a type the
+# server has been sending for a week that no browser can name. That is exactly
+# what happened to `TaxRule` and to `MarkdownPolicy`.
 contract:
 	cd backend && cargo test --features ts --test contract_types
+	cd frontend-contract && node generate-index.mjs
 
 # Fail if the committed contract no longer matches the structs.
 #

@@ -1,3 +1,4 @@
+use crate::cloud::domain::{Fulfillment, FulfillmentCounters};
 use serde::{Deserialize, Serialize};
 use std::{fmt, str::FromStr};
 use thiserror::Error;
@@ -119,55 +120,68 @@ impl FromStr for AllotmentStatus {
     }
 }
 
-/// Reservation remaining in the source pool. Picking releases Allotted;
-/// packing, shipment, dispatch, and receipt are separate lifecycle stages.
-pub fn remaining_allotted(
+/// What this line still has to put into cartons.
+///
+/// The comment that used to sit here said "Picking releases Allotted". It did
+/// not, and it had not for as long as the code it described: a pick on this
+/// node writes an inventory fact and touches no allotment row. The formula
+/// underneath it *did* subtract picks, though, which is how the centre and the
+/// node came to disagree about the same warehouse.
+///
+/// One equation now, and it lives at `cloud::domain::commitment`: a piece is
+/// bound to a shop by going into a carton, and nothing before that binds it.
+pub fn to_pack(
     accepted_quantity: i64,
-    picked_quantity: i64,
-    cancelled_quantity: i64,
+    packed_quantity: i64,
+    closed_short_quantity: i64,
 ) -> Result<i64, AllotmentError> {
     if accepted_quantity < 0 {
         return Err(AllotmentError::NegativeAcceptedQuantity);
     }
-    if picked_quantity < 0
-        || cancelled_quantity < 0
-        || picked_quantity + cancelled_quantity > accepted_quantity
-    {
-        return Err(AllotmentError::InvalidReservationConsumption);
-    }
-    Ok(accepted_quantity - picked_quantity - cancelled_quantity)
+    Fulfillment::project(FulfillmentCounters {
+        original_alloted: accepted_quantity,
+        packed_total: packed_quantity,
+        closed_short_total: closed_short_quantity,
+        ..FulfillmentCounters::default()
+    })
+    .map(|fulfillment| fulfillment.to_pack_qty)
+    .map_err(|_| AllotmentError::InvalidReservationConsumption)
 }
 
+/// The node's own status vocabulary, which is not the centre's three and is
+/// not changed here: `DC_COMPLETED` stops being terminal in step 5, and the
+/// wire it travels on is versioned. What changes now is what the words are
+/// derived FROM — packing rather than picking.
 pub fn derive_allotment_status(
     accepted_quantity: i64,
-    picked_quantity: i64,
+    packed_quantity: i64,
     dispatched_quantity: i64,
-    cancelled_quantity: i64,
+    closed_short_quantity: i64,
     rejected: bool,
 ) -> Result<AllotmentStatus, AllotmentError> {
     if rejected {
         if accepted_quantity == 0
-            && picked_quantity == 0
+            && packed_quantity == 0
             && dispatched_quantity == 0
-            && cancelled_quantity == 0
+            && closed_short_quantity == 0
         {
             return Ok(AllotmentStatus::Rejected);
         }
         return Err(AllotmentError::RejectedWithInventoryProgress);
     }
-    if dispatched_quantity < 0 || dispatched_quantity > picked_quantity {
+    if dispatched_quantity < 0 || dispatched_quantity > packed_quantity {
         return Err(AllotmentError::InvalidDispatchQuantity);
     }
-    let remaining = remaining_allotted(accepted_quantity, picked_quantity, cancelled_quantity)?;
+    let remaining = to_pack(accepted_quantity, packed_quantity, closed_short_quantity)?;
     let dc_consumed = dispatched_quantity
-        .checked_add(cancelled_quantity)
+        .checked_add(closed_short_quantity)
         .ok_or(AllotmentError::InvalidCompletionQuantity)?;
     Ok(
-        if accepted_quantity > 0 && remaining == 0 && picked_quantity == 0 {
+        if accepted_quantity > 0 && remaining == 0 && packed_quantity == 0 {
             AllotmentStatus::Cancelled
         } else if accepted_quantity > 0 && dc_consumed == accepted_quantity {
             AllotmentStatus::DcCompleted
-        } else if picked_quantity > 0 || dispatched_quantity > 0 {
+        } else if packed_quantity > 0 || dispatched_quantity > 0 {
             AllotmentStatus::InProgress
         } else {
             AllotmentStatus::Open
@@ -202,12 +216,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn remaining_reservation_is_accepted_less_picked_and_cancelled() {
-        assert_eq!(remaining_allotted(100, 40, 15), Ok(45));
+    fn what_is_still_to_pack_is_what_was_promised_less_what_is_in_cartons() {
+        // 100 promised, 40 in cartons, 15 given up on: 45 still to pack.
+        assert_eq!(to_pack(100, 40, 15), Ok(45));
+        // And a pick moves none of it, because it is not in this equation.
     }
 
     #[test]
-    fn status_separates_pick_from_dc_completion() {
+    fn status_separates_packing_from_dc_completion() {
         assert_eq!(
             derive_allotment_status(100, 0, 0, 0, false),
             Ok(AllotmentStatus::Open)

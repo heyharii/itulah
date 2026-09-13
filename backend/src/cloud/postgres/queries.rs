@@ -5,20 +5,205 @@ use crate::cloud::{
 };
 use crate::edge::OperationalPool as EdgeOperationalPool;
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::{PgPool, Row};
 use std::{collections::BTreeMap, str::FromStr};
 use uuid::Uuid;
 
-pub async fn list_pools(
-    pool: &PgPool,
-    at: Option<DateTime<Utc>>,
-    observed_hours: i64,
-    lost_days: i64,
-) -> Result<Value, AppError> {
-    let current = at.is_none();
-    let at = at.unwrap_or_else(Utc::now);
-    let rows = sqlx::query(r#"
+// ── the inventory lists ──────────────────────────────────────────────────
+//
+// Brought up to the shape `money_overview` set in `postgres::statements` and
+// `list_employees` repeats in `postgres::employment`: a scope struct in, an
+// envelope out — the rows, a keyset cursor, how big the whole matched set is,
+// and facet counts drawn from the SAME row definition the page is drawn from.
+// The convention is copied rather than reinvented; eight list endpoints that
+// page eight ways are eight things to learn and eight things to get wrong.
+
+/// One value a filter can take, and how many rows carry it.
+///
+/// One struct for every inventory list rather than one per module. They ask
+/// the same question of different tables, and five identical shapes would be
+/// five things to keep in step. Counted over what the search leaves,
+/// deliberately ignoring the filters already applied, so the number answers
+/// "how many of these there are" — the question somebody has while choosing —
+/// rather than "how many survive what you have already ticked".
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct InventoryFacet {
+    /// What to send back as the filter — a site id, a pool id, a cause. Never
+    /// a display string.
+    pub value: String,
+    /// What to draw, when it differs from the value. `dc` is what this system
+    /// files the distribution centre under; the filter list shows its name.
+    pub label: Option<String>,
+    pub count: i64,
+}
+
+/// Biggest first, ties broken on the value so the order is stable between
+/// calls — a filter list that reshuffles under the cursor is one nobody can
+/// click.
+pub(super) fn rank_facets(list: &mut [InventoryFacet]) {
+    list.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.value.cmp(&b.value)));
+}
+
+/// How many pools the list returns when the caller does not say.
+///
+/// Here, beside the only clamp that enforces it. The fleet holds 112 pools
+/// today, so the default is the whole of it in one page: the screens that draw
+/// a site-by-pool tree need every row to fold it, and a default that cut them
+/// off would break the tree rather than page it.
+const POOL_DEFAULT_LIMIT: i64 = 200;
+/// And the most it will return however loudly a caller asks.
+const POOL_MAX_LIMIT: i64 = 500;
+
+/// What a caller is asking the pool list for.
+#[derive(Clone, Debug, Default)]
+pub struct PoolScope {
+    /// The moment to fold the ledger to. `None` is now, and only `None` is
+    /// answered from the projection rather than by replaying movements.
+    pub at: Option<DateTime<Utc>>,
+    /// Free text over the pool id, its label, the site id and the site's name.
+    pub needle: Option<String>,
+    pub site_id: Option<String>,
+    /// `PENDING`, `WAREHOUSE`, `OUTBOUND`, `REJECT`, `STORE_INVENTORY`.
+    pub group: Option<String>,
+    /// One pool, by id. The as-of read narrows with this rather than fetching
+    /// every pool and dropping all but one in Rust.
+    pub pool_id: Option<String>,
+    /// `COUNTED` or `NEVER`. See [`PoolRow::last_counted_at`].
+    pub counted: Option<String>,
+    /// `pool`, `site`, `stock`, `on_hand`, `missing`, `observed` or
+    /// `last_count`. Anything unrecognised is the house order rather than a
+    /// 400: a sort arrives from a URL somebody may have kept from an older
+    /// build, and refusing a stale bookmark is the worse answer.
+    pub sort: Option<String>,
+    pub desc: bool,
+    pub cursor: Option<String>,
+    pub limit: Option<i64>,
+    /// Whether to count at all — the lever `GET /audit` established.
+    ///
+    /// It matters less here than anywhere else on this surface, and saying so
+    /// is the point: the counting half reads [`POOL_COUNT_ROWS`], which does
+    /// not fold the ledger, so it is 1.4 ms at 106,100 movements against the
+    /// page's 42. The lever is here for the shape — one spelling across the
+    /// inventory lists — and because a caller paging deeply should not have to
+    /// ask why this one list makes them pay for a number they already have.
+    ///
+    /// `Default` leaves it FALSE, which is right for the internal readers that
+    /// take the rows alone and wrong for a route, so every route spells it.
+    pub count: bool,
+}
+
+/// One operational pool, with its balances.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PoolRow {
+    /// The canonical pool id — `dc.warehouse`, `store-01.floor`. Parsed back
+    /// into a place by the server, so it is an identifier and never a label.
+    ///
+    /// **The centre and the edge spell the distribution centre differently**:
+    /// these ids are the CENTRE's — `dc.` — while an Edge node names the same
+    /// shelf after the site it runs as, `dc-01.`. This list answers out of the
+    /// centre's own ledger, so every id and every `site_id` in it is the
+    /// centre's spelling and a filter written against one of these values
+    /// matches. `list_fleet_pools` is where the two vocabularies meet, and it
+    /// reconciles them there.
+    pub id: String,
+    pub site_id: String,
+    pub site_name: String,
+    pub site_kind: String,
+    pub group: String,
+    pub pool_code: String,
+    pub label: String,
+    pub store_origin_site_id: Option<String>,
+    pub display_order: i32,
+    pub is_rollup: bool,
+    pub is_outbound_leaf: bool,
+    pub outbound_stage: Option<String>,
+    pub destination_store_id: Option<String>,
+    pub stock: i64,
+    /// Absent where the concept does not apply to this pool, never zero —
+    /// "nothing is promised out of here" and "promises are not a thing here"
+    /// are different answers.
+    pub allotted: Option<i64>,
+    pub on_hand: i64,
+    pub missing: i64,
+    pub observed: i64,
+    pub lost_rate: f64,
+    pub lost_quantity: i64,
+    pub exposure: i64,
+    /// When this pool was last counted, and **`None` when it never has been**.
+    ///
+    /// Three of the hundred and twelve pools in this fleet have ever been
+    /// counted. A zero or an epoch here would put a number on that absence and
+    /// read as "counted, and found nothing" — which is the one thing it does
+    /// not mean. The facet counts it as `NEVER` for the same reason.
+    pub last_counted_at: Option<DateTime<Utc>>,
+}
+
+/// What the pool list can be narrowed by, and how many rows each value holds.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PoolFacets {
+    pub sites: Vec<InventoryFacet>,
+    pub groups: Vec<InventoryFacet>,
+    /// `COUNTED` and `NEVER`. The second is not a zero — see
+    /// [`PoolRow::last_counted_at`].
+    pub counted: Vec<InventoryFacet>,
+}
+
+/// A page of the pool list, and the shape of everything it was drawn from.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PoolPage {
+    pub as_of: DateTime<Utc>,
+    /// True whenever `as_of` is more than two seconds ago. These numbers are
+    /// history and nothing may be posted against them.
+    pub read_only: bool,
+    pub observed_window_hours: i64,
+    pub lost_risk_window_days: i64,
+    pub inventory_equation: String,
+    pub outbound_rollup_equation: String,
+    pub lost_risk_formula: String,
+    pub rows: Vec<PoolRow>,
+    /// Opaque. Pass it back as `cursor`; absent means this was the last page.
+    pub next_cursor: Option<String>,
+    /// Every pool the search and the filters match — not just this page.
+    ///
+    /// `None` means NOT COUNTED, which is a different statement from zero: the
+    /// caller passed `count=0`. See [`PoolScope::count`].
+    pub total: Option<i64>,
+    /// `None` for the same reason, and always together with `total`.
+    pub facets: Option<PoolFacets>,
+}
+
+/// Where the previous page stopped — as a ROW, not as a position.
+#[derive(Serialize, Deserialize)]
+struct PoolCursor {
+    pool_id: String,
+}
+
+/// One pool row, defined once.
+///
+/// Used by the page query and by the facet counts, and that is the whole
+/// reason it is a constant: a facet is only honest if it counts exactly what
+/// the page can show.
+///
+/// Binds: `$1` the moment, `$2` the observed window in hours, `$3` the
+/// lost-risk window in days, `$4` whether `$1` is now, `$5` the search pattern
+/// or NULL.
+///
+/// The `*_key` columns are computed here rather than only in `ORDER BY`
+/// because a keyset has to COMPARE the sort value in a `WHERE`, and a sort
+/// expression that is not also a column is one a `WHERE` cannot see. Every one
+/// of them is non-null, which is not decoration: a row comparison against NULL
+/// is NULL rather than true, so a single pool with no destination — or the
+/// hundred and nine that have never been counted — would end paging at
+/// whatever row happened to carry it, silently, with the rest of the fleet
+/// below the fold. `NULLS LAST` does not fix that; it orders a result and says
+/// nothing a keyset can seek against. A sentinel value does.
+const POOL_ROWS: &str = r#"
 WITH ledger_deltas AS (
     SELECT place.pool_id,place.state,projection.quantity delta
     FROM inventory_projection projection
@@ -42,28 +227,62 @@ WITH ledger_deltas AS (
     WHERE last_seen_at > $1-($2::text||' hours')::interval AND last_seen_at <= $1
     GROUP BY pool_id
 ), risk_raw AS (
-    SELECT pool.id pool_id,
-           COALESCE(SUM(CASE
-               WHEN movement.occurred_at < $1-($3::text||' days')::interval
-                AND movement.to_place_id=pool.id||':on_hand' THEN movement.quantity
-               WHEN movement.occurred_at < $1-($3::text||' days')::interval
-                AND movement.from_place_id=pool.id||':on_hand' THEN -movement.quantity
-               ELSE 0 END),0)::bigint opening,
-           COALESCE(SUM(CASE
-               WHEN movement.occurred_at >= $1-($3::text||' days')::interval
-                AND movement.to_place_id=pool.id||':on_hand' THEN movement.quantity
-               ELSE 0 END),0)::bigint inbound,
-           COALESCE(SUM(CASE
-               WHEN movement.occurred_at >= $1-($3::text||' days')::interval
-                AND movement.from_place_id=pool.id||':missing'
-                AND movement.to_place_id='system/lost' THEN movement.quantity
-               ELSE 0 END),0)::bigint lost
-    FROM operational_pool pool LEFT JOIN movement
-      ON movement.occurred_at <= $1 AND (
-           movement.to_place_id=pool.id||':on_hand'
-        OR movement.from_place_id=pool.id||':on_hand'
-        OR (movement.from_place_id=pool.id||':missing' AND movement.to_place_id='system/lost'))
-    GROUP BY pool.id
+    -- ONE pass over the ledger, expanded per posting rather than one pass PER
+    -- POOL. The old spelling joined `operational_pool` to `movement` on
+    -- `movement.to_place_id = pool.id||':on_hand' OR …`, which the planner can
+    -- only answer by looking the whole ledger up once for each of the hundred
+    -- and twelve pools: 120,852 rows examined to produce 112, over 10,187
+    -- buffers, 128 ms of a 150 ms page. This reads `movement` once — 3,495
+    -- buffers, 42 ms — and it is the whole of why `/inventory/pools` and
+    -- `/inventory/fleet-pools` came back under budget.
+    --
+    -- The expansion names the pool off the place id rather than joining to find
+    -- it. Every OPERATIONAL place is `<pool id>:on_hand` or `<pool id>:missing`
+    -- — checked, not assumed: no operational place breaks that rule and no
+    -- external or system place looks like one — so `left(place_id,-8)` IS the
+    -- pool, and a derived id that matches no pool is dropped by the roll-up
+    -- below rather than needing to be filtered here.
+    --
+    -- At most ONE of the two branches can name a given pool for a given
+    -- posting, which is what makes this arithmetically identical to the ordered
+    -- CASE it replaces rather than merely similar. Both naming pool P at once
+    -- would need `to_place_id` and `from_place_id` to be the same string —
+    -- `P:on_hand` — and `from_place_id <> to_place_id` is a table constraint;
+    -- the lost branch needs `P:missing` on the side the other branch needs
+    -- `P:on_hand` on. Verified row for row against the old shape over all 112
+    -- pools regardless, because an argument is not a measurement.
+    SELECT side.pool_id,
+           SUM(side.opening)::bigint opening,
+           SUM(side.inbound)::bigint inbound,
+           SUM(side.lost)::bigint lost
+    FROM movement
+    CROSS JOIN LATERAL (VALUES
+        -- Into the shelf: everything before the window is the opening balance,
+        -- everything inside it is inbound.
+        (CASE WHEN movement.to_place_id LIKE '%:on_hand'
+              THEN left(movement.to_place_id,-8) END,
+         CASE WHEN movement.occurred_at < $1-($3::text||' days')::interval
+              THEN movement.quantity ELSE 0 END,
+         CASE WHEN movement.occurred_at >= $1-($3::text||' days')::interval
+              THEN movement.quantity ELSE 0 END,
+         0::bigint),
+        -- Off the shelf — which lowers the opening balance — or confirmed lost
+        -- out of this pool's missing place, which is the numerator.
+        (CASE WHEN movement.from_place_id LIKE '%:on_hand'
+                OR (movement.from_place_id LIKE '%:missing'
+                    AND movement.to_place_id='system/lost')
+              THEN left(movement.from_place_id,-8) END,
+         CASE WHEN movement.from_place_id LIKE '%:on_hand'
+               AND movement.occurred_at < $1-($3::text||' days')::interval
+              THEN -movement.quantity ELSE 0 END,
+         0::bigint,
+         CASE WHEN movement.from_place_id LIKE '%:missing'
+               AND movement.to_place_id='system/lost'
+               AND movement.occurred_at >= $1-($3::text||' days')::interval
+              THEN movement.quantity ELSE 0 END)
+    ) AS side(pool_id,opening,inbound,lost)
+    WHERE movement.occurred_at <= $1 AND side.pool_id IS NOT NULL
+    GROUP BY side.pool_id
 ), pool_scope AS (
     SELECT output.id output_pool_id,component.id component_pool_id
     FROM operational_pool output
@@ -91,63 +310,431 @@ WITH ledger_deltas AS (
     LEFT JOIN risk_raw risk ON risk.pool_id=scope.component_pool_id
     GROUP BY scope.output_pool_id
 ), allotted_balance AS (
-    SELECT COALESCE(event.source_pool_id,line.source_pool_id) source_pool_id,
-           COALESCE(SUM(event.remaining_delta),0)::bigint quantity
-    FROM allotment_event event LEFT JOIN allotment_line line ON line.id=event.allotment_line_id
-    WHERE event.occurred_at <= $1
-    GROUP BY COALESCE(event.source_pool_id,line.source_pool_id)
+    -- What this shelf still has to put in a carton: `to_pack_qty` out of the
+    -- one commitment view, never a sum of event deltas.
+    --
+    -- The old spelling was `SUM(remaining_delta)`, where CREATED adds and
+    -- PICKED subtracts. Picking is destination-less now and commits nothing,
+    -- so that formula answered a question nobody asks — and the moment
+    -- ALLOTMENT_PICKED is retired it would never release a commitment again,
+    -- growing without bound and taking On Hand negative across the fleet.
+    --
+    -- It is also the reason this CTE is LIVE ONLY. The cloud's event stream
+    -- holds ALLOTMENT_CREATED and the legacy pick and cancel, and nothing
+    -- else: packing, shipment, loss and Close Short reach the centre as a
+    -- progress snapshot, not as events. So there is no honest as-of
+    -- commitment to compute, and the column answers NULL for a historical
+    -- read — the same `—` the tree already shows for a pool that cannot be a
+    -- source — rather than a number that ignores every carton ever packed.
+    SELECT commitment.source_pool_id,
+           COALESCE(SUM(commitment.to_pack_qty),0)::bigint quantity
+    FROM allotment_line_commitment commitment
+    WHERE $4
+    GROUP BY commitment.source_pool_id
 )
 SELECT pool.id,pool.site_id,site.name site_name,site.kind site_kind,pool.group_code,pool.pool_code,pool.label,
        pool.store_origin_site_id,pool.display_order,pool.is_placement,pool.outbound_stage,pool.destination_store_id,
        COALESCE(normal.quantity,0)::bigint normal,
        COALESCE(missing.quantity,0)::bigint missing,
        COALESCE(observed.quantity,0)::bigint observed,
-       CASE WHEN pool.is_placement AND (pool.id IN ('dc.warehouse','dc.reject.dc') OR pool.site_id<>'dc')
+       CASE WHEN $4 AND pool.is_placement AND (pool.id IN ('dc.warehouse','dc.reject.dc') OR pool.site_id<>'dc')
             THEN COALESCE(allotted.quantity,0) ELSE NULL END::bigint allotted,
        risk.lost::bigint lost_quantity,
        CASE WHEN GREATEST(risk.opening,0)+risk.inbound > 0
             THEN ROUND(risk.lost::numeric/(GREATEST(risk.opening,0)+risk.inbound)::numeric,6)
             ELSE 0 END::text lost_rate,
-       (GREATEST(risk.opening,0)+risk.inbound)::bigint exposure
+       (GREATEST(risk.opening,0)+risk.inbound)::bigint exposure,
+       last_count.at last_counted_at,
+       -- Sort keys. Every one non-null: see the note above the constant.
+       (COALESCE(normal.quantity,0)+COALESCE(missing.quantity,0))::bigint stock_key,
+       (COALESCE(normal.quantity,0)
+        - CASE WHEN $4 AND pool.is_placement AND (pool.id IN ('dc.warehouse','dc.reject.dc') OR pool.site_id<>'dc')
+               THEN COALESCE(allotted.quantity,0) ELSE 0 END)::bigint on_hand_key,
+       COALESCE(missing.quantity,0)::bigint missing_key,
+       COALESCE(observed.quantity,0)::bigint observed_key,
+       COALESCE(last_count.at,TIMESTAMPTZ '-infinity') last_count_key,
+       COALESCE(site.name,pool.site_id) site_key,
+       CASE WHEN pool.site_id='dc' THEN 0 ELSE 1 END dc_first,
+       CASE WHEN pool.is_placement THEN 1 ELSE 0 END placement_rank,
+       COALESCE(pool.destination_store_id,'') destination_key,
+       CASE WHEN last_count.at IS NULL THEN 'NEVER' ELSE 'COUNTED' END counted_state
 FROM operational_pool pool JOIN site ON site.id=pool.site_id
 LEFT JOIN balance_rollup normal ON normal.output_pool_id=pool.id AND normal.state='NORMAL'
 LEFT JOIN balance_rollup missing ON missing.output_pool_id=pool.id AND missing.state='MISSING'
 LEFT JOIN observed_rollup observed ON observed.output_pool_id=pool.id
 LEFT JOIN risk_rollup risk ON risk.output_pool_id=pool.id
 LEFT JOIN allotted_balance allotted ON allotted.source_pool_id=pool.id
+-- When anybody last went and looked. Whichever moment the count reached —
+-- closed, submitted, activated, or merely created — is the one that counts as
+-- "last": a count still open is not a pool nobody has been to.
+LEFT JOIN LATERAL (
+    SELECT MAX(COALESCE(official.closed_at,official.submitted_at,
+                        official.activated_at,official.created_at)) at
+    FROM official_count official WHERE official.pool_id=pool.id
+) last_count ON TRUE
 WHERE pool.active
-ORDER BY CASE WHEN pool.site_id='dc' THEN 0 ELSE 1 END,pool.site_id,pool.display_order,pool.is_placement,pool.destination_store_id NULLS FIRST,pool.id
-"#).bind(at).bind(observed_hours).bind(lost_days).bind(current).fetch_all(pool).await?;
-    let items = rows
-        .into_iter()
-        .map(|row| {
-            let balance = InventoryBalance::project(
-                row.get::<i64, _>("normal"),
-                row.get::<Option<i64>, _>("allotted"),
-                row.get::<i64, _>("missing"),
-                row.get::<i64, _>("observed"),
-            )
-            .map_err(|error| AppError::Conflict(format!("invalid inventory projection: {error}")))?;
-            let is_placement = row.get::<bool, _>("is_placement");
-            let outbound_stage = row.get::<Option<String>, _>("outbound_stage");
-            Ok(json!({
-                "id":row.get::<String,_>("id"),"site_id":row.get::<String,_>("site_id"),"site_name":row.get::<String,_>("site_name"),"site_kind":row.get::<String,_>("site_kind"),
-                "group":row.get::<String,_>("group_code"),"pool_code":row.get::<String,_>("pool_code"),"label":row.get::<String,_>("label"),
-                "store_origin_site_id":row.get::<Option<String>,_>("store_origin_site_id"),"display_order":row.get::<i32,_>("display_order"),
-                "is_rollup":!is_placement,"is_outbound_leaf":is_placement&&outbound_stage.is_some(),"outbound_stage":outbound_stage,
-                "destination_store_id":row.get::<Option<String>,_>("destination_store_id"),
-                "stock":balance.stock.value(),"allotted":balance.allotted.map(|quantity| quantity.value()),"on_hand":balance.on_hand.value(),
-                "missing":balance.missing.value(),"observed":balance.observed.value(),
-                "lost_rate":row.get::<String,_>("lost_rate").parse::<f64>().unwrap_or(0.0),"lost_quantity":row.get::<i64,_>("lost_quantity"),"exposure":row.get::<i64,_>("exposure")
-            }))
-        })
-        .collect::<Result<Vec<Value>, AppError>>()?;
+  AND ($5::text IS NULL OR pool.id ILIKE $5 OR pool.label ILIKE $5
+       OR pool.site_id ILIKE $5 OR site.name ILIKE $5)
+"#;
+
+/// The same hundred and twelve pools, without folding the ledger to find them.
+///
+/// Binds: `$1` the search pattern or NULL — and nothing else, because nothing
+/// else is needed to say WHICH pools match.
+///
+/// This is the counting half's row definition, and it is honest for one
+/// checkable reason: [`POOL_ROWS`] is `operational_pool JOIN site` under
+/// exactly this `WHERE`, and every other join it makes is a LEFT JOIN on a
+/// primary key or on a roll-up already grouped to one row per pool. So it
+/// returns one row per active matching pool and so does this — the fold adds
+/// COLUMNS, never rows. Counting over the fold was therefore paying 102 ms to
+/// learn a number that 1.4 ms of the same rows already knows, twice a request.
+///
+/// `counted_state` is here rather than derived twice: the facet counts group by
+/// it, and a value two places compute separately is a value two places will
+/// eventually disagree about.
+const POOL_COUNT_ROWS: &str = r#"
+SELECT pool.id,pool.site_id,site.name site_name,pool.group_code,
+       CASE WHEN last_count.at IS NULL THEN 'NEVER' ELSE 'COUNTED' END counted_state
+FROM operational_pool pool JOIN site ON site.id=pool.site_id
+LEFT JOIN LATERAL (
+    SELECT MAX(COALESCE(official.closed_at,official.submitted_at,
+                        official.activated_at,official.created_at)) at
+    FROM official_count official WHERE official.pool_id=pool.id
+) last_count ON TRUE
+WHERE pool.active
+  AND ($1::text IS NULL OR pool.id ILIKE $1 OR pool.label ILIKE $1
+       OR pool.site_id ILIKE $1 OR site.name ILIKE $1)
+"#;
+
+/// The pool list's filters, spelled once for the page and for the count.
+///
+/// A function of the first bind number rather than a constant, because the two
+/// queries that apply them carry a different number of binds ahead of them: the
+/// page's row definition folds the ledger and needs five, the count's needs
+/// one. The alternative is two constants that agree on the day they are written
+/// — which is the failure this codebase names every time it writes a definition
+/// down once.
+fn pool_filters(first: usize) -> String {
+    let (site, group, id, counted) = (first, first + 1, first + 2, first + 3);
+    format!(
+        "WHERE (${site}::text IS NULL OR site_id=${site})
+           AND (${group}::text IS NULL OR group_code=${group})
+           AND (${id}::text IS NULL OR id=${id})
+           AND (${counted}::text IS NULL OR counted_state=${counted})"
+    )
+}
+
+fn pool_row_from(row: &sqlx::postgres::PgRow) -> Result<PoolRow, AppError> {
+    let balance = InventoryBalance::project(
+        row.get::<i64, _>("normal"),
+        row.get::<Option<i64>, _>("allotted"),
+        row.get::<i64, _>("missing"),
+        row.get::<i64, _>("observed"),
+    )
+    .map_err(|error| AppError::Conflict(format!("invalid inventory projection: {error}")))?;
+    let is_placement = row.get::<bool, _>("is_placement");
+    let outbound_stage = row.get::<Option<String>, _>("outbound_stage");
+    Ok(PoolRow {
+        id: row.get("id"),
+        site_id: row.get("site_id"),
+        site_name: row.get("site_name"),
+        site_kind: row.get("site_kind"),
+        group: row.get("group_code"),
+        pool_code: row.get("pool_code"),
+        label: row.get("label"),
+        store_origin_site_id: row.get("store_origin_site_id"),
+        display_order: row.get("display_order"),
+        is_rollup: !is_placement,
+        is_outbound_leaf: is_placement && outbound_stage.is_some(),
+        outbound_stage,
+        destination_store_id: row.get("destination_store_id"),
+        stock: balance.stock.value(),
+        allotted: balance.allotted.map(|quantity| quantity.value()),
+        on_hand: balance.on_hand.value(),
+        missing: balance.missing.value(),
+        observed: balance.observed.value(),
+        lost_rate: row
+            .get::<String, _>("lost_rate")
+            .parse::<f64>()
+            .unwrap_or(0.0),
+        lost_quantity: row.get("lost_quantity"),
+        exposure: row.get("exposure"),
+        last_counted_at: row.get("last_counted_at"),
+    })
+}
+
+/// Every pool, in the house order, with no filter and no page.
+///
+/// The internal readers — the fleet read, a pool's own detail, the assistant's
+/// tool — want the whole set and then decide for themselves. They are not
+/// paging, so handing them a page would only make them walk a cursor to
+/// reassemble what they asked for.
+pub(super) async fn pool_rows(
+    pool: &PgPool,
+    at: Option<DateTime<Utc>>,
+    observed_hours: i64,
+    lost_days: i64,
+) -> Result<Vec<PoolRow>, AppError> {
+    let current = at.is_none();
+    let at = at.unwrap_or_else(Utc::now);
+    let sql = format!(
+        "WITH searched AS ({POOL_ROWS})
+         SELECT * FROM searched
+          ORDER BY dc_first,site_id,display_order,placement_rank,destination_key,id"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(at)
+        .bind(observed_hours)
+        .bind(lost_days)
+        .bind(current)
+        .bind(Option::<String>::None)
+        .fetch_all(pool)
+        .await?;
+    rows.iter().map(pool_row_from).collect()
+}
+
+/// The pool list as the routes that predate the envelope still read it.
+///
+/// `list_fleet_pools`, `get_pool` and the assistant's inventory tool all take
+/// the whole set and work on it; this is that set in the shape they already
+/// expect. The envelope is [`pools_page`].
+pub async fn list_pools(
+    pool: &PgPool,
+    at: Option<DateTime<Utc>>,
+    observed_hours: i64,
+    lost_days: i64,
+) -> Result<Value, AppError> {
+    let moment = at.unwrap_or_else(Utc::now);
+    let items = pool_rows(pool, at, observed_hours, lost_days).await?;
     Ok(json!({
-        "as_of":at,"read_only":at<Utc::now()-chrono::Duration::seconds(2),"observed_window_hours":observed_hours,"lost_risk_window_days":lost_days,
+        "as_of":moment,"read_only":moment<Utc::now()-chrono::Duration::seconds(2),
+        "observed_window_hours":observed_hours,"lost_risk_window_days":lost_days,
         "inventory_equation":"Stock = On Hand + Allotted + Missing",
         "outbound_rollup_equation":"Stage total = sum of destination Store leaf pools",
-        "lost_risk_formula":"confirmed Lost from pool during window / (opening operational balance + inbound movements during window)","items":items
+        "lost_risk_formula":"confirmed Lost from pool during window / (opening operational balance + inbound movements during window)",
+        "items":serde_json::to_value(&items)?
     }))
+}
+
+/// The pools: searched, filtered, sorted and paged by the server.
+pub async fn pools_page(
+    pool: &PgPool,
+    scope: PoolScope,
+    observed_hours: i64,
+    lost_days: i64,
+) -> Result<PoolPage, AppError> {
+    let current = scope.at.is_none();
+    let moment = scope.at.unwrap_or_else(Utc::now);
+    // A blank search is not a search. `Some("")` compiles to `ILIKE '%%'`,
+    // which matches everything and costs a scan to say so.
+    let needle = scope
+        .needle
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(|text| format!("%{text}%"));
+
+    // TWO spellings of one order, and they are not interchangeable: `ORDER BY`
+    // takes directions, a row expression does not, and `(a ASC, b) > (…)` is a
+    // syntax error the compiler cannot catch because the whole clause is a
+    // string. Every order ends in the pool id, which is the primary key, so no
+    // two rows compare equal — which is what stops a keyset from repeating or
+    // losing the rows that tie.
+    let dir = if scope.desc { "DESC" } else { "ASC" };
+    let seek = if scope.desc { "<" } else { ">" };
+    let (cols, order) = match scope.sort.as_deref() {
+        Some("site") => (
+            "site_key, id".to_owned(),
+            format!("site_key {dir}, id {dir}"),
+        ),
+        Some("stock") => (
+            "stock_key, id".to_owned(),
+            format!("stock_key {dir}, id {dir}"),
+        ),
+        Some("on_hand") => (
+            "on_hand_key, id".to_owned(),
+            format!("on_hand_key {dir}, id {dir}"),
+        ),
+        Some("missing") => (
+            "missing_key, id".to_owned(),
+            format!("missing_key {dir}, id {dir}"),
+        ),
+        Some("observed") => (
+            "observed_key, id".to_owned(),
+            format!("observed_key {dir}, id {dir}"),
+        ),
+        // Ascending puts the pools nobody has ever been to first, which is the
+        // useful answer rather than an accident of the sentinel.
+        Some("last_count") => (
+            "last_count_key, id".to_owned(),
+            format!("last_count_key {dir}, id {dir}"),
+        ),
+        // The house order, as five columns rather than one concatenated key:
+        // gluing a site id to a display order and comparing the result as text
+        // makes `store-1` sort after `store-10`, and under a non-C collation it
+        // is anybody's guess. A row comparison over the five is exact.
+        _ => (
+            "dc_first, site_id, display_order, placement_rank, destination_key, id".to_owned(),
+            format!(
+                "dc_first {dir}, site_id {dir}, display_order {dir}, \
+                 placement_rank {dir}, destination_key {dir}, id {dir}"
+            ),
+        ),
+    };
+
+    let cursor = scope
+        .cursor
+        .as_deref()
+        .map(super::decode_cursor::<PoolCursor>)
+        .transpose()?;
+    let limit = scope
+        .limit
+        .unwrap_or(POOL_DEFAULT_LIMIT)
+        .clamp(1, POOL_MAX_LIMIT);
+
+    // The seek re-reads the previous row's own sort value rather than trusting
+    // one encoded in the cursor, so one cursor shape serves every order and a
+    // seventh sort cannot arrive without its cursor.
+    // `NOT MATERIALIZED`: `kept` is referenced twice — as the page and
+    // inside the seek — and two references makes PostgreSQL materialise a
+    // CTE, which is an optimisation fence the `ORDER BY … LIMIT` cannot be
+    // pushed through. Materialised, this reads the whole table and sorts it
+    // to hand back one page; inlined, it seeks the index. See
+    // `postgres::audit::list_audit`, where the difference was measured.
+    let filters = pool_filters(6);
+    let sql = format!(
+        "WITH searched AS NOT MATERIALIZED ({POOL_ROWS}),
+              kept AS NOT MATERIALIZED (
+             SELECT * FROM searched {filters}
+         )
+         SELECT * FROM kept
+          WHERE $10::text IS NULL
+             OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE id = $10)
+          ORDER BY {order}
+          LIMIT $11"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(moment)
+        .bind(observed_hours)
+        .bind(lost_days)
+        .bind(current)
+        .bind(&needle)
+        .bind(&scope.site_id)
+        .bind(&scope.group)
+        .bind(&scope.pool_id)
+        .bind(&scope.counted)
+        .bind(cursor.as_ref().map(|c| c.pool_id.clone()))
+        .bind(limit)
+        .fetch_all(pool)
+        .await?;
+
+    // A short page is the last page. A full one may not be — the next request
+    // can come back empty — and that is the honest answer: knowing whether
+    // more rows exist without asking costs a second count of the same query.
+    let next_cursor = match rows.last() {
+        Some(row) if rows.len() as i64 == limit => Some(super::encode_cursor(&PoolCursor {
+            pool_id: row.try_get("id")?,
+        })?),
+        _ => None,
+    };
+    let out = rows
+        .iter()
+        .map(pool_row_from)
+        .collect::<Result<Vec<_>, AppError>>()?;
+
+    // The page is done. Everything below is the counting half, and it is
+    // skipped entirely rather than approximated when the caller says so.
+    let (total, facets) = match scope.count {
+        true => {
+            let (total, facets) = pool_facets(pool, &scope, needle.as_deref()).await?;
+            (Some(total), Some(facets))
+        }
+        false => (None, None),
+    };
+    Ok(PoolPage {
+        as_of: moment,
+        read_only: moment < Utc::now() - chrono::Duration::seconds(2),
+        observed_window_hours: observed_hours,
+        lost_risk_window_days: lost_days,
+        inventory_equation: "Stock = On Hand + Allotted + Missing".into(),
+        outbound_rollup_equation: "Stage total = sum of destination Store leaf pools".into(),
+        lost_risk_formula: "confirmed Lost from pool during window / (opening operational balance + inbound movements during window)".into(),
+        rows: out,
+        next_cursor,
+        total,
+        facets,
+    })
+}
+
+/// How many pools there are, and how they split.
+///
+/// Two scopes, deliberately: the per-value counts read the SEARCHED set,
+/// ignoring what is filtered, so "Warehouse 14" means there are fourteen
+/// warehouses rather than fourteen among the ones you already narrowed to
+/// warehouses. The total reads the FILTERED set, because it describes the list
+/// on screen.
+///
+/// Counted over [`POOL_COUNT_ROWS`] rather than over the fold. Counting pools
+/// never needed their balances, and asking for them made this the second of two
+/// whole-ledger folds in one request — 102 ms to learn that there are a hundred
+/// and twelve pools and how they split by site. It is 1.4 ms now, over the same
+/// rows, which is checked rather than assumed: see the note on the constant.
+async fn pool_facets(
+    pool: &PgPool,
+    scope: &PoolScope,
+    needle: Option<&str>,
+) -> Result<(i64, PoolFacets), AppError> {
+    let filters = pool_filters(2);
+    let sql = format!(
+        "WITH searched AS ({POOL_COUNT_ROWS}), kept AS (
+             SELECT * FROM searched {filters}
+         )
+         SELECT 'site' AS kind, site_id AS value, site_name AS label,
+                COUNT(*)::bigint AS n
+           FROM searched GROUP BY site_id, site_name
+          UNION ALL
+         SELECT 'group', group_code, NULL::text, COUNT(*)::bigint
+           FROM searched GROUP BY group_code
+          UNION ALL
+         SELECT 'counted', counted_state, NULL::text, COUNT(*)::bigint
+           FROM searched GROUP BY counted_state
+          UNION ALL
+         SELECT 'all', '', NULL::text, COUNT(*)::bigint FROM kept"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(needle)
+        .bind(&scope.site_id)
+        .bind(&scope.group)
+        .bind(&scope.pool_id)
+        .bind(&scope.counted)
+        .fetch_all(pool)
+        .await?;
+
+    let mut total = 0i64;
+    let mut facets = PoolFacets {
+        sites: Vec::new(),
+        groups: Vec::new(),
+        counted: Vec::new(),
+    };
+    for row in &rows {
+        let kind: String = row.try_get("kind")?;
+        let facet = InventoryFacet {
+            value: row.try_get("value")?,
+            label: row.try_get("label")?,
+            count: row.try_get("n")?,
+        };
+        match kind.as_str() {
+            "site" => facets.sites.push(facet),
+            "group" => facets.groups.push(facet),
+            "counted" => facets.counted.push(facet),
+            _ => total = facet.count,
+        }
+    }
+    for list in [&mut facets.sites, &mut facets.groups, &mut facets.counted] {
+        rank_facets(list);
+    }
+    Ok((total, facets))
 }
 
 fn edge_pool_metadata(
@@ -218,7 +805,7 @@ struct TransferIdentityClaims {
 
 #[derive(Default)]
 struct TransferReconciliationReport {
-    items: Vec<Value>,
+    rows: Vec<ReconciliationRow>,
     matched: i64,
     matched_attributed: i64,
     matched_unattributed: i64,
@@ -230,16 +817,18 @@ struct TransferReconciliationReport {
 }
 
 impl TransferReconciliationReport {
-    fn summary(&self) -> Value {
-        json!({
-            "matched": self.matched,
-            "matched_attributed": self.matched_attributed,
-            "matched_unattributed": self.matched_unattributed,
-            "dc_only": self.dc_only,
-            "store_only": self.store_only,
-            "unresolved": self.unresolved,
-            "conflicts": self.conflicts,
-        })
+    /// The tallies, as the fleet read and the reconciliation page both show
+    /// them. Unaffected by any filter: certification turns on these numbers.
+    fn summary(&self) -> ReconciliationSummary {
+        ReconciliationSummary {
+            matched: self.matched,
+            matched_attributed: self.matched_attributed,
+            matched_unattributed: self.matched_unattributed,
+            dc_only: self.dc_only,
+            store_only: self.store_only,
+            unresolved: self.unresolved,
+            conflicts: self.conflicts,
+        }
     }
 
     fn prevents_certification(&self) -> bool {
@@ -247,28 +836,29 @@ impl TransferReconciliationReport {
     }
 }
 
-fn transfer_attribution_json(attribution: &TransferAttribution) -> Value {
-    json!({
-        "in_transit_event_id": attribution.in_transit_event_id,
-        "koli_id": attribution.koli_id,
-        "allotment_id": attribution.allotment_id,
-        "allotment_line_id": attribution.allotment_line_id,
-        "matched_at": attribution.matched_at,
-    })
+fn transfer_attribution_view(attribution: &TransferAttribution) -> TransferAttributionView {
+    TransferAttributionView {
+        in_transit_event_id: attribution.in_transit_event_id,
+        koli_id: attribution.koli_id,
+        allotment_id: attribution.allotment_id,
+        allotment_line_id: attribution.allotment_line_id,
+        matched_at: attribution.matched_at,
+    }
 }
 
-fn transfer_evidence_json(evidence: &TransferEvidence) -> Value {
-    json!({
-        "event_id": evidence.event_id,
-        "origin_id": evidence.origin_id,
-        "generation": evidence.generation,
-        "seq": evidence.seq,
-        "sku_code": evidence.sku_code,
-        "quantity": evidence.quantity,
-        "movement_group_id": evidence.movement_group_id,
-        "receipt_id": evidence.receipt_id,
-        "occurred_at": evidence.occurred_at,
-    })
+fn transfer_evidence_view(evidence: &TransferEvidence) -> TransferEvidenceView {
+    TransferEvidenceView {
+        event_id: evidence.event_id,
+        origin_id: evidence.origin_id.clone(),
+        generation: evidence.generation,
+        seq: evidence.seq,
+        sku_code: evidence.sku_code.clone(),
+        quantity: evidence.quantity,
+        movement_group_id: evidence.movement_group_id,
+        receipt_id: evidence.receipt_id,
+        occurred_at: evidence.occurred_at,
+        attribution: evidence.attribution.as_ref().map(transfer_attribution_view),
+    }
 }
 
 async fn transfer_reconciliation_report(
@@ -373,48 +963,350 @@ async fn transfer_reconciliation_report(
             .chain(identity.received.iter())
             .map(|claim| claim.sku_code.clone())
             .collect::<std::collections::BTreeSet<_>>();
-        report.items.push(json!({
-            "status": status,
-            "source_dc_id": source_dc_id,
-            "destination_store_id": destination_store_id,
-            "shipment_reference": shipment_reference,
-            "epc": epc,
-            "sku_code": if sku_codes.len() == 1 {
-                sku_codes.iter().next().cloned().map(Value::String).unwrap_or(Value::Null)
+        let occurred_at = identity
+            .in_transit
+            .iter()
+            .chain(identity.received.iter())
+            .map(|claim| claim.occurred_at)
+            .min();
+        report.rows.push(ReconciliationRow {
+            id: format!(
+                "{}|{destination_store_id}|{}|{epc}",
+                source_dc_id.as_deref().unwrap_or(""),
+                shipment_reference.as_deref().unwrap_or("")
+            ),
+            status: status.to_owned(),
+            source_dc_id: source_dc_id.clone(),
+            destination_store_id: destination_store_id.clone(),
+            shipment_reference: shipment_reference.clone(),
+            epc: epc.clone(),
+            // One SKU when both sides agree what the tag is, and nothing when
+            // they do not — the disagreement is the finding, so the set is
+            // carried beside it rather than one of the two being picked.
+            sku_code: if sku_codes.len() == 1 {
+                sku_codes.iter().next().cloned()
             } else {
-                Value::Null
+                None
             },
-            "sku_codes": sku_codes,
-            "in_transit_claim_count": identity.in_transit.len(),
-            "received_claim_count": identity.received.len(),
-            "attributed": status == "MATCHED" && attribution.is_some(),
-            "attribution": attribution.map(transfer_attribution_json),
-            "in_transit": identity.in_transit.first().map(transfer_evidence_json),
-            "received": identity.received.first().map(transfer_evidence_json),
-        }));
+            sku_codes: sku_codes.iter().cloned().collect(),
+            in_transit_claim_count: identity.in_transit.len() as i64,
+            received_claim_count: identity.received.len() as i64,
+            attributed: status == "MATCHED" && attribution.is_some(),
+            attribution: attribution.map(transfer_attribution_view),
+            in_transit: identity.in_transit.first().map(transfer_evidence_view),
+            received: identity.received.first().map(transfer_evidence_view),
+            occurred_at,
+        });
     }
-    report.items.sort_by(|left, right| {
-        let left_status = left.get("status").and_then(Value::as_str).unwrap_or("");
-        let right_status = right.get("status").and_then(Value::as_str).unwrap_or("");
-        left_status
-            .cmp(right_status)
-            .then_with(|| {
-                left["destination_store_id"]
-                    .to_string()
-                    .cmp(&right["destination_store_id"].to_string())
-            })
-            .then_with(|| left["epc"].to_string().cmp(&right["epc"].to_string()))
+    report.rows.sort_by(|left, right| {
+        left.status
+            .cmp(&right.status)
+            .then_with(|| left.destination_store_id.cmp(&right.destination_store_id))
+            .then_with(|| left.epc.cmp(&right.epc))
     });
     Ok(report)
 }
 
-pub async fn list_transfer_reconciliations(pool: &PgPool) -> Result<Value, AppError> {
+// ── the transfer reconciliation list ─────────────────────────────────────
+//
+// The same envelope, narrowed in Rust rather than in SQL — and that is not a
+// shortcut. A reconciliation row is not a row in any table: it is one identity
+// (source, destination, shipment, tag) with every claim about it folded
+// together, and the fold is what decides whether it is MATCHED or a CONFLICT.
+// A `WHERE status='CONFLICT'` cannot be pushed below a status that does not
+// exist until the fold has run. So the whole claim table is read, folded once,
+// and the search, the filters, the sort and the page are applied to the
+// result — which still means the caller receives a page rather than the fleet.
+
+/// How many reconciliation rows the list returns when the caller does not say.
+const RECONCILIATION_DEFAULT_LIMIT: i64 = 200;
+/// And the most it will return however loudly a caller asks.
+const RECONCILIATION_MAX_LIMIT: i64 = 1000;
+
+/// What a caller is asking the reconciliation report for.
+#[derive(Clone, Debug, Default)]
+pub struct ReconciliationScope {
+    /// Free text over the tag, the SKU code, the shipment reference and the
+    /// two ends of the route.
+    pub needle: Option<String>,
+    /// `MATCHED`, `DC_ONLY`, `STORE_ONLY`, `UNRESOLVED` or `CONFLICT`.
+    pub status: Option<String>,
+    /// The destination shop. A store id — `store-01` — and stores are the one
+    /// place the centre and the edge already spell the same.
+    pub destination_store_id: Option<String>,
+    /// The sending distribution centre, **as the claim records it**. An Edge
+    /// node writes its own site id here — `dc-01` — where the centre's pool
+    /// model says `dc`, so this filter takes the edge's spelling and the pool
+    /// list's takes the centre's. They are different columns from different
+    /// authorities and folding them into one name would make one of the two
+    /// silently match nothing.
+    pub source_dc_id: Option<String>,
+    /// `status`, `destination`, `epc` or `occurred_at`. Anything unrecognised
+    /// is the house order: by status, then destination, then tag.
+    pub sort: Option<String>,
+    pub desc: bool,
+    pub cursor: Option<String>,
+    pub limit: Option<i64>,
+}
+
+/// The allotment line a received claim was matched back to.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct TransferAttributionView {
+    pub in_transit_event_id: Uuid,
+    pub koli_id: Uuid,
+    pub allotment_id: Uuid,
+    pub allotment_line_id: Uuid,
+    pub matched_at: DateTime<Utc>,
+}
+
+/// One side's claim about one piece of stock.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct TransferEvidenceView {
+    pub event_id: Uuid,
+    /// Which Edge node said it — `dc-01-edge`, `store-01-edge`.
+    pub origin_id: String,
+    pub generation: i64,
+    pub seq: i64,
+    pub sku_code: String,
+    pub quantity: i64,
+    pub movement_group_id: Uuid,
+    pub receipt_id: Option<Uuid>,
+    pub occurred_at: DateTime<Utc>,
+    pub attribution: Option<TransferAttributionView>,
+}
+
+/// One transfer identity, with both sides' claims folded together.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ReconciliationRow {
+    /// The identity, as one string: source, destination, shipment and tag.
+    /// The keyset's tie-break, and stable across calls because it is the key
+    /// the fold was done on.
+    pub id: String,
+    /// `MATCHED`, `DC_ONLY`, `STORE_ONLY`, `UNRESOLVED` or `CONFLICT`.
+    pub status: String,
+    pub source_dc_id: Option<String>,
+    pub destination_store_id: String,
+    pub shipment_reference: Option<String>,
+    pub epc: String,
+    /// `None` when the two sides do not agree what the tag is — which is
+    /// itself the finding, and why the disagreeing set is carried beside it.
+    pub sku_code: Option<String>,
+    pub sku_codes: Vec<String>,
+    pub in_transit_claim_count: i64,
+    pub received_claim_count: i64,
+    pub attributed: bool,
+    pub attribution: Option<TransferAttributionView>,
+    pub in_transit: Option<TransferEvidenceView>,
+    pub received: Option<TransferEvidenceView>,
+    /// When the transfer happened, as the earliest claim about it says.
+    /// `None` for an identity with no dated claim at all.
+    pub occurred_at: Option<DateTime<Utc>>,
+}
+
+/// How the whole report splits, before any filter.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ReconciliationSummary {
+    pub matched: i64,
+    pub matched_attributed: i64,
+    pub matched_unattributed: i64,
+    pub dc_only: i64,
+    pub store_only: i64,
+    pub unresolved: i64,
+    pub conflicts: i64,
+}
+
+/// What the reconciliation list can be narrowed by.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ReconciliationFacets {
+    pub statuses: Vec<InventoryFacet>,
+    pub destinations: Vec<InventoryFacet>,
+    /// Keyed by the SENDING NODE's own spelling — see
+    /// [`ReconciliationScope::source_dc_id`].
+    pub sources: Vec<InventoryFacet>,
+}
+
+/// A page of the reconciliation report.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ReconciliationPage {
+    pub as_of: DateTime<Utc>,
+    /// The whole report's tallies, unaffected by the filters: certification
+    /// turns on these, and a summary that moved when somebody ticked a filter
+    /// would be a different claim about the fleet every time it was read.
+    pub summary: ReconciliationSummary,
+    pub rows: Vec<ReconciliationRow>,
+    pub next_cursor: Option<String>,
+    /// Every identity the search and the filters match.
+    pub total: i64,
+    pub facets: ReconciliationFacets,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ReconciliationCursor {
+    row_id: String,
+}
+
+/// The transfer reconciliation report: searched, filtered, sorted and paged.
+pub async fn reconciliations_page(
+    pool: &PgPool,
+    scope: ReconciliationScope,
+) -> Result<ReconciliationPage, AppError> {
     let report = transfer_reconciliation_report(pool).await?;
-    Ok(json!({
-        "as_of": Utc::now(),
-        "summary": report.summary(),
-        "items": report.items,
-    }))
+    let summary = report.summary();
+
+    // A blank search is not a search.
+    let needle = scope
+        .needle
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_lowercase);
+    let searched: Vec<&ReconciliationRow> = report
+        .rows
+        .iter()
+        .filter(|row| match needle.as_deref() {
+            None => true,
+            Some(text) => {
+                let hit = |value: &str| value.to_lowercase().contains(text);
+                hit(&row.epc)
+                    || hit(&row.destination_store_id)
+                    || row.sku_code.as_deref().is_some_and(hit)
+                    || row.shipment_reference.as_deref().is_some_and(hit)
+                    || row.source_dc_id.as_deref().is_some_and(hit)
+            }
+        })
+        .collect();
+
+    // Counted over the SEARCHED set, deliberately ignoring the filters already
+    // applied, so a facet reads "how many of these there are" rather than "how
+    // many survive what you already ticked".
+    let mut facets = ReconciliationFacets {
+        statuses: tally(&searched, |row| Some(row.status.clone())),
+        destinations: tally(&searched, |row| Some(row.destination_store_id.clone())),
+        sources: tally(&searched, |row| row.source_dc_id.clone()),
+    };
+    for list in [
+        &mut facets.statuses,
+        &mut facets.destinations,
+        &mut facets.sources,
+    ] {
+        rank_facets(list);
+    }
+
+    let matches = |row: &ReconciliationRow| {
+        scope
+            .status
+            .as_deref()
+            .is_none_or(|want| row.status == want)
+            && scope
+                .destination_store_id
+                .as_deref()
+                .is_none_or(|want| row.destination_store_id == want)
+            && scope
+                .source_dc_id
+                .as_deref()
+                .is_none_or(|want| row.source_dc_id.as_deref() == Some(want))
+    };
+    let mut kept: Vec<ReconciliationRow> = searched
+        .into_iter()
+        .filter(|row| matches(row))
+        .cloned()
+        .collect();
+    let total = kept.len() as i64;
+
+    // Every order ends in the identity, which is the key the fold was done on
+    // and therefore unique — the same guarantee a primary key gives the SQL
+    // lists, so no two rows compare equal and the cursor cannot repeat or lose
+    // the rows that tie.
+    let key = |row: &ReconciliationRow| -> (String, String) {
+        let lead = match scope.sort.as_deref() {
+            Some("destination") => row.destination_store_id.clone(),
+            Some("epc") => row.epc.clone(),
+            Some("occurred_at") => row
+                .occurred_at
+                .map(|at| at.to_rfc3339())
+                // An identity with no dated claim sorts to the front rather
+                // than into a None the comparison cannot order — the same
+                // reason the SQL lists carry a `-infinity` sentinel.
+                .unwrap_or_default(),
+            _ => row.status.clone(),
+        };
+        (lead, row.id.clone())
+    };
+    kept.sort_by(|left, right| {
+        let ordering = key(left).cmp(&key(right));
+        if scope.desc {
+            ordering.reverse()
+        } else {
+            ordering
+        }
+    });
+
+    let limit = scope
+        .limit
+        .unwrap_or(RECONCILIATION_DEFAULT_LIMIT)
+        .clamp(1, RECONCILIATION_MAX_LIMIT) as usize;
+    let start = match scope
+        .cursor
+        .as_deref()
+        .map(super::decode_cursor::<ReconciliationCursor>)
+        .transpose()?
+    {
+        // The seek re-reads the previous row's own place in THIS order rather
+        // than trusting a position encoded in the cursor. A cursor whose row
+        // the filters no longer keep finds nothing to seek past, and the list
+        // ends rather than starting again — the safer of the two wrong
+        // answers, because stopping is visible.
+        Some(cursor) => match kept.iter().position(|row| row.id == cursor.row_id) {
+            Some(at) => at + 1,
+            None => kept.len(),
+        },
+        None => 0,
+    };
+    let rows: Vec<ReconciliationRow> = kept.into_iter().skip(start).take(limit).collect();
+    let next_cursor = match rows.last() {
+        Some(row) if rows.len() == limit && (start + limit) < total as usize => {
+            Some(super::encode_cursor(&ReconciliationCursor {
+                row_id: row.id.clone(),
+            })?)
+        }
+        _ => None,
+    };
+
+    Ok(ReconciliationPage {
+        as_of: Utc::now(),
+        summary,
+        rows,
+        next_cursor,
+        total,
+        facets,
+    })
+}
+
+/// How many rows carry each value of one field.
+fn tally(
+    rows: &[&ReconciliationRow],
+    of: impl Fn(&ReconciliationRow) -> Option<String>,
+) -> Vec<InventoryFacet> {
+    let mut counts: BTreeMap<String, i64> = BTreeMap::new();
+    for row in rows {
+        if let Some(value) = of(row) {
+            *counts.entry(value).or_default() += 1;
+        }
+    }
+    counts
+        .into_iter()
+        .map(|(value, count)| InventoryFacet {
+            value,
+            label: None,
+            count,
+        })
+        .collect()
 }
 
 /// Current inventory visible to Cloud, preserving each authority boundary.
@@ -600,14 +1492,19 @@ pub async fn list_fleet_pools(
              -- the prefix is swapped to match, or the reservation lands on a
              -- phantom row and the real warehouse reads Allotted 0. A no-op
              -- for every store, where the two names are already the same.
-             SELECT progress.origin_id,
-                    regexp_replace(progress.source_pool_id,'^[^.]+',credential.site_id) AS pool_id,
-                    COALESCE(sum(progress.accepted_quantity-progress.picked_quantity-progress.cancelled_quantity),0)::bigint AS allotted
-             FROM edge_allotment_line_progress progress
+             --
+             -- `accepted - picked - cancelled` was the fleet's own fourth
+             -- spelling of the commitment, and it released at pick like the
+             -- other three. What blocks a shelf is what still has to go into
+             -- a carton, which is `to_pack_qty` out of the one view.
+             SELECT commitment.origin_id,
+                    regexp_replace(commitment.source_pool_id,'^[^.]+',credential.site_id) AS pool_id,
+                    COALESCE(sum(commitment.to_pack_qty),0)::bigint AS allotted
+             FROM allotment_line_commitment commitment
              JOIN sync_origin_credential credential
-               ON credential.origin_id=progress.origin_id
-             GROUP BY progress.origin_id,
-                      regexp_replace(progress.source_pool_id,'^[^.]+',credential.site_id)
+               ON credential.origin_id=commitment.origin_id
+             GROUP BY commitment.origin_id,
+                      regexp_replace(commitment.source_pool_id,'^[^.]+',credential.site_id)
          ), pool_scope AS (
              SELECT origin_id,pool_id FROM base_pool
              UNION SELECT origin_id,pool_id FROM fact_balance
@@ -1041,7 +1938,7 @@ pub async fn list_fleet_pools(
         "aggregation_policy": "Exact-site Edge fact positions shadow Cloud rows once that origin has applied a fact; an Edge origin that has never reported shadows nothing and its own base pools are excluded; rollups are excluded; snapshots are reconciliation checkpoints; matched Store receipts deduct capped DC In Transit overlap",
         "fleet_total": fleet_total,
         "fleet_total_status": if certified { "CERTIFIED" } else { "UNCERTIFIED" },
-        "reconciliation_summary": reconciliation.summary(),
+        "reconciliation_summary": serde_json::to_value(reconciliation.summary())?,
         "fleet_total_diagnostics": {
             "base_stock_before_overlap": base_stock_before_overlap,
             "overlap_deduction": overlap_deduction,
@@ -1097,14 +1994,16 @@ pub async fn get_pool(
         .bind(pool_id).fetch_all(pool).await?;
     let items: Vec<Value> = item_rows.into_iter().map(|r| json!({"subject_id":r.get::<Uuid,_>("subject_id"),"subject_type":r.get::<String,_>("subject_type"),"epc":r.get::<Option<String>,_>("epc"),"barcode":r.get::<Option<String>,_>("barcode"),"quantity":r.get::<i64,_>("quantity"),"sku_code":r.get::<Option<String>,_>("sku_code"),"article_code":r.get::<Option<String>,_>("article_code"),"article_name":r.get::<Option<String>,_>("name")})).collect();
     let missing = list_missing_for_pool(pool, Some(pool_id), 200).await?;
-    let observations =
-        crate::cloud::postgres::list_observations(pool, Some(pool_id), None, 100).await?;
-    let movements = crate::cloud::postgres::list_movements(
+    let observations = crate::cloud::postgres::sightings_for_pool(pool, Some(pool_id), 100).await?;
+    let movements = crate::cloud::postgres::movements_page(
         pool,
-        crate::cloud::application::MovementQuery {
+        crate::cloud::postgres::MovementScope {
             pool_id: Some(pool_id.into()),
-            subject_id: None,
             limit: Some(100),
+            // This read takes the rows and throws the envelope away, so the
+            // count would be a whole-ledger scan nobody reads.
+            count: false,
+            ..crate::cloud::postgres::MovementScope::default()
         },
     )
     .await?;
@@ -1112,59 +2011,355 @@ pub async fn get_pool(
         .bind(pool_id).fetch_all(pool).await?;
     let counts: Vec<Value> = count_rows.into_iter().map(|r| json!({"id":r.get::<Uuid,_>("id"),"kind":r.get::<String,_>("kind"),"status":r.get::<String,_>("status"),"reason":r.get::<String,_>("reason"),"created_at":r.get::<DateTime<Utc>,_>("created_at"),"activated_at":r.get::<Option<DateTime<Utc>>,_>("activated_at"),"submitted_at":r.get::<Option<DateTime<Utc>>,_>("submitted_at"),"closed_at":r.get::<Option<DateTime<Utc>>,_>("closed_at")})).collect();
     Ok(
-        json!({"summary":row,"items":items,"missing":missing.get("items").cloned().unwrap_or(json!([])),"observations":observations.get("items").cloned().unwrap_or(json!([])),"movements":movements.get("items").cloned().unwrap_or(json!([])),"counts":counts}),
+        json!({"summary":row,"items":items,"missing":serde_json::to_value(&missing)?,"observations":serde_json::to_value(&observations)?,"movements":serde_json::to_value(&movements.rows)?,"counts":counts}),
     )
 }
 
+/// The same pool rows, folded to a moment in the past.
+///
+/// Narrowed by the SERVER now. It used to fold the ledger for all hundred and
+/// twelve pools, serialise them, and then drop every row but one in Rust — a
+/// screen asking about a single shelf was answered with the whole fleet and
+/// told to look away.
 pub async fn inventory_as_of(
     pool: &PgPool,
     query: AsOfQuery,
     observed_hours: i64,
     lost_days: i64,
-) -> Result<Value, AppError> {
-    let mut result = list_pools(pool, Some(query.at), observed_hours, lost_days).await?;
-    if let Some(items) = result.get_mut("items").and_then(Value::as_array_mut) {
-        items.retain(|v| {
-            query
-                .site_id
-                .as_deref()
-                .map(|x| v.get("site_id").and_then(Value::as_str) == Some(x))
-                .unwrap_or(true)
-                && query
-                    .pool_id
-                    .as_deref()
-                    .map(|x| v.get("id").and_then(Value::as_str) == Some(x))
-                    .unwrap_or(true)
-        });
-    }
-    Ok(result)
+) -> Result<PoolPage, AppError> {
+    pools_page(
+        pool,
+        PoolScope {
+            at: Some(query.at),
+            site_id: query.site_id,
+            pool_id: query.pool_id,
+            // The same envelope the pool list answers with, counted the same
+            // way: this route serialises `total` and `facets`, so a caller
+            // reading one gets a number and not a silence.
+            count: true,
+            ..PoolScope::default()
+        },
+        observed_hours,
+        lost_days,
+    )
+    .await
 }
 
+/// How many missing subjects the list returns when the caller does not say.
+const MISSING_DEFAULT_LIMIT: i64 = 200;
+/// And the most it will return however loudly a caller asks.
+const MISSING_MAX_LIMIT: i64 = 1000;
+
+/// What a caller is asking the missing list for.
+#[derive(Clone, Debug, Default)]
+pub struct MissingScope {
+    /// Free text over the tag, the barcode, the SKU code, the pool id and the
+    /// pool's label — the four things the screen's search box says it covers.
+    pub needle: Option<String>,
+    /// The CENTRE's pool id — `dc.warehouse`, `store-01.floor`. This list is
+    /// read out of the centre's own projection, so its ids are the centre's;
+    /// a caller holding an Edge node's spelling (`dc-01.warehouse`) matches
+    /// nothing here, and silently.
+    pub pool_id: Option<String>,
+    pub site_id: Option<String>,
+    /// `COUNTED` or `NEVER` — whether any official count has ever had this
+    /// subject in its snapshot. See [`MissingRow::latest_count_id`].
+    pub counted: Option<String>,
+    /// `missing_since`, `quantity`, `pool`, `last_observation` or `epc`.
+    /// Anything unrecognised is the house order.
+    pub sort: Option<String>,
+    pub desc: bool,
+    pub cursor: Option<String>,
+    pub limit: Option<i64>,
+}
+
+/// One subject the ledger has moved out of sight.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct MissingRow {
+    /// `subject_uuid@pool_id`. The resolution routes parse it back, so it is a
+    /// key and not a display string.
+    pub id: String,
+    pub subject_id: Uuid,
+    pub subject_type: String,
+    pub epc: Option<String>,
+    pub barcode: Option<String>,
+    pub sku_code: Option<String>,
+    pub quantity: i64,
+    pub site_id: String,
+    pub origin_pool: String,
+    pub pool_label: String,
+    /// When it first went missing. `None` where no movement into the missing
+    /// place can be found — an adjustment posted straight into the projection,
+    /// which is a row worth seeing rather than hiding.
+    pub missing_since: Option<DateTime<Utc>>,
+    /// Hours since then, and `None` for the same reason. Not zero: "missing
+    /// for no time at all" and "nobody knows since when" are different
+    /// answers.
+    pub age_hours: Option<i64>,
+    pub last_observation: Option<DateTime<Utc>>,
+    /// The last official count this subject appeared in, and **`None` when it
+    /// has never been in one**. Most of them never have.
+    pub latest_count_id: Option<Uuid>,
+    pub latest_count_status: Option<String>,
+    pub status: String,
+}
+
+/// What the missing list can be narrowed by.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct MissingFacets {
+    pub pools: Vec<InventoryFacet>,
+    pub sites: Vec<InventoryFacet>,
+    /// `COUNTED` and `NEVER` — how many of these have ever been looked for.
+    pub counted: Vec<InventoryFacet>,
+}
+
+/// A page of what cannot be found, and the shape of the whole of it.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct MissingPage {
+    pub rows: Vec<MissingRow>,
+    pub next_cursor: Option<String>,
+    /// Every missing subject the search and the filters match, which is what a
+    /// screen saying "41 open" has to be counting. The old read said "500" the
+    /// moment there were five hundred and one.
+    pub total: i64,
+    pub facets: MissingFacets,
+}
+
+#[derive(Serialize, Deserialize)]
+struct MissingCursor {
+    row_id: String,
+}
+
+/// One missing row, defined once — for the page and for the facets.
+///
+/// Binds: `$1` the search pattern or NULL.
+///
+/// `since_key` and `seen_key` are the sentinel trick the rest of this file
+/// uses and for the same reason: `missing_since` is nullable, a row comparison
+/// against NULL is NULL rather than true, and a keyset that meets one would
+/// stop there with the rest of the list below the fold. `-infinity` puts the
+/// unknown-since rows first in ascending order, which is exactly where the old
+/// `NULLS FIRST` put them — except that this one a `WHERE` can seek against.
+const MISSING_ROWS: &str = r#"
+SELECT pr.subject_id,ip.pool_id,pr.quantity,s.subject_type,s.epc,s.barcode,sk.sku_code,
+       op.site_id,op.label,
+       first_missing.occurred_at missing_since,last_obs.last_seen_at,
+       last_count.id latest_count_id,last_count.status latest_count_status,
+       pr.subject_id::text||'@'||ip.pool_id row_id,
+       COALESCE(first_missing.occurred_at,TIMESTAMPTZ '-infinity') since_key,
+       COALESCE(last_obs.last_seen_at,TIMESTAMPTZ '-infinity') seen_key,
+       COALESCE(s.epc,'') epc_key,
+       CASE WHEN last_count.id IS NULL THEN 'NEVER' ELSE 'COUNTED' END counted_state
+FROM inventory_projection pr JOIN inventory_place ip ON ip.id=pr.place_id AND ip.state='MISSING'
+JOIN operational_pool op ON op.id=ip.pool_id JOIN inventory_subject s ON s.id=pr.subject_id LEFT JOIN sku sk ON sk.id=s.sku_id
+LEFT JOIN LATERAL (SELECT occurred_at FROM movement WHERE subject_id=pr.subject_id AND to_place_id=pr.place_id ORDER BY occurred_at ASC LIMIT 1) first_missing ON TRUE
+LEFT JOIN LATERAL (SELECT last_seen_at FROM observation_sighting WHERE subject_id=pr.subject_id ORDER BY last_seen_at DESC LIMIT 1) last_obs ON TRUE
+LEFT JOIN LATERAL (SELECT c.id,c.status FROM official_count c JOIN count_snapshot cs ON cs.count_id=c.id WHERE cs.subject_id=pr.subject_id ORDER BY c.created_at DESC LIMIT 1) last_count ON TRUE
+WHERE ($1::text IS NULL OR s.epc ILIKE $1 OR s.barcode ILIKE $1
+       OR sk.sku_code ILIKE $1 OR ip.pool_id ILIKE $1 OR op.label ILIKE $1)
+"#;
+
+/// The missing list's filters, spelled once for the page and for the facets.
+const MISSING_FILTERS: &str = "
+     WHERE ($2::text IS NULL OR pool_id=$2)
+       AND ($3::text IS NULL OR site_id=$3)
+       AND ($4::text IS NULL OR counted_state=$4)
+";
+
+fn missing_row_from(
+    row: &sqlx::postgres::PgRow,
+    now: DateTime<Utc>,
+) -> Result<MissingRow, AppError> {
+    let since: Option<DateTime<Utc>> = row.try_get("missing_since")?;
+    Ok(MissingRow {
+        id: row.try_get("row_id")?,
+        subject_id: row.try_get("subject_id")?,
+        subject_type: row.try_get("subject_type")?,
+        epc: row.try_get("epc")?,
+        barcode: row.try_get("barcode")?,
+        sku_code: row.try_get("sku_code")?,
+        quantity: row.try_get("quantity")?,
+        site_id: row.try_get("site_id")?,
+        origin_pool: row.try_get("pool_id")?,
+        pool_label: row.try_get("label")?,
+        missing_since: since,
+        age_hours: since.map(|at| (now - at).num_hours()),
+        last_observation: row.try_get("last_seen_at")?,
+        latest_count_id: row.try_get("latest_count_id")?,
+        latest_count_status: row.try_get("latest_count_status")?,
+        status: "MISSING".into(),
+    })
+}
+
+/// What cannot be found, in the shape the routes that predate the envelope
+/// still read it. The envelope is [`missing_page`].
 pub async fn list_missing(pool: &PgPool) -> Result<Value, AppError> {
-    list_missing_for_pool(pool, None, 500).await
+    let page = missing_page(
+        pool,
+        MissingScope {
+            limit: Some(MISSING_MAX_LIMIT),
+            ..MissingScope::default()
+        },
+    )
+    .await?;
+    Ok(json!({"items": serde_json::to_value(&page.rows)?}))
 }
 
 async fn list_missing_for_pool(
     pool: &PgPool,
     pool_id: Option<&str>,
     limit: i64,
-) -> Result<Value, AppError> {
-    let rows = sqlx::query(r#"
-SELECT pr.subject_id,ip.pool_id,pr.quantity,s.subject_type,s.epc,s.barcode,sk.sku_code,op.site_id,op.label,
-       first_missing.occurred_at missing_since,last_obs.last_seen_at,last_count.id latest_count_id,last_count.status latest_count_status
-FROM inventory_projection pr JOIN inventory_place ip ON ip.id=pr.place_id AND ip.state='MISSING'
-JOIN operational_pool op ON op.id=ip.pool_id JOIN inventory_subject s ON s.id=pr.subject_id LEFT JOIN sku sk ON sk.id=s.sku_id
-LEFT JOIN LATERAL (SELECT occurred_at FROM movement WHERE subject_id=pr.subject_id AND to_place_id=pr.place_id ORDER BY occurred_at ASC LIMIT 1) first_missing ON TRUE
-LEFT JOIN LATERAL (SELECT last_seen_at FROM observation_sighting WHERE subject_id=pr.subject_id ORDER BY last_seen_at DESC LIMIT 1) last_obs ON TRUE
-LEFT JOIN LATERAL (SELECT c.id,c.status FROM official_count c JOIN count_snapshot cs ON cs.count_id=c.id WHERE cs.subject_id=pr.subject_id ORDER BY c.created_at DESC LIMIT 1) last_count ON TRUE
-WHERE ($1::text IS NULL OR ip.pool_id=$1) ORDER BY first_missing.occurred_at ASC NULLS FIRST LIMIT $2
-"#).bind(pool_id).bind(limit).fetch_all(pool).await?;
+) -> Result<Vec<MissingRow>, AppError> {
+    Ok(missing_page(
+        pool,
+        MissingScope {
+            pool_id: pool_id.map(ToOwned::to_owned),
+            limit: Some(limit),
+            ..MissingScope::default()
+        },
+    )
+    .await?
+    .rows)
+}
+
+/// What cannot be found: searched, filtered, sorted and paged by the server.
+pub async fn missing_page(pool: &PgPool, scope: MissingScope) -> Result<MissingPage, AppError> {
+    let needle = scope
+        .needle
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(|text| format!("%{text}%"));
+    let limit = scope
+        .limit
+        .unwrap_or(MISSING_DEFAULT_LIMIT)
+        .clamp(1, MISSING_MAX_LIMIT);
+    let cursor = scope
+        .cursor
+        .as_deref()
+        .map(super::decode_cursor::<MissingCursor>)
+        .transpose()?;
+
+    // Every order ends in `row_id`, which is the subject and the pool it went
+    // missing from — the same pair the projection is keyed by, so no two rows
+    // can compare equal.
+    let lead = match scope.sort.as_deref() {
+        Some("quantity") => "quantity",
+        Some("pool") => "pool_id",
+        Some("last_observation") => "seen_key",
+        Some("epc") => "epc_key",
+        _ => "since_key",
+    };
+    let (cols, order) = super::order_by(lead, "row_id", scope.desc);
+    let seek = if scope.desc { "<" } else { ">" };
+
+    // `NOT MATERIALIZED`: `kept` is referenced twice — as the page and
+    // inside the seek — and two references makes PostgreSQL materialise a
+    // CTE, which is an optimisation fence the `ORDER BY … LIMIT` cannot be
+    // pushed through. Materialised, this reads the whole table and sorts it
+    // to hand back one page; inlined, it seeks the index. See
+    // `postgres::audit::list_audit`, where the difference was measured.
+    let sql = format!(
+        "WITH searched AS NOT MATERIALIZED ({MISSING_ROWS}),
+              kept AS NOT MATERIALIZED (
+             SELECT * FROM searched {MISSING_FILTERS}
+         )
+         SELECT * FROM kept
+          WHERE $5::text IS NULL
+             OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE row_id = $5)
+          ORDER BY {order}
+          LIMIT $6"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(&needle)
+        .bind(&scope.pool_id)
+        .bind(&scope.site_id)
+        .bind(&scope.counted)
+        .bind(cursor.as_ref().map(|c| c.row_id.clone()))
+        .bind(limit)
+        .fetch_all(pool)
+        .await?;
+
     let now = Utc::now();
-    let items: Vec<Value> = rows.into_iter().map(|r| {
-        let subject_id: Uuid=r.get("subject_id"); let origin_pool: String=r.get("pool_id"); let since: Option<DateTime<Utc>>=r.get("missing_since");
-        json!({"id":format!("{subject_id}@{origin_pool}"),"subject_id":subject_id,"subject_type":r.get::<String,_>("subject_type"),"epc":r.get::<Option<String>,_>("epc"),"barcode":r.get::<Option<String>,_>("barcode"),"sku_code":r.get::<Option<String>,_>("sku_code"),"quantity":r.get::<i64,_>("quantity"),"site_id":r.get::<String,_>("site_id"),"origin_pool":origin_pool,"pool_label":r.get::<String,_>("label"),"missing_since":since,"age_hours":since.map(|s|(now-s).num_hours()),"last_observation":r.get::<Option<DateTime<Utc>>,_>("last_seen_at"),"latest_count_id":r.get::<Option<Uuid>,_>("latest_count_id"),"latest_count_status":r.get::<Option<String>,_>("latest_count_status"),"status":"MISSING"})
-    }).collect();
-    Ok(json!({"items":items}))
+    let next_cursor = match rows.last() {
+        Some(row) if rows.len() as i64 == limit => Some(super::encode_cursor(&MissingCursor {
+            row_id: row.try_get("row_id")?,
+        })?),
+        _ => None,
+    };
+    let out = rows
+        .iter()
+        .map(|row| missing_row_from(row, now))
+        .collect::<Result<Vec<_>, AppError>>()?;
+
+    let (total, facets) = missing_facets(pool, &scope, needle.as_deref()).await?;
+    Ok(MissingPage {
+        rows: out,
+        next_cursor,
+        total,
+        facets,
+    })
+}
+
+/// How much is missing, and where from.
+///
+/// Per-value counts read the SEARCHED set and the total reads the FILTERED
+/// one, for the reason `pool_facets` gives.
+async fn missing_facets(
+    pool: &PgPool,
+    scope: &MissingScope,
+    needle: Option<&str>,
+) -> Result<(i64, MissingFacets), AppError> {
+    let sql = format!(
+        "WITH searched AS ({MISSING_ROWS}), kept AS (
+             SELECT * FROM searched {MISSING_FILTERS}
+         )
+         SELECT 'pool' AS kind, pool_id AS value, label AS l, COUNT(*)::bigint AS n
+           FROM searched GROUP BY pool_id, label
+          UNION ALL
+         SELECT 'site', site_id, NULL::text, COUNT(*)::bigint
+           FROM searched GROUP BY site_id
+          UNION ALL
+         SELECT 'counted', counted_state, NULL::text, COUNT(*)::bigint
+           FROM searched GROUP BY counted_state
+          UNION ALL
+         SELECT 'all', '', NULL::text, COUNT(*)::bigint FROM kept"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(needle)
+        .bind(&scope.pool_id)
+        .bind(&scope.site_id)
+        .bind(&scope.counted)
+        .fetch_all(pool)
+        .await?;
+
+    let mut total = 0i64;
+    let mut facets = MissingFacets {
+        pools: Vec::new(),
+        sites: Vec::new(),
+        counted: Vec::new(),
+    };
+    for row in &rows {
+        let kind: String = row.try_get("kind")?;
+        let facet = InventoryFacet {
+            value: row.try_get("value")?,
+            label: row.try_get("l")?,
+            count: row.try_get("n")?,
+        };
+        match kind.as_str() {
+            "pool" => facets.pools.push(facet),
+            "site" => facets.sites.push(facet),
+            "counted" => facets.counted.push(facet),
+            _ => total = facet.count,
+        }
+    }
+    for list in [&mut facets.pools, &mut facets.sites, &mut facets.counted] {
+        rank_facets(list);
+    }
+    Ok((total, facets))
 }
 
 async fn missing_quantity(pool: &PgPool, subject_id: Uuid, pool_id: &str) -> Result<i64, AppError> {

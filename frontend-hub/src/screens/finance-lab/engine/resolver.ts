@@ -18,7 +18,14 @@
 /// map, not April's.
 
 import { account } from "./chart"
-import type { Account, Binding, Day, Dimensions, Resolution, AccountRole } from "./types"
+import type {
+  Account,
+  Binding,
+  Day,
+  Dimensions,
+  Resolution,
+  AccountRole,
+} from "./types"
 
 /// Does this binding's narrowing hold for this request?
 ///
@@ -28,17 +35,21 @@ import type { Account, Binding, Day, Dimensions, Resolution, AccountRole } from 
 function narrowsMatch(binding: Binding, dims: Dimensions): boolean {
   const n = binding.narrows
   if (n.unit_id !== dims.unit_id) return false
-  const keys: (keyof Omit<Dimensions, "unit_id">)[] = [
-    "bank_account_id",
-    "asset_class",
-    "counterparty_unit_id",
-    "acquirer",
-    "expense_kind",
-  ]
-  for (const k of keys) {
-    const want = n[k]
+  // Read the binding's OWN keys rather than a list written here.
+  //
+  // The list was hand-maintained, and `tax_kind` was added to `Dimensions`
+  // without being added to it. The effect was silent and exactly the kind this
+  // file exists to prevent: five bindings narrowed by tax kind all matched any
+  // request, because the one dimension telling them apart was not being
+  // compared. Nothing failed loudly — the rule simply could not resolve.
+  //
+  // Iterating the binding's keys cannot go stale: a dimension a binding names
+  // is a dimension it is compared on, whatever it is called.
+  for (const key of Object.keys(n) as (keyof Dimensions)[]) {
+    if (key === "unit_id") continue
+    const want = n[key]
     if (want === undefined) continue
-    if (dims[k] !== want) return false
+    if (dims[key] !== want) return false
   }
   return true
 }
@@ -90,7 +101,9 @@ export function resolve(
       reason: "AMBIGUOUS",
       message:
         `${candidates.length} bindings match ${req.role} at ${req.dims.unit_id}${describe(req.dims)} on ${req.on}: ` +
-        candidates.map((c) => `${c.binding_id} → ${c.account_code}`).join(", ") +
+        candidates
+          .map((c) => `${c.binding_id} → ${c.account_code}`)
+          .join(", ") +
         `. A resolver never picks; retire one or narrow it${
           candidates.every((c) => specificity(c) === specificity(candidates[0]))
             ? " — both name the same dimensions, so one of them is stale"

@@ -6,6 +6,7 @@
 //! work, not administration.
 
 use super::auth::Principal;
+use super::{facet_values, single_value};
 use crate::cloud::{
     application::{AppError, AppState},
     postgres::{self as infrastructure, ProposedArticle, UpdateArticleRequest},
@@ -87,35 +88,6 @@ pub(super) fn versioned_response<T: Serialize>(
     Ok(response)
 }
 
-/// Every value given for one query key.
-///
-/// Repeated keys AND comma-separated values, both, because the two halves of
-/// this repository already disagree: `supplier-items` reads
-/// `division=KIDS,DIVIDED` while the shared spec for this module says to
-/// repeat the key. Accepting one and rejecting the other would work perfectly
-/// in a browser and fail for whoever wrote the other form by hand, with an
-/// empty list rather than an error — a filter that silently matches everything
-/// is worse than one that refuses.
-fn facet_values(params: &[(String, String)], key: &str) -> Vec<String> {
-    params
-        .iter()
-        .filter(|(name, _)| name == key)
-        .flat_map(|(_, value)| value.split(','))
-        .map(str::trim)
-        .filter(|part| !part.is_empty())
-        .map(str::to_owned)
-        .collect()
-}
-
-fn single_value(params: &[(String, String)], key: &str) -> Option<String> {
-    params
-        .iter()
-        .rev()
-        .find(|(name, _)| name == key)
-        .map(|(_, value)| value.trim().to_owned())
-        .filter(|value| !value.is_empty())
-}
-
 const DEFAULT_ARTICLE_LIMIT: i64 = 60;
 
 /// One page of the master, with what the rest of it contains.
@@ -133,6 +105,15 @@ pub async fn search_articles(
             )));
         }
     };
+    // A word this server does not answer to is refused rather than ignored: a
+    // sort control that silently does nothing is how somebody reports that the
+    // newest articles are missing.
+    let order = match single_value(&params, "sort").as_deref() {
+        None => infrastructure::ArticleOrder::default(),
+        Some(raw) => infrastructure::ArticleOrder::parse(raw).ok_or_else(|| {
+            AppError::Validation(format!("sort must be newest or oldest, not {raw:?}"))
+        })?,
+    };
     let limit = match single_value(&params, "limit") {
         Some(raw) => raw
             .parse::<i64>()
@@ -149,6 +130,7 @@ pub async fn search_articles(
                 size_codes: facet_values(&params, "size_code"),
                 colour_codes: facet_values(&params, "colour_code"),
                 active,
+                order,
                 cursor: single_value(&params, "cursor"),
                 limit,
             },
@@ -200,6 +182,7 @@ pub async fn update_article(
     let version = detail.article.version;
     versioned_response(StatusCode::OK, detail, version)
 }
+
 /// What editing this article would do to the promotions around it.
 ///
 /// A POST that writes nothing, and the verb is the body's fault rather than a

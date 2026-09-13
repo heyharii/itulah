@@ -41,7 +41,7 @@ export function BankReconciliationScreen() {
   const [open, setOpen] = useState<string | null>(null)
   const statements = useQuery({
     queryKey: financeKeys.bankStatements(),
-    queryFn: ({ signal }) => listBankStatements(signal),
+    queryFn: ({ signal }) => listBankStatements(signal).then((page) => page.rows),
   })
 
   const rows = statements.data ?? []

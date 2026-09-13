@@ -45,6 +45,14 @@ export const contractsKey = (employeeId: string) =>
 export const expiringKey = (withinDays: number) =>
   ["employees", "expiring", withinDays] as const
 
+/// The workforce list.
+///
+/// The route answers with an envelope now — the page, an opaque cursor, the
+/// total of everything matched, and facet counts — in the shape
+/// `GET /finance/money` established. This app reads the rows and nothing else:
+/// it is the superseded console, and the paging belongs to the hub that
+/// replaced it. Unwrapping here keeps its screens working without teaching them
+/// a shape they will never use.
 export function listEmployees(
   filters: { status?: string; placeId?: string; limit?: number } = {},
   signal?: AbortSignal,
@@ -54,7 +62,9 @@ export function listEmployees(
   if (filters.placeId) query.set("place_id", filters.placeId)
   if (filters.limit) query.set("limit", String(filters.limit))
   const suffix = query.size > 0 ? `?${query}` : ""
-  return node.get<EmployeeSummary[]>(`/api/v1/employees${suffix}`, { signal })
+  return node
+    .get<{ rows: EmployeeSummary[] }>(`/api/v1/employees${suffix}`, { signal })
+    .then((page) => page.rows)
 }
 
 export function readEmployee(

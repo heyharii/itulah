@@ -20,6 +20,7 @@ use crate::{
     security,
 };
 use chrono::{DateTime, Duration, Utc};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use std::{collections::BTreeMap, str::FromStr};
@@ -166,25 +167,314 @@ pub async fn set_edge_assignment_active(
     }))
 }
 
-pub async fn list_edge_assignments(pool: &PgPool) -> Result<Value, AppError> {
-    let rows = sqlx::query(
-        "SELECT a.origin_id,a.user_id,u.username,u.display_name,a.edge_role,a.active,
-                a.offline_ttl_seconds,a.updated_at
-         FROM edge_identity_assignment a JOIN app_user u ON u.id=a.user_id
-         ORDER BY a.origin_id,u.username",
-    )
+// ── who may sign in at which node ────────────────────────────────────────
+//
+// `system/access` is an AUDIT SURFACE, and that changes one thing about the
+// shape below: every number it reports is an exact `COUNT(*)`, never an
+// estimate. "Roughly nine people can sign in at store-03" reads as a fact and
+// is not one, and on a screen whose whole job is answering "who has access
+// where" a rough count is worse than no count.
+
+/// One grant, as the access list shows it.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct EdgeAssignmentRow {
+    pub origin_id: String,
+    pub user_id: Uuid,
+    pub username: String,
+    pub display_name: String,
+    /// Spelled `role` on the wire where the column is `edge_role`, because that
+    /// is what this route has always answered and three screens read it.
+    pub role: String,
+    pub active: bool,
+    pub offline_ttl_seconds: i32,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// One value a filter can take, and how many grants would still be there.
+/// Exact — see the note above. Counted over what the SEARCH leaves, ignoring
+/// the filters currently applied.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct AccessFacet {
+    pub value: String,
+    /// A person's display name beside their username, where the value is a
+    /// username. Absent for a node or a role, whose words belong to the screen.
+    pub label: Option<String>,
+    pub count: i64,
+}
+
+/// The three things the access list can be narrowed by.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct EdgeAssignmentFacets {
+    pub origins: Vec<AccessFacet>,
+    pub roles: Vec<AccessFacet>,
+    /// `ACTIVE` and `SUSPENDED`. A suspended grant is kept rather than deleted,
+    /// which is the whole reason it has to be countable: "nobody is suspended"
+    /// and "we deleted the evidence" must not look the same.
+    pub states: Vec<AccessFacet>,
+}
+
+/// A page of grants, and the shape of everything it was drawn from.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct EdgeAssignmentList {
+    pub rows: Vec<EdgeAssignmentRow>,
+    pub next_cursor: Option<String>,
+    /// Exact, always. Every grant the search and the filters match.
+    pub total: i64,
+    pub facets: EdgeAssignmentFacets,
+}
+
+/// What a caller is asking the access list for.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EdgeAssignmentScope {
+    /// Free text over the node, the login and the colleague's name. All three
+    /// name a node or a colleague; none of them is a customer's anything.
+    #[serde(default)]
+    pub q: Option<String>,
+    #[serde(default)]
+    pub origin_id: Option<String>,
+    /// `CASHIER`, `SUPERVISOR` or `ADMIN`, as the edge spells them.
+    #[serde(default)]
+    pub role: Option<String>,
+    #[serde(default)]
+    pub active: Option<bool>,
+    /// `origin`, `username` or `updated`. Anything else is `origin` rather than
+    /// a 400, so a stale bookmark still opens.
+    #[serde(default)]
+    pub sort: Option<String>,
+    /// `desc` and nothing else. Absent means ascending — the access list is
+    /// read node by node, from the first.
+    #[serde(default)]
+    pub dir: Option<String>,
+    #[serde(default)]
+    pub cursor: Option<String>,
+    pub limit: Option<i64>,
+}
+
+/// Where the previous page stopped — as a ROW, not a position.
+///
+/// Two fields because the table's key is two: one node and one person. A cursor
+/// carrying only the user id would stop at the first person granted access at
+/// two shops, which is most supervisors.
+#[derive(Serialize, Deserialize)]
+struct AssignmentCursor {
+    origin_id: String,
+    user_id: Uuid,
+}
+
+impl AssignmentCursor {
+    fn encode(&self) -> Result<String, AppError> {
+        Ok(hex::encode(serde_json::to_vec(self)?))
+    }
+
+    fn decode(raw: &str) -> Result<Self, AppError> {
+        let bytes = hex::decode(raw).map_err(|_| {
+            AppError::Validation("cursor is not a cursor this server issued".into())
+        })?;
+        serde_json::from_slice(&bytes)
+            .map_err(|_| AppError::Validation("cursor is not a cursor this server issued".into()))
+    }
+}
+
+const ACCESS_DEFAULT_LIMIT: i64 = 200;
+const ACCESS_MAX_LIMIT: i64 = 1_000;
+
+/// One grant row, defined once.
+///
+/// Used by the page query and by the facet counts, which is the whole reason it
+/// is a constant: the facets are only honest if they count exactly what the
+/// page can show.
+///
+/// It stops at the SEARCH; the node, role and state filters are applied outside
+/// by each caller, so one definition answers two questions.
+///
+/// Every column a sort can name is NOT NULL — `origin_id`, `username`,
+/// `updated_at` — so no `COALESCE` sentinel is needed. Worth stating rather
+/// than rediscovering: a row comparison against NULL is NULL rather than true,
+/// so a nullable sort key added here would end paging at the first NULL, in
+/// silence.
+///
+/// Binds: `$1` the search pattern or NULL.
+const ASSIGNMENT_ROWS: &str = "
+    SELECT a.origin_id, a.user_id, u.username, u.display_name,
+           a.edge_role AS role, a.active, a.offline_ttl_seconds, a.updated_at,
+           CASE WHEN a.active THEN 'ACTIVE' ELSE 'SUSPENDED' END AS state
+      FROM edge_identity_assignment a
+      JOIN app_user u ON u.id = a.user_id
+     WHERE ($1::text IS NULL
+            OR a.origin_id ILIKE $1
+            OR u.username ILIKE $1
+            OR u.display_name ILIKE $1)
+";
+
+/// Every filter, in one place, so the page and the total cannot drift.
+const ASSIGNMENT_FILTERS: &str = "
+    WHERE ($2::text IS NULL OR origin_id = $2)
+      AND ($3::text IS NULL OR role = $3)
+      AND ($4::bool IS NULL OR active = $4)
+";
+
+/// Who may sign in where, one page at a time, beside exactly how many there
+/// are.
+pub async fn list_edge_assignments(
+    pool: &PgPool,
+    scope: EdgeAssignmentScope,
+) -> Result<EdgeAssignmentList, AppError> {
+    // A blank search is not a search: `Some("")` compiles to `ILIKE '%%'`,
+    // which matches everything and costs a scan to say so.
+    let needle = scope
+        .q
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| format!("%{value}%"));
+
+    // The sort, and the tie-break that makes it total: every order ends in the
+    // table's own two-column key, so no two rows can compare equal — which is
+    // what stops a keyset repeating or losing the rows that tie.
+    //
+    // TWO spellings of the same thing, and they are not interchangeable:
+    // `ORDER BY` takes directions, a ROW EXPRESSION does not.
+    let lead = match scope.sort.as_deref() {
+        Some("username") => "username",
+        Some("updated") => "updated_at",
+        _ => "origin_id",
+    };
+    let descending = scope.dir.as_deref() == Some("desc");
+    let cols = format!("{lead}, origin_id, user_id");
+    let dir = if descending { "DESC" } else { "ASC" };
+    let order = format!("{lead} {dir}, origin_id {dir}, user_id {dir}");
+    let seek = if descending { "<" } else { ">" };
+
+    let cursor = scope
+        .cursor
+        .as_deref()
+        .map(AssignmentCursor::decode)
+        .transpose()?;
+    let limit = scope
+        .limit
+        .unwrap_or(ACCESS_DEFAULT_LIMIT)
+        .clamp(1, ACCESS_MAX_LIMIT);
+
+    // `NOT MATERIALIZED`: `kept` is referenced twice — as the page and
+    // inside the seek — and two references makes PostgreSQL materialise a
+    // CTE, which is an optimisation fence the `ORDER BY … LIMIT` cannot be
+    // pushed through. Materialised, this reads the whole table and sorts it
+    // to hand back one page; inlined, it seeks the index. See
+    // `postgres::audit::list_audit`, where the difference was measured.
+    let rows = sqlx::query(&format!(
+        "WITH searched AS NOT MATERIALIZED ({ASSIGNMENT_ROWS}),
+              kept AS NOT MATERIALIZED (
+             SELECT * FROM searched {ASSIGNMENT_FILTERS}
+         )
+         SELECT * FROM kept
+          WHERE $5::text IS NULL
+             OR ({cols}) {seek} (SELECT {cols} FROM kept
+                                  WHERE origin_id = $5 AND user_id = $6)
+          ORDER BY {order}
+          LIMIT $7"
+    ))
+    .bind(&needle)
+    .bind(&scope.origin_id)
+    .bind(&scope.role)
+    .bind(scope.active)
+    .bind(cursor.as_ref().map(|one| one.origin_id.clone()))
+    .bind(cursor.as_ref().map(|one| one.user_id))
+    .bind(limit)
     .fetch_all(pool)
     .await?;
-    Ok(json!({"items":rows.into_iter().map(|row| json!({
-        "origin_id":row.get::<String,_>("origin_id"),
-        "user_id":row.get::<Uuid,_>("user_id"),
-        "username":row.get::<String,_>("username"),
-        "display_name":row.get::<String,_>("display_name"),
-        "role":row.get::<String,_>("edge_role"),
-        "active":row.get::<bool,_>("active"),
-        "offline_ttl_seconds":row.get::<i32,_>("offline_ttl_seconds"),
-        "updated_at":row.get::<DateTime<Utc>,_>("updated_at"),
-    })).collect::<Vec<_>>() }))
+
+    let next_cursor = match rows.last() {
+        Some(row) if rows.len() as i64 == limit => Some(
+            AssignmentCursor {
+                origin_id: row.try_get("origin_id")?,
+                user_id: row.try_get("user_id")?,
+            }
+            .encode()?,
+        ),
+        _ => None,
+    };
+
+    let out = rows
+        .iter()
+        .map(|row| {
+            Ok(EdgeAssignmentRow {
+                origin_id: row.try_get("origin_id")?,
+                user_id: row.try_get("user_id")?,
+                username: row.try_get("username")?,
+                display_name: row.try_get("display_name")?,
+                role: row.try_get("role")?,
+                active: row.try_get("active")?,
+                offline_ttl_seconds: row.try_get("offline_ttl_seconds")?,
+                updated_at: row.try_get("updated_at")?,
+            })
+        })
+        .collect::<Result<Vec<_>, AppError>>()?;
+
+    // `NOT MATERIALIZED`: `kept` is referenced twice — as the page and
+    // inside the seek — and two references makes PostgreSQL materialise a
+    // CTE, which is an optimisation fence the `ORDER BY … LIMIT` cannot be
+    // pushed through. Materialised, this reads the whole table and sorts it
+    // to hand back one page; inlined, it seeks the index. See
+    // `postgres::audit::list_audit`, where the difference was measured.
+    let counted = sqlx::query(&format!(
+        "WITH searched AS NOT MATERIALIZED ({ASSIGNMENT_ROWS}),
+              kept AS NOT MATERIALIZED (
+             SELECT * FROM searched {ASSIGNMENT_FILTERS}
+         )
+         SELECT 'origin' AS facet, origin_id AS value, NULL::text AS label,
+                COUNT(*)::bigint AS n
+           FROM searched GROUP BY origin_id
+          UNION ALL
+         SELECT 'role', role, NULL::text, COUNT(*)::bigint
+           FROM searched GROUP BY role
+          UNION ALL
+         SELECT 'state', state, NULL::text, COUNT(*)::bigint
+           FROM searched GROUP BY state
+          UNION ALL
+         SELECT 'all', '', NULL::text, COUNT(*)::bigint FROM kept"
+    ))
+    .bind(&needle)
+    .bind(&scope.origin_id)
+    .bind(&scope.role)
+    .bind(scope.active)
+    .fetch_all(pool)
+    .await?;
+
+    let mut total = 0i64;
+    let (mut origins, mut roles, mut states) = (Vec::new(), Vec::new(), Vec::new());
+    for row in &counted {
+        let facet: String = row.try_get("facet")?;
+        let one = AccessFacet {
+            value: row.try_get("value")?,
+            label: row.try_get("label")?,
+            count: row.try_get("n")?,
+        };
+        match facet.as_str() {
+            "origin" => origins.push(one),
+            "role" => roles.push(one),
+            "state" => states.push(one),
+            _ => total = one.count,
+        }
+    }
+    for list in [&mut origins, &mut roles, &mut states] {
+        list.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.value.cmp(&b.value)));
+    }
+
+    Ok(EdgeAssignmentList {
+        rows: out,
+        next_cursor,
+        total,
+        facets: EdgeAssignmentFacets {
+            origins,
+            roles,
+            states,
+        },
+    })
 }
 
 pub async fn register_rfid_device(
@@ -338,28 +628,270 @@ pub async fn rotate_rfid_device_key(
     }))
 }
 
-pub async fn list_rfid_devices(pool: &PgPool) -> Result<Value, AppError> {
-    let rows = sqlx::query(
-        "SELECT d.device_id,d.origin_id,d.label,d.active,d.offline_ttl_seconds,
-                d.created_at,d.updated_at,d.last_seen_at,
-                COALESCE(array_agg(p.pool_id ORDER BY p.pool_id)
-                    FILTER (WHERE p.pool_id IS NOT NULL),'{}') pools
-         FROM rfid_device d LEFT JOIN rfid_device_pool p ON p.device_id=d.device_id
-         GROUP BY d.device_id ORDER BY d.origin_id,d.device_id",
-    )
+/// One reader, as the device list shows it.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct RfidDeviceRow {
+    pub device_id: String,
+    pub origin_id: String,
+    pub label: String,
+    pub active: bool,
+    pub offline_ttl_seconds: i32,
+    pub pools: Vec<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    /// Null for a reader that has never checked in. Not the same as a very old
+    /// date, and a screen that sorted them together would file the two most
+    /// different cases side by side.
+    pub last_seen_at: Option<DateTime<Utc>>,
+}
+
+/// The two things the device list can be narrowed by.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct RfidDeviceFacets {
+    pub origins: Vec<AccessFacet>,
+    /// `ACTIVE` and `SUSPENDED`.
+    pub states: Vec<AccessFacet>,
+}
+
+/// A page of readers, and the shape of everything it was drawn from.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct RfidDeviceList {
+    pub rows: Vec<RfidDeviceRow>,
+    pub next_cursor: Option<String>,
+    /// Exact, always — this is an access surface. Every reader the search and
+    /// the filters match.
+    pub total: i64,
+    pub facets: RfidDeviceFacets,
+}
+
+/// What a caller is asking the device list for.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RfidDeviceScope {
+    /// Free text over the device id, its label and the node it belongs to.
+    #[serde(default)]
+    pub q: Option<String>,
+    #[serde(default)]
+    pub origin_id: Option<String>,
+    #[serde(default)]
+    pub active: Option<bool>,
+    /// `origin`, `device`, `label` or `last_seen`. Anything else is `origin`
+    /// rather than a 400, so a stale bookmark still opens.
+    #[serde(default)]
+    pub sort: Option<String>,
+    /// `desc` and nothing else. Absent means ascending.
+    #[serde(default)]
+    pub dir: Option<String>,
+    #[serde(default)]
+    pub cursor: Option<String>,
+    pub limit: Option<i64>,
+}
+
+/// Where the previous page stopped — as a ROW, not a position.
+#[derive(Serialize, Deserialize)]
+struct DeviceCursor {
+    device_id: String,
+}
+
+impl DeviceCursor {
+    fn encode(&self) -> Result<String, AppError> {
+        Ok(hex::encode(serde_json::to_vec(self)?))
+    }
+
+    fn decode(raw: &str) -> Result<Self, AppError> {
+        let bytes = hex::decode(raw).map_err(|_| {
+            AppError::Validation("cursor is not a cursor this server issued".into())
+        })?;
+        serde_json::from_slice(&bytes)
+            .map_err(|_| AppError::Validation("cursor is not a cursor this server issued".into()))
+    }
+}
+
+/// One reader row, defined once.
+///
+/// Used by the page query and by the facet counts, which is the whole reason it
+/// is a constant: the facets are only honest if they count exactly what the
+/// page can show.
+///
+/// `last_key` is the trap this list carries and the reason it is spelled out:
+/// `last_seen_at` is NULL for a reader that has never checked in, a row
+/// comparison against NULL is NULL rather than true, and paging by it would
+/// therefore stop dead at the first never-seen device with the rest of the
+/// fleet below the fold. `-infinity` is the sentinel, which also sorts
+/// never-seen readers last under the default descending read — where somebody
+/// asking "what has checked in recently" expects them. A sentinel VALUE rather
+/// than a `NULLS LAST` decoration, because `NULLS LAST` orders a result and
+/// says nothing a keyset can seek against.
+///
+/// Binds: `$1` the search pattern or NULL.
+const DEVICE_ROWS: &str = "
+    SELECT d.device_id, d.origin_id, d.label, d.active, d.offline_ttl_seconds,
+           d.created_at, d.updated_at, d.last_seen_at,
+           COALESCE(array_agg(p.pool_id ORDER BY p.pool_id)
+                    FILTER (WHERE p.pool_id IS NOT NULL), '{}') AS pools,
+           CASE WHEN d.active THEN 'ACTIVE' ELSE 'SUSPENDED' END AS state,
+           COALESCE(d.last_seen_at, TIMESTAMPTZ '-infinity') AS last_key
+      FROM rfid_device d
+      LEFT JOIN rfid_device_pool p ON p.device_id = d.device_id
+     WHERE ($1::text IS NULL
+            OR d.device_id ILIKE $1
+            OR d.label ILIKE $1
+            OR d.origin_id ILIKE $1)
+     GROUP BY d.device_id
+";
+
+/// Every filter, in one place, so the page and the total cannot drift.
+const DEVICE_FILTERS: &str = "
+    WHERE ($2::text IS NULL OR origin_id = $2)
+      AND ($3::bool IS NULL OR active = $3)
+";
+
+/// The readers, one page at a time, beside exactly how many there are.
+pub async fn list_rfid_devices(
+    pool: &PgPool,
+    scope: RfidDeviceScope,
+) -> Result<RfidDeviceList, AppError> {
+    // A blank search is not a search: `Some("")` compiles to `ILIKE '%%'`,
+    // which matches everything and costs a scan to say so.
+    let needle = scope
+        .q
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| format!("%{value}%"));
+
+    // The sort, and the tie-break that makes it total. Every order ends in the
+    // device id, which is the primary key, so no two rows can compare equal.
+    //
+    // TWO spellings of the same thing, and they are not interchangeable:
+    // `ORDER BY` takes directions, a ROW EXPRESSION does not.
+    let lead = match scope.sort.as_deref() {
+        Some("device") => "device_id",
+        Some("label") => "label",
+        Some("last_seen") => "last_key",
+        _ => "origin_id",
+    };
+    let descending = scope.dir.as_deref() == Some("desc");
+    let cols = if lead == "device_id" {
+        "device_id".to_owned()
+    } else {
+        format!("{lead}, device_id")
+    };
+    let dir = if descending { "DESC" } else { "ASC" };
+    let order = if lead == "device_id" {
+        format!("device_id {dir}")
+    } else {
+        format!("{lead} {dir}, device_id {dir}")
+    };
+    let seek = if descending { "<" } else { ">" };
+
+    let cursor = scope
+        .cursor
+        .as_deref()
+        .map(DeviceCursor::decode)
+        .transpose()?;
+    let limit = scope
+        .limit
+        .unwrap_or(ACCESS_DEFAULT_LIMIT)
+        .clamp(1, ACCESS_MAX_LIMIT);
+
+    // `NOT MATERIALIZED`: `kept` is referenced twice — as the page and
+    // inside the seek — and two references makes PostgreSQL materialise a
+    // CTE, which is an optimisation fence the `ORDER BY … LIMIT` cannot be
+    // pushed through. Materialised, this reads the whole table and sorts it
+    // to hand back one page; inlined, it seeks the index. See
+    // `postgres::audit::list_audit`, where the difference was measured.
+    let rows = sqlx::query(&format!(
+        "WITH searched AS NOT MATERIALIZED ({DEVICE_ROWS}),
+              kept AS NOT MATERIALIZED (
+             SELECT * FROM searched {DEVICE_FILTERS}
+         )
+         SELECT * FROM kept
+          WHERE $4::text IS NULL
+             OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE device_id = $4)
+          ORDER BY {order}
+          LIMIT $5"
+    ))
+    .bind(&needle)
+    .bind(&scope.origin_id)
+    .bind(scope.active)
+    .bind(cursor.as_ref().map(|one| one.device_id.clone()))
+    .bind(limit)
     .fetch_all(pool)
     .await?;
-    Ok(json!({"items":rows.into_iter().map(|row| json!({
-        "device_id":row.get::<String,_>("device_id"),
-        "origin_id":row.get::<String,_>("origin_id"),
-        "label":row.get::<String,_>("label"),
-        "active":row.get::<bool,_>("active"),
-        "offline_ttl_seconds":row.get::<i32,_>("offline_ttl_seconds"),
-        "pools":row.get::<Vec<String>,_>("pools"),
-        "created_at":row.get::<DateTime<Utc>,_>("created_at"),
-        "updated_at":row.get::<DateTime<Utc>,_>("updated_at"),
-        "last_seen_at":row.get::<Option<DateTime<Utc>>,_>("last_seen_at"),
-    })).collect::<Vec<_>>() }))
+
+    let next_cursor = match rows.last() {
+        Some(row) if rows.len() as i64 == limit => Some(
+            DeviceCursor {
+                device_id: row.try_get("device_id")?,
+            }
+            .encode()?,
+        ),
+        _ => None,
+    };
+
+    let out = rows
+        .iter()
+        .map(|row| {
+            Ok(RfidDeviceRow {
+                device_id: row.try_get("device_id")?,
+                origin_id: row.try_get("origin_id")?,
+                label: row.try_get("label")?,
+                active: row.try_get("active")?,
+                offline_ttl_seconds: row.try_get("offline_ttl_seconds")?,
+                pools: row.try_get("pools")?,
+                created_at: row.try_get("created_at")?,
+                updated_at: row.try_get("updated_at")?,
+                last_seen_at: row.try_get("last_seen_at")?,
+            })
+        })
+        .collect::<Result<Vec<_>, AppError>>()?;
+
+    let counted = sqlx::query(&format!(
+        "WITH searched AS ({DEVICE_ROWS}), kept AS (
+             SELECT * FROM searched {DEVICE_FILTERS}
+         )
+         SELECT 'origin' AS facet, origin_id AS value, COUNT(*)::bigint AS n
+           FROM searched GROUP BY origin_id
+          UNION ALL
+         SELECT 'state', state, COUNT(*)::bigint FROM searched GROUP BY state
+          UNION ALL
+         SELECT 'all', '', COUNT(*)::bigint FROM kept"
+    ))
+    .bind(&needle)
+    .bind(&scope.origin_id)
+    .bind(scope.active)
+    .fetch_all(pool)
+    .await?;
+
+    let mut total = 0i64;
+    let (mut origins, mut states) = (Vec::new(), Vec::new());
+    for row in &counted {
+        let facet: String = row.try_get("facet")?;
+        let one = AccessFacet {
+            value: row.try_get("value")?,
+            label: None,
+            count: row.try_get("n")?,
+        };
+        match facet.as_str() {
+            "origin" => origins.push(one),
+            "state" => states.push(one),
+            _ => total = one.count,
+        }
+    }
+    for list in [&mut origins, &mut states] {
+        list.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.value.cmp(&b.value)));
+    }
+
+    Ok(RfidDeviceList {
+        rows: out,
+        next_cursor,
+        total,
+        facets: RfidDeviceFacets { origins, states },
+    })
 }
 
 async fn allocate_policy_version(

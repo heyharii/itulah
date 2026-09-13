@@ -17,6 +17,7 @@ use crate::cloud::reports::{
 };
 use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::{prelude::ToPrimitive, Decimal};
+use serde::Serialize;
 use serde_json::{json, Map, Value};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
@@ -275,39 +276,327 @@ pub async fn revise(
     read(pool, id, actor).await
 }
 
-/// Everything this person may open: their own, plus what others shared.
-pub async fn list(pool: &PgPool, actor: &str) -> Result<Value, AppError> {
-    let rows = sqlx::query(
-        "SELECT r.report_id, r.name, r.owner_username, r.shared, r.current_version,
-                r.created_at, r.updated_at, v.prompt, v.model, v.spec->>'dataset' AS dataset
-           FROM report r
-           JOIN report_version v
-             ON v.report_id = r.report_id AND v.version = r.current_version
-          WHERE r.archived_at IS NULL AND (r.owner_username = $1 OR r.shared)
-          ORDER BY r.updated_at DESC",
-    )
-    .bind(actor)
-    .fetch_all(pool)
-    .await?;
+// ── the saved list ───────────────────────────────────────────────────────
+//
+// The same envelope as the finance lists — rows, a cursor, a total and facet
+// counts — and, for the first time on this route, a TYPED row. It answered
+// with a hand-built `json!` before, which is how the browser ended up with a
+// hand-written mirror of a shape nothing generated.
 
-    let items: Vec<Value> = rows
-        .into_iter()
-        .map(|row| {
-            json!({
-                "report_id": row.get::<Uuid, _>("report_id"),
-                "name": row.get::<String, _>("name"),
-                "owner": row.get::<String, _>("owner_username"),
-                "shared": row.get::<bool, _>("shared"),
-                "version": row.get::<i32, _>("current_version"),
-                "dataset": row.get::<Option<String>, _>("dataset"),
-                "prompt": row.get::<Option<String>, _>("prompt"),
-                "model": row.get::<Option<String>, _>("model"),
-                "created_at": row.get::<DateTime<Utc>, _>("created_at"),
-                "updated_at": row.get::<DateTime<Utc>, _>("updated_at"),
-            })
-        })
-        .collect();
-    Ok(json!({ "items": items }))
+/// How many reports the list returns when the caller does not say.
+const DEFAULT_REPORT_LIMIT: i64 = 100;
+/// And the most it will return however loudly a caller asks.
+const MAX_REPORT_LIMIT: i64 = 500;
+
+/// One saved report, as the list shows it.
+///
+/// Deliberately not the whole report: the spec is the big part and the list
+/// does not draw it. `dataset` is lifted out of the current version's spec
+/// because it is the one thing about a report somebody scans a list for —
+/// "which of these are about sales".
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct SavedReportRow {
+    pub report_id: Uuid,
+    pub name: String,
+    pub owner: String,
+    /// Visible to everybody, rather than only to its owner.
+    pub shared: bool,
+    /// Which version is the current one. Every earlier one is still there —
+    /// "why is last month's figure different" has to have an answer.
+    pub version: i32,
+    pub dataset: Option<String>,
+    /// The sentence this came from, when the assistant composed it. Absent for
+    /// one somebody built by hand, which is a real difference and not a
+    /// missing field.
+    pub prompt: Option<String>,
+    pub model: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// What a caller is asking the saved list for.
+#[derive(Clone, Debug, Default)]
+pub struct SavedReportScope {
+    /// Free text, tried against the report's name, its owner and the sentence
+    /// it was composed from.
+    pub needle: Option<String>,
+    /// Datasets to keep — the catalogue's own names. Empty means every
+    /// dataset.
+    pub datasets: Vec<String>,
+    /// Owners to keep, by username.
+    pub owners: Vec<String>,
+    /// `MINE` or `SHARED`. Empty means both, which is what the list has always
+    /// answered: everything this person owns, plus everything anybody has
+    /// shared.
+    ///
+    /// Not a widening of what a caller can see. The reach is applied first and
+    /// separately — see [`saved_report_page`] — so `SHARED` narrows what is
+    /// already visible rather than reaching past it.
+    pub scopes: Vec<String>,
+    /// `name`, `created` or `owner`. Anything else is the house order, most
+    /// recently edited first.
+    pub sort: Option<String>,
+    pub desc: bool,
+    pub cursor: Option<String>,
+    /// Absent means [`DEFAULT_REPORT_LIMIT`], not "everything".
+    pub limit: Option<i64>,
+}
+
+/// One value a filter can take, and how many reports would still be there.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct SavedReportFacet {
+    pub value: String,
+    pub label: Option<String>,
+    pub count: i64,
+}
+
+/// The three things the saved list can be narrowed by.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct SavedReportFacets {
+    pub datasets: Vec<SavedReportFacet>,
+    pub owners: Vec<SavedReportFacet>,
+    pub scopes: Vec<SavedReportFacet>,
+}
+
+/// A page of the saved list, and the shape of everything it was drawn from.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct SavedReportPage {
+    pub rows: Vec<SavedReportRow>,
+    pub next_cursor: Option<String>,
+    /// Every report this caller can see that the search and the filters match.
+    pub total: i64,
+    pub facets: SavedReportFacets,
+}
+
+/// Where the previous page stopped — as a ROW, not as a position.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct SavedReportCursor {
+    report_id: Uuid,
+}
+
+impl SavedReportCursor {
+    fn encode(&self) -> Result<String, AppError> {
+        Ok(hex::encode(serde_json::to_vec(self)?))
+    }
+
+    fn decode(raw: &str) -> Result<Self, AppError> {
+        let bytes = hex::decode(raw).map_err(|_| {
+            AppError::Validation("cursor is not a cursor this server issued".into())
+        })?;
+        serde_json::from_slice(&bytes)
+            .map_err(|_| AppError::Validation("cursor is not a cursor this server issued".into()))
+    }
+}
+
+/// One saved-list row, defined once, so the facets count exactly what the page
+/// can show.
+///
+/// Binds: `$1` the caller's username, `$2` the search pattern or NULL.
+///
+/// **The reach is inside this definition and not beside it.** `$1` is who is
+/// asking, applied here where no filter and no sort can reach around it — a
+/// caller's own reports plus everything shared, and nothing else. A filter
+/// applied outside it can only ever narrow that.
+const SAVED_REPORT_ROWS: &str = "
+    SELECT r.report_id, r.name, r.owner_username AS owner, r.shared,
+           r.current_version AS version, r.created_at, r.updated_at,
+           v.prompt, v.model, v.spec->>'dataset' AS dataset,
+           CASE WHEN r.owner_username = $1 THEN 'MINE' ELSE 'SHARED' END AS scope
+      FROM report r
+      JOIN report_version v
+        ON v.report_id = r.report_id AND v.version = r.current_version
+     WHERE r.archived_at IS NULL
+       AND (r.owner_username = $1 OR r.shared)
+       AND ($2::text IS NULL
+            OR r.name ILIKE $2
+            OR r.owner_username ILIKE $2
+            OR v.prompt ILIKE $2)
+";
+
+fn to_saved_report(row: &sqlx::postgres::PgRow) -> Result<SavedReportRow, AppError> {
+    Ok(SavedReportRow {
+        report_id: row.try_get("report_id")?,
+        name: row.try_get("name")?,
+        owner: row.try_get("owner")?,
+        shared: row.try_get("shared")?,
+        version: row.try_get("version")?,
+        dataset: row.try_get("dataset")?,
+        prompt: row.try_get("prompt")?,
+        model: row.try_get("model")?,
+        created_at: row.try_get("created_at")?,
+        updated_at: row.try_get("updated_at")?,
+    })
+}
+
+/// Every report this person can open, a page at a time.
+pub async fn saved_report_page(
+    pool: &PgPool,
+    actor: &str,
+    scope: SavedReportScope,
+) -> Result<SavedReportPage, AppError> {
+    // A blank search is not a search.
+    let needle = scope
+        .needle
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(|text| format!("%{text}%"));
+    let datasets = (!scope.datasets.is_empty()).then(|| scope.datasets.clone());
+    let owners = (!scope.owners.is_empty()).then(|| scope.owners.clone());
+    let scopes = (!scope.scopes.is_empty()).then(|| scope.scopes.clone());
+
+    // The sort, and the tie-break that makes it total. Every order ends in the
+    // report id, which is the primary key.
+    //
+    // TWO spellings of the same thing, and they are not interchangeable:
+    // `ORDER BY` takes directions, a ROW EXPRESSION does not.
+    let (lead, descending): (&str, bool) = match scope.sort.as_deref() {
+        Some("name") => ("name", scope.desc),
+        Some("created") => ("created_at", scope.desc),
+        Some("owner") => ("owner", scope.desc),
+        // The house order, and the one this endpoint has always answered in:
+        // most recently edited first. `dir` is not read — a default order that
+        // reverses is not a default.
+        _ => ("updated_at", true),
+    };
+    let cols = format!("{lead}, report_id");
+    let dir = if descending { "DESC" } else { "ASC" };
+    let order = format!("{lead} {dir}, report_id {dir}");
+    let seek = if descending { "<" } else { ">" };
+
+    let cursor = scope
+        .cursor
+        .as_deref()
+        .map(SavedReportCursor::decode)
+        .transpose()?;
+    let limit = scope
+        .limit
+        .unwrap_or(DEFAULT_REPORT_LIMIT)
+        .clamp(1, MAX_REPORT_LIMIT);
+
+    // `NOT MATERIALIZED`: `kept` is referenced twice — as the page and
+    // inside the seek — and two references makes PostgreSQL materialise a
+    // CTE, which is an optimisation fence the `ORDER BY … LIMIT` cannot be
+    // pushed through. Materialised, this reads the whole table and sorts it
+    // to hand back one page; inlined, it seeks the index. See
+    // `postgres::audit::list_audit`, where the difference was measured.
+    let sql = format!(
+        "WITH searched AS NOT MATERIALIZED ({SAVED_REPORT_ROWS}),
+              kept AS NOT MATERIALIZED (
+             SELECT * FROM searched
+              WHERE ($3::text[] IS NULL OR dataset = ANY($3))
+                AND ($4::text[] IS NULL OR owner = ANY($4))
+                AND ($5::text[] IS NULL OR scope = ANY($5))
+         )
+         SELECT * FROM kept
+          WHERE $6::uuid IS NULL
+             OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE report_id = $6)
+          ORDER BY {order}
+          LIMIT $7"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(actor)
+        .bind(&needle)
+        .bind(&datasets)
+        .bind(&owners)
+        .bind(&scopes)
+        .bind(cursor.as_ref().map(|c| c.report_id))
+        .bind(limit)
+        .fetch_all(pool)
+        .await?;
+
+    let next_cursor = match rows.last() {
+        Some(row) if rows.len() as i64 == limit => Some(
+            SavedReportCursor {
+                report_id: row.try_get("report_id")?,
+            }
+            .encode()?,
+        ),
+        _ => None,
+    };
+
+    let out = rows
+        .iter()
+        .map(to_saved_report)
+        .collect::<Result<Vec<_>, _>>()?;
+    let (total, facets) = saved_report_facets(pool, actor, &scope, needle.as_deref()).await?;
+    Ok(SavedReportPage {
+        rows: out,
+        next_cursor,
+        total,
+        facets,
+    })
+}
+
+/// How many reports there are, and how they split.
+///
+/// Counted through the same reach as the page, so the numbers are about what
+/// this person can open. Per-value counts read the SEARCHED set and the total
+/// reads the FILTERED one, for the reason every other facet query here gives.
+async fn saved_report_facets(
+    pool: &PgPool,
+    actor: &str,
+    scope: &SavedReportScope,
+    needle: Option<&str>,
+) -> Result<(i64, SavedReportFacets), AppError> {
+    let sql = format!(
+        "WITH searched AS ({SAVED_REPORT_ROWS}), kept AS (
+             SELECT * FROM searched
+              WHERE ($3::text[] IS NULL OR dataset = ANY($3))
+                AND ($4::text[] IS NULL OR owner = ANY($4))
+                AND ($5::text[] IS NULL OR scope = ANY($5))
+         )
+         SELECT 'dataset' AS kind, s.dataset AS value, COUNT(*)::bigint AS n
+           FROM searched s WHERE s.dataset IS NOT NULL GROUP BY s.dataset
+          UNION ALL
+         SELECT 'owner', s.owner, COUNT(*)::bigint FROM searched s GROUP BY s.owner
+          UNION ALL
+         SELECT 'scope', s.scope, COUNT(*)::bigint FROM searched s GROUP BY s.scope
+          UNION ALL
+         SELECT 'all', '', COUNT(*)::bigint FROM kept"
+    );
+    let datasets = (!scope.datasets.is_empty()).then(|| scope.datasets.clone());
+    let owners = (!scope.owners.is_empty()).then(|| scope.owners.clone());
+    let scopes = (!scope.scopes.is_empty()).then(|| scope.scopes.clone());
+    let rows = sqlx::query(&sql)
+        .bind(actor)
+        .bind(needle)
+        .bind(&datasets)
+        .bind(&owners)
+        .bind(&scopes)
+        .fetch_all(pool)
+        .await?;
+
+    let mut total = 0i64;
+    let mut facets = SavedReportFacets {
+        datasets: Vec::new(),
+        owners: Vec::new(),
+        scopes: Vec::new(),
+    };
+    for row in &rows {
+        let kind: String = row.try_get("kind")?;
+        let value: String = row.try_get("value")?;
+        let n: i64 = row.try_get("n")?;
+        let facet = SavedReportFacet {
+            value,
+            label: None,
+            count: n,
+        };
+        match kind.as_str() {
+            "dataset" => facets.datasets.push(facet),
+            "owner" => facets.owners.push(facet),
+            "scope" => facets.scopes.push(facet),
+            _ => total = n,
+        }
+    }
+    for list in [&mut facets.datasets, &mut facets.owners, &mut facets.scopes] {
+        list.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.value.cmp(&b.value)));
+    }
+    Ok((total, SavedReportFacets { ..facets }))
 }
 
 /// One report, at its current version, with its history beside it.

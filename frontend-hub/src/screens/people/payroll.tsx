@@ -18,6 +18,7 @@ import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Timeline } from "@/components/ui/timeline"
 import { money, moment } from "@/lib/format"
+import { PickOne } from "@/components/ui/pick"
 import {
   listRuns,
   openRun,
@@ -26,6 +27,7 @@ import {
   runSlips,
   runStateLabel,
   stepRun,
+  usePlaces,
 } from "@/lib/queries/people"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
@@ -64,8 +66,20 @@ function stateTone(state: string) {
   }
 }
 
+/// A unit's name, or its id when the list has not arrived. Never a bare id
+/// once it has: `store-07` is a primary key, and the list beside it says
+/// `Store 07`.
+function unitName(
+  places: readonly { readonly id: string; readonly name: string }[],
+  id: string
+): string {
+  return places.find((one) => one.id === id)?.name ?? id
+}
+
 export function PayrollRuns() {
   const run = useSheet("payrollRun")
+  const units = usePlaces()
+  const places = units.data ?? []
   const runs = useQuery({
     queryKey: payKeys.runs(),
     queryFn: ({ signal }) => listRuns(signal),
@@ -110,7 +124,7 @@ export function PayrollRuns() {
                   >
                     <span className="w-24 shrink-0 text-ink">{row.period}</span>
                     <span className="min-w-0 flex-1 truncate text-body">
-                      {row.place_id}
+                      {unitName(places, row.place_id)}
                     </span>
                     <Pill tone={stateTone(row.state)}>
                       {runStateLabel(row.state)}
@@ -187,7 +201,7 @@ function RunSheet({
       )}
 
       <Facts>
-        <Fact term="Place">{run.place_id}</Fact>
+        <Fact term="Unit">{run.place_id}</Fact>
         <Fact term="Month">{run.period}</Fact>
         <Fact term="Checked by">{run.verified_by ?? "nobody yet"}</Fact>
       </Facts>
@@ -328,6 +342,8 @@ function RunSheet({
 
 function OpenRun() {
   const client = useQueryClient()
+  const units = usePlaces()
+  const places = units.data ?? []
   const [placeId, setPlaceId] = useState("")
   const [period, setPeriod] = useState(() =>
     new Date().toISOString().slice(0, 7)
@@ -357,11 +373,20 @@ function OpenRun() {
           facts are still moving, and a run built over moving facts disagrees
           with itself an hour later.
         </Banner>
-        <Field label="Place" hint="An org_place id — `ho`, `dc`, `store-07`.">
-          <Input
-            value={placeId}
-            onChange={(event) => setPlaceId(event.target.value)}
-            placeholder="store-07"
+        {/* Chosen, never typed. It asked for an `org_place` id in a text box
+            and named three of them in the hint, which is a screen asking
+            somebody to remember a primary key — and one typo away from a 404
+            that reads as "there is no payroll for your shop". */}
+        <Field label="Unit">
+          <PickOne
+            label="Unit"
+            placeholder="Choose a unit…"
+            choices={places.map((one) => ({
+              value: one.id,
+              label: `${one.name} · ${one.employees}`,
+            }))}
+            value={placeId === "" ? null : placeId}
+            onChange={(next) => setPlaceId(next ?? "")}
           />
         </Field>
         <Field label="Month">

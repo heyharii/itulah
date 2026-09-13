@@ -27,7 +27,7 @@ import { money } from "@itulah/contract/money"
 
 /// The counter.
 ///
-/// One field, one list, one number, one black button. Everything a cashier does
+/// One field, one list, one number, one filled button. Everything a cashier does
 /// on this screen is: wave a tag at the reader, look at the total, take the
 /// money. The list is a stack of record cards and never a table — a till is
 /// thumbs and glances, and six columns is neither.
@@ -158,9 +158,53 @@ export function Sell() {
     })
   }
 
+  /// The basket's number and the one filled button. Written once and placed
+  /// twice — floating over a phone, at the foot of the basket on a counter —
+  /// because two copies of a button that takes money is two places for one of
+  /// them to drift.
+  const summary = (
+    <>
+      <CardStrip className="justify-between">
+        <span className="text-meta text-mute">
+          {quote.incomplete ? "At least" : "Basket"}
+        </span>
+        <span className="text-metric font-semibold text-ink tabular-nums">
+          {money(quote.totalMinor, book?.currency ?? "IDR")}
+        </span>
+      </CardStrip>
+      <div className="px-3 py-3">
+        {quote.savedMinor > 0 && (
+          <p className="mb-2.5 text-center text-meta text-ok-fg tabular-nums">
+            Markdowns take off {money(quote.savedMinor, book?.currency ?? "IDR")}
+          </p>
+        )}
+        <Button
+          variant="primary"
+          size="lg"
+          block
+          onClick={() => go("/sell/tender")}
+        >
+          Take payment
+        </Button>
+      </div>
+    </>
+  )
+
   return (
     <>
-      <Screen foot={basket.lines.length > 0 ? "both" : "tabs"}>
+      {/* Two panes on a counter monitor, one column on a phone.
+          What goes in, on the left; what it comes to, on the right. The scan
+          field never scrolls away from a cashier who is waving tags at a reader
+          with a customer waiting, and the basket stops being a strip down the
+          middle of a 1440px screen. Below `lg` this collapses to exactly the
+          phone layout it was, in the same order. */}
+      <Screen
+        counter
+        foot={basket.lines.length > 0 ? "both" : "tabs"}
+        className="lg:pb-8"
+      >
+        <div className="lg:grid lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)] lg:items-start lg:gap-7">
+        <div className="lg:sticky lg:top-0 lg:pt-1">
         <div className="pt-1 pb-4">
           <ScanField
             onScan={onScan}
@@ -267,6 +311,9 @@ export function Sell() {
           </Section>
         )}
 
+        </div>
+
+        <div>
         {basket.lines.length === 0 ? (
           <EmptyState
             action={
@@ -338,7 +385,7 @@ export function Sell() {
                         type="button"
                         onClick={() => removeFromBasket(line.epc)}
                         aria-label={`Take one ${group.name ?? group.sku_code} off the sale`}
-                        className="pressable flex h-11 items-center gap-2 rounded-full bg-soft-2 px-3 font-mono text-id text-body"
+                        className="pressable flex h-11 items-center gap-2 rounded-inner bg-soft-2 px-3 font-mono text-id text-body"
                       >
                         <Trash2 className="size-4 text-line-ico" />
                         {line.epc.slice(-6)}
@@ -358,35 +405,24 @@ export function Sell() {
             )}
           </Section>
         )}
+
+        {/* On a counter the number and its button belong at the foot of the
+            basket they describe, not floating across the full width of the
+            screen over a column of white. Sticky, so a long basket never
+            scrolls the total out of sight. */}
+        {basket.lines.length > 0 && (
+          <div className="sticky bottom-0 mt-4 hidden overflow-hidden rounded-sheet border border-hairline bg-canvas shadow-float lg:block">
+            {summary}
+          </div>
+        )}
+        </div>
+        </div>
       </Screen>
 
       {basket.lines.length > 0 && (
-        <FloatingBar>
-          <CardStrip className="justify-between">
-            <span className="text-meta text-mute">
-              {quote.incomplete ? "At least" : "Basket"}
-            </span>
-            <span className="text-metric font-semibold text-ink tabular-nums">
-              {money(quote.totalMinor, book?.currency ?? "IDR")}
-            </span>
-          </CardStrip>
-          <div className="px-3 py-3">
-            {quote.savedMinor > 0 && (
-              <p className="mb-2.5 text-center text-meta text-ok-fg tabular-nums">
-                Markdowns take off{" "}
-                {money(quote.savedMinor, book?.currency ?? "IDR")}
-              </p>
-            )}
-            <Button
-              variant="dark"
-              size="lg"
-              block
-              onClick={() => go("/sell/tender")}
-            >
-              Take payment
-            </Button>
-          </div>
-        </FloatingBar>
+        <div className="lg:hidden">
+          <FloatingBar>{summary}</FloatingBar>
+        </div>
       )}
     </>
   )

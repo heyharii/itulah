@@ -1219,6 +1219,17 @@ pub struct DestinationDemand {
     /// not `min(wanted, everything in the picking area)`: a shop wanting ten
     /// shirts and eight trousers, with ten shirts picked, can be sent ten
     /// pieces and not eighteen.
+    ///
+    /// **Never add this up across destinations.** The picking area is shared
+    /// and carries no store attribution, so ten shirts wanted by two shops are
+    /// ten shirts — and summing the two rows reports twenty. Within one row it
+    /// is safe, because two SKUs do not share supply. Across rows the only
+    /// honest figure is `min(Σ to_pack(sku), picking area(sku))`, which is what
+    /// `cloud::domain::commitment::can_pack_now` computes over the SKU.
+    ///
+    /// It is availability at an instant either way, never a reservation: V1
+    /// has no claim of any kind, and this number moves under a packer's feet
+    /// while somebody else packs.
     pub packable: i64,
 }
 

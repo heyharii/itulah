@@ -174,15 +174,63 @@ pub struct ArticleDetail {
     pub supplier_items: Vec<ArticleSupplierItem>,
 }
 
+/// Which way the master is read.
+///
+/// **Newest is ordered by `created_at`, not by the code.** The first draft of
+/// this ordered by `article_code DESC`, on the reasoning that codes come from
+/// `article_code_seq` so a higher code is a later article. That is true of
+/// every code this server has ever minted and false of the catalogue actually
+/// in the database: seeded and legacy articles carry hand-written codes —
+/// `ART-0001`, `ART-TSHIRT` — and every one of them sorts above `00000001`,
+/// so "newest" put the oldest rows in the company at the top. Caught by
+/// reading the answer rather than the reasoning.
+///
+/// `created_at` is the thing actually being asked about, and the code rides
+/// along only to break ties, which is what keeps the keyset exact.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ArticleOrder {
+    /// Lowest code first: the master in the order it was built up. The order
+    /// this endpoint has always answered in, and still the default — a
+    /// catalogue read by somebody looking for a product should not reshuffle
+    /// itself every time a delivery is set up.
+    #[default]
+    Oldest,
+    /// Highest code first: what has just been minted, which is what somebody
+    /// asking "what is new" means.
+    Newest,
+}
+
+impl ArticleOrder {
+    /// The parameter as it arrives, or `None` for a word this server does not
+    /// answer to — the caller is told rather than quietly given the default,
+    /// because a sort that silently does nothing is worse than a refusal.
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw {
+            "oldest" => Some(Self::Oldest),
+            "newest" => Some(Self::Newest),
+            _ => None,
+        }
+    }
+}
+
 /// Where the previous page stopped.
 ///
-/// The sort is `article_code`, which is unique, so the cursor needs nothing
-/// else to be exact. A keyset on a non-unique key loses or repeats the rows
-/// that tie, which is why `SourcingCursor` next door carries four fields — it
-/// sorts on a name.
+/// Reading oldest-first the sort is `article_code`, which is unique, so the
+/// cursor needs nothing else to be exact. A keyset on a non-unique key loses
+/// or repeats the rows that tie, which is why `SourcingCursor` next door
+/// carries four fields — it sorts on a name.
+///
+/// Reading newest-first the sort is `created_at`, which is NOT unique — two
+/// articles minted by one setup session share a timestamp to the microsecond —
+/// so the code comes along as the tie-break and both travel in the cursor.
+///
+/// `created_at` is optional so a cursor issued before this existed still
+/// decodes; it is only ever read in the order that wrote it.
 #[derive(Serialize, Deserialize)]
 struct ArticleCursor {
     article_code: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    created_at: Option<DateTime<Utc>>,
 }
 
 impl ArticleCursor {
@@ -212,6 +260,7 @@ pub struct ArticleScope {
     pub size_codes: Vec<String>,
     pub colour_codes: Vec<String>,
     pub active: Option<bool>,
+    pub order: ArticleOrder,
     pub cursor: Option<String>,
     pub limit: i64,
 }
@@ -357,11 +406,28 @@ pub async fn search_articles(pool: &PgPool, scope: ArticleScope) -> Result<Artic
                         ON ac.article_id = s.article_id
                        AND ac.colour_digit = s.colour_digit
                      WHERE s.article_id = a.id AND ac.colour_code = ANY($7)))
-            AND ($8::text IS NULL OR a.article_code > $8)
-          ORDER BY a.article_code
-          LIMIT $9"
+            {keyset}
+          ORDER BY {order}
+          LIMIT {limit_param}",
+        // The comparison has to agree with the order or the second page
+        // repeats the first. Newest compares the pair, because the timestamp
+        // alone ties and the code alone is not the sort.
+        keyset = match scope.order {
+            ArticleOrder::Oldest => "AND ($8::text IS NULL OR a.article_code > $8)",
+            ArticleOrder::Newest =>
+                "AND ($8::text IS NULL
+                      OR (a.created_at, a.article_code) < ($9::timestamptz, $8))",
+        },
+        order = match scope.order {
+            ArticleOrder::Oldest => "a.article_code ASC",
+            ArticleOrder::Newest => "a.created_at DESC, a.article_code DESC",
+        },
+        limit_param = match scope.order {
+            ArticleOrder::Oldest => "$9",
+            ArticleOrder::Newest => "$10",
+        },
     );
-    let rows = sqlx::query(&sql)
+    let mut query = sqlx::query(&sql)
         .bind(&needle)
         .bind(&epc_sku)
         .bind(scope.active)
@@ -369,10 +435,13 @@ pub async fn search_articles(pool: &PgPool, scope: ArticleScope) -> Result<Artic
         .bind(&tags)
         .bind(&sizes)
         .bind(&colours)
-        .bind(cursor.as_ref().map(|c| c.article_code.clone()))
-        .bind(limit)
-        .fetch_all(pool)
-        .await?;
+        .bind(cursor.as_ref().map(|c| c.article_code.clone()));
+    // Bound only where the SQL names it: Postgres refuses a statement handed
+    // more parameters than it mentions.
+    if scope.order == ArticleOrder::Newest {
+        query = query.bind(cursor.as_ref().and_then(|c| c.created_at));
+    }
+    let rows = query.bind(limit).fetch_all(pool).await?;
 
     let next_cursor = if (rows.len() as i64) < limit {
         None
@@ -381,6 +450,10 @@ pub async fn search_articles(pool: &PgPool, scope: ArticleScope) -> Result<Artic
             Some(row) => Some(
                 ArticleCursor {
                     article_code: row.try_get("article_code")?,
+                    created_at: match scope.order {
+                        ArticleOrder::Oldest => None,
+                        ArticleOrder::Newest => Some(row.try_get("created_at")?),
+                    },
                 }
                 .encode()?,
             ),

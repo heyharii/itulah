@@ -1,0 +1,171 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-12",
+  "status": "expected_fixtures_not_production_test_results",
+  "currency": "IDR",
+  "stable_order": {
+    "G01_G03_units": [
+      "U01-Shirt",
+      "U02-Shoes"
+    ],
+    "G01_G03_tenders": [
+      "T01-Voucher",
+      "T02-Card"
+    ],
+    "G04_units": [
+      "U01",
+      "U02",
+      "U03",
+      "U04"
+    ],
+    "G05_tenders": [
+      "T01",
+      "T02",
+      "T03",
+      "T04"
+    ]
+  },
+  "conventions": {
+    "tax": "0 or hypothetical 10%, as named per fixture",
+    "tax_rounding": "HALF_UP tax component per unit; net = displayed - tax",
+    "money_allocation": "floor plus largest remainder with stable ID tie-break",
+    "points": "floor total eligible ex-tax / 1000; allocate base points then unit multiplier",
+    "G01_G03_combination": "Line Combine priority 100 then basket Combine priority 200"
+  },
+  "fixtures": {
+    "G01": {
+      "tax_rate": "0",
+      "line_discount": 59800,
+      "basket_allocation": [
+        20333,
+        29667
+      ],
+      "unit_gross": [
+        218867,
+        319333
+      ],
+      "amount_due": 538200,
+      "base_points": 538,
+      "unit_points": [
+        438,
+        638
+      ],
+      "total_points": 1076,
+      "tenders": [
+        100000,
+        438200
+      ],
+      "shoe_refund_tenders": [
+        59334,
+        259999
+      ],
+      "shirt_refund_tenders": [
+        40666,
+        178201
+      ],
+      "promotion_discount_ex_tax": 109800
+    },
+    "G02": {
+      "tax_rate": "10% hypothetical",
+      "source_inclusive": 110000,
+      "source_exclusive": 100000,
+      "net": 100000,
+      "tax": 10000,
+      "amount_due": 110000,
+      "points_2x": 200,
+      "with_10_percent_discount": {
+        "gross": 99000,
+        "net": 90000,
+        "tax": 9000,
+        "points_2x": 180
+      }
+    },
+    "G03": {
+      "tax_rate": "10% hypothetical",
+      "unit_gross": [
+        218867,
+        319333
+      ],
+      "unit_net_ex_tax": [
+        198970,
+        290303
+      ],
+      "unit_tax": [
+        19897,
+        29030
+      ],
+      "net_sales": 489273,
+      "tax": 48927,
+      "amount_due": 538200,
+      "base_points": 489,
+      "unit_points": [
+        398,
+        580
+      ],
+      "total_points": 978,
+      "shoe_refund_tenders": [
+        59334,
+        259999
+      ],
+      "retained_net_sales_after_shoes_return": 198970,
+      "line_discount_ex_tax": 54363,
+      "basket_discount_ex_tax": 45455,
+      "promotion_discount_ex_tax": 99818
+    },
+    "G04": {
+      "unit_gross_before": [
+        400000,
+        300000,
+        200000,
+        100000
+      ],
+      "buyers": [
+        "U01",
+        "U02"
+      ],
+      "reward": [
+        "U04"
+      ],
+      "leftover": [
+        "U03"
+      ],
+      "discount_allocations": [
+        50000,
+        37500,
+        0,
+        12500
+      ],
+      "unit_gross_after": [
+        350000,
+        262500,
+        200000,
+        87500
+      ],
+      "amount_due": 900000,
+      "tax_rate": "0",
+      "loyalty_eligible": false
+    },
+    "G05": {
+      "original_tenders": [
+        26000,
+        26000,
+        26000,
+        22000
+      ],
+      "refund_amount": 2,
+      "allocation": [
+        1,
+        1,
+        0,
+        0
+      ]
+    }
+  },
+  "reference_allocation_checks": {
+    "seed": 20260912,
+    "sequences": 10000,
+    "steps_per_sequence": 8,
+    "status": "passed"
+  },
+  "production_application_tests": "not_run"
+}

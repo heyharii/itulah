@@ -167,15 +167,39 @@ format has already paid for once — see `backend/src/cloud/domain/identity.rs`.
 
 ## Design
 
-Planet DS v5 — one ink at fixed alphas, surfaces `#F3F3F3 < #F7F7F7 < #FCFCFC`,
-one blue `#2563EB` for brand, interaction and selection, and nothing else blue.
-Cards are hairline rings, never shadows. Status is a quiet dot and a word.
+**Cloud Hub**, the same design language as `frontend-hub`, `frontend-store-new`
+and `frontend-floor`. This app used to carry one of its own — "Planet DS v5",
+one ink at fixed alphas over three greys — which was coherent and was a second
+system, and a grey chosen by alpha drifts away from a grey chosen by hex the
+moment either side is touched.
 
-Motion is restrained and reduced-motion-safe: a spring indicator that travels
-between tabs, direction-aware content transitions, a staggered list entrance
-capped so the two-hundredth tag does not wait, and a small press-spring where a
-finger actually lands. `LocalMotion` reads the system animator scale; when
-someone has turned animation off, everything here goes still.
+The palette in `ui/theme/Tokens.kt` is
+`frontend-hub/src/styles/index.css`'s, value for value: ink ramp
+`#20242c → #394150 → #626b78 → #737c89`, white canvas over `#f8f9fb`, hairline
+`#e7eaf0`, one blue `#2563eb` that is both the accent (selected) and the CTA,
+radii 16 / 12 / 7. **If this app ever looks a generation behind the console,
+diff those two palettes first** — that is almost always the whole of it.
+
+What is NOT taken from the console is density. The type scale and the touch
+targets are `frontend-floor`'s, which is this language's phone expression: a
+44 dp floor under every target, 56 dp for the one action a screen exists for,
+and a scale one step up from the desk's because this is read at arm's length.
+
+The composites are the reference screens': cards are a hairline and a whisper
+shadow, never a drop; the status pill is **outlined**, its border 30% of the
+label's own colour, because a border as strong as its label turns the tag into a
+box; the app bar is borderless with a centred 17/600 title; and the tab bar is
+five **floating squircles** with no containing bar and no labels — the bar above
+has already said which one you are in. Blue means selected. The level on the
+power fader is data, so it is grey.
+
+Motion is the console's two curves and five timing bands (`Motion` in
+`Tokens.kt`), so the apps do not drift on timing the way they drifted on colour:
+direction-aware page transitions, digits that roll rather than blink, and a
+press that is a 120 ms wash and a 0.99 scale rather than a spring — a card that
+flinches looks broken on the tenth press of a shift. `LocalMotion` reads the
+system animator scale; when someone has turned animation off, everything here
+goes still.
 
 ## Build
 

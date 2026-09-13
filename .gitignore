@@ -1,4 +1,8 @@
 /backend/target
+# Rust build output wherever a crate lives. `/backend/target` above covered the
+# only crate there was; `pos-desktop/src-tauri` grew one and 2.047 files of
+# `target/debug/deps` nearly went into a commit.
+**/target/
 .env
 *.log
 .DS_Store
@@ -26,3 +30,7 @@ tablet/.gradle/
 tablet/build/
 tablet/app/build/
 tablet/local.properties
+
+# Its own git repository (685 MB of it). Staging it produces a gitlink nobody
+# can clone, not the files.
+/rfid-homepage/

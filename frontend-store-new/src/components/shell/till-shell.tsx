@@ -2,17 +2,23 @@ import { Outlet, useRouter, useRouterState } from "@tanstack/react-router"
 import { useQuery } from "@tanstack/react-query"
 import {
   ArrowLeft,
+  CalendarCheck,
+  HandCoins,
+  Inbox,
   KeyRound,
   LogOut,
   Menu,
   RefreshCw,
+  Scale,
   Signal,
+  TrendingUp,
   Upload,
   UserRound,
 } from "lucide-react"
 import { useState } from "react"
 
 import { Mark } from "@/components/shell/mark"
+import { TillSidebar } from "@/components/shell/sidebar"
 import { AppBar } from "@/components/ui/app-bar"
 import { Chip } from "@/components/ui/button"
 import { Drawer, DrawerItem, DrawerSection } from "@/components/ui/drawer"
@@ -60,11 +66,23 @@ export function TillShell() {
   }
 
   return (
-    <div className="flex h-svh flex-col overflow-hidden bg-canvas">
-      <AppBar
+    <div className="flex h-svh overflow-hidden bg-canvas">
+      {/* The desk's navigation. Hidden below `md`, where the squircles are the
+          navigation instead — exactly one of the two is on screen at any
+          width. Before 2026-09-13 neither was: the bar was `md:hidden` against
+          a function board that was never built, so a laptop had no navigation
+          at all. */}
+      <TillSidebar className="hidden md:flex" />
+
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <AppBar
         left={
           pushed === null ? (
-            <Chip aria-label="Menu" onClick={() => setDrawerOpen(true)}>
+            <Chip
+              aria-label="Menu"
+              className="md:hidden"
+              onClick={() => setDrawerOpen(true)}
+            >
               <Menu strokeWidth={1.7} />
             </Chip>
           ) : (
@@ -81,22 +99,21 @@ export function TillShell() {
             </Chip>
           ) : undefined
         }
-      />
-
-      <Outlet />
-
-      {/* The floating squircles are the PHONE navigation, and on a counter
-          they are in the way: the desk's own function board carries the same
-          four destinations, pinned where a cashier's hand already is. So the
-          bar is drawn below `md` and hidden at the width the desk appears at —
-          two navigations on one screen is two places to look. */}
-      {pushed === null && (
-        <TabBar
-          items={tabs}
-          activePath={tab?.path ?? null}
-          className="md:hidden"
         />
-      )}
+
+        <Outlet />
+
+        {/* The floating squircles are the PHONE navigation. They are hidden at
+            the width the sidebar appears at — two navigations on one screen is
+            two places to look. */}
+        {pushed === null && (
+          <TabBar
+            items={tabs}
+            activePath={tab?.path ?? null}
+            className="md:hidden"
+          />
+        )}
+      </div>
 
       <TillDrawer open={drawerOpen} onOpenChange={setDrawerOpen} />
     </div>
@@ -157,6 +174,47 @@ function TillDrawer({
           </div>
         </div>
       </div>
+
+      {/* The same three screens the sidebar's first section carries. A phone
+          has no column to put them in, and a screen reachable on a laptop and
+          not on the tablet behind the counter is the bug this app already had
+          once. */}
+      <DrawerSection>Money</DrawerSection>
+      <DrawerItem
+        icon={<TrendingUp />}
+        label="Sales"
+        onClick={() => leave("/money/sales")}
+      />
+      <DrawerItem
+        icon={<Scale />}
+        label="Reconciliation"
+        onClick={() => leave("/money/reconciliation")}
+      />
+      <DrawerItem
+        icon={<HandCoins />}
+        label="Expenses"
+        onClick={() => leave("/money/expenses")}
+      />
+
+      {/* The two HR screens a shift actually reaches for. The other three —
+          the week's rota, the team, the month's close — are a desk's work and
+          stay in the sidebar: a drawer that lists everything is a drawer
+          nobody reads to the bottom of.
+
+          These are the only entries here answered by HEAD OFFICE rather than
+          by this node, so they are the only ones that go blank when the line
+          does. The screens say so themselves; this list does not repeat it. */}
+      <DrawerSection>People</DrawerSection>
+      <DrawerItem
+        icon={<CalendarCheck />}
+        label="Today"
+        onClick={() => leave("/hr/today")}
+      />
+      <DrawerItem
+        icon={<Inbox />}
+        label="Leave & overtime"
+        onClick={() => leave("/hr/requests")}
+      />
 
       <DrawerSection>Head office</DrawerSection>
       <DrawerItem

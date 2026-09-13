@@ -15,7 +15,7 @@ import {
   plottedSeries,
 } from "@/lib/report-chart"
 import { DataTable } from "@/components/ui/data-table"
-import { FilterBar } from "@/components/ui/filter-bar"
+import { FilterPanel } from "@/components/ui/filter-panel"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { Banner, EmptyState } from "@/components/ui/states"
@@ -93,7 +93,10 @@ function SavedList({ onOpen }: { onOpen: (id: string) => void }) {
           page.items.length === 0 ? (
             <EmptyState
               action={
-                <Button variant="primary" onClick={() => assistant.setOpen(true)}>
+                <Button
+                  variant="primary"
+                  onClick={() => assistant.setOpen(true)}
+                >
                   Ask the assistant
                 </Button>
               }
@@ -308,7 +311,7 @@ function Answer({
     )
   )
 
-  /// What `<FilterBar>` needs: the URL-backed clauses, plus the columns it
+  /// What `<FilterPanel>` needs: the URL-backed clauses, plus the columns it
   /// reads facet counts from. `columnFilters` is empty for the reason above.
   const model = useMemo<FilterModel<ResultRow>>(
     () => ({ ...state, add: state.addColumn, columns, columnFilters: [] }),
@@ -371,12 +374,19 @@ function Answer({
           </span>
         </CardHeader>
 
-        {/* The same filter bar every other list on this app uses. That is the
-            point of the spec carrying keys rather than SQL: what the assistant
-            composed is a starting position, and narrowing it further is a
-            gesture somebody already knows. */}
+        {/* The same filter panel every other list on this app uses. That is
+            the point of the spec carrying keys rather than SQL: what the
+            assistant composed is a starting position, and narrowing it further
+            is a gesture somebody already knows.
+
+            The panel and not the inline bar, and the button beside it is why:
+            "Keep these filters in the report" writes a version, and it had
+            been sharing a row with the controls that build the clauses — the
+            gesture that reads a report standing next to the one that changes
+            it. The clauses now open in the shell's right column and the row
+            holds what is in force and the one act. */}
         <div className="flex flex-wrap items-center gap-2 border-b border-hairline px-4 pb-3">
-          <FilterBar model={model} table={table} />
+          <FilterPanel model={model} table={table} />
           {/* Narrowing is a reading position, not a change to the report —
               until somebody says otherwise. This is the one button that turns
               one into the other, and it writes a version rather than editing

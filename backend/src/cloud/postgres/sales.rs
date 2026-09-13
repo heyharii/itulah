@@ -188,10 +188,24 @@ pub async fn add_sale_line(
     // the sale to one made every product the newest book did not mention
     // unsellable through this path, while the shop that sells it every day
     // charges it happily.
-    let pricing =
-        super::pricing::load_site_price_book(&mut tx, &site_id, channel.as_str(), sale_created_at)
-            .await?;
-    let merchandise = super::pricing::load_merchandise(&mut tx).await?;
+    // The whole book and the whole catalogue: this path resolves ONE product
+    // from a sale that has already happened, and it does not know which until
+    // `sku_code_by_id` below tells it. Narrowing needs a list of codes up
+    // front, and there is none to give here.
+    let pricing = super::pricing::load_site_price_book(
+        &mut tx,
+        &site_id,
+        channel.as_str(),
+        sale_created_at,
+        None,
+        // As published. This resolves a product on a sale that has already
+        // happened, and the sale itself is the evidence of what was charged —
+        // narrowing to activations here would refuse to name a product the shop
+        // demonstrably sold.
+        &super::pricing::PriceBookScope::AsPublished,
+    )
+    .await?;
+    let merchandise = super::pricing::load_merchandise(&mut tx, None).await?;
     let sku_code = pricing
         .sku_code_by_id
         .get(&sku_id)
@@ -433,6 +447,13 @@ pub async fn complete_sale(
     insert_group(&mut tx, &command, &movement_key, &digest).await?;
     let movement_ids = apply_lines(&mut tx, &command, &movement_key, &digest).await?;
     let completed_at = command.occurred_at;
+    // BEFORE the status flip, and the order is load-bearing: 0003's
+    // `sale_finalized_immutable` refuses an UPDATE to a COMPLETED sale, so this
+    // one line later would abort every completion that had a shopper to record.
+    // Same transaction, so the finalised sale and the member it belongs to are
+    // never separately visible — a return reading between the two would file an
+    // anonymous return of a member's purchase.
+    carry_customer_from_shop_fact(&mut tx, sale_id).await?;
     sqlx::query("UPDATE sale SET status='COMPLETED',change_minor=$2,movement_group_id=$3,completed_at=$4 WHERE id=$1")
         .bind(sale_id).bind(payment.change_minor).bind(movement_group_id.0).bind(completed_at).execute(&mut *tx).await?;
     let response = json!({
@@ -487,6 +508,52 @@ async fn open_sale_for_update(
     Ok(row)
 }
 
+/// Carry what the shop knew about the shopper onto the centre's own record.
+///
+/// There are two accounts of one sale here — `edge_sale`, the shop's, arrived
+/// over the sync lane, and `sale`, the centre's own — and only the first has
+/// ever held a shopper. The till captures the member's card at the counter;
+/// `create_sale` takes a site, a channel, an actor and a key, and never asks.
+/// So `sale.customer_id` cannot be filled from the request that opened the
+/// sale, and this is where it is filled from instead.
+///
+/// # This must run while the sale is still OPEN
+///
+/// `sale_finalized_immutable` (0003) refuses any UPDATE whose OLD row is
+/// COMPLETED or VOIDED. Called a line later — after the status flip — this
+/// raises `finalized sales are immutable` and takes the whole completion down
+/// with it, which is not a subtle failure but it IS one that only appears for
+/// sales that have a shop fact to carry. The ordering is the guard.
+///
+/// For the same reason nothing here writes `sale_line`: `sale_line_append_only`
+/// refuses every UPDATE outright, at any status. The per-line award stays on
+/// `edge_sale_line` where 0166 put it, and `create_sale_return` reads it from
+/// there rather than copying it to a row that may not be rewritten.
+///
+/// `IS NULL` on the target, so this only ever fills a gap — it never restates a
+/// shopper the centre has since corrected.
+pub(super) async fn carry_customer_from_shop_fact(
+    tx: &mut Transaction<'_, Postgres>,
+    sale_id: Uuid,
+) -> Result<(), AppError> {
+    // Blank is not a shopper. A till that sends an empty string means the
+    // sale was anonymous, and `edge_sale` already filters that on the way in —
+    // repeated here because this reads the column, not that code path.
+    sqlx::query(
+        "UPDATE sale s
+            SET customer_id = btrim(e.customer_id)
+           FROM edge_sale e
+          WHERE e.sale_id = s.id
+            AND s.id = $1
+            AND s.customer_id IS NULL
+            AND btrim(e.customer_id) <> ''",
+    )
+    .bind(sale_id)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
 async fn authoritative_subject_balance(
     tx: &mut Transaction<'_, Postgres>,
     subject_id: Uuid,
@@ -501,7 +568,7 @@ async fn authoritative_subject_balance(
 }
 
 pub async fn get_sale(pool: &PgPool, sale_id: Uuid) -> Result<Value, AppError> {
-    let sale = sqlx::query("SELECT id,sale_number,site_id,channel,status,commercial_publication_id,commercial_version,currency::text currency,net_minor,tax_minor,total_minor,paid_minor,change_minor,movement_group_id,actor_id,created_at,completed_at,voided_at FROM sale WHERE id=$1")
+    let sale = sqlx::query("SELECT id,sale_number,site_id,channel,status,commercial_publication_id,commercial_version,currency::text currency,net_minor,tax_minor,total_minor,paid_minor,change_minor,movement_group_id,actor_id,customer_id,created_at,completed_at,voided_at FROM sale WHERE id=$1")
         .bind(sale_id).fetch_optional(pool).await?.ok_or_else(||AppError::NotFound("sale".into()))?;
     let lines = sqlx::query("SELECT sl.id,sl.subject_id,s.epc,sl.sku_id,sk.sku_code,sl.quantity,sl.unit_price_minor,sl.net_minor,sl.tax_minor,sl.total_minor,sl.currency::text currency,sl.tax_category,sl.tax_rate_bps,sl.tax_inclusive,sl.commercial_publication_id,sl.commercial_version,sl.price_snapshot_digest,sl.added_at FROM sale_line sl JOIN inventory_subject s ON s.id=sl.subject_id JOIN sku sk ON sk.id=sl.sku_id WHERE sl.sale_id=$1 ORDER BY sl.added_at")
         .bind(sale_id).fetch_all(pool).await?;
@@ -512,7 +579,7 @@ pub async fn get_sale(pool: &PgPool, sale_id: Uuid) -> Result<Value, AppError> {
     })).collect();
     let payment_values:Vec<Value>=payments.into_iter().map(|row|json!({"id":row.get::<Uuid,_>("id"),"method":row.get::<String,_>("method"),"amount_minor":row.get::<i64,_>("amount_minor"),"reference":row.get::<Option<String>,_>("reference"),"actor_id":row.get::<String,_>("actor_id"),"recorded_at":row.get::<DateTime<Utc>,_>("recorded_at")})).collect();
     Ok(json!({
-        "id":sale.get::<Uuid,_>("id"),"sale_number":sale.get::<String,_>("sale_number"),"site_id":sale.get::<String,_>("site_id"),"channel":sale.get::<String,_>("channel"),"status":sale.get::<String,_>("status"),"commercial_publication_id":sale.get::<Uuid,_>("commercial_publication_id"),"commercial_version":sale.get::<i64,_>("commercial_version"),"currency":sale.get::<String,_>("currency").trim(),"net_minor":sale.get::<i64,_>("net_minor"),"tax_minor":sale.get::<i64,_>("tax_minor"),"total_minor":sale.get::<i64,_>("total_minor"),"paid_minor":sale.get::<i64,_>("paid_minor"),"change_minor":sale.get::<i64,_>("change_minor"),"movement_group_id":sale.get::<Option<Uuid>,_>("movement_group_id"),"actor_id":sale.get::<String,_>("actor_id"),"created_at":sale.get::<DateTime<Utc>,_>("created_at"),"completed_at":sale.get::<Option<DateTime<Utc>>,_>("completed_at"),"voided_at":sale.get::<Option<DateTime<Utc>>,_>("voided_at"),"lines":line_values,"payments":payment_values
+        "id":sale.get::<Uuid,_>("id"),"sale_number":sale.get::<String,_>("sale_number"),"site_id":sale.get::<String,_>("site_id"),"channel":sale.get::<String,_>("channel"),"status":sale.get::<String,_>("status"),"commercial_publication_id":sale.get::<Uuid,_>("commercial_publication_id"),"commercial_version":sale.get::<i64,_>("commercial_version"),"currency":sale.get::<String,_>("currency").trim(),"net_minor":sale.get::<i64,_>("net_minor"),"tax_minor":sale.get::<i64,_>("tax_minor"),"total_minor":sale.get::<i64,_>("total_minor"),"paid_minor":sale.get::<i64,_>("paid_minor"),"change_minor":sale.get::<i64,_>("change_minor"),"movement_group_id":sale.get::<Option<Uuid>,_>("movement_group_id"),"actor_id":sale.get::<String,_>("actor_id"),"customer_id":sale.get::<Option<String>,_>("customer_id"),"created_at":sale.get::<DateTime<Utc>,_>("created_at"),"completed_at":sale.get::<Option<DateTime<Utc>>,_>("completed_at"),"voided_at":sale.get::<Option<DateTime<Utc>>,_>("voided_at"),"lines":line_values,"payments":payment_values
     }))
 }
 

@@ -32,7 +32,13 @@
 /// four of them out by one rupiah — small, and exactly the kind of difference
 /// that makes a reconciliation report unusable because it is never empty.
 
-import type { AssetFact, AssetTreatment, DepreciationCharge, Minor, Month } from "./types"
+import type {
+  AssetFact,
+  AssetTreatment,
+  DepreciationCharge,
+  Minor,
+  Month,
+} from "./types"
 
 export function monthIndex(month: Month): number {
   const [y, m] = month.split("-").map(Number)
@@ -83,9 +89,16 @@ export function charge(
   }
   const n = elapsedMonths(treatment.in_service_on, month)
   if (n < 1) return { ...base, amount: 0, skipped: "NOT_IN_SERVICE" }
-  if (n > treatment.life_months) return { ...base, amount: 0, skipped: "FULLY_DEPRECIATED" }
+  if (n > treatment.life_months)
+    return { ...base, amount: 0, skipped: "FULLY_DEPRECIATED" }
 
-  return { ...base, amount: monthlyCharge(treatment.cost - treatment.salvage, treatment.life_months) }
+  return {
+    ...base,
+    amount: monthlyCharge(
+      treatment.cost - treatment.salvage,
+      treatment.life_months
+    ),
+  }
 }
 
 /// The whole run for one unit and one month, in register order.
@@ -115,8 +128,14 @@ export function accumulated(
   // here rather than only in `charge` is what stops the register and the run
   // disagreeing about an asset that was written off mid-life.
   if (fact.status === "DISPOSED" && fact.document_on < upto) return 0
-  const n = Math.min(Math.max(elapsedMonths(treatment.in_service_on, upto), 0), treatment.life_months)
-  const monthly = monthlyCharge(treatment.cost - treatment.salvage, treatment.life_months)
+  const n = Math.min(
+    Math.max(elapsedMonths(treatment.in_service_on, upto), 0),
+    treatment.life_months
+  )
+  const monthly = monthlyCharge(
+    treatment.cost - treatment.salvage,
+    treatment.life_months
+  )
   const straight = monthly * n
   // The last month takes the truncation remainder, so an asset ends at exactly
   // its salvage value rather than a few rupiah above it.
@@ -156,7 +175,9 @@ export function reconcile(
       computed: c.amount,
       actual: hit ? hit.amount : 0,
       matched: Boolean(hit),
-      note: hit ? undefined : "no line of the client's entry carries this amount",
+      note: hit
+        ? undefined
+        : "no line of the client's entry carries this amount",
     })
   }
   for (const p of pool.filter((p) => !p.taken)) {

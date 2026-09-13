@@ -8,11 +8,14 @@ import { AppLink } from "@/components/ui/app-link"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Input } from "@/components/ui/field"
+import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
 import { MiniTable, TotalsLadder } from "@/components/ui/rows"
+import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { EmptyState } from "@/components/ui/states"
+import { EmptyState, Truncated } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
+import { useFilters } from "@/lib/filters"
 import { count, money, moment } from "@/lib/format"
 import {
   listReturns,
@@ -42,6 +45,8 @@ const columns: ColumnDef<TableSetup, ReturnRow>[] = [
     accessorKey: "return_number",
     header: "Return",
     size: 200,
+    // No filter: a document number is something you have in your hand, and
+    // the search box beside the title already answers it.
     cell: ({ row }) => (
       <span className="font-mono text-id text-body">
         {row.original.return_number}
@@ -52,6 +57,11 @@ const columns: ColumnDef<TableSetup, ReturnRow>[] = [
     accessorKey: "site_id",
     header: "Store",
     size: 130,
+    /// Faceted from these rows, which is the only spelling that can match
+    /// them: the same shop is `dc` to the centre and `dc-01` to the box
+    /// standing in it, and a list of shops fetched from anywhere else would
+    /// offer a value with a count beside it that selects nothing.
+    meta: { filter: { kind: "option" } },
     cell: ({ row }) => (
       <span className="font-medium text-ink">{row.original.site_id}</span>
     ),
@@ -60,25 +70,39 @@ const columns: ColumnDef<TableSetup, ReturnRow>[] = [
     accessorKey: "reason",
     header: "Reason",
     size: 260,
+    // Prose somebody typed at a counter. A search box reads it better than a
+    // facet of two hundred distinct sentences ever could.
     cell: ({ row }) => <span className="text-text">{row.original.reason}</span>,
   },
   {
     accessorKey: "actor_id",
     header: "Taken by",
     size: 150,
+    /// A closed set in practice — the people standing at the counters — and
+    /// "who refunded this" is the question a supervisor opens this list with.
+    meta: { filter: { kind: "option" } },
   },
   {
     accessorKey: "created_at",
     header: "When",
     size: 160,
+    meta: { filter: { kind: "date" } },
     cell: ({ row }) => moment(row.original.created_at),
   },
   {
     accessorKey: "refund_total_minor",
     header: "Refunded",
     size: 140,
-    meta: { align: "right" },
     // The decision metric: money going back out of the till.
+    /// **No `scale`, despite the `_minor` in the name.** `lib/format.ts` says
+    /// it plainly — IDR has no minor unit in practice, so the server's "minor"
+    /// is already whole rupiah and `money()` prints it undivided. A
+    /// `scale: 100` here would turn "refunds over 500000" into "refunds over
+    /// fifty million" and show an empty list under a chip claiming the first.
+    meta: {
+      align: "right",
+      filter: { kind: "number", unit: "Rp" },
+    },
     cell: ({ row }) => (
       <span className="font-medium text-ink">
         {money(row.original.refund_total_minor)}
@@ -86,6 +110,12 @@ const columns: ColumnDef<TableSetup, ReturnRow>[] = [
     ),
   },
 ]
+
+/// What this screen asks for, named once so the banner and the request cannot
+/// disagree. The search and the sort both run in the BROWSER over whatever
+/// this fetched, and so do the filters — so this is also the number past which
+/// the screen stops being able to answer the question it appears to answer.
+const CAP = 500
 
 export function Returns() {
   const [query, setQuery] = useState("")
@@ -96,23 +126,29 @@ export function Returns() {
 
   const returns = useQuery({
     queryKey: storeopsKeys.returns(),
-    queryFn: ({ signal }) => listReturns({ limit: 500 }, signal),
+    queryFn: ({ signal }) => listReturns({ limit: CAP }, signal),
   })
 
-  const rows = useMemo(() => returns.data ?? [], [returns.data])
+  const rows = useMemo(() => returns.data?.rows ?? [], [returns.data])
+
+  const filters = useFilters(columns)
 
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
         data: rows,
-        columns,
+        columns: filters.columns,
         getRowId: (row: ReturnRow) => row.id,
-        state: { globalFilter: query, sorting },
+        state: {
+          columnFilters: filters.columnFilters,
+          globalFilter: query,
+          sorting,
+        },
         onSortingChange: setSorting,
         onGlobalFilterChange: setQuery,
       }),
-      [rows, query, sorting]
+      [rows, filters.columns, filters.columnFilters, query, sorting]
     )
   )
 
@@ -132,6 +168,16 @@ export function Returns() {
         }
       />
 
+      <Toolbar>
+        <FilterPanel model={filters} table={table} />
+      </Toolbar>
+
+      {/* Only when the answer came back exactly as large as the question. A
+          shorter answer proves there was nothing more to send; this length
+          proves nothing either way — and a refund total read off a filtered
+          slice of it is a figure somebody would quote. */}
+      {rows.length >= CAP && <Truncated limit={CAP} noun="returns" />}
+
       <Card className="overflow-hidden">
         {queryState(returns, {
           loading: "Loading the returns…",
@@ -146,7 +192,12 @@ export function Returns() {
                 table={table}
                 onRowClick={(row) => refund.open(row.id)}
                 isSelected={(row) => row.id === refund.value}
-                empty="No return matches that search."
+                empty={
+                  <>
+                    None of the {rows.length.toLocaleString("id-ID")} returns
+                    loaded match this search and the filters in force.
+                  </>
+                }
                 className="max-h-[calc(100vh-14rem)]"
               />
             ),

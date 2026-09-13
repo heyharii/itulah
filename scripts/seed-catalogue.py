@@ -178,7 +178,13 @@ def main():
     status, existing = call("GET", "/api/v1/suppliers", token=token)
     if status != 200:
         sys.exit(f"Could not list suppliers ({status}): {existing}")
-    by_code = {supplier["supplier_code"]: supplier for supplier in existing}
+    # An envelope, since the supplier list grew a cursor. Both shapes are
+    # accepted because this script is run against deployed nodes as well as
+    # this tree, and the failure mode of getting it wrong is silent: iterating
+    # a dict yields its KEYS, so every supplier would look absent and be
+    # created again.
+    rows = existing if isinstance(existing, list) else existing.get("rows", [])
+    by_code = {supplier["supplier_code"]: supplier for supplier in rows}
 
     for supplier in SUPPLIERS:
         code = supplier["key"]

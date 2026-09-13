@@ -231,7 +231,11 @@ const axis = {
 }
 
 const grid = (
-  <CartesianGrid vertical={false} stroke="var(--hairline)" strokeDasharray="0" />
+  <CartesianGrid
+    vertical={false}
+    stroke="var(--hairline)"
+    strokeDasharray="0"
+  />
 )
 
 /// The tooltip. Its own component because recharts' default is a white box

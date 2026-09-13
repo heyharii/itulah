@@ -5,14 +5,32 @@
 //! "reactivated Anugerah Garmen" — and buys the thing that matters more on a
 //! surface this wide: nothing can be forgotten. A handler that wants to say
 //! something richer writes its own row on top; this one is the floor.
+//!
+//! # Which record a row is about
+//!
+//! Two answers, in that order of authority.
+//!
+//! The route says, through the table in [`crate::cloud::domain`]. It is
+//! matched against the pattern axum matched rather than the path as it
+//! arrived, which is what makes it exact rather than a guess — see that
+//! module for what the guess it replaces kept getting wrong.
+//!
+//! The handler says, through [`DeclaredSubject`], and overrules the route.
+//! This is not a courtesy: a `POST` that CREATES a record cannot name it in
+//! the path, because the record did not exist when the path was written. Until
+//! handlers could speak here, **no record in this system had a row saying it
+//! was created** — 68 write routes filed nothing, including every creation of
+//! an order, a supplier, an employee, a bill and a document. The first line of
+//! a record's history was whatever somebody changed about it next.
 
 use super::auth::Principal;
 use crate::cloud::{
     application::{AppError, AppState},
-    postgres::{self as infrastructure, AuditEntry},
+    domain::{record_subject_of, RecordKind},
+    postgres as infrastructure,
 };
 use axum::{
-    extract::{Query, Request, State},
+    extract::{MatchedPath, Query, Request, State},
     http::Method,
     middleware::Next,
     response::Response,
@@ -20,6 +38,58 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::json;
+use std::sync::{Arc, Mutex};
+
+/// A handler naming the record it just acted on.
+///
+/// Extracted like any other `Extension`, and set at the end of the work rather
+/// than the start: the id of a record being created is only known once it has
+/// been created, and declaring it before the transaction commits would file a
+/// row for an order that does not exist.
+///
+/// A shared cell rather than a return value because the middleware has already
+/// let go of the request by the time it writes the row; the handler and the
+/// layer above it need one thing they can both hold. Nothing is awaited while
+/// the lock is held, so the plain `Mutex` is the right one.
+#[derive(Clone, Default)]
+pub struct DeclaredSubject(Arc<Mutex<Option<(RecordKind, String)>>>);
+
+impl DeclaredSubject {
+    /// Say what this request acted on. Last call wins, so a handler that
+    /// creates two things names the one a person would go looking for.
+    pub fn set(&self, kind: RecordKind, id: impl Into<String>) {
+        let id = id.into();
+        if id.trim().is_empty() {
+            return;
+        }
+        if let Ok(mut slot) = self.0.lock() {
+            *slot = Some((kind, id));
+        }
+    }
+
+    fn take(&self) -> Option<(RecordKind, String)> {
+        self.0.lock().ok().and_then(|mut slot| slot.take())
+    }
+}
+
+/// The record's own id, read out of the answer a handler is about to give.
+///
+/// Handlers here answer `Json<Value>` far more often than a typed struct, so
+/// the alternative is thirty handlers each reaching into their own JSON with
+/// three lines of `get`/`as_str`/`to_owned` — thirty chances to name the key
+/// wrong, and a wrong key here fails silently: the row simply loses its
+/// subject again.
+///
+/// A number is accepted as well as a string because not every key in this
+/// system is a uuid; `audit_id` and a period's year are integers, and a
+/// handler that declared one would otherwise be quietly ignored.
+pub fn id_in(body: &serde_json::Value, key: &str) -> Option<String> {
+    match body.get(key)? {
+        serde_json::Value::String(text) if !text.trim().is_empty() => Some(text.clone()),
+        serde_json::Value::Number(number) => Some(number.to_string()),
+        _ => None,
+    }
+}
 
 /// Only writes are recorded.
 ///
@@ -35,62 +105,28 @@ fn is_write(method: &Method) -> bool {
     )
 }
 
-/// Which record a path is about, guessed from its shape.
-///
-/// `/api/v1/suppliers/{id}/activate` is a supplier; `/api/v1/inventory/counts/{id}/submit`
-/// is a count. The rule is: the last identifier-looking segment, named by the
-/// collection segment before it, singularised. Best-effort on purpose — a path
-/// that names no record leaves this empty, and the row is still a true
-/// statement about who did what.
-fn subject_of(path: &str) -> Option<(String, String)> {
-    let parts: Vec<&str> = path.trim_start_matches('/').split('/').collect();
-    let mut found: Option<(String, String)> = None;
-    for (index, part) in parts.iter().enumerate() {
-        if index == 0 || !looks_like_id(part) {
-            continue;
-        }
-        let collection = parts[index - 1];
-        found = Some((singular(collection), (*part).to_owned()));
-    }
-    found
-}
-
-/// A uuid, or a code long enough not to be a route word. Deliberately loose:
-/// this system's identifiers include uuids, PO numbers and account codes, and
-/// a stricter test would silently stop recording the subject of half of them.
-fn looks_like_id(part: &str) -> bool {
-    if part.len() >= 32 && part.chars().filter(|c| *c == '-').count() == 4 {
-        return true;
-    }
-    part.len() >= 4
-        && part
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.')
-        && part.chars().any(|c| c.is_ascii_digit())
-}
-
-fn singular(collection: &str) -> String {
-    let word = collection.replace('-', "_");
-    match word.strip_suffix('s') {
-        // "addresses" → "address", not "addresse".
-        Some(stem) if stem.ends_with("se") || stem.ends_with("che") => {
-            stem.trim_end_matches('e').to_owned()
-        }
-        Some(stem) if !stem.is_empty() => stem.to_owned(),
-        _ => word,
-    }
-}
-
 pub async fn audit_actions(
     State(state): State<AppState>,
-    request: Request,
+    mut request: Request,
     next: Next,
 ) -> Result<Response, AppError> {
+    // Handed to every request, write or read. Cheaper than the alternative it
+    // replaces: a handler that asked for it on a route the middleware had
+    // decided to skip would take a 500 at runtime for a line of bookkeeping.
+    let declared = DeclaredSubject::default();
+    request.extensions_mut().insert(declared.clone());
+
     let method = request.method().clone();
     if !is_write(&method) {
         return Ok(next.run(request).await);
     }
     let path = request.uri().path().to_owned();
+    // The route as the router knows it, not as the caller spelled it. Absent
+    // only for requests that matched no route, which never reach a handler.
+    let pattern = request
+        .extensions()
+        .get::<MatchedPath>()
+        .map(|matched| matched.as_str().to_owned());
     // Signing in and out are recorded by the session code, which knows more
     // about them than a path does — and a login body is the one body that must
     // never come near this table.
@@ -108,7 +144,13 @@ pub async fn audit_actions(
         return Ok(response);
     };
 
-    let subject = subject_of(&path);
+    // The handler's own answer first. It knows the record; the table knows the
+    // shape of the route, which is a weaker thing to know.
+    let subject = declared.take().or_else(|| {
+        pattern
+            .as_deref()
+            .and_then(|pattern| record_subject_of(pattern, &path))
+    });
     let entry = infrastructure::NewAudit {
         username: &principal.username,
         display_name: &principal.display_name,
@@ -147,7 +189,7 @@ async fn announce(
     principal: &Principal,
     method: &Method,
     path: &str,
-    subject: Option<(String, String)>,
+    subject: Option<(RecordKind, String)>,
 ) -> Result<(), AppError> {
     let recipients = infrastructure::every_active_user(&state.db).await?;
     if recipients.is_empty() {
@@ -155,7 +197,7 @@ async fn announce(
     }
     let what = subject
         .as_ref()
-        .map(|(kind, id)| format!("{kind} {id}"))
+        .map(|(kind, id)| format!("{} {id}", kind.label()))
         .unwrap_or_else(|| path.trim_start_matches("/api/v1/").to_owned());
 
     let mut tx = state.db.begin().await?;
@@ -174,97 +216,208 @@ async fn announce(
     Ok(())
 }
 
-/// What a sheet asks for: one record's history.
+/// What the activity screen and the record sheets ask for.
+///
+/// A typed struct with `deny_unknown_fields`, so `?actorr=hari` is refused
+/// rather than quietly answering the whole log under a filter the caller
+/// believes is applied. Every parameter this route already had — `subject_kind`,
+/// `subject_id`, `actor`, `limit` — is still here and still means what it did.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SubjectQuery {
     pub subject_kind: Option<String>,
     pub subject_id: Option<String>,
-    /// Only for the global feed, and ignored when a subject is named.
+    /// One person's actions. Still ignored for nothing: it now composes with a
+    /// subject rather than being dropped when one is named, which is the
+    /// narrower and more useful reading of "this person, on this record".
     pub actor: Option<String>,
+    /// Free text over who acted, what they acted on and where.
+    #[serde(default)]
+    pub q: Option<String>,
+    /// `POST`, `PATCH`, `PUT` or `DELETE`.
+    #[serde(default)]
+    pub method: Option<String>,
+    /// `OK` or `REFUSED` — the `status >= 400` test the screen was making in
+    /// the browser, over only the rows it happened to have fetched.
+    #[serde(default)]
+    pub outcome: Option<String>,
+    /// `at`, `actor`, `path` or `status`. Anything else is `at` rather than a
+    /// 400, so a stale bookmark still opens.
+    #[serde(default)]
+    pub sort: Option<String>,
+    /// `asc` and nothing else. Absent means DESCENDING here, unlike every
+    /// other list: a log is read newest-first, and opening six thousand rows at
+    /// the day the system was installed is not what anybody meant.
+    #[serde(default)]
+    pub dir: Option<String>,
+    /// A `next_cursor` from the previous page, verbatim.
+    #[serde(default)]
+    pub cursor: Option<String>,
     pub limit: Option<i64>,
+    /// `0` or `false` to skip the exact total and the facet counts.
+    ///
+    /// Defaults to counting. The lever exists because the counting half of this
+    /// route reads the whole log while the page does not — see
+    /// `AuditScope::count`, which carries the measurement. A caller paging
+    /// deeply wants it off; the screen drawing the filter panel wants it on.
+    ///
+    /// Read as text rather than as a `bool`, because serde's `bool` accepts
+    /// exactly `true` and `false` and **400s on `count=0`** — which is what
+    /// anybody writes, and what the doc comment above would have told them to
+    /// write. A parameter whose obvious spelling is an error is a parameter
+    /// nobody can use.
+    #[serde(default)]
+    pub count: Option<String>,
 }
 
-const DEFAULT_LIMIT: i64 = 100;
-const MAX_LIMIT: i64 = 500;
+/// Whether a caller asked for the counting half.
+///
+/// Absent is yes, because that is what every screen reading this today wants.
+/// Anything unrecognised is also yes, for the reason the `sort` fallback gives:
+/// this route prefers answering to refusing, and the safe direction for an
+/// unreadable flag is the one that returns MORE truth rather than less.
+///
+/// Shared with the inventory lists rather than copied into them: four routes
+/// reading `count=0` four ways is four things to learn, and the one that gets
+/// it wrong 400s on the spelling everybody uses.
+pub(super) fn wants_counting(raw: Option<&str>) -> bool {
+    !matches!(
+        raw.map(str::trim).map(str::to_ascii_lowercase).as_deref(),
+        Some("0" | "false" | "no" | "off")
+    )
+}
 
+/// Who did what, newest first — the feed, and one record's history.
+///
+/// One handler where there were two branches, because they differed only in a
+/// `WHERE` and had already drifted apart: the feed took an actor the sheet
+/// could not, and the sheet was capped at a hundred lines with no way of saying
+/// there were more.
+///
+/// It answers with an envelope — rows, a cursor, an exact total and exact facet
+/// counts — in the shape `GET /finance/money` established. The exactness is
+/// this route's own rule rather than a coincidence: this is an audit surface,
+/// and an approximate count of who did what reads as a fact without being one.
 pub async fn list(
     State(state): State<AppState>,
     Extension(_principal): Extension<Principal>,
     Query(query): Query<SubjectQuery>,
-) -> Result<Json<Vec<AuditEntry>>, AppError> {
-    let limit = query.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
-    match (query.subject_kind.as_deref(), query.subject_id.as_deref()) {
-        (Some(kind), Some(id)) => Ok(Json(
-            infrastructure::audit_for_subject(&state.db, kind, id, limit).await?,
-        )),
-        // Naming half a subject is a caller bug, and answering the global feed
-        // instead would hide it behind plausible-looking data.
-        (Some(_), None) | (None, Some(_)) => Err(AppError::Validation(
+) -> Result<Json<infrastructure::AuditFeed>, AppError> {
+    // Naming half a subject is a caller bug, and answering the global feed
+    // instead would hide it behind plausible-looking data.
+    if query.subject_kind.is_some() != query.subject_id.is_some() {
+        return Err(AppError::Validation(
             "subject_kind and subject_id are named together or not at all".into(),
-        )),
-        (None, None) => Ok(Json(
-            infrastructure::recent_audit(&state.db, query.actor.as_deref(), limit).await?,
-        )),
+        ));
     }
+    Ok(Json(
+        infrastructure::list_audit(
+            &state.db,
+            infrastructure::AuditScope {
+                needle: query.q,
+                actor: query.actor,
+                method: query.method,
+                outcome: query.outcome,
+                subject_kind: query.subject_kind,
+                subject_id: query.subject_id,
+                sort: query.sort,
+                // The one list in this system whose default direction is
+                // descending, spelled here because this is the only place that
+                // can tell an absent `dir` from an explicit one.
+                desc: query.dir.as_deref() != Some("asc"),
+                cursor: query.cursor,
+                // Clamped where it is enforced, not here: one spelling of how
+                // much of the log a single request may see.
+                limit: query.limit,
+                count: wants_counting(query.count.as_deref()),
+            },
+        )
+        .await?,
+    ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// The derivation is a heuristic, and a wrong guess is not a cosmetic
-    /// problem: it files one record's history under another record's id, and
-    /// the sheet then shows a history that belongs to something else. These
-    /// pin the shapes this API actually serves.
-    #[test]
-    fn a_path_naming_a_record_is_attributed_to_it() {
+    /// The whole route map rests on axum handing a middleware the pattern it
+    /// matched. It does — but only because this layer is applied to the
+    /// ROUTER, so it runs inside routing. Move it outside (wrap the service,
+    /// or add it above a `fallback`) and `MatchedPath` is simply absent: no
+    /// error, no warning, and every row silently loses its subject again.
+    ///
+    /// So the mechanism is guarded rather than assumed, with a router shaped
+    /// like the real one and nothing else in it.
+    #[tokio::test]
+    async fn the_router_hands_the_middleware_the_pattern_it_matched() {
+        use axum::{body::Body, routing::post, Router};
+        use http::Request;
+        use std::sync::{Arc, Mutex};
+        use tower::ServiceExt;
+
+        let seen: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+        let recorder = seen.clone();
+
+        let app = Router::new()
+            .route("/api/v1/suppliers/{id}/activate", post(|| async { "ok" }))
+            .layer(axum::middleware::from_fn(
+                move |request: Request<Body>, next: Next| {
+                    let recorder = recorder.clone();
+                    async move {
+                        let matched = request
+                            .extensions()
+                            .get::<MatchedPath>()
+                            .map(|matched| matched.as_str().to_owned());
+                        *recorder.lock().unwrap() = matched;
+                        next.run(request).await
+                    }
+                },
+            ));
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/suppliers/S-1/activate")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(response.status().is_success());
+
         assert_eq!(
-            subject_of("/api/v1/suppliers/0f1a2b3c-4d5e-6f70-8192-a3b4c5d6e7f8/activate"),
-            Some((
-                "supplier".to_owned(),
-                "0f1a2b3c-4d5e-6f70-8192-a3b4c5d6e7f8".to_owned()
-            ))
-        );
-        assert_eq!(
-            subject_of("/api/v1/inventory/counts/0f1a2b3c-4d5e-6f70-8192-a3b4c5d6e7f8/submit"),
-            Some((
-                "count".to_owned(),
-                "0f1a2b3c-4d5e-6f70-8192-a3b4c5d6e7f8".to_owned()
-            ))
+            seen.lock().unwrap().as_deref(),
+            Some("/api/v1/suppliers/{id}/activate"),
+            "the middleware could not see which route matched, so every audit \
+             row would lose its subject"
         );
     }
 
-    /// The deepest identifier wins, because that is the record being acted on:
-    /// closing a line short is an act against the line, not against the order.
+    /// A handler's own answer wins over the route's, because the route cannot
+    /// know the id of a record that did not exist when the request began.
     #[test]
-    fn the_innermost_record_is_the_subject() {
+    fn a_declared_subject_is_what_the_handler_last_said() {
+        let declared = DeclaredSubject::default();
+        assert_eq!(declared.take(), None);
+
+        declared.set(RecordKind::PurchaseOrder, "PO-2607-0108");
+        declared.set(RecordKind::PurchaseOrder, "PO-2607-0109");
         assert_eq!(
-            subject_of(
-                "/api/v1/purchase-orders/0f1a2b3c-4d5e-6f70-8192-a3b4c5d6e7f8/lines/9a8b7c6d-5e4f-3210-9876-543210fedcba"
-            ),
-            Some((
-                "line".to_owned(),
-                "9a8b7c6d-5e4f-3210-9876-543210fedcba".to_owned()
-            ))
+            declared.take(),
+            Some((RecordKind::PurchaseOrder, "PO-2607-0109".to_owned()))
         );
+        // Taken once: the middleware writes one row.
+        assert_eq!(declared.take(), None);
     }
 
-    /// An action on a collection names no record, and saying so is better than
-    /// guessing: the row is still a true statement about who did what.
+    /// An empty id is not an identifier, and a row claiming a record with no
+    /// name is worse than a row claiming none.
     #[test]
-    fn a_collection_has_no_subject() {
-        assert_eq!(subject_of("/api/v1/suppliers"), None);
-        assert_eq!(subject_of("/api/v1/inventory/movements"), None);
-    }
-
-    /// Route words are not identifiers. `activate`, `submit` and `read-all`
-    /// must never be mistaken for a record, or every action would file itself
-    /// under a subject named after its own verb.
-    #[test]
-    fn route_words_are_not_records() {
-        assert_eq!(subject_of("/api/v1/notifications/read-all"), None);
-        assert_eq!(subject_of("/api/v1/sync/breaker/reset"), None);
-        assert_eq!(subject_of("/api/v1/inventory/counts"), None);
+    fn an_empty_declaration_is_no_declaration() {
+        let declared = DeclaredSubject::default();
+        declared.set(RecordKind::Document, "   ");
+        assert_eq!(declared.take(), None);
     }
 
     /// Reads are not recorded, and that is a decision rather than an omission:

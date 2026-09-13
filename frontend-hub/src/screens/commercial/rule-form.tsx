@@ -1,6 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
-import type { Applicability, Effect, Rule } from "@itulah/contract"
+import type {
+  Applicability,
+  Effect,
+  ExclusiveScope,
+  MarkdownPolicy,
+  PointsCombination,
+  Rule,
+} from "@itulah/contract"
 
 import { Button } from "@/components/ui/button"
 import { Field, Input, Money } from "@/components/ui/field"
@@ -45,7 +52,7 @@ import { describeEffect, termsOf, useActor } from "@/screens/commercial/shared"
 /// something different at the till than it did on this screen. Every control
 /// below writes one field of that document.
 ///
-/// **Three things the server refuses on purpose**, said on the option itself
+/// **Two things the server refuses on purpose**, said on the option itself
 /// rather than hidden — a form field that silently does not apply is worse
 /// than a field that is not there, because the promotion looks authored, the
 /// shelf ticket gets printed, and the counter charges something else:
@@ -56,11 +63,17 @@ import { describeEffect, termsOf, useActor } from "@/screens/commercial/shared"
 ///    while the stock still says it is on the shelf. It is a greyed tile
 ///    carrying that whole sentence, which is the reason `<Choices>` exists: the
 ///    same refusal in a dropdown could only ever read "— not available".
-///  - **A per-customer limit.** Nothing populates a customer's own history, so
-///    `Caps::allows` always reads zero and the limit never bites.
 ///  - **A campaign this book does not define.** Handled rather than refused: a
 ///    rule joining a campaign restates that campaign in the same book, because
 ///    a shop drops a rule whose campaign it does not hold.
+///
+/// It used to be three. The per-customer limit was refused on the grounds that
+/// "nothing populates a customer's own history", and that had stopped being
+/// true: `commercial_usage_customer(kind, key, customer_id, uses)` is written
+/// on every promotion of every sale the centre accepts. It is offered now, with
+/// the half that IS still missing said where it is set rather than hidden
+/// behind a refusal — a till keeps no shopper history, so the engine refuses
+/// such an offer at the counter instead of handing it out unlimited.
 ///
 /// The brief listed a different three — tier prices, a margin effect,
 /// cumulative conditions. Those are being **deleted from the engine** rather
@@ -141,7 +154,7 @@ const EFFECTS: readonly Tile<EffectKind>[] = [
     value: "FREE_ITEM",
     label: "Free items",
     refused:
-      "Not available: a shop sells by EPC and nothing chooses which unit is given away, so the goods would leave while the stock still said they were on the shelf. Use a fixed price or a percentage.",
+      "Not available — nothing picks which unit leaves, so stock would go wrong. Use a fixed price or a percentage.",
   },
 ]
 
@@ -155,6 +168,69 @@ const AUDIENCE: readonly Tile<"EVERYONE" | "MEMBERS">[] = [
     value: "MEMBERS",
     label: "Identified members only",
     note: "The till must have identified the shopper first.",
+  },
+]
+
+/// "Not valid on sale items", as the two things it can actually mean.
+///
+/// Worded from the shop's side rather than the engine's, because the engine's
+/// word is `EXCLUDE` and nobody writing a promotion thinks in those terms. The
+/// note under each one says what the shopper sees, since that is the part that
+/// gets argued about at the counter.
+const MARKDOWNS: readonly Tile<MarkdownPolicy>[] = [
+  {
+    value: "EXCLUDE",
+    label: "Not on sale items",
+    note: "Marked-down goods are left alone — and do not count toward any minimum spend either.",
+  },
+  {
+    value: "ALLOW",
+    label: "On sale items too",
+    note: "Comes off the marked-down price, on top of the markdown.",
+  },
+]
+
+/// "This offer cannot be combined with any other", as the two things a shop
+/// can mean by it.
+///
+/// Every promotion written before this control existed means the first one,
+/// which is why it is the default here as well as in the engine: a shop that
+/// has been running an exclusive offer all season has been suppressing
+/// everything else with it, and quietly narrowing that would let offers through
+/// that nobody decided to let through.
+const EXCLUSIVES: readonly Tile<ExclusiveScope>[] = [
+  {
+    value: "BASKET",
+    label: "Every other offer",
+    note: "While this one applies, nothing else comes off the sale at all.",
+  },
+  {
+    value: "LINE",
+    label: "Only the goods it discounts",
+    note: "Another offer can still work on the rest of the basket — counted on the rest, and coming off the rest.",
+  },
+]
+
+/// What a points offer is worth on an item a better points offer already
+/// reached.
+///
+/// Written against the everyday rate, because that is the one a shop leaves
+/// running all year and the only thing "double points" is a number against.
+const POINTS: readonly Tile<PointsCombination>[] = [
+  {
+    value: "HIGHEST",
+    label: "Only the best one counts",
+    note: "The better offer wins the item outright. Double beside triple is triple.",
+  },
+  {
+    value: "ADD",
+    label: "Adds what it beats the everyday rate by",
+    note: "Double beside triple comes to four times the everyday rate.",
+  },
+  {
+    value: "COMPOUND",
+    label: "Multiplies what the item already earns",
+    note: "Double beside triple comes to six times the everyday rate.",
   },
 ]
 
@@ -233,7 +309,22 @@ export function RuleForm({
   const [couponCode, setCouponCode] = useState("")
   const [budget, setBudget] = useState("")
   const [maxUses, setMaxUses] = useState("")
+  const [maxPerCustomer, setMaxPerCustomer] = useState("")
   const [priority, setPriority] = useState("0")
+  /// Excluded by default, which is the locked rule and what the shop means by
+  /// "not valid on sale items". Stacking on a markdown has to be chosen out
+  /// loud — the other way round, it happens silently and shows up in margin.
+  const [markdownPolicy, setMarkdownPolicy] =
+    useState<MarkdownPolicy>("EXCLUDE")
+  /// The whole sale by default, which is what every promotion published so far
+  /// means. Narrowing an exclusive offer to its own goods is a real decision
+  /// and is made here rather than inherited.
+  const [exclusiveScope, setExclusiveScope] = useState<ExclusiveScope>("BASKET")
+  /// The best rate takes the item, which is the arithmetic the engine already
+  /// did. Adding or compounding gives more points away than any published rule
+  /// promised, so neither can be the default.
+  const [pointsCombination, setPointsCombination] =
+    useState<PointsCombination>("HIGHEST")
 
   const divisionList = useVocabulary(
     "divisions",
@@ -388,10 +479,24 @@ export function RuleForm({
             max_uses: maxUses.trim() === "" ? null : Number(maxUses),
             used: 0,
           },
+          // Beside `caps` rather than in it: every limit in there is about the
+          // promotion and is answered from the price book, while this one is
+          // about the shopper and is counted from their own history at the
+          // centre.
+          max_uses_per_customer:
+            maxPerCustomer.trim() === "" ? null : Number(maxPerCustomer),
           priority: Number(priority) || 0,
           stacking: "ALONE",
+          exclusive_scope: exclusiveScope,
           advisory: false,
-          earn_basis: "POST_MARKDOWN_PRE_DISCOUNT",
+          markdown_policy: markdownPolicy,
+          // The locked basis: the goods after every discount, before tax. Not
+          // a form field, because it is a policy the estate settled rather
+          // than a choice a promotion makes — a rule that wanted another
+          // basis would be arguing with the loyalty scheme, not configuring
+          // itself.
+          earn_basis: "POST_DISCOUNT_NET",
+          points_combination: pointsCombination,
           max_points: null,
         }
 
@@ -701,6 +806,35 @@ export function RuleForm({
                   label="Who this promotion is for"
                 />
               </div>
+
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[0.78125rem] font-medium text-text">
+                  Goods already marked down
+                </span>
+                <Choices
+                  options={MARKDOWNS}
+                  value={markdownPolicy}
+                  onChange={setMarkdownPolicy}
+                  columns={2}
+                  label="Whether this promotion applies to marked-down goods"
+                />
+              </div>
+
+              {/* Every rule this form writes stands on its own — `stacking` is
+                  ALONE above — so this is always the live question: when it
+                  applies, what does it push out of the way? */}
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[0.78125rem] font-medium text-text">
+                  What it cannot be combined with
+                </span>
+                <Choices
+                  options={EXCLUSIVES}
+                  value={exclusiveScope}
+                  onChange={setExclusiveScope}
+                  columns={2}
+                  label="How much of the basket this promotion shuts other offers out of"
+                />
+              </div>
             </Section>
 
             <Section title="What it does">
@@ -757,6 +891,25 @@ export function RuleForm({
                     label="The figure this promotion applies"
                   />
                 </Field>
+              )}
+
+              {/* Only under a points offer. A control that does nothing on the
+                  four money effects would be the same trap as a field the
+                  server silently drops: it looks authored and changes
+                  nothing. */}
+              {effectKind === "EARN_POINTS" && (
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-[0.78125rem] font-medium text-text">
+                    Beside a better points offer
+                  </span>
+                  <Choices
+                    options={POINTS}
+                    value={pointsCombination}
+                    onChange={setPointsCombination}
+                    columns={1}
+                    label="What this rate is worth on an item a better rate already reached"
+                  />
+                </div>
               )}
 
               <Toggle
@@ -902,24 +1055,42 @@ export function RuleForm({
                     label="Most baskets"
                   />
                 </Field>
-                <Field
-                  label="Priority"
-                  hint="Higher wins when two cannot both apply."
-                >
+                <Field label="Most per shopper">
                   <Stepper
-                    value={priority}
-                    onChange={setPriority}
-                    max={99}
-                    placeholder="0"
-                    label="Priority"
+                    value={maxPerCustomer}
+                    onChange={setMaxPerCustomer}
+                    min={1}
+                    placeholder="Unlimited"
+                    label="Most baskets for one shopper"
                   />
                 </Field>
               </div>
-              <p className="text-[0.71875rem] leading-relaxed text-mute">
-                A limit per customer is not offered: nothing counts a
-                customer&rsquo;s own history yet, so it would be stored,
-                dispatched, and honoured by no till.
-              </p>
+              {maxPerCustomer.trim() !== "" && (
+                <p className="text-[0.71875rem] leading-relaxed text-mute">
+                  Counted from the shopper&rsquo;s own history, which is kept at
+                  head office. A till holds none, so until that count reaches
+                  the shops this offer is{" "}
+                  <strong>refused at the counter</strong> rather than given away
+                  &mdash; and it asks the till to have identified the shopper,
+                  so it is a members&rsquo; offer whatever is chosen above.
+                </p>
+              )}
+              {/* Ascending since D03: the lower number is reached first, and
+                  with offers that combine each one works on what the previous
+                  one left. This hint said the opposite for as long as the field
+                  has existed. */}
+              <Field
+                label="Priority"
+                hint="Lower is reached first, and decides the order when two offers combine."
+              >
+                <Stepper
+                  value={priority}
+                  onChange={setPriority}
+                  max={99}
+                  placeholder="0"
+                  label="Priority"
+                />
+              </Field>
             </Section>
 
             {/* The combination, read back. Every control above writes one

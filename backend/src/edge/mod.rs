@@ -4,8 +4,12 @@ pub mod auth;
 pub mod contracts;
 pub mod domain;
 pub mod escpos;
+pub mod fingerprint;
 pub mod http;
 pub mod outbound;
+/// The shop's small money: the petty cash float head office hands over, and
+/// what it buys. Never the drawer — see the module note for the three pots.
+pub mod petty;
 pub mod pricing;
 pub mod printing;
 pub mod reports;

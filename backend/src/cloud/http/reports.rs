@@ -7,8 +7,11 @@
 //! version rather than overwriting the old one.
 
 use super::auth::Principal;
+use super::{facet_values, limit_value, refuse_unknown_parameters, single_value};
 use crate::cloud::{
     application::{AppError, AppState},
+    domain::RecordKind,
+    http::audit::{id_in, DeclaredSubject},
     postgres as infrastructure,
     reports::{
         catalogue::{self, CATALOGUE_VERSION},
@@ -16,7 +19,7 @@ use crate::cloud::{
     },
 };
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     Extension, Json,
 };
@@ -89,12 +92,56 @@ pub async fn run(
     ))
 }
 
+/// Every report this person can open: searched, filtered, sorted and paged.
+///
+/// The envelope `GET /finance/money` established — rows, a `next_cursor`, a
+/// `total` and facet counts — and, for the first time on this route, a TYPED
+/// row. It answered with a hand-built `json!` before, which is how the browser
+/// ended up holding a hand-written mirror of a shape nothing generated.
+///
+/// The reach is not a filter and is applied in the row definition itself: a
+/// caller's own reports plus everything anybody shared, and nothing else.
+/// `scope=SHARED` narrows what is already visible; it cannot widen it.
+///
+/// # Query parameters
+///
+/// `q` searches the report's name, its owner and the sentence it was composed
+/// from. `dataset`, `owner` and `scope` filter, each repeatable; `scope` is
+/// `MINE` or `SHARED`. `sort` is one of `name`, `created`, `owner`, with
+/// `dir=desc`; anything else is the house order, most recently edited first.
+/// `cursor` and `limit` page.
 pub async fn list(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
-) -> Result<Json<Value>, AppError> {
+    Query(params): Query<Vec<(String, String)>>,
+) -> Result<Json<infrastructure::SavedReportPage>, AppError> {
+    refuse_unknown_parameters(
+        &params,
+        &[
+            &["q", "sort", "dir", "cursor", "limit"][..],
+            &["dataset", "owner", "scope"],
+        ]
+        .concat(),
+    )?;
     Ok(Json(
-        infrastructure::list(&state.db, &principal.username).await?,
+        infrastructure::saved_report_page(
+            &state.db,
+            &principal.username,
+            infrastructure::SavedReportScope {
+                needle: single_value(&params, "q"),
+                datasets: facet_values(&params, "dataset"),
+                owners: facet_values(&params, "owner"),
+                scopes: facet_values(&params, "scope"),
+                sort: single_value(&params, "sort"),
+                // `dir=desc` and nothing else. Absent, empty and anything
+                // unrecognised all mean ascending, which is the direction a
+                // list is in before anybody touches it.
+                desc: single_value(&params, "dir").as_deref() == Some("desc"),
+                cursor: single_value(&params, "cursor"),
+                limit: limit_value(&params)?,
+            },
+        )
+        .await?,
     ))
 }
 
@@ -112,6 +159,7 @@ pub struct CreateRequest {
 pub async fn create(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
+    Extension(acted_on): Extension<DeclaredSubject>,
     Json(request): Json<CreateRequest>,
 ) -> Result<(StatusCode, Json<Value>), AppError> {
     let name = request.name.trim();
@@ -129,6 +177,9 @@ pub async fn create(
         },
     )
     .await?;
+    if let Some(report_id) = id_in(&saved, "report_id") {
+        acted_on.set(RecordKind::SavedReport, report_id);
+    }
     Ok((StatusCode::CREATED, Json(saved)))
 }
 

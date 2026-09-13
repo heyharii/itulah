@@ -9,11 +9,13 @@ import { Card, CardHeader, CardStrip, CardTitle } from "@/components/ui/card"
 import { LineSeries } from "@/components/ui/chart"
 import { DataTable } from "@/components/ui/data-table"
 import { Input } from "@/components/ui/field"
+import { FilterPanel } from "@/components/ui/filter-panel"
 import { TotalsLadder } from "@/components/ui/rows"
 import { PageHeader } from "@/components/ui/page-header"
 import { Toolbar } from "@/components/ui/segmented"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
+import { useFilters } from "@/lib/filters"
 import { day, label, money } from "@/lib/format"
 import { accountLedger, financeKeys, trialBalance } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
@@ -145,6 +147,16 @@ const trialColumns: ColumnDef<TableSetup, TrialBalanceRow>[] = [
     accessorKey: "root_class",
     header: "Class",
     size: 190,
+    // The one narrowing a trial balance is actually read with: "show me the
+    // liabilities" is how somebody checks one half of the identity without
+    // scrolling past the other. The client's own name for each class, so the
+    // picker reads as the column does rather than offering the digits 1 to 8.
+    meta: {
+      filter: {
+        kind: "option",
+        format: (value) => `${value} ${ROOT_CLASSES[value] ?? ""}`.trim(),
+      },
+    },
     cell: ({ row }) => (
       <span className="flex items-center gap-1.5">
         <Tag>{row.original.root_class}</Tag>
@@ -196,7 +208,15 @@ const trialColumns: ColumnDef<TableSetup, TrialBalanceRow>[] = [
     accessorFn: (row) => row.debit_minor - row.credit_minor,
     header: "Debit less credit",
     size: 160,
-    meta: { align: "right" },
+    // The position, and the only size question worth asking of this list: the
+    // two sides beside it are movements and a big debit against a big credit
+    // is a busy account, not a large one. Filtering here narrows what is SHOWN
+    // and never what the books say — the totals below the table are the
+    // server's and sit outside it for exactly this reason.
+    meta: {
+      align: "right",
+      filter: { kind: "number", unit: "Rp" },
+    },
     cell: ({ row }) => {
       const net = row.original.debit_minor - row.original.credit_minor
       return (
@@ -222,21 +242,27 @@ function TrialBalanceList({ onPick }: { onPick: (code: string) => void }) {
 
   const rows = useMemo(() => balance.data?.rows ?? [], [balance.data])
 
+  const filters = useFilters(trialColumns)
+
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
         data: rows,
-        columns: trialColumns,
+        columns: filters.columns,
         // An account can be posted to at more than one location and each is its
         // own line, so the code alone is not a key here.
         getRowId: (row: TrialBalanceRow) =>
           `${row.account_code}-${row.site_id ?? ""}`,
-        state: { globalFilter: query, sorting },
+        state: {
+          columnFilters: filters.columnFilters,
+          globalFilter: query,
+          sorting,
+        },
         onSortingChange: setSorting,
         onGlobalFilterChange: setQuery,
       }),
-      [rows, query, sorting]
+      [rows, filters.columns, filters.columnFilters, query, sorting]
     )
   )
 
@@ -280,6 +306,11 @@ function TrialBalanceList({ onPick }: { onPick: (code: string) => void }) {
           className="h-8 w-44"
           aria-label="Location"
         />
+        {/* Location is asked on the WIRE by the select beside this, and the
+            totals under the table belong to that narrowing — a second,
+            browser-side location filter would leave the rows describing one
+            place and the footer another. So it is not offered in here. */}
+        <FilterPanel model={filters} table={table} />
         <Toolbar.Spacer />
         {/* The server's own answer, not the boxes': it echoes the date it
             actually read at, which is the figure the totals below belong to. */}
@@ -320,7 +351,7 @@ function TrialBalanceList({ onPick }: { onPick: (code: string) => void }) {
               <DataTable<TrialBalanceRow>
                 table={table}
                 onRowClick={(row) => onPick(row.account_code)}
-                empty="No account matches that search."
+                empty="No account matches the search and filters in force."
                 className="max-h-[calc(100vh-30rem)]"
               />
             ),
@@ -389,6 +420,10 @@ const movementColumns: ColumnDef<TableSetup, GeneralLedgerRow>[] = [
     header: "Source",
     size: 150,
     enableSorting: false,
+    // What wrote the movement. Unlike the Journal, this list has no source
+    // select above it — `GET /finance/ledger/{code}` takes a site and a
+    // window and nothing else — so this column is the only place to ask.
+    meta: { filter: { kind: "option", format: label } },
     cell: ({ row }) => (
       <span className="text-body">{label(row.original.source_kind)}</span>
     ),
@@ -416,7 +451,10 @@ const movementColumns: ColumnDef<TableSetup, GeneralLedgerRow>[] = [
     header: "Debit",
     size: 140,
     enableSorting: false,
-    meta: { align: "right" },
+    meta: {
+      align: "right",
+      filter: { kind: "number", unit: "Rp" },
+    },
     cell: ({ row }) =>
       row.original.debit_minor === 0 ? (
         <span className="text-faint">—</span>
@@ -429,7 +467,13 @@ const movementColumns: ColumnDef<TableSetup, GeneralLedgerRow>[] = [
     header: "Credit",
     size: 140,
     enableSorting: false,
-    meta: { align: "right" },
+    // Both sides, and separately: "what came out of this account over a
+    // million" is a credit question, and a single "size" field would make the
+    // reader say which side in prose.
+    meta: {
+      align: "right",
+      filter: { kind: "number", unit: "Rp" },
+    },
     cell: ({ row }) =>
       row.original.credit_minor === 0 ? (
         <span className="text-faint">—</span>
@@ -484,6 +528,8 @@ function AccountMovements({
 
   const rows = useMemo(() => ledger.data?.rows ?? [], [ledger.data])
 
+  const filters = useFilters(movementColumns)
+
   /// Where this account stood, day by day, across the window.
   ///
   /// # Why a line and not bars
@@ -533,15 +579,15 @@ function AccountMovements({
       () => ({
         features: tableSetup,
         data: rows,
-        columns: movementColumns,
+        columns: filters.columns,
         // An entry can touch one account twice — a correction posted against
         // itself — so `entry_id` alone is not a key.
         getRowId: (row: GeneralLedgerRow) =>
           `${row.entry_id}-${row.posting_date}-${row.debit_minor}-${row.credit_minor}-${row.running_minor}`,
-        state: { globalFilter: query },
+        state: { columnFilters: filters.columnFilters, globalFilter: query },
         onGlobalFilterChange: setQuery,
       }),
-      [rows, query]
+      [rows, filters.columns, filters.columnFilters, query]
     )
   )
 
@@ -570,6 +616,12 @@ function AccountMovements({
           className="h-8 w-44"
           aria-label="Location"
         />
+        {/* Running is not offered, and it is the one refusal worth stating: it
+            is a level and every figure in it already contains the rows above.
+            Hiding rows out of the middle leaves the column stepping over gaps
+            it cannot explain — true of the search box beside it too, which is
+            why the opening and closing figures are drawn outside the table. */}
+        <FilterPanel model={filters} table={table} />
         <Toolbar.Spacer />
         {/* Back to the trial balance, which is where the accounts are — not to
             an empty card asking which one. */}
@@ -642,7 +694,7 @@ function AccountMovements({
               ) : (
                 <DataTable<GeneralLedgerRow>
                   table={table}
-                  empty="No movement matches that search."
+                  empty="No movement matches the search and filters in force."
                   className={
                     running.length > 2
                       ? "max-h-[calc(100vh-40rem)]"

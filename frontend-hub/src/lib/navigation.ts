@@ -1,10 +1,22 @@
-import type { LucideIcon } from "lucide-react"
+import {
+  Boxes,
+  Landmark,
+  Megaphone,
+  MessagesSquare,
+  Shirt,
+  ShoppingCart,
+  Store,
+  Truck,
+  Users,
+  type LucideIcon,
+} from "lucide-react"
 
 import { allotmentNav } from "@/screens/allotment/nav"
 import { assistantNav } from "@/screens/assistant/nav"
 import { commercialNav } from "@/screens/commercial/nav"
 import { financeNav } from "@/screens/finance/nav"
 import { financeLabNav } from "@/screens/finance-lab/nav"
+import { financeLab2Nav } from "@/screens/finance-lab-2/nav"
 import { homeNav } from "@/screens/home/nav"
 import { inventoryNav } from "@/screens/inventory/nav"
 import { masterNav } from "@/screens/master/nav"
@@ -16,7 +28,10 @@ import { reportsNav } from "@/screens/reports/nav"
 import { salesNav } from "@/screens/sales/nav"
 import { storeopsNav } from "@/screens/storeops/nav"
 import { systemNav } from "@/screens/system/nav"
-import { chatNav, discussionsNav, filesNav } from "@/screens/workplace/nav"
+import { lettersNav } from "@/screens/letters/nav"
+import { assetsNav } from "@/screens/assets/nav"
+import { vendorsNav } from "@/screens/vendors/nav"
+import { chatNav, discussionsNav, libraryNav } from "@/screens/workplace/nav"
 
 /// The navigation registry — one declaration the whole app reads.
 ///
@@ -133,7 +148,7 @@ export interface AppModule {
   /// A screen that is retired or absorbed leaves its URL behind in people's
   /// history, in their bookmarks and in the links they have sent each other,
   /// and a 404 is a worse answer than the screen they wanted. `/documents` is
-  /// the one today: Files absorbed it, so `/documents` lands on `/files` and
+  /// the one today: the Library absorbed it, so `/documents` lands there and
   /// the `?document=` that came with it opens the same sheet it always did.
   ///
   /// Not nav entries — `routes.tsx` generates redirects from these, and a row
@@ -208,30 +223,45 @@ export const modules: readonly AppModule[] = [
   membersNav,
   financeNav,
   financeLabNav,
+  financeLab2Nav,
   peopleNav,
+  lettersNav,
+  vendorsNav,
+  assetsNav,
   systemNav,
 ]
 
 /// The icon strip above those rows.
 ///
-/// Six screens that are not places in the business: the assistant, four ways
-/// of talking to each other about it, and the reports somebody kept. Each is a single
-/// destination, so each is declared as a one-screen module — which the shell
-/// already knows not to unfold. See `aside` on `AppModule`.
+/// Screens that are not places in the business: ways of talking to each other
+/// about it, and the reports somebody kept. Each is a single destination, so
+/// each is declared as a one-screen module — which the shell already knows not
+/// to unfold. See `aside` on `AppModule`.
 export const asides: readonly AppModule[] = [
-  assistantNav,
   discussionsNav,
   chatNav,
-  filesNav,
+  libraryNav,
   reportsNav,
 ]
+
+/// Routed, reachable, and drawn nowhere.
+///
+/// The assistant was taken out of the strip on the owner's instruction. Its
+/// ROUTE is deliberately kept: links to it exist in saved messages and in
+/// people's tabs, and a removed menu row is a tidying decision while a removed
+/// route is a 404 for somebody who did nothing wrong. ⌘J still opens it.
+///
+/// This is the list to put a screen on when it should stop being offered
+/// without ceasing to exist — a distinction the `asides` array cannot make,
+/// because that array is read for both the strip and the router.
+const unlisted: readonly AppModule[] = [assistantNav]
 
 /// Modules and asides together, which is what everything except the sidebar's
 /// own layout actually wants: the router builds from this, ⌘K flattens it, and
 /// `moduleForPath` resolves against it. An aside differs from a module in one
 /// respect only — where its row is drawn — so nothing else here distinguishes
 /// them.
-const everyModule: readonly AppModule[] = [...modules, ...asides]
+const everyModule: readonly AppModule[] = [...modules, ...asides, ...unlisted]
 
 /// The sub-items the sidebar draws under a module, in declaration order.
 ///
@@ -268,6 +298,101 @@ export const allNavItems: readonly (NavItem & { module: AppModule })[] =
       section.items.map((item) => ({ ...item, module }))
     )
   )
+
+/// ── domains ──────────────────────────────────────────────────────────────
+///
+/// The bar across the top is this list and only this list: the parts of the
+/// business, not the modules. It is short on purpose and it does not grow when
+/// screens do — a module moves between domains when the company changes its
+/// mind about who owns what, and that is an edit to one array rather than to
+/// the navigation.
+///
+/// The cut is the owner's, ruled 2026-09-13. Home is not a domain: it is what
+/// the mark in the corner opens. System, Reports and the assistant are
+/// deliberately absent — still routed, still reachable by ⌘K, simply not
+/// offered a chip until somebody decides where they live.
+export interface AppDomain {
+  readonly id: string
+  readonly label: string
+  readonly icon: LucideIcon
+  /// Module ids, in the order their screens should stack in the sidebar.
+  readonly modules: readonly string[]
+}
+
+export const domains: readonly AppDomain[] = [
+  {
+    id: "merchandise",
+    label: "Merchandise",
+    icon: Shirt,
+    modules: ["master", "allotment"],
+  },
+  { id: "inventory", label: "Inventory", icon: Boxes, modules: ["inventory"] },
+  // Ops stands apart from Inventory for a reason that is not taste: every one
+  // of its screens talks to a DC node behind its own login, so a domain that
+  // mixed them would ask for a second password halfway down its own sidebar.
+  { id: "ops", label: "Ops", icon: Truck, modules: ["operations"] },
+  {
+    id: "marketing",
+    label: "Marketing",
+    icon: Megaphone,
+    modules: ["commercial"],
+  },
+  {
+    id: "buying",
+    label: "Buying",
+    icon: ShoppingCart,
+    modules: ["procurement"],
+  },
+  {
+    id: "selling",
+    label: "Selling",
+    icon: Store,
+    modules: ["sales", "storeops", "members"],
+  },
+  {
+    id: "finance",
+    label: "Finance",
+    icon: Landmark,
+    modules: ["finance", "finance-lab"],
+  },
+  { id: "hr", label: "HR", icon: Users, modules: ["people"] },
+  {
+    id: "ga",
+    label: "GA",
+    icon: MessagesSquare,
+    modules: [
+      "vendors",
+      "ga-assets",
+      "letters",
+      "discussions",
+      "chat",
+      "library",
+    ],
+  },
+]
+
+/// The modules of a domain, in declared order, skipping any that no longer
+/// exist — a rename in one file should dim a chip, not crash the shell.
+export function modulesOfDomain(domain: AppDomain): readonly AppModule[] {
+  return domain.modules
+    .map((id) => everyModule.find((module) => module.id === id))
+    .filter((module): module is AppModule => module !== undefined)
+}
+
+/// Which domain a module belongs to, or `undefined` for the ones deliberately
+/// left out of the bar (home, system, reports, the assistant).
+export function domainForModule(id: string): AppDomain | undefined {
+  return domains.find((domain) => domain.modules.includes(id))
+}
+
+export function domainForPath(pathname: string): AppDomain | undefined {
+  return domainForModule(moduleForPath(pathname).id)
+}
+
+/// Where a chip lands: the home of its first module.
+export function domainHome(domain: AppDomain): string {
+  return modulesOfDomain(domain)[0]?.home ?? "/"
+}
 
 /// Which module owns a path, by longest matching `home`. Used by the sidebar to
 /// light the right row and unfold the right module for a URL that was pasted in

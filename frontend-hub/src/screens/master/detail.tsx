@@ -204,8 +204,14 @@ function Overview({
         ) : (
           // No dead ends: the delivery that prompted this product is one click
           // away, which is the only route from a thing back to why it exists.
+          //
+          // To `/master`, not to the order book. The setup panel is mounted by
+          // the Articles screen, and it followed the trigger back there on
+          // 2026-09-13 — this link kept pointing at Purchase orders, where
+          // nothing is listening for `?setup=`, so it landed on a screen and
+          // opened nothing.
           <AppLink
-            to="/procurement/orders"
+            to="/master"
             sheet={{ key: "setup", value: article.created_by_session_id }}
             className="font-mono text-id text-accent hover:underline"
           >

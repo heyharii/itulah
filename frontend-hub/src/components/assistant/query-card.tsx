@@ -107,8 +107,7 @@ export function QueryCard({ data }: { data: unknown }) {
         </span>
         <span className="shrink-0 text-eyebrow text-mute tabular-nums">
           {count(rows.length)}
-          {payload.truncated ? "+" : ""}{" "}
-          {rows.length === 1 ? "row" : "rows"}
+          {payload.truncated ? "+" : ""} {rows.length === 1 ? "row" : "rows"}
         </span>
         {payload.sql && (
           <button
@@ -157,7 +156,10 @@ export function QueryCard({ data }: { data: unknown }) {
             </thead>
             <tbody>
               {rows.map((row, index) => (
-                <tr key={index} className="border-b border-hairline last:border-0">
+                <tr
+                  key={index}
+                  className="border-b border-hairline last:border-0"
+                >
                   {columns.map((column, cell) => (
                     <td
                       key={column + cell}

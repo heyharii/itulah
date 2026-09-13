@@ -1,12 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
-import { PageContent } from "@/components/shell/app-shell"
 import { Toggle } from "@/components/ui/form"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { Field, Input, Select } from "@/components/ui/field"
-import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { KeyValue } from "@/components/ui/rows"
 import { Banner, EmptyState } from "@/components/ui/states"
@@ -85,12 +83,7 @@ export function LeaveTypes() {
   const inForce = generations.at(-1) ?? null
 
   return (
-    <PageContent>
-      <PageHeader
-        crumb="People · Setup"
-        title="Leave types"
-        sub="What kinds of leave exist, what each draws on, and the rules a balance folds under."
-      />
+    <>
 
       {/* A balance cannot be computed at all until somebody answers the four
           questions a policy asks. Saying so is the point: the alternative is a
@@ -179,7 +172,7 @@ export function LeaveTypes() {
       </Card>
 
       <DefineKind />
-    </PageContent>
+    </>
   )
 }
 

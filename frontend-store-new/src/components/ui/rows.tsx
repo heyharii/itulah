@@ -15,7 +15,7 @@ export function KeyValue({
   return (
     <div
       className={cn(
-        "flex justify-between gap-3 border-b border-hairline py-2.5 text-[0.84375rem] last:border-b-0",
+        "flex justify-between gap-3 border-b border-hairline py-2.5 text-cell last:border-b-0",
         className,
       )}
     >
@@ -59,7 +59,7 @@ export function TotalsLadder({
   return (
     <div
       className={cn(
-        "flex flex-col gap-1.5 border-t border-hairline pt-3 text-[0.84375rem]",
+        "flex flex-col gap-1.5 border-t border-hairline pt-3 text-cell",
         className,
       )}
     >

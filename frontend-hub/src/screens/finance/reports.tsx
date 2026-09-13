@@ -486,7 +486,8 @@ function LocationSpread({
   /// surprise than a link that does nothing.
   const children = useQuery({
     queryKey: financeKeys.accountChildren(code, false),
-    queryFn: ({ signal }) => accountChildren({ parent: code }, signal),
+    queryFn: ({ signal }) =>
+      accountChildren({ parent: code }, signal).then((page) => page.rows),
     // The chart is imported once and then sits for months.
     staleTime: 10 * 60 * 1000,
   })

@@ -68,7 +68,11 @@ const NEXT: Readonly<Record<PaymentStatus, readonly PaymentStatus[]>> = {
 
 /// Which role the money side of a payment uses.
 function sourceRole(s: PaymentSource): AccountRole {
-  return s.kind === "BANK" ? "BANK" : s.kind === "PETTY_CASH" ? "PETTY_CASH" : "CASH_ON_HAND"
+  return s.kind === "BANK"
+    ? "BANK"
+    : s.kind === "PETTY_CASH"
+      ? "PETTY_CASH"
+      : "CASH_ON_HAND"
 }
 
 export class Payments {
@@ -120,7 +124,9 @@ export class Payments {
     return this.payments
       .filter((p) => p.status === "APPROVED" || p.status === "INSTRUCTED")
       .flatMap((p) => p.allocations)
-      .filter((a) => a.target.kind === "OPEN_ITEM" && a.target.item_id === item_id)
+      .filter(
+        (a) => a.target.kind === "OPEN_ITEM" && a.target.item_id === item_id
+      )
       .reduce((n, a) => n + a.amount, 0)
   }
 
@@ -131,12 +137,15 @@ export class Payments {
     if (total <= 0) return { error: "a payment answers at least one thing" }
     for (const a of draft.allocations) {
       if (!Number.isInteger(a.amount) || a.amount <= 0) {
-        return { error: `an allocation of ${a.amount} is not a whole positive amount` }
+        return {
+          error: `an allocation of ${a.amount} is not a whole positive amount`,
+        }
       }
       if (a.target.kind === "OPEN_ITEM") {
         const item = this.items.get(a.target.item_id)
         if (!item) return { error: `no open item ${a.target.item_id}` }
-        const room = this.outstanding(item.item_id) - this.reserved(item.item_id)
+        const room =
+          this.outstanding(item.item_id) - this.reserved(item.item_id)
         if (a.amount > room) {
           return {
             error:
@@ -208,12 +217,19 @@ export class Payments {
         ...p,
         status: to,
         entry_id: posted.entry_id,
-        history: [...p.history, { at: p.dates.posting_on, status: to, actor, note }],
+        history: [
+          ...p.history,
+          { at: p.dates.posting_on, status: to, actor, note },
+        ],
       }
       this.payments[i] = next
       for (const a of p.allocations) {
         if (a.target.kind === "OPEN_ITEM") {
-          this.settled.push({ item_id: a.target.item_id, payment_id: p.payment_id, amount: a.amount })
+          this.settled.push({
+            item_id: a.target.item_id,
+            payment_id: p.payment_id,
+            amount: a.amount,
+          })
         }
       }
       return next
@@ -223,7 +239,10 @@ export class Payments {
       ...p,
       status: to,
       failure_reason: to === "FAILED" ? note : p.failure_reason,
-      history: [...p.history, { at: p.dates.posting_on, status: to, actor, note }],
+      history: [
+        ...p.history,
+        { at: p.dates.posting_on, status: to, actor, note },
+      ],
     }
     this.payments[i] = next
     return next
@@ -236,7 +255,11 @@ export class Payments {
   /// production supplier payment does it: a single line cannot say which debts
   /// the money answered, and the sub-ledger that could say it would be a
   /// second copy of the general ledger.
-  private post(p: Payment, actor: string, actor_role: Role): { entry_id: string } | { error: string } {
+  private post(
+    p: Payment,
+    actor: string,
+    actor_role: Role
+  ): { entry_id: string } | { error: string } {
     const lines: IntentLine[] = []
     for (const a of p.allocations) {
       if (a.target.kind === "OPEN_ITEM") {
@@ -264,7 +287,8 @@ export class Payments {
       role: sourceRole(p.source),
       dims: {
         unit_id: p.unit_id,
-        bank_account_id: p.source.kind === "BANK" ? p.source.bank_account_id : undefined,
+        bank_account_id:
+          p.source.kind === "BANK" ? p.source.bank_account_id : undefined,
       },
       amount: p.total,
       memo: p.counterparty,
@@ -288,7 +312,9 @@ export class Payments {
       actor_role,
     })
     if (!outcome.ok) {
-      return { error: `${outcome.message}${outcome.detail ? " — " + outcome.detail.join("; ") : ""}` }
+      return {
+        error: `${outcome.message}${outcome.detail ? " — " + outcome.detail.join("; ") : ""}`,
+      }
     }
     return { entry_id: outcome.entry.entry_id }
   }
@@ -305,7 +331,9 @@ export class Payments {
   /// appear under Cash & Bank and under Accruals without being two records.
   touching(item_id: string): readonly Payment[] {
     return this.payments.filter((p) =>
-      p.allocations.some((a) => a.target.kind === "OPEN_ITEM" && a.target.item_id === item_id)
+      p.allocations.some(
+        (a) => a.target.kind === "OPEN_ITEM" && a.target.item_id === item_id
+      )
     )
   }
 }

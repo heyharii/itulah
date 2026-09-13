@@ -122,9 +122,12 @@ async fn a_dropped_file_becomes_a_statement_and_a_second_pass_imports_nothing(po
     assert_eq!(stats.lines, 2);
     assert_eq!(stats.skipped, 0);
 
-    let statements = cloud::list_statements(&pool)
+    // The list answers with an envelope now — rows, a cursor, a total and
+    // facet counts — the shape every other finance list answers in.
+    let statements = cloud::bank_statement_page(&pool, Default::default())
         .await
-        .unwrap_or_else(|error| panic!("{error}"));
+        .unwrap_or_else(|error| panic!("{error}"))
+        .rows;
     assert_eq!(statements.len(), 1);
     assert_eq!(statements[0].account_code, GIRO);
     // The window is the span of the lines, not of the filename or of today.
@@ -145,10 +148,10 @@ async fn a_dropped_file_becomes_a_statement_and_a_second_pass_imports_nothing(po
     assert_eq!(stats.already_seen, 1);
     assert_eq!(stats.ingested, 0);
     assert_eq!(
-        cloud::list_statements(&pool)
+        cloud::bank_statement_page(&pool, Default::default())
             .await
-            .unwrap_or_default()
-            .len(),
+            .map(|page| page.total)
+            .unwrap_or_default(),
         1,
         "a second pass must not produce a second statement"
     );
@@ -233,9 +236,10 @@ async fn a_rule_that_claims_a_file_it_cannot_read_says_which_column_is_missing(p
     assert!(log[0].detail.contains("Pengeluaran"), "{}", log[0].detail);
     assert!(log[0].detail.contains("Debet"), "{}", log[0].detail);
     // Nothing was imported, so nothing is half-imported.
-    assert!(cloud::list_statements(&pool)
+    assert!(cloud::bank_statement_page(&pool, Default::default())
         .await
-        .unwrap_or_default()
+        .unwrap_or_else(|error| panic!("{error}"))
+        .rows
         .is_empty());
 
     let _ = std::fs::remove_dir_all(&folder);
@@ -253,7 +257,10 @@ async fn the_lines_land_where_the_matcher_will_look_for_them(pool: PgPool) {
         .await
         .unwrap_or_else(|error| panic!("{error}"));
 
-    let statements = cloud::list_statements(&pool).await.unwrap_or_default();
+    let statements = cloud::bank_statement_page(&pool, Default::default())
+        .await
+        .unwrap_or_else(|error| panic!("{error}"))
+        .rows;
     let lines = cloud::statement_lines(&pool, statements[0].statement_id)
         .await
         .unwrap_or_else(|error| panic!("{error}"));

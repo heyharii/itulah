@@ -2,11 +2,9 @@ import {
   BadgeDollarSign,
   CalendarCheck,
   CalendarClock,
-  CalendarDays,
   CalendarRange,
   Clock4,
   Inbox,
-  ListChecks,
   Receipt,
   Users,
 } from "lucide-react"
@@ -128,21 +126,13 @@ export const peopleNav: AppModule = {
       label: "Setup",
       items: [
         {
-          path: "/people/attendance",
-          label: "Attendance policy",
+          /// Four rows became one, 2026-09-13, on the owner's decision and
+          /// with both HR prototypes arguing for it independently. The
+          /// reasoning — and the fact that the four old addresses no longer
+          /// resolve — is in `policy.tsx`.
+          path: "/people/policy",
+          label: "Time policy",
           icon: CalendarClock,
-          audience: "employer",
-        },
-        {
-          path: "/people/leave-types",
-          label: "Leave types",
-          icon: ListChecks,
-          audience: "employer",
-        },
-        {
-          path: "/people/holidays",
-          label: "Holiday calendar",
-          icon: CalendarDays,
           audience: "employer",
         },
       ],

@@ -97,7 +97,7 @@ function OpenShift() {
       </Screen>
       <ActionBar>
         <Button
-          variant="dark"
+          variant="primary"
           size="lg"
           block
           disabled={amount === null || open.isPending}
@@ -133,7 +133,7 @@ function RunningShift({ report }: { report: ShiftReport }) {
           ).map(([key, label]) => (
             <Button
               key={key}
-              variant={pane === key ? "dark" : "ghost"}
+              variant={pane === key ? "primary" : "ghost"}
               onClick={() => setPane(key)}
             >
               {label}
@@ -379,7 +379,7 @@ function CashPane({ report }: { report: ShiftReport }) {
         )}
 
         <Button
-          variant="dark"
+          variant="primary"
           size="lg"
           block
           disabled={!ready || record.isPending}
@@ -452,7 +452,7 @@ function ClosePane({
           />
         </Card>
         <Button
-          variant="dark"
+          variant="primary"
           size="lg"
           block
           className="mt-4"
@@ -493,7 +493,7 @@ function ClosePane({
           <Banner tone="bad">{close.error.message}</Banner>
         )}
         <Button
-          variant="dark"
+          variant="primary"
           size="lg"
           block
           disabled={minor === null || close.isPending}
@@ -585,7 +585,7 @@ function PrinterPane() {
         </Field>
         {saved && <Banner tone="ok">Saved on this till.</Banner>}
         <Button
-          variant="dark"
+          variant="primary"
           size="lg"
           block
           disabled={host.trim() === ""}

@@ -29,6 +29,20 @@ pub struct CreateSupplierRequest {
     pub address: Option<String>,
     #[serde(default)]
     pub status: SupplierStatus,
+    /// Which book: `MERCHANDISE` (the default, and what every existing row
+    /// is), `EXPENSE` or `AFFILIATE`. See migration 0212.
+    ///
+    /// Optional on the wire as well as in serde: the screens that existed
+    /// before this column did send no such field, and a required one would
+    /// have broken all four of them to add a word most of them never say.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub category: Option<String>,
+    /// The account this party's bills usually debit. Refused on a merchandise
+    /// supplier by the constraint, not by this code.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub expense_account_code: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -93,6 +107,15 @@ pub struct UpdateSupplierRequest {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
     pub address: NullablePatch<String>,
+    /// Which book this party is in. Not nullable — a party is always in one.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub category: Option<String>,
+    /// The account its bills usually debit; `null` clears it, which is what a
+    /// party moving back to merchandise has to be able to do.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub expense_account_code: NullablePatch<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -201,6 +224,8 @@ fn supplier_from_row(row: PgRow) -> Result<Supplier, AppError> {
         email: row.try_get("email")?,
         address: row.try_get("address")?,
         status: SupplierStatus::from_str(&status).map_err(validation)?,
+        category: row.try_get("category")?,
+        expense_account_code: row.try_get("expense_account_code")?,
         version: row.try_get("version")?,
         created_by: row.try_get("created_by")?,
         created_at: row.try_get("created_at")?,
@@ -285,6 +310,8 @@ fn supplier_item_from_row(row: PgRow) -> Result<SupplierItem, AppError> {
             .unwrap_or_default()
             .unwrap_or_default(),
         status: SupplierStatus::from_str(&status).map_err(validation)?,
+        category: row.try_get("category")?,
+        expense_account_code: row.try_get("expense_account_code")?,
         version: row.try_get("version")?,
         created_by: row.try_get("created_by")?,
         created_at: row.try_get("created_at")?,
@@ -361,19 +388,300 @@ async fn stale_item_error(
     }
 }
 
-pub async fn list_suppliers(
+// ── the supplier list ────────────────────────────────────────────────────
+//
+// Brought up to the shape `EmployeeList` and `BillPage` set: a scope struct in,
+// an envelope out, a search the SERVER runs and a keyset that can reach the end
+// of the book. It was a bare array of every supplier there is — fast today at
+// thirty, and with no way out of that when it is not, because a bare array has
+// nowhere to put a cursor.
+//
+// The company buys from thirty suppliers now and has bought from more; a
+// purchasing department that has run for a decade holds every one it has ever
+// used, because a supplier is deactivated rather than deleted — `status` exists
+// precisely so the record survives the relationship.
+
+/// How many suppliers the list returns when the caller does not say.
+///
+/// Here rather than in the handler, beside the only clamp that enforces it.
+const SUPPLIER_DEFAULT_LIMIT: i64 = 200;
+/// And the most it will return however loudly a caller asks.
+///
+/// A thousand, as the workforce list allows and for the same reason: the
+/// pickers on the order composer and the item form want every ACTIVE supplier
+/// in one read, and clamping them to a page would drop names out of a dropdown
+/// with nothing saying so. The envelope is what makes the ceiling safe —
+/// `total` says how many there really are, so a caller that hits it can see
+/// that it did.
+const SUPPLIER_MAX_LIMIT: i64 = 1000;
+
+/// What a caller is asking the supplier list for.
+#[derive(Clone, Debug, Default)]
+pub struct SupplierScope {
+    /// Free text, tried against the supplier's code, its name and the name of
+    /// the person there.
+    ///
+    /// Those three. Not the telephone number and not the email: a supplier
+    /// record carries a named individual's contact details, and a list that
+    /// could be searched by them would answer "whose number is this" for
+    /// anybody who can open the purchasing screen. The code and the name are
+    /// what a buyer holding a delivery note actually has.
+    pub q: Option<String>,
+    /// `ACTIVE` or `INACTIVE`, and one of them.
+    ///
+    /// An unknown value narrows to nothing rather than being dropped: it is a
+    /// column comparison, not a vocabulary this build has to recognise.
+    pub status: Option<String>,
+    /// `MERCHANDISE`, `EXPENSE` or `AFFILIATE`. Absent means every book, which
+    /// is what the record surface and ⌘K want; the two menus each name theirs.
+    pub category: Option<String>,
+    /// `code`, `name` or `created` — the closed set this server names.
+    ///
+    /// Anything unrecognised falls back to the house order rather than
+    /// refusing, for the reason every other list here gives: a sort arrives
+    /// from a URL somebody may have kept from an older build, and a 400 for a
+    /// stale bookmark is a worse answer than the rows in the house order.
+    ///
+    /// There is deliberately no sort by status. Sorting two state names
+    /// alphabetically groups nothing anybody asked for — "show me the ones we
+    /// still buy from" is a filter, and the facet counts are how it is asked.
+    /// The house order already puts the active ones first.
+    pub sort: Option<String>,
+    pub desc: bool,
+    pub cursor: Option<String>,
+    /// Absent means [`SUPPLIER_DEFAULT_LIMIT`], not "everything".
+    pub limit: Option<i64>,
+}
+
+/// One value a filter can take, and how many suppliers would still be there.
+///
+/// Counted over everything the search leaves, deliberately ignoring which
+/// filter is currently applied — so the number reads as "how many of these
+/// there are", which is the question somebody has while choosing.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct SupplierFacet {
+    pub value: String,
+    /// Absent for a status, whose words belong to the screen: "Still buying
+    /// from" is the hub's phrasing of `ACTIVE`, not the server's.
+    pub label: Option<String>,
+    pub count: i64,
+}
+
+/// The one thing this list can be narrowed by that is worth counting.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct SupplierFacets {
+    pub statuses: Vec<SupplierFacet>,
+}
+
+/// A page of suppliers, and the shape of everything it was drawn from.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct SupplierList {
+    pub rows: Vec<Supplier>,
+    /// Opaque. Pass it back as `cursor` for the next page; absent means this
+    /// was the last one.
+    pub next_cursor: Option<String>,
+    /// Every supplier the search and the filter match — not just this page.
+    /// Without it a picker can only say "200 suppliers", which is a statement
+    /// about the page size rather than about the company's book.
+    pub total: i64,
+    pub facets: SupplierFacets,
+}
+
+/// Where the previous page stopped — as a ROW, not as a position.
+///
+/// The supplier id, whatever the list is sorted by. The seek re-reads that
+/// row's own sort value in SQL, so one cursor shape serves every order and a
+/// fourth sort cannot arrive without its cursor.
+#[derive(Serialize, Deserialize)]
+struct SupplierCursor {
+    supplier_id: Uuid,
+}
+
+/// One supplier row, defined once.
+///
+/// Used by the page query and by the facet counts, and that is the whole reason
+/// it is a constant: the facets are only honest if they count exactly what the
+/// page can show.
+///
+/// Binds: `$1` the search pattern, or NULL for no search.
+///
+/// It stops at the SEARCH. The status filter is applied outside it, which is
+/// what lets one definition answer two different questions from the same rows:
+/// the page wants what the filter leaves, while the filter panel's counts want
+/// what the search alone leaves — because "Active 28" has to mean "there are 28
+/// active suppliers", not "28 among the ones you have already narrowed to
+/// active".
+///
+/// The `*_key` columns are computed here rather than only in `ORDER BY` because
+/// the keyset has to COMPARE the sort value in a `WHERE`, and a sort expression
+/// that is not also a column is one a `WHERE` cannot see. They are non-null for
+/// a reason that is easy to miss and expensive to find: a row comparison
+/// against NULL is NULL rather than true, so one supplier with a missing value
+/// would end paging at whatever row happened to carry it, silently, with the
+/// rest of the book below the fold.
+///
+/// `house_key` is the order this list has always been in — the ones we still
+/// buy from first, then alphabetically — spelled as ONE column so a keyset can
+/// seek against it. As a text key rather than three `ORDER BY` terms, because
+/// a row expression compares columns and cannot be handed a `CASE`. The name is
+/// case-folded inside it for the same reason `purchase_destinations` folds
+/// case: these are names people typed, and a plain byte comparison files
+/// "PT Sinar" before "Pt Abadi".
+const SUPPLIER_ROWS: &str = "
+    SELECT s.*,
+           (CASE WHEN s.status = 'ACTIVE' THEN '0' ELSE '1' END)
+             || ' ' || lower(COALESCE(s.name, '')) AS house_key,
+           s.supplier_code AS code_key,
+           lower(COALESCE(s.name, '')) AS name_key
+      FROM supplier s
+     WHERE ($1::text IS NULL
+            OR s.supplier_code ILIKE $1
+            OR s.name ILIKE $1
+            OR s.contact_name ILIKE $1)
+";
+
+/// The supplier book, one page at a time, beside how big the whole answer is.
+pub async fn list_suppliers(pool: &PgPool, scope: SupplierScope) -> Result<SupplierList, AppError> {
+    // A blank search is not a search. `Some("")` would compile to `ILIKE '%%'`,
+    // which matches everything and costs a scan to say so.
+    let needle = scope
+        .q
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(|text| format!("%{}%", text.replace('%', "\\%")));
+
+    // The sort, and the tie-break that makes it total. Every order ends in the
+    // supplier id, which is the primary key, so no two rows can compare equal —
+    // which is what stops a keyset from repeating or losing the rows that tie.
+    let lead = match scope.sort.as_deref() {
+        Some("code") => "code_key",
+        Some("name") => "name_key",
+        Some("created") => "created_at",
+        _ => "house_key",
+    };
+    let (cols, order) = super::order_by(lead, "supplier_id", scope.desc);
+    // Which way the seek points follows the direction, or paging a descending
+    // list walks back up it.
+    let seek = if scope.desc { "<" } else { ">" };
+
+    let cursor: Option<SupplierCursor> = scope
+        .cursor
+        .as_deref()
+        .map(super::decode_cursor)
+        .transpose()?;
+    let limit = scope
+        .limit
+        .unwrap_or(SUPPLIER_DEFAULT_LIMIT)
+        .clamp(1, SUPPLIER_MAX_LIMIT);
+
+    // The seek re-reads the previous row's own sort value rather than trusting
+    // one encoded in the cursor — see [`SupplierCursor`].
+    // `NOT MATERIALIZED`: `kept` is referenced twice — as the page and
+    // inside the seek — and two references makes PostgreSQL materialise a
+    // CTE, which is an optimisation fence the `ORDER BY … LIMIT` cannot be
+    // pushed through. Materialised, this reads the whole table and sorts it
+    // to hand back one page; inlined, it seeks the index. See
+    // `postgres::audit::list_audit`, where the difference was measured.
+    let sql = format!(
+        "WITH searched AS NOT MATERIALIZED ({SUPPLIER_ROWS}),
+              kept AS NOT MATERIALIZED (
+             SELECT * FROM searched
+              WHERE ($2::text IS NULL OR status = $2)
+                AND ($5::text IS NULL OR category = $5)
+         )
+         SELECT * FROM kept
+          WHERE $3::uuid IS NULL
+             OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE supplier_id = $3)
+          ORDER BY {order}
+          LIMIT $4"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(&needle)
+        .bind(&scope.status)
+        .bind(cursor.as_ref().map(|c| c.supplier_id))
+        .bind(limit)
+        .bind(&scope.category)
+        .fetch_all(pool)
+        .await?;
+
+    // A short page is the last page. A full one may not be — the next request
+    // can come back empty — and that is the honest answer: knowing whether more
+    // rows exist without asking costs a second count of the same query.
+    let next_cursor = match rows.last() {
+        Some(row) if rows.len() as i64 == limit => Some(super::encode_cursor(&SupplierCursor {
+            supplier_id: row.try_get("supplier_id")?,
+        })?),
+        _ => None,
+    };
+
+    let suppliers = rows
+        .into_iter()
+        .map(supplier_from_row)
+        .collect::<Result<Vec<_>, _>>()?;
+    let (total, facets) = supplier_facets(pool, &scope, needle.as_deref()).await?;
+    Ok(SupplierList {
+        rows: suppliers,
+        next_cursor,
+        total,
+        facets,
+    })
+}
+
+/// How many suppliers there are, and how they split.
+///
+/// Counted from the SAME [`SUPPLIER_ROWS`] the page is drawn from, so a change
+/// to what a listable supplier is moves both together. The two scopes are
+/// deliberate:
+///
+///   per-value counts read the SEARCHED set, ignoring what is filtered, so the
+///     number beside `ACTIVE` answers "how many active suppliers are there",
+///     which is the question somebody has while deciding whether to click it.
+///   the total reads the FILTERED set, because it describes the list on screen.
+async fn supplier_facets(
     pool: &PgPool,
-    status: Option<SupplierStatus>,
-) -> Result<Vec<Supplier>, AppError> {
-    let rows = sqlx::query(
-        "SELECT * FROM supplier
-         WHERE ($1::text IS NULL OR status = $1)
-         ORDER BY CASE status WHEN 'ACTIVE' THEN 0 ELSE 1 END, name, supplier_id",
-    )
-    .bind(status.map(|value| value.as_str()))
-    .fetch_all(pool)
-    .await?;
-    rows.into_iter().map(supplier_from_row).collect()
+    scope: &SupplierScope,
+    needle: Option<&str>,
+) -> Result<(i64, SupplierFacets), AppError> {
+    let sql = format!(
+        "WITH searched AS ({SUPPLIER_ROWS}), kept AS (
+             SELECT * FROM searched WHERE ($2::text IS NULL OR status = $2)
+         )
+         SELECT 'status' AS kind, status AS value, count(*)::bigint AS n
+           FROM searched GROUP BY status
+          UNION ALL
+         SELECT 'all', '', count(*)::bigint FROM kept"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(needle)
+        .bind(&scope.status)
+        .fetch_all(pool)
+        .await?;
+
+    let mut total = 0i64;
+    let mut statuses = Vec::new();
+    for row in &rows {
+        let kind: String = row.try_get("kind")?;
+        let value: String = row.try_get("value")?;
+        let n: i64 = row.try_get("n")?;
+        if kind == "status" {
+            statuses.push(SupplierFacet {
+                value,
+                label: None,
+                count: n,
+            });
+        } else {
+            total = n;
+        }
+    }
+    // Biggest first, ties broken on the value, as every other facet panel in
+    // this estate is ordered — a list that reshuffles between calls is a list
+    // nobody can click.
+    statuses.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.value.cmp(&b.value)));
+    Ok((total, SupplierFacets { statuses }))
 }
 
 pub async fn get_supplier(pool: &PgPool, supplier_id: Uuid) -> Result<Supplier, AppError> {
@@ -402,6 +710,8 @@ pub async fn create_supplier(
     let phone = optional_supplier_text(request.phone);
     let email = optional_supplier_text(request.email);
     let address = optional_supplier_text(request.address);
+    let category = optional_supplier_text(request.category);
+    let expense_account_code = optional_supplier_text(request.expense_account_code);
 
     let mut transaction = pool.begin().await?;
     if let Some(response) =
@@ -414,8 +724,9 @@ pub async fn create_supplier(
         "INSERT INTO supplier
              (supplier_id, supplier_code, supplier_code_normalized, name,
               contact_name, phone, email, address, status,
-              created_by, updated_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10)
+              created_by, updated_by, category, expense_account_code)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10,
+                 COALESCE($11,'MERCHANDISE'),$12)
          RETURNING *",
     )
     .bind(Uuid::new_v4())
@@ -428,6 +739,8 @@ pub async fn create_supplier(
     .bind(address)
     .bind(request.status.as_str())
     .bind(actor)
+    .bind(category)
+    .bind(expense_account_code)
     .fetch_one(&mut *transaction)
     .await
     .map_err(map_catalog_write_error)?;
@@ -457,12 +770,16 @@ pub async fn update_supplier(
     let changes_phone = request.phone.is_present();
     let changes_email = request.email.is_present();
     let changes_address = request.address.is_present();
+    let changes_category = request.category.is_some();
+    let changes_account = request.expense_account_code.is_present();
     if !(changes_code
         || changes_name
         || changes_contact
         || changes_phone
         || changes_email
-        || changes_address)
+        || changes_address
+        || changes_category
+        || changes_account)
     {
         return Err(AppError::Validation(
             "Supplier update must contain at least one field".into(),
@@ -488,6 +805,8 @@ pub async fn update_supplier(
     let phone = optional_supplier_text(request.phone.into_option());
     let email = optional_supplier_text(request.email.into_option());
     let address = optional_supplier_text(request.address.into_option());
+    let category = optional_supplier_text(request.category);
+    let expense_account_code = optional_supplier_text(request.expense_account_code.into_option());
 
     let mut transaction = pool.begin().await?;
     if let Some(response) =
@@ -504,6 +823,8 @@ pub async fn update_supplier(
              phone = CASE WHEN $10 THEN $11 ELSE phone END,
              email = CASE WHEN $12 THEN $13 ELSE email END,
              address = CASE WHEN $14 THEN $15 ELSE address END,
+             category = CASE WHEN $17 THEN $18 ELSE category END,
+             expense_account_code = CASE WHEN $19 THEN $20 ELSE expense_account_code END,
              version = version + 1, updated_by = $16, updated_at = now()
          WHERE supplier_id = $1 AND version = $2
          RETURNING *",
@@ -524,6 +845,10 @@ pub async fn update_supplier(
     .bind(changes_address)
     .bind(address)
     .bind(actor)
+    .bind(changes_category)
+    .bind(category)
+    .bind(changes_account)
+    .bind(expense_account_code)
     .fetch_optional(&mut *transaction)
     .await
     .map_err(map_catalog_write_error)?;
@@ -918,6 +1243,8 @@ pub async fn search_supplier_items(
                 CASE i.status WHEN 'ACTIVE' THEN 0 ELSE 1 END AS rank,
                 s.supplier_id AS s_supplier_id, s.supplier_code AS s_supplier_code,
                 s.supplier_code_normalized AS s_supplier_code_normalized, s.name AS s_name,
+                s.category AS s_category,
+                s.expense_account_code AS s_expense_account_code,
                 s.contact_name AS s_contact_name, s.phone AS s_phone, s.email AS s_email,
                 s.address AS s_address, s.status AS s_status, s.version AS s_version,
                 s.created_by AS s_created_by, s.created_at AS s_created_at,
@@ -1176,6 +1503,8 @@ pub(crate) fn sourced_item_from_row(row: PgRow) -> Result<SourcedItem, AppError>
         address: row.try_get("s_address")?,
         status: SupplierStatus::from_str(&row.try_get::<String, _>("s_status")?)
             .map_err(validation)?,
+        category: row.try_get("s_category")?,
+        expense_account_code: row.try_get("s_expense_account_code")?,
         version: row.try_get("s_version")?,
         created_by: row.try_get("s_created_by")?,
         created_at: row.try_get("s_created_at")?,
@@ -2055,6 +2384,23 @@ pub struct PurchaseDestination {
 /// node with inventory switched off, and any registration that never named a
 /// site — both would offer a destination the goods receipt could not be booked
 /// against.
+///
+/// **A bare array, deliberately, and the only list in this module that stays
+/// one.** Every other list here grew an envelope with a keyset because the set
+/// behind it grows without limit — orders, suppliers, amendments. This one does
+/// not. A row is a BUILDING: one warehouse and thirteen shops, fourteen rows,
+/// and the fifteenth arrives the day the company signs a lease. It is bounded
+/// by the estate, not by trade.
+///
+/// So there is nothing for a cursor to carry. Worse, it is a PICKER — the order
+/// composer takes `[0]` as the landing site a new order defaults to — and a
+/// picker that can be served half its options is a picker that quietly loses
+/// one. A page-two of destinations would be a control nobody thinks to click,
+/// hiding a warehouse.
+///
+/// If this ever stops being true the answer is the same as everywhere else and
+/// the shape is written nine times over; until then the ceremony would be the
+/// bug.
 pub async fn purchase_destinations(pool: &PgPool) -> Result<Vec<PurchaseDestination>, AppError> {
     let rows = sqlx::query(
         "SELECT DISTINCT ON (site_id) site_id, label, node_role

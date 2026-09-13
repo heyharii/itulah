@@ -191,10 +191,7 @@ export function Picking() {
         onRack={(id) => rack.open(id)}
       />
 
-      <Picklist
-        id={opened.value ?? null}
-        onClose={() => opened.close()}
-      />
+      <Picklist id={opened.value ?? null} onClose={() => opened.close()} />
     </PageContent>
   )
 }
@@ -319,8 +316,8 @@ function NewPick({
               <Banner tone="warn" className="mt-3">
                 {count(receipt.refused.length)}{" "}
                 {receipt.refused.length === 1 ? "line" : "lines"} came back
-                empty and{" "}
-                {receipt.refused.length === 1 ? "is" : "are"} still owed:
+                empty and {receipt.refused.length === 1 ? "is" : "are"} still
+                owed:
                 <ul className="mt-1.5 flex flex-col gap-1">
                   {receipt.refused.map((line) => (
                     <li key={line.sku_code} className="text-[0.71875rem]">

@@ -188,7 +188,7 @@ export function useMoneyAccounts(siteId: string): readonly MoneyAccount[] {
   const map = useLocations()
   return useMemo(() => {
     if (siteId === "") return []
-    return (map.data?.mappings ?? [])
+    return (map.data?.rows ?? [])
       .filter(
         (row) => row.site_id === siteId && MONEY_KEYS.includes(row.semantic_key)
       )
@@ -286,7 +286,7 @@ export function useWindow(): DateWindow {
 
   const periods = useQuery({
     queryKey: financeKeys.periods(),
-    queryFn: ({ signal }) => listPeriods(signal),
+    queryFn: ({ signal }) => listPeriods(signal).then((page) => page.rows),
     staleTime: 60_000,
   })
 

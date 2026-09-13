@@ -21,6 +21,16 @@
 #           is the work, and hiding it behind `continue-on-error` is how the
 #           previous gate died.
 #
+#   hub2    GREEN. `frontend-hub-2` only: typecheck, eslint, the design-lint
+#           that guards the four rules which break the visual language
+#           silently, and vitest. Require this one.
+#
+#           `frontend-hub` and the other four front ends are deliberately NOT
+#           in it. `tsc -b` on the old hub fails with three errors that predate
+#           this job and belong to nobody's lane today — adding it would put a
+#           red tick beside every push, which is how the previous gate died.
+#           They join when somebody clears them.
+#
 #   tests   RED, three ways, none of them this lane's:
 #             - 19 of ~464 unit tests: `edge::zpl` and `edge::printing` while
 #               the hang-tag layout is reshaped, and `cloud::http::assistant`
@@ -149,3 +159,23 @@ jobs:
       - name: Integration tests
         working-directory: backend
         run: cargo test --workspace --tests
+
+  hub2:
+    name: hub2 (typecheck + lint + design + tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # No lockfile cache key here: `frontend-contract` is a sibling path
+      # dependency generated from the Rust types, so a cache keyed on this
+      # app's lockfile alone would serve a stale contract after `make contract`.
+      - name: Install
+        working-directory: frontend-hub-2
+        run: npm ci
+      # One command, so what CI runs and what a person runs before pushing
+      # cannot drift. Its four steps are in `frontend-hub-2/package.json`.
+      - name: Check
+        working-directory: frontend-hub-2
+        run: npm run check

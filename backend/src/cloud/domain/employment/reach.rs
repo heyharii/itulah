@@ -29,18 +29,38 @@
 //! it is right on the first request after the transfer rather than the first
 //! request after the next sign-in.
 //!
-//! # The three answers, and why head office is one of them
+//! # The three answers, and the one that was withdrawn
 //!
 //! [`Reach::Everywhere`] for an Admin, whatever their posting or lack of one:
 //! ending employment and setting the rules are head-office work by definition,
 //! and a bound on them would only ever be a bound on the person who defines the
-//! bounds. Also for anybody posted to a place of kind `HO`, at any rung: head
-//! office is the *employer* in this model, not a thirteenth shop, so an HR
-//! assistant posted there reads the whole workforce because the whole workforce
-//! is what they administer.
+//! bounds.
 //!
-//! [`Reach::Only`] for a posting to a store or a DC. One place, the one they
-//! are posted to.
+//! [`Reach::Only`] for every other posting, head office included. One place,
+//! the one they are posted to.
+//!
+//! **Head office used to be a second route to `Everywhere`** — anybody posted
+//! to a place of kind `HO`, at any rung — on the reading that head office is
+//! the employer rather than a fourteenth shop, so an HR assistant posted there
+//! administers the whole workforce.
+//!
+//! That reading assumed head office contains HR and nobody else. It does not:
+//! the buyers, the finance staff, the visual merchandisers and the IT people
+//! are posted to `ho` as well (Hari, 2026-09-09 — "ho ada jg karyawannya ya,
+//! ga hanya toko"). Under the old rule a procurement supervisor reached every
+//! employee in the company and could decide leave in all thirteen shops — not
+//! because anybody had made them HR, but because their desk is in the same
+//! building as HR's. A rule that grants company-wide authority by **office
+//! address** grants it to whoever happens to sit at that address.
+//!
+//! So it is withdrawn, in the narrowing direction: a posting to `ho` reaches
+//! `ho`, exactly as a posting to a shop reaches that shop. Company-wide reach
+//! comes from the Admin rung, which is what HR head office holds — the same
+//! signal `employerScope` already reads in the hub to decide which face of the
+//! People module to offer. An HR assistant who must reach every place and must
+//! *not* approve payroll needs a third thing this model does not have yet: a
+//! per-place grant beside the rung. That is a decision, not a default, and the
+//! safe reading while it stays open is the narrow one.
 //!
 //! [`Reach::Nowhere`] for a session with no open posting behind it. Not a
 //! permissive default and not an error: we genuinely do not know where this
@@ -135,7 +155,9 @@ impl Reach {
         }
         match posting {
             None => Self::Nowhere,
-            Some(posting) if posting.kind == PlaceKind::HeadOffice => Self::Everywhere,
+            // Head office included: see the module doc. The kind is still
+            // carried on `Posting` because it is true of the posting and the
+            // next rule may want it; it no longer decides this one.
             Some(posting) => Self::Only(posting.place_id.clone()),
         }
     }
@@ -232,16 +254,36 @@ mod tests {
         assert_eq!(reach.sole_place(), None);
     }
 
+    /// The rule this replaced granted `Everywhere` to any rung posted to a
+    /// place of kind `HO`. Head office employs buyers, finance staff and
+    /// merchandisers as well as HR, so that rule handed the whole workforce to
+    /// whoever sat in the building. Reach follows the rung now; the kind of
+    /// place somebody is posted to grants nothing by itself.
     #[test]
-    fn head_office_reaches_every_place_without_being_admin() {
+    fn head_office_is_a_place_not_a_pass_to_every_place() {
         let reach = Reach::resolve(
             Role::Supervisor,
             Some(&posting("ho", PlaceKind::HeadOffice)),
         );
+        assert_eq!(reach, Reach::Only(PlaceId::try_new("ho").unwrap()));
+        assert!(reach.covers(Some("ho")));
+        assert!(
+            !reach.covers(Some("store-03")),
+            "a shop is not head office's"
+        );
+        assert!(!reach.covers(Some("dc")));
+        // And an unposted record is not head office's either: seeing a person
+        // nobody has placed yet is Admin work.
+        assert!(!reach.covers(None));
+    }
+
+    /// Head office HR is Admin, and the rung is what carries company-wide
+    /// reach — the same signal the hub reads to decide which face to offer.
+    #[test]
+    fn head_office_hr_reaches_everywhere_by_rung() {
+        let reach = Reach::resolve(Role::Admin, Some(&posting("ho", PlaceKind::HeadOffice)));
         assert_eq!(reach, Reach::Everywhere);
         assert!(reach.covers(Some("store-03")));
-        assert!(reach.covers(Some("dc")));
-        // Including a record nobody has posted anywhere yet.
         assert!(reach.covers(None));
     }
 

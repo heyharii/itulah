@@ -70,7 +70,7 @@ export function AccountMapScreen() {
   }
 
   const byLocation = new Map<string, Map<string, AccountMapping>>()
-  for (const mapping of map.data.mappings) {
+  for (const mapping of map.data.rows) {
     const slot = byLocation.get(mapping.site_id) ?? new Map()
     slot.set(mapping.semantic_key, mapping)
     byLocation.set(mapping.site_id, slot)
@@ -79,7 +79,7 @@ export function AccountMapScreen() {
   // Distinct key-and-location pairs, not rows. `bank_savings` at the DC is one
   // meaning that is legitimately mapped five times — once per bank — and
   // counting rows would report the map as more complete than it is.
-  const done = new Set(map.data.mappings.map((m) => `${m.semantic_key} ${m.site_id}`)).size
+  const done = new Set(map.data.rows.map((m) => `${m.semantic_key} ${m.site_id}`)).size
   const here = byLocation.get(active ?? "") ?? new Map()
 
   return (
@@ -338,7 +338,8 @@ function AccountPicker({
   const scroller = useRef<HTMLDivElement>(null)
   const hits = useQuery({
     queryKey: ["finance", "account-picker", needle],
-    queryFn: ({ signal }) => searchAccounts(needle, { limit: CANDIDATES }, signal),
+    queryFn: ({ signal }) =>
+      searchAccounts(needle, { limit: CANDIDATES }, signal).then((page) => page.rows),
     enabled: needle.trim().length >= 2,
   })
   const accounts = hits.data ?? []

@@ -106,7 +106,10 @@ export const searchSources: readonly SearchSource[] = [
     run: async (query, client, signal) => {
       const entries = await client.fetchQuery({
         queryKey: financeKeys.journal(null, null, null, null),
-        queryFn: () => listJournal({ limit: 200 }, signal),
+        // The envelope's `rows`. The palette narrows locally over one
+        // page, as it has always done — it is a jump list, not the
+        // register.
+        queryFn: () => listJournal({ limit: 200 }, signal).then((p) => p.rows),
       })
       return entries
         .filter((entry) =>
@@ -193,7 +196,7 @@ export const searchSources: readonly SearchSource[] = [
     run: async (query, client, signal) => {
       const assets = await client.fetchQuery({
         queryKey: financeKeys.assets(false, null),
-        queryFn: () => listAssets({}, signal),
+        queryFn: () => listAssets({}, signal).then((p) => p.rows),
       })
       return assets
         .filter((asset) =>
@@ -219,7 +222,8 @@ export const searchSources: readonly SearchSource[] = [
     run: async (query, client, signal) => {
       const accounts = await client.fetchQuery({
         queryKey: financeKeys.accountSearch(query, false),
-        queryFn: () => searchAccounts(query, { limit: 50 }, signal),
+        queryFn: () =>
+          searchAccounts(query, { limit: 50 }, signal).then((p) => p.rows),
       })
       return accounts.slice(0, 8).map((account) => ({
         id: account.account_code,
@@ -403,7 +407,7 @@ export const searchSources: readonly SearchSource[] = [
         queryKey: systemKeys.users(),
         queryFn: () => listUsers(signal),
       })
-      return users
+      return users.rows
         .filter((user) => matches(query, user.username, user.display_name))
         .slice(0, 8)
         .map((user) => ({

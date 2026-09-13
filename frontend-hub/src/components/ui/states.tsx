@@ -71,6 +71,76 @@ export function ErrorState({
   )
 }
 
+/// Something is here; the narrowing hid it.
+///
+/// ## Why this is not just `EmptyState` with different words
+///
+/// Because the two are opposite findings and they look identical. An empty
+/// unfiltered list means the thing has never been made. An empty *filtered*
+/// list means the data is fine and the filter is the thing to change. A screen
+/// that draws one sentence for both teaches people to distrust the list.
+///
+/// `held` is what makes the difference sayable in a number: "there are 1,284
+/// bills and not one of them matches" tells a reader, in one line, that nothing
+/// is broken. Omit it rather than guess — an endpoint that cannot say how many
+/// it holds is common here, and a fabricated count is worse than none.
+export function NoMatch({
+  what,
+  held,
+  onClear,
+}: {
+  what: string
+  /// How many exist behind the narrowing, when the endpoint can say so.
+  held?: number
+  onClear?: () => void
+}) {
+  return (
+    <EmptyState
+      action={
+        onClear && (
+          <Button variant="ghost" onClick={onClear}>
+            Clear the narrowing
+          </Button>
+        )
+      }
+    >
+      {held === undefined ? (
+        <>No {what} matches the search and filters in force.</>
+      ) : (
+        <>
+          There are {held.toLocaleString("id-ID")} {what} here, and not one of
+          them passes the search and filters in force.
+        </>
+      )}
+    </EmptyState>
+  )
+}
+
+/// Refused, not absent.
+///
+/// The distinction is the whole reason this is its own state. A forbidden list
+/// and an empty one render identically and mean opposite things, and a reader
+/// told "nothing here" goes looking for their data in the wrong place for an
+/// afternoon. Say it was permission.
+///
+/// `reach` is what the caller's role DOES cover, when the server said. A
+/// refusal that also says where to look is one somebody can act on; one that
+/// only says no is a dead end with a person behind it.
+export function NoAccessState({
+  what,
+  reach,
+}: {
+  what: string
+  reach?: React.ReactNode
+}) {
+  return (
+    <EmptyState>
+      You do not have access to {what}. This is about permission, not about the
+      data being absent.{reach ? <> {reach}</> : null}
+    </EmptyState>
+  )
+}
+
 const banner = cva(
   "flex items-start gap-2.5 rounded-inner px-3.5 py-2.5 text-[0.71875rem] leading-relaxed",
   {
@@ -113,6 +183,63 @@ export function Banner({
         </button>
       )}
     </div>
+  )
+}
+
+/// The list you are reading was cut off, and the endpoint cannot say by how
+/// much.
+///
+/// ## The defect this exists to make visible
+///
+/// Several lists here are fetched with a `limit` the server clamps, and then
+/// searched and sorted in the browser. With a short list that is
+/// indistinguishable from correct. Past the cap it silently omits rows, and
+/// every figure summed from what remains looks like a total.
+///
+/// Nothing about drawing this strip fixes that — the fix is `q`, `sort` and a
+/// cursor on the wire, which is a change to the endpoint. What this does is
+/// stop the screen from lying quietly while that work is done: a reader who is
+/// told the list was cut off can decide whether to trust it, and a reader who
+/// is not told cannot.
+///
+/// So it is deliberately blunt about the figures. "There may be more" invites
+/// somebody to read the total anyway.
+export function Truncated({
+  limit,
+  noun,
+  total,
+  className,
+}: {
+  /// The number of rows actually asked for. Not the number returned — a screen
+  /// that got exactly what it asked for is precisely the case where there is
+  /// no way to know whether more exist.
+  limit: number
+  noun: string
+  /// How many there are in all, when the server counted them.
+  ///
+  /// **`null` means the count was not asked for, and is drawn as an em dash
+  /// with the reason.** Never as a zero: a list that says "the first 300 of 0"
+  /// is a worse lie than the silence this banner exists to break. Leave it out
+  /// where there is no total to have.
+  total?: number | null
+  className?: string
+}) {
+  return (
+    <Banner tone="warn" className={className}>
+      Showing the first {limit.toLocaleString("id-ID")}
+      {total === undefined ? null : (
+        <>
+          {" of "}
+          {total === null ? "—" : total.toLocaleString("id-ID")}
+        </>
+      )}{" "}
+      {noun}. This list is searched and sorted in the browser, over these rows
+      only, so there may be more that never arrived —{" "}
+      <b className="font-medium">do not read the figures below as totals.</b>
+      {total === null && (
+        <> The full count was not asked for on this request.</>
+      )}
+    </Banner>
   )
 }
 

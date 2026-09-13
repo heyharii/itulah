@@ -46,6 +46,7 @@ async fn main() -> Result<(), AppError> {
     let state = AppState::new(pool, config);
     tokio::spawn(run_auth_policy_refresh_agent(state.db.clone()));
     tokio::spawn(run_catalog_publisher(state.db.clone()));
+    tokio::spawn(run_ageing_work_agent(state.db.clone()));
     if state.config.sync_apply_enabled {
         tokio::spawn(sync_agent::run_apply_agent(state.clone()));
     }
@@ -110,6 +111,26 @@ async fn run_catalog_publisher(pool: sqlx::PgPool) {
             Ok(0) => {}
             Ok(frozen) => info!(%frozen, "resolved what newly started promotions match"),
             Err(error) => tracing::error!(%error, "failed to resolve promotion eligibility"),
+        }
+    }
+}
+
+/// Notice work that went past its date.
+///
+/// Hourly, which is the right order of magnitude for something measured in
+/// days: a notification that an asset has been unassessed for a week does not
+/// become more useful for arriving at 09:00 instead of 09:47, and a tighter
+/// loop would spend fourteen queries an hour finding nothing. The pass raises
+/// each notice once and is silent on every subsequent tick, so "raised 0" is
+/// the healthy state and worth no log line at all.
+async fn run_ageing_work_agent(pool: sqlx::PgPool) {
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(60 * 60));
+    loop {
+        interval.tick().await;
+        match postgres::sweep_ageing_work(&pool).await {
+            Ok(0) => {}
+            Ok(raised) => info!(%raised, "told head office about work that went past its date"),
+            Err(error) => tracing::error!(%error, "failed to look for work past its date"),
         }
     }
 }

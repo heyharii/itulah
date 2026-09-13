@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Field, Input } from "@/components/ui/field"
-import { FilterBar } from "@/components/ui/filter-bar"
+import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
@@ -199,7 +199,7 @@ export function Missing() {
           placeholder="Search by tag, SKU or pool"
           className="h-8 w-72"
         />
-        <FilterBar model={filters} table={table} />
+        <FilterPanel model={filters} table={table} />
         <Toolbar.Spacer />
         <span className="text-[0.71875rem] text-mute tabular-nums">
           {count(rows.length)} open

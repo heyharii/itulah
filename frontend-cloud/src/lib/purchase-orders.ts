@@ -95,10 +95,18 @@ export interface Origin {
   readonly rotated_at: string | null
 }
 
+/// A page of the order book, and the shape of everything it was drawn from.
+export interface PurchaseOrderPage {
+  readonly rows: PurchaseOrderRow[]
+  readonly next_cursor: string | null
+  /// Every order the scope matches, not just this page.
+  readonly total: number
+}
+
 export function listPurchaseOrders(signal?: AbortSignal): Promise<PurchaseOrderRow[]> {
   return node
-    .get<{ items: PurchaseOrderRow[] }>("/api/v1/purchase-orders", { signal })
-    .then((body) => body.items)
+    .get<PurchaseOrderPage>("/api/v1/purchase-orders", { signal })
+    .then((body) => body.rows)
 }
 
 export function purchaseOrderDetail(
@@ -183,12 +191,25 @@ export interface PriceAmendment {
 /// names go on the wire as they are written.
 export type PriceAmendmentOutcome = "Approved" | "Rejected"
 
+/// A page of the buyer's inbox, and how deep the pile actually is.
+export interface PriceAmendmentPage {
+  readonly rows: PriceAmendment[]
+  readonly next_cursor: string | null
+  /// Every question still waiting, not just this page. This is what a badge
+  /// wants: counting the array makes a pile deeper than a page advertise
+  /// itself as exactly one page deep.
+  readonly total: number
+}
+
 export function pendingPriceAmendments(signal?: AbortSignal): Promise<PriceAmendment[]> {
   return node
-    .get<{ pending: number; items: PriceAmendment[] }>("/api/v1/purchase-price-amendments", {
-      signal,
-    })
-    .then((body) => body.items)
+    .get<PriceAmendmentPage>("/api/v1/purchase-price-amendments", { signal })
+    .then((body) => body.rows)
+}
+
+/// The same read, keeping the count the navigation badge prints.
+export function priceAmendmentPage(signal?: AbortSignal): Promise<PriceAmendmentPage> {
+  return node.get<PriceAmendmentPage>("/api/v1/purchase-price-amendments", { signal })
 }
 
 export function decidePriceAmendment(

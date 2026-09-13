@@ -378,9 +378,21 @@ export interface FilterSpec {
     readonly value: string
     readonly label: string
   }[]
-  /// What the typed number is multiplied by before comparing. `100` for the
-  /// money columns, which hold minor units: somebody filtering for orders over
-  /// ten million types 10000000, not 1000000000.
+  /// What the typed number is multiplied by before comparing.
+  ///
+  /// ## Not for money — this line used to say otherwise and it was wrong
+  ///
+  /// It read "`100` for the money columns, which hold minor units", and twenty
+  /// columns across nine screens were written to match. They were all wrong in
+  /// the same direction: **IDR has no minor unit in practice, so the server's
+  /// "minor" is already whole rupiah** — `money()` in `lib/format.ts` prints it
+  /// undivided, and says so. Multiplying the bound by a hundred turned "takings
+  /// over 80 juta" into a question about eight miliar, which matched nothing
+  /// and looked like an empty result rather than a broken filter.
+  ///
+  /// Leave it unset for money. It is for a column stored in a unit nobody
+  /// types — a rate held as `0.005` and read as `0.5%` wants `0.01`, which is
+  /// what `scale` is actually good for.
   readonly scale?: number
   /// Sits in the number box — "Rp", "pcs", "%".
   readonly unit?: string

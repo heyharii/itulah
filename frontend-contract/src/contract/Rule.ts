@@ -3,7 +3,10 @@ import type { Caps } from "./Caps";
 import type { Conditions } from "./Conditions";
 import type { EarnBasis } from "./EarnBasis";
 import type { Effect } from "./Effect";
+import type { ExclusiveScope } from "./ExclusiveScope";
+import type { MarkdownPolicy } from "./MarkdownPolicy";
 import type { Money } from "./Money";
+import type { PointsCombination } from "./PointsCombination";
 import type { RuleScope } from "./RuleScope";
 import type { RuleStatus } from "./RuleStatus";
 import type { Stacking } from "./Stacking";
@@ -25,9 +28,65 @@ coupon_code: string | null,
  */
 max_discount: Money | null, caps: Caps, 
 /**
- * Higher wins when two rules cannot both apply.
+ * How many carts this may apply to **for one shopper**. `None` is the
+ * default and means no per-shopper limit, which is what every book
+ * published before this field existed says — so none of them changes.
+ *
+ * Beside [`caps`](Rule::caps) rather than inside it, and the placement is
+ * the argument. Every limit in [`Caps`] is a property of the PROMOTION and
+ * can be answered out of the snapshot, which is why `Caps` can be shared
+ * with a [`Campaign`]. This one is a property of the SHOPPER: two people
+ * in the same shop, under the same book, get different answers from it.
+ * Its count arrives on [`crate::PricingContext`] and the check lives in
+ * the gate, which is the only place the rule and the shopper are both in
+ * hand.
+ *
+ * Refused rather than ignored where the count cannot be had — see
+ * [`RejectionReason::CustomerUsageUnknown`]. A limit that silently reads
+ * nought is not a limit, and the money leaks with nothing on any screen to
+ * say so.
+ */
+max_uses_per_customer: number | null, 
+/**
+ * The order this rule is reached in, and the tie-break when two outcomes
+ * are worth the same. **Lower first** — decision D03.
+ *
+ * Ascending, not descending, and the direction is load-bearing rather than
+ * a preference: with `Combine`, each offer works on what the previous one
+ * left, so 20% then Rp50.000 off Rp300.000 is Rp190.000 and the reverse is
+ * Rp200.000. Whoever writes `priority` is choosing between those two
+ * numbers, and they have to know which way the field counts.
+ *
+ * Flipped from "higher wins" when D03 was locked. It cost nothing to flip:
+ * every rule published to that point carried priority nought, so no book's
+ * meaning moved.
  */
 priority: number, stacking: Stacking, 
+/**
+ * How much of the basket this rule claims when it will not share.
+ *
+ * Read only when [`stacking`](Rule::stacking) is not
+ * [`Stackable`](Stacking::Stackable) — a rule that combines with
+ * everything claims nothing, so there is nothing for this to narrow.
+ *
+ * `#[serde(default)]` is [`Basket`](ExclusiveScope::Basket), which is what
+ * the engine has always done and therefore what every book already in
+ * force means. The narrow reading has to be opted into, because widening
+ * it by default would let offers through that a published promotion has
+ * been suppressing.
+ */
+exclusive_scope: ExclusiveScope, 
+/**
+ * Whether this offer lands on goods already marked down. Excluded unless
+ * the rule says otherwise — see [`MarkdownPolicy`].
+ *
+ * `#[serde(default)]` gives every book published before this field existed
+ * the excluded reading. That is a CHANGE in what those books do, and the
+ * right direction for it: they were written under a policy nobody could
+ * state, and the shop's own words for that policy are "not valid on sale
+ * items".
+ */
+markdown_policy: MarkdownPolicy, 
 /**
  * Never applied on its own; surfaced so a person can choose it.
  *
@@ -40,6 +99,20 @@ advisory: boolean,
  * Which amount points accrue on. Only read for an earn rule.
  */
 earn_basis: EarnBasis, 
+/**
+ * What this earning rate is worth on a line a better rate already won.
+ *
+ * Read only for a rule that earns at a rate. A flat bonus and a
+ * per-unit bonus ([`EarnEffect::FixedPoints`],
+ * [`EarnEffect::PointsPerQuantity`]) are additive by construction — they
+ * are not competing for a line — so there is nothing here to decide.
+ *
+ * `#[serde(default)]` is [`Highest`](PointsCombination::Highest), which is
+ * the arithmetic the engine already did: one rate wins a line and the
+ * beaten ones earn nothing. Any other default would hand out more points
+ * than the rule that is already published promised.
+ */
+points_combination: PointsCombination, 
 /**
  * Most points this rule may award on one cart. `None` is unbounded.
  */

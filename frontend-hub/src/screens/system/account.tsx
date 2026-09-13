@@ -10,12 +10,15 @@ import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Field, Input, Select } from "@/components/ui/field"
+import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
+import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { cacheKey } from "@/lib/api"
+import { useFilters } from "@/lib/filters"
 import { day, moment } from "@/lib/format"
 import {
   changeOwnPassword,
@@ -75,6 +78,11 @@ const columns: ColumnDef<TableSetup, UserRow>[] = [
     accessorFn: (row) => row.employee_name ?? row.employee_code ?? "",
     header: "Employment record",
     size: 210,
+    // Filtered for its EMPTINESS, not for a name — the accessor is blank
+    // exactly when nothing on the payroll is bound to the login, so "is empty"
+    // is the list of machine accounts and unfinished paperwork in one clause.
+    // Which name it is, the search box answers.
+    meta: { filter: { kind: "text", label: "Employment record" } },
     // An account list that shows only usernames cannot answer the two questions
     // somebody opens it with: which of these are people, and which belong to
     // somebody who no longer works here. Both are one join away and the console
@@ -98,6 +106,7 @@ const columns: ColumnDef<TableSetup, UserRow>[] = [
     accessorKey: "role",
     header: "Role",
     size: 130,
+    meta: { filter: { kind: "option" } },
     cell: ({ row }) => (
       <Tag tone={row.original.role === "ADMIN" ? "accent" : "neutral"}>
         {row.original.role}
@@ -114,6 +123,11 @@ const columns: ColumnDef<TableSetup, UserRow>[] = [
           : "Suspended",
     header: "State",
     size: 140,
+    // Three words, and the third is the one worth a filter: "Left, still open"
+    // is a working credential for somebody who has gone, and on a list of two
+    // hundred accounts it is a row that sorting cannot bring to the top
+    // because it is not the extreme of anything.
+    meta: { filter: { kind: "option", label: "State" } },
     // Ending somebody's employment closes their login as part of the same act,
     // so this pairing means one of two things: a binding made before that was
     // true, or a close that failed. Either way it is a working credential for
@@ -135,6 +149,12 @@ const columns: ColumnDef<TableSetup, UserRow>[] = [
       row.last_login_at === null ? 0 : Date.parse(row.last_login_at),
     header: "Last sign-in",
     size: 150,
+    // **No filter, deliberately.** The accessor is a timestamp with `0`
+    // standing for "never", so a date clause would answer for those rows as if
+    // they had signed in on 1 January 1970 — "before 2026" would quietly
+    // include them and "is empty" would quietly miss them, and both read as an
+    // answer. The column that should carry the question is a nullable date,
+    // and changing this one is changing the sort this screen opens on.
     meta: { align: "right" },
     // The decision metric on an account list. A name that has never signed in
     // is a credential somebody was issued and never used, and one dormant for
@@ -150,7 +170,7 @@ const columns: ColumnDef<TableSetup, UserRow>[] = [
     accessorKey: "created_at",
     header: "Created",
     size: 130,
-    meta: { align: "right" },
+    meta: { align: "right", filter: { kind: "date", label: "Created" } },
     cell: ({ row }) => day(row.original.created_at),
   },
 ]
@@ -172,20 +192,26 @@ export function Account() {
     queryFn: ({ signal }) => listUsers(signal),
   })
 
-  const rows = useMemo(() => users.data ?? [], [users.data])
+  const rows = useMemo(() => users.data?.rows ?? [], [users.data])
+
+  const filters = useFilters(columns)
 
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
         data: rows,
-        columns,
+        columns: filters.columns,
         getRowId: (row: UserRow) => row.username,
-        state: { globalFilter: query, sorting },
+        state: {
+          columnFilters: filters.columnFilters,
+          globalFilter: query,
+          sorting,
+        },
         onSortingChange: setSorting,
         onGlobalFilterChange: setQuery,
       }),
-      [rows, query, sorting]
+      [rows, filters.columns, filters.columnFilters, query, sorting]
     )
   )
 
@@ -225,6 +251,13 @@ export function Account() {
           </Facts>
         </div>
       </Card>
+
+      {/* Under the "You" card rather than beside the page title: the clauses
+          narrow the register below, and a control sitting above a card it does
+          not touch is a control people press once and stop trusting. */}
+      <Toolbar>
+        <FilterPanel model={filters} table={table} />
+      </Toolbar>
 
       <Card className="overflow-hidden">
         {queryState(users, {

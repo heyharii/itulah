@@ -936,23 +936,6 @@
       }
     },
     {
-      "name": "hub-fleet",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": [
-        "run",
-        "dev",
-        "--",
-        "--port",
-        "5299",
-        "--strictPort"
-      ],
-      "cwd": "frontend-hub",
-      "port": 5299,
-      "env": {
-        "VITE_API_TARGET": "http://127.0.0.1:8097"
-      }
-    },
-    {
       "name": "finance-lab",
       "runtimeExecutable": "npm",
       "runtimeArgs": [
@@ -966,7 +949,232 @@
       "cwd": "frontend-hub",
       "port": 5321,
       "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8140"
+      }
+    },
+    {
+      "name": "hub-fleet",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5299",
+        "--strictPort"
+      ],
+      "cwd": "frontend-hub",
+      "port": 5299,
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8097",
+        "VITE_EDGE_TARGET": "http://127.0.0.1:8092"
+      }
+    },
+    {
+      "name": "dc-review",
+      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/dc",
+      "runtimeArgs": [],
+      "cwd": "demo/dc",
+      "port": 8092,
+      "env": {
+        "SYNC_UPLOAD_URL": "",
+        "INVENTORY_AUTH_MODE": "required",
+        "RUST_LOG": "inventory_backend=info"
+      }
+    },
+    {
+      "name": "finance-proto-api",
+      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/cloud",
+      "runtimeArgs": [],
+      "cwd": "backend",
+      "port": 8140,
+      "env": {
+        "DATABASE_URL": "postgresql:///itulah_finance_proto",
+        "BIND_ADDR": "127.0.0.1:8140",
+        "INVENTORY_NODE_ID": "cloud-primary",
+        "INVENTORY_NODE_ROLE": "CLOUD",
+        "INVENTORY_AUTH_MODE": "disabled",
+        "INVENTORY_ORIGIN_GENERATION": "1",
+        "RUST_LOG": "inventory_backend=warn,tower_http=warn"
+      }
+    },
+    {
+      "name": "people-fix-api",
+      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/cloud",
+      "runtimeArgs": [],
+      "cwd": "backend",
+      "port": 8141,
+      "env": {
+        "DATABASE_URL": "postgresql:///itulah_people_fix",
+        "BIND_ADDR": "127.0.0.1:8141",
+        "INVENTORY_NODE_ID": "cloud-primary",
+        "INVENTORY_NODE_ROLE": "CLOUD",
+        "INVENTORY_AUTH_MODE": "disabled",
+        "INVENTORY_ENABLE_TEST_CONTROLS": "true",
+        "INVENTORY_ORIGIN_GENERATION": "1",
+        "RUST_LOG": "inventory_backend=warn,tower_http=warn"
+      }
+    },
+    {
+      "name": "people-fix-hub",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5317",
+        "--strictPort"
+      ],
+      "cwd": "frontend-hub",
+      "port": 5317,
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8141"
+      }
+    },
+    {
+      "name": "people-fix-employee",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5318",
+        "--strictPort"
+      ],
+      "cwd": "frontend-employee",
+      "port": 5318,
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8141"
+      }
+    },
+    {
+      "name": "hub2",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
+      "cwd": "frontend-hub-2",
+      "port": 5320,
+      "env": {
         "VITE_API_TARGET": "http://127.0.0.1:8080"
+      }
+    },
+    {
+      "name": "dasbor-static",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "5399",
+        "--bind",
+        "127.0.0.1",
+        "--directory",
+        "dasbor"
+      ],
+      "port": 5399
+    },
+    {
+      "name": "wb-proto",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8793",
+        "--bind",
+        "127.0.0.1",
+        "--directory",
+        "/private/tmp/claude-501/-Users-hari-itulah/b465d698-66aa-4c81-930f-d21af80000f3/scratchpad"
+      ],
+      "port": 8793
+    },
+    {
+      "name": "records-proto",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8797",
+        "--bind",
+        "127.0.0.1",
+        "--directory",
+        "/private/tmp/claude-501/-Users-hari-itulah/691fe128-c976-4b9f-afbc-1806c8a64fc1/scratchpad"
+      ],
+      "port": 8797
+    },
+    {
+      "name": "hub-2",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
+      "port": 5320,
+      "cwd": "frontend-hub-2"
+    },
+    {
+      "name": "floor",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5277",
+        "--strictPort",
+        "--host"
+      ],
+      "cwd": "frontend-floor",
+      "port": 5277,
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8092"
+      }
+    },
+    {
+      "name": "floor-dc-node",
+      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/dc",
+      "runtimeArgs": [],
+      "cwd": "demo/dc",
+      "port": 8092,
+      "env": {
+        "SYNC_UPLOAD_URL": "",
+        "RUST_LOG": "inventory_backend=info"
+      }
+    },
+    {
+      "name": "promo-api",
+      "runtimeExecutable": "/Users/hari/itulah/backend/target/release/cloud",
+      "runtimeArgs": [],
+      "cwd": "backend",
+      "port": 8142,
+      "env": {
+        "DATABASE_URL": "postgresql:///inventory_scale",
+        "BIND_ADDR": "127.0.0.1:8142",
+        "INVENTORY_NODE_ID": "cloud-primary",
+        "INVENTORY_NODE_ROLE": "CLOUD",
+        "INVENTORY_AUTH_MODE": "disabled",
+        "INVENTORY_ORIGIN_GENERATION": "1",
+        "RUST_LOG": "inventory_backend=warn,tower_http=warn"
+      }
+    },
+    {
+      "name": "promo-hub",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5295",
+        "--strictPort"
+      ],
+      "cwd": "frontend-hub",
+      "port": 5295,
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8142",
+        "VITE_EDGE_TARGET": "http://127.0.0.1:8092"
       }
     },
     {
@@ -996,6 +1204,153 @@
       "cwd": "frontend-hub",
       "env": {
         "VITE_API_TARGET": "http://127.0.0.1:8093"
+      }
+    },
+    {
+      "name": "records-api",
+      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/cloud",
+      "runtimeArgs": [],
+      "cwd": "backend",
+      "port": 8143,
+      "env": {
+        "DATABASE_URL": "postgresql:///itulah_records_demo",
+        "BIND_ADDR": "127.0.0.1:8143",
+        "INVENTORY_NODE_ID": "cloud-primary",
+        "INVENTORY_NODE_ROLE": "CLOUD",
+        "INVENTORY_AUTH_MODE": "disabled",
+        "INVENTORY_ENABLE_TEST_CONTROLS": "true",
+        "INVENTORY_ORIGIN_GENERATION": "1",
+        "RUST_LOG": "inventory_backend=warn,tower_http=warn"
+      }
+    },
+    {
+      "name": "records-hub",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5322",
+        "--strictPort"
+      ],
+      "cwd": "frontend-hub",
+      "port": 5322,
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8143"
+      }
+    },
+    {
+      "name": "terms-hub",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5324",
+        "--strictPort"
+      ],
+      "cwd": "frontend-hub",
+      "port": 5324,
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8155"
+      }
+    },
+    {
+      "name": "banking-hub",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5327",
+        "--strictPort"
+      ],
+      "port": 5327,
+      "cwd": "frontend-hub",
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8151"
+      }
+    },
+    {
+      "name": "pos-desktop",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
+      "cwd": "pos-desktop/ui",
+      "port": 5410
+    },
+    {
+      "name": "till-open",
+      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/store",
+      "runtimeArgs": [],
+      "cwd": "backend",
+      "port": 8081,
+      "env": {
+        "BIND_ADDR": "127.0.0.1:8081",
+        "INVENTORY_SITE_ID": "store-07",
+        "INVENTORY_NODE_ID": "store-07-edge",
+        "INVENTORY_DATABASE_PATH": "../till-dev.sqlite3",
+        "INVENTORY_AUTH_MODE": "disabled",
+        "RUST_LOG": "inventory_backend=info,tower_http=warn"
+      }
+    },
+    {
+      "name": "cloud-assets",
+      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/cloud",
+      "runtimeArgs": [],
+      "cwd": "backend",
+      "port": 8097,
+      "env": {
+        "DATABASE_URL": "postgresql:///inventory_rfid",
+        "BIND_ADDR": "127.0.0.1:8097",
+        "INVENTORY_NODE_ID": "cloud-primary",
+        "INVENTORY_NODE_ROLE": "CLOUD",
+        "INVENTORY_AUTH_MODE": "disabled",
+        "INVENTORY_ENABLE_TEST_CONTROLS": "true",
+        "INVENTORY_ORIGIN_GENERATION": "1",
+        "RUST_LOG": "inventory_backend=info,tower_http=warn",
+        "PORT": "8097"
+      },
+      "url": "http://localhost:8097"
+    },
+    {
+      "name": "health-api",
+      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/cloud",
+      "runtimeArgs": [],
+      "cwd": "backend",
+      "port": 8094,
+      "env": {
+        "DATABASE_URL": "postgresql:///inventory_health_dev",
+        "BIND_ADDR": "127.0.0.1:8094",
+        "INVENTORY_NODE_ID": "cloud-primary",
+        "INVENTORY_NODE_ROLE": "CLOUD",
+        "INVENTORY_AUTH_MODE": "disabled",
+        "INVENTORY_ENABLE_TEST_CONTROLS": "true",
+        "INVENTORY_ORIGIN_GENERATION": "1",
+        "RUST_LOG": "inventory_backend=info,tower_http=warn"
+      }
+    },
+    {
+      "name": "hub-health",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5294",
+        "--strictPort"
+      ],
+      "cwd": "frontend-hub",
+      "port": 5294,
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8094",
+        "VITE_EDGE_TARGET": "http://127.0.0.1:8099"
       }
     }
   ]

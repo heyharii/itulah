@@ -74,6 +74,19 @@ pub struct Ruleset {
     pub same_day: i32,
     pub reference_exact: i32,
     pub reference_contained: i32,
+    /// What a candidate that can only cover PART of the line is worth.
+    ///
+    /// Deliberately far below `exact_amount`: a voucher smaller than the line
+    /// is a guess until a person says which part of the transfer it is, and it
+    /// must never be able to reach `auto_match_at` on its own.
+    pub partial: i32,
+    /// Whether a candidate smaller than the line may be offered at all.
+    ///
+    /// Off by default, which is the rule this module was written with: an
+    /// amount out of tolerance is a different transaction. On, it is the first
+    /// half of a split — one transfer settling two bills — and the caller has
+    /// said so by turning ERPNext's *exact match* switch off.
+    pub allow_partial: bool,
     /// Suggestions below this are not shown at all.
     pub min_to_suggest: i32,
     /// A lone suggestion at or above this may be applied without a person.
@@ -86,6 +99,8 @@ impl Default for Ruleset {
             date_window_days: 3,
             amount_tolerance_minor: 0,
             exact_amount: 50,
+            partial: 20,
+            allow_partial: false,
             within_window: 15,
             same_day: 25,
             reference_exact: 30,
@@ -208,14 +223,24 @@ fn score(line: &BankLine, candidate: &Candidate, rules: &Ruleset) -> Option<Sugg
         return None;
     }
     // Amount is the anchor, not a bonus. Out of tolerance is not a weak match;
-    // it is a different transaction.
+    // it is a different transaction — UNLESS the caller has said it is looking
+    // for the pieces of a split, in which case a voucher SMALLER than what is
+    // left of the line is exactly what it is looking for. Larger is never
+    // admissible: there is not enough line left to give it.
     let difference = (line.amount_minor - candidate.amount_minor).abs();
-    if difference > rules.amount_tolerance_minor {
+    let part = difference > rules.amount_tolerance_minor;
+    if part && (!rules.allow_partial || candidate.amount_minor > line.amount_minor) {
         return None;
     }
 
-    let mut total = rules.exact_amount;
-    let mut reasons = vec![if difference == 0 {
+    let mut total = if part {
+        rules.partial
+    } else {
+        rules.exact_amount
+    };
+    let mut reasons = vec![if part {
+        "covers part of this line".to_string()
+    } else if difference == 0 {
         "amount matches exactly".to_string()
     } else {
         format!("amount within {difference}")
@@ -429,6 +454,59 @@ mod tests {
         assert_eq!(
             key(resolve(&lines, &pool, &Ruleset::default())),
             key(resolve(&backwards, &pool, &Ruleset::default()))
+        );
+    }
+
+    /// A voucher smaller than the line is nothing under the default rules and
+    /// a candidate once the caller has turned exact matching off — which is the
+    /// only way the first half of a split can ever be offered.
+    #[test]
+    fn a_smaller_voucher_is_offered_only_when_partial_is_allowed() {
+        let line = BankLine {
+            line_id: "l1".into(),
+            day: 10,
+            amount_minor: 9_950_000,
+            outgoing: true,
+            reference: "TRF884213".into(),
+            description: "TRF KE PEMASOK C".into(),
+        };
+        let half = Candidate {
+            journal_line_id: "j1".into(),
+            day: 10,
+            amount_minor: 6_800_000,
+            outgoing: true,
+            reference: "JV-1".into(),
+            memo: String::new(),
+        };
+        // Bigger than the line: there is not enough left to give it, ever.
+        let too_big = Candidate {
+            journal_line_id: "j2".into(),
+            day: 10,
+            amount_minor: 12_000_000,
+            outgoing: true,
+            reference: "JV-2".into(),
+            memo: String::new(),
+        };
+
+        let strict = Ruleset::default();
+        assert!(suggest(&line, &[half.clone(), too_big.clone()], &strict).is_empty());
+
+        let loose = Ruleset {
+            allow_partial: true,
+            min_to_suggest: 0,
+            ..Ruleset::default()
+        };
+        let offered = suggest(&line, &[half, too_big], &loose);
+        assert_eq!(offered.len(), 1, "only the smaller voucher is admissible");
+        assert_eq!(offered[0].journal_line_id, "j1");
+        assert!(
+            offered[0].reasons.iter().any(|r| r.contains("part")),
+            "a partial candidate says so: {:?}",
+            offered[0].reasons
+        );
+        assert!(
+            !offered[0].auto_match,
+            "a guess about which part of a transfer this is must never be automatic"
         );
     }
 

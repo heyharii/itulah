@@ -2,6 +2,7 @@ import { useForm } from "@tanstack/react-form"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
+import { Search } from "lucide-react"
 import { useCallback, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -9,10 +10,15 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Field, Input } from "@/components/ui/field"
-import { FilterPanel } from "@/components/ui/filter-panel"
+import { FilterOmnibox } from "@/components/ui/filter-omnibox"
+import {
+  ColumnsMenu,
+  DockedFilters,
+  SortMenu,
+  ViewPicker,
+} from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
-import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
@@ -163,14 +169,34 @@ const columns: ColumnDef<TableSetup, ColourRow>[] = [
   },
   {
     id: "status",
-    accessorFn: (row) => (row.active ? 1 : 0),
+    accessorFn: (row) => (row.active ? "ACTIVE" : "RETIRED"),
     header: "Status",
     size: 110,
-    // **No filter here, on purpose.** The segment above the table asks exactly
-    // this question and asks it of the SERVER's rows before they reach the
-    // table, so a second control saying the same thing could disagree with it
-    // on screen — "Retired" selected, "Offered is Offered" in a chip, and an
-    // empty list with two controls each insisting they are right.
+    // Filtered here, and nowhere else. It was a three-way segment above the
+    // table — All · Active · Retired — which sieved the rows before the table
+    // saw them, so this column could not carry a chip without two controls
+    // each insisting they were the reason the list was empty. The panel beside
+    // the table took the segment's job on 2026-09-13, and the segment is gone
+    // rather than left to disagree with it.
+    //
+    // The value is the WORD and not `1`/`0`: a clause rides in the address bar,
+    // and `status is 1` is not a thing anybody can read.
+    meta: {
+      filter: {
+        kind: "option",
+        label: "Status",
+        single: true,
+        operators: ["isAnyOf"],
+        // Declared rather than gathered off the rows: a master with nothing
+        // retired must still offer Retired, because its emptiness is the
+        // answer the curator is looking for.
+        options: [
+          { value: "ACTIVE", label: "Active" },
+          { value: "RETIRED", label: "Retired" },
+        ],
+        format: (value) => (value === "ACTIVE" ? "Active" : "Retired"),
+      },
+    },
     // Active and Retired, not Offered and Retired. "Offered" made the reader
     // guess who it was offered to; Active says what it means — this may be
     // chosen when a colourway is mapped — and matches the segment above.
@@ -185,11 +211,8 @@ const columns: ColumnDef<TableSetup, ColourRow>[] = [
   },
 ]
 
-type Shown = "ALL" | "ACTIVE" | "RETIRED"
-
 export function Colours() {
   const [query, setQuery] = useState("")
-  const [shown, setShown] = useState<Shown>("ALL")
   const [sorting, setSorting] = useState<SortingState>([])
   const [editing, setEditing] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
@@ -208,13 +231,10 @@ export function Colours() {
     [colours.data]
   )
 
-  const rows = useMemo(
-    () =>
-      shown === "ALL"
-        ? all
-        : all.filter((row) => row.active === (shown === "ACTIVE")),
-    [all, shown]
-  )
+  // Every colour reaches the table. What narrows it is the panel beside it,
+  // and only that — a second sieve in front of the table is how a status
+  // segment and a status chip end up giving two different answers.
+  const rows = all
 
   const filters = useFilters(columns)
 
@@ -255,72 +275,120 @@ export function Colours() {
         title="Colours"
         sub="Standard colours used across articles and variants."
         actions={
-          <>
-            <Input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search"
-              className="h-8 w-48"
-            />
-            <Button
-              onClick={() => {
-                setEditing(null)
-                setCreating(true)
-              }}
-            >
-              New colour
-            </Button>
-          </>
+          <Button
+            onClick={() => {
+              setEditing(null)
+              setCreating(true)
+            }}
+          >
+            New colour
+          </Button>
         }
       />
 
-      <Toolbar>
-        <Segmented
-          options={[
-            { value: "ALL", label: "All" },
-            { value: "ACTIVE", label: "Active" },
-            { value: "RETIRED", label: "Retired" },
-          ]}
-          value={shown}
-          onChange={setShown}
-        />
-        <FilterPanel model={filters} table={table} />
-        <Toolbar.Spacer />
-        <span className="text-[0.75rem] text-mute tabular-nums">
-          {count(all.length)} colours · {count(retired)} retired
-          {unswatched > 0 && ` · ${count(unswatched)} with no swatch yet`}
-        </span>
-      </Toolbar>
+      {/* Two columns from 1440 up: the master, and the panel that narrows it —
+          the shape Sourcing and the order book already wear, brought here on
+          2026-09-13 so the lists an article is described with are read with the
+          same chrome as the article itself. Below that width the panel is the
+          omnibox above the table, which is the same model drawn as a line. */}
+      <div className="grid min-w-0 items-start gap-5 min-[1440px]:grid-cols-[minmax(0,1fr)_16rem]">
+        <div className="flex min-w-0 flex-col">
+          {/* One line, the width of the table, carrying everything that
+              acts on it — the same line the order book wears, in the same
+              order: what narrows it at the left, what orders and shapes it in
+              the middle, which view it is at the right.
 
-      <Card className="overflow-hidden">
-        {queryState(colours, {
-          loading: "Reading the vocabulary…",
-          render: () =>
-            all.length === 0 ? (
-              <EmptyState
-                action={
-                  <Button variant="primary" onClick={() => setCreating(true)}>
-                    New colour
-                  </Button>
-                }
-              >
-                No colour has been declared yet, so there is nothing for an
-                article to pick.
-              </EmptyState>
-            ) : (
-              <DataTable<ColourRow>
-                table={table}
-                onRowClick={(row) => {
-                  setCreating(false)
-                  setEditing(row.term.code)
-                }}
-                isSelected={(row) => row.term.code === editing}
-                empty="No colour matches that search."
-                className="max-h-[calc(100vh-17rem)]"
+              It was a full-width box above a second row until 2026-09-13. Two
+              rows of chrome over one short list is one row too many, and the
+              owner said so. */}
+          <div className="mb-3 flex flex-wrap items-center gap-1.5">
+            {/* The plain box, where the panel beside it is carrying the
+                filters. Below 1440 the panel is gone and the omnibox below
+                takes both jobs, so only one of the two is ever on screen. */}
+            <span className="relative mr-auto hidden min-[1440px]:block">
+              <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-line-ico" />
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search colours"
+                aria-label="Search the colour master"
+                className="h-[2.125rem] w-56 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.8125rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent"
               />
-            ),
-        })}
-      </Card>
+            </span>
+            <span className="mr-auto text-[0.84375rem] text-body min-[1440px]:mr-0">
+              <b className="font-medium text-ink">{count(all.length)}</b>{" "}
+              colours · {count(retired)} retired
+              {unswatched > 0 && ` · ${count(unswatched)} with no swatch yet`}
+            </span>
+            <SortMenu
+              table={table}
+              sorting={sorting}
+              onSort={(id, desc) => setSorting([{ id, desc }])}
+            />
+            <ColumnsMenu table={table} />
+            <span aria-hidden className="mx-1 h-5 w-px bg-hairline" />
+            <ViewPicker model={filters} id="colours" all="All colours" />
+          </div>
+
+          {/* The same model as the panel, drawn as one line, for the widths
+              where the panel is not on screen. */}
+          <FilterOmnibox
+            model={filters}
+            text={query === "" ? undefined : query}
+            onText={(next) => setQuery(next ?? "")}
+            placeholder="Search colours, or filter"
+            className="mb-3 min-[1440px]:hidden"
+          />
+
+          <Card className="overflow-hidden">
+            {queryState(colours, {
+              loading: "Reading the vocabulary…",
+              render: () =>
+                all.length === 0 ? (
+                  <EmptyState
+                    action={
+                      <Button
+                        variant="primary"
+                        onClick={() => setCreating(true)}
+                      >
+                        New colour
+                      </Button>
+                    }
+                  >
+                    No colour has been declared yet, so there is nothing for an
+                    article to pick.
+                  </EmptyState>
+                ) : (
+                  <DataTable<ColourRow>
+                    table={table}
+                    onRowClick={(row) => {
+                      setCreating(false)
+                      setEditing(row.term.code)
+                    }}
+                    isSelected={(row) => row.term.code === editing}
+                    empty="No colour matches that search."
+                    className="max-h-[calc(100vh-17rem)]"
+                  />
+                ),
+            })}
+          </Card>
+        </div>
+
+        <DockedFilters
+          model={filters}
+          id="colours"
+          subject="Colour"
+          kpis={[
+            { label: "Colours", value: count(all.length) },
+            {
+              label: "No swatch",
+              value: count(unswatched),
+              note: "Named, but nobody has said which pixel value they mean.",
+            },
+          ]}
+          className="hidden min-[1440px]:flex"
+        />
+      </div>
 
       <ColourSheet
         open={creating || selected !== null}

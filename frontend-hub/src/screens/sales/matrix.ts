@@ -181,7 +181,10 @@ export function buildMatrix(
     siteValue,
     siteTotal,
     bucketTotal: (bucket, kind) =>
-      rows.reduce((sum, site) => sum + siteValue(site.site_id, bucket, kind), 0),
+      rows.reduce(
+        (sum, site) => sum + siteValue(site.site_id, bucket, kind),
+        0
+      ),
     grandTotal: (kind) =>
       rows.reduce((sum, site) => sum + siteTotal(site.site_id, kind), 0),
     bandValue: (bandKey, bucket, kind) => {

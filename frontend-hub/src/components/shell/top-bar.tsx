@@ -3,6 +3,7 @@ import { Menu, Search, Settings2, Sparkles } from "lucide-react"
 
 import { domainForPath, domainHome, domains } from "@/lib/navigation"
 import { useNodeIdentity } from "@/lib/session"
+import { NotificationBell } from "@/components/shell/notification-bell"
 import { cn } from "@/lib/utils"
 
 /// The bar across the top: which part of the business, and nothing else.
@@ -112,6 +113,7 @@ export function TopBar({ onOpenNav }: { onOpenNav?: () => void }) {
               ⌘K
             </kbd>
           </span>
+          <NotificationBell />
           <Settings2 className="size-[1.0625rem] stroke-[1.55] text-line-ico" />
           <Sparkles className="size-[1.0625rem] stroke-[1.55] text-line-ico" />
           <span

@@ -7,10 +7,12 @@ import { PageContent } from "@/components/shell/app-shell"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Input } from "@/components/ui/field"
+import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
 import { Toolbar } from "@/components/ui/segmented"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
+import { useFilters } from "@/lib/filters"
 import { count, moment } from "@/lib/format"
 import {
   fleetPools,
@@ -43,6 +45,8 @@ const columns: ColumnDef<TableSetup, Pool>[] = [
     accessorFn: (row) => `${row.label} ${row.id}`,
     header: "Pool",
     size: 240,
+    // Same reason as Site below: the toolbar already picks a pool, and it
+    // picks it on the wire.
     cell: ({ row }) => (
       <div className="min-w-0">
         <span className="block truncate font-medium text-ink">
@@ -57,6 +61,10 @@ const columns: ColumnDef<TableSetup, Pool>[] = [
     accessorFn: (row) => row.site_name ?? row.site_id,
     header: "Site",
     size: 170,
+    // No filter, and that is not an oversight: the toolbar's Site picker is a
+    // REQUEST parameter, and a second site question answered in the browser
+    // would be a place the narrowing is decided twice. The day the two
+    // disagreed, this one would look right.
     cell: ({ row }) => (
       <span className="text-body">
         {row.original.site_name ?? row.original.site_id}
@@ -67,28 +75,35 @@ const columns: ColumnDef<TableSetup, Pool>[] = [
     accessorKey: "group",
     header: "Group",
     size: 140,
+    /// The one closed set on the row the toolbar cannot ask for: the kind of
+    /// place, faceted from what the replay actually returned.
+    meta: { filter: { kind: "option" } },
     cell: ({ row }) => <Tag>{row.original.group}</Tag>,
   },
   {
     accessorKey: "stock",
     header: "Stock",
     size: 110,
-    meta: { align: "right" },
     // The only number worth sorting a historical read by: how much was there.
+    meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
     cell: ({ row }) => count(row.original.stock),
   },
   {
     accessorKey: "on_hand",
     header: "On hand",
     size: 110,
-    meta: { align: "right" },
+    meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
     cell: ({ row }) => count(row.original.on_hand),
   },
   {
     accessorKey: "allotted",
     header: "Allotted",
     size: 110,
-    meta: { align: "right" },
+    /// Nullable, and the dash in the cell is the point: a pool nobody promised
+    /// anything out of is not a pool that promised zero. The accessor hands
+    /// the predicate the raw `null`, so "is empty" asks for exactly those rows
+    /// and no comparison quietly counts them as 0.
+    meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
     cell: ({ row }) =>
       row.original.allotted === null ? (
         <span className="text-mute">—</span>
@@ -100,7 +115,7 @@ const columns: ColumnDef<TableSetup, Pool>[] = [
     accessorKey: "missing",
     header: "Missing",
     size: 110,
-    meta: { align: "right" },
+    meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
     cell: ({ row }) => (
       <span className={row.original.missing > 0 ? "text-bad-fg" : "text-mute"}>
         {count(row.original.missing)}
@@ -111,7 +126,13 @@ const columns: ColumnDef<TableSetup, Pool>[] = [
     accessorKey: "lost_rate",
     header: "Lost rate",
     size: 110,
-    meta: { align: "right" },
+    /// The cell holds a fraction and the column prints a percentage, so the
+    /// box takes the percentage and `scale` puts it back: somebody asking for
+    /// pools losing more than 5% types 5, not 0.05.
+    meta: {
+      align: "right",
+      filter: { kind: "number", scale: 0.01, unit: "%" },
+    },
     cell: ({ row }) => percent(row.original.lost_rate),
   },
 ]
@@ -144,17 +165,19 @@ export function AsOf() {
     [history.data]
   )
 
+  const filters = useFilters(columns)
+
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
         data: rows,
-        columns,
+        columns: filters.columns,
         getRowId: (row: Pool) => row.id,
-        state: { sorting },
+        state: { columnFilters: filters.columnFilters, sorting },
         onSortingChange: setSorting,
       }),
-      [rows, sorting]
+      [rows, filters.columns, filters.columnFilters, sorting]
     )
   )
 
@@ -260,8 +283,18 @@ export function AsOf() {
                 <p className="mt-3 text-[0.71875rem] text-mute">
                   {data.inventory_equation} · sightings counted over the{" "}
                   {data.observed_window_hours}h before that moment.
+                  {/* The totals are the replay's, and the clauses below do not
+                      touch them. Said here rather than left to be inferred:
+                      four figures sitting above a narrowed table read as the
+                      narrowed table's totals, which they are not. */}
+                  {filters.filters.length > 0 &&
+                    " Every pool the replay returned is in these four figures — the clauses below narrow the table, not the totals."}
                 </p>
               </Card>
+
+              <Toolbar>
+                <FilterPanel model={filters} table={table} />
+              </Toolbar>
 
               <Card className="overflow-hidden">
                 {rows.length === 0 ? (
@@ -273,6 +306,7 @@ export function AsOf() {
                 ) : (
                   <DataTable<Pool>
                     table={table}
+                    empty="No pool in this replay matches the filters in force."
                     className="max-h-[calc(100vh-28rem)]"
                   />
                 )}

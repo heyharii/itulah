@@ -435,12 +435,13 @@ async fn a_second_pass_does_not_rewrite_what_the_first_resolved(pool: PgPool) {
     freeze_started_rule_eligibility(&pool)
         .await
         .unwrap_or_else(|e| panic!("first pass: {e}"));
-    let first: DateTime<Utc> =
-        sqlx::query_scalar("SELECT resolved_at FROM commercial_rule_eligibility WHERE rule_id = $1")
-            .bind("T-RULE-TWICE")
-            .fetch_one(&pool)
-            .await
-            .unwrap_or_else(|e| panic!("read resolved_at: {e}"));
+    let first: DateTime<Utc> = sqlx::query_scalar(
+        "SELECT resolved_at FROM commercial_rule_eligibility WHERE rule_id = $1",
+    )
+    .bind("T-RULE-TWICE")
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|e| panic!("read resolved_at: {e}"));
 
     plant_article(&pool, "T-SECOND", None, &["TEST_DENIM"]).await;
     for _ in 0..3 {
@@ -454,12 +455,13 @@ async fn a_second_pass_does_not_rewrite_what_the_first_resolved(pool: PgPool) {
         vec!["T-JACKET-01".to_owned()],
         "three more passes and the answer is the one the first pass gave"
     );
-    let again: DateTime<Utc> =
-        sqlx::query_scalar("SELECT resolved_at FROM commercial_rule_eligibility WHERE rule_id = $1")
-            .bind("T-RULE-TWICE")
-            .fetch_one(&pool)
-            .await
-            .unwrap_or_else(|e| panic!("read resolved_at: {e}"));
+    let again: DateTime<Utc> = sqlx::query_scalar(
+        "SELECT resolved_at FROM commercial_rule_eligibility WHERE rule_id = $1",
+    )
+    .bind("T-RULE-TWICE")
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|e| panic!("read resolved_at: {e}"));
     assert_eq!(first, again, "and it still says when it was resolved");
 }
 

@@ -156,27 +156,37 @@ fn draft() -> PayrollRun {
     .unwrap_or_else(|error| panic!("draft: {error}"))
 }
 
-/// The rule this module adds to the donor: a control one person can complete
-/// alone is a record of a signature, not a control.
+/// The rule this module keeps through the 2026-09-13 rework, in the shape the
+/// work actually has: the place submits, head office approves, and a control
+/// one person can complete alone is a record of a signature rather than a
+/// control.
 #[test]
-fn the_person_who_verified_a_run_may_not_approve_it() {
+fn the_person_who_submitted_a_run_may_not_approve_it() {
     let mut run = draft();
-    run.verify(authority("hr.dewi", actions::PAYROLL_VERIFY, 0))
-        .unwrap_or_else(|error| panic!("verify: {error}"));
-    assert_eq!(run.state(), RunState::Verified);
+    run.submit(authority("bu.rina", actions::PAYROLL_SUBMIT, 0))
+        .unwrap_or_else(|error| panic!("submit: {error}"));
+    assert_eq!(run.state(), RunState::Submitted);
+    assert_eq!(
+        run.submitter().map(ToString::to_string),
+        Some("bu.rina".to_owned())
+    );
 
     let error = run
-        .approve(authority("hr.dewi", actions::PAYROLL_APPROVE, 10))
+        .approve(authority("bu.rina", actions::PAYROLL_APPROVE, 10))
         .unwrap_err();
     assert_eq!(error.code(), "payroll_same_actor");
     // A conflict, not a bad request: the payload is fine and what is wrong is
     // who is sending it.
     assert!(error.is_conflict());
-    assert_eq!(run.state(), RunState::Verified, "nothing half-approved");
+    assert_eq!(run.state(), RunState::Submitted, "nothing half-approved");
 
-    run.approve(authority("hr.budi", actions::PAYROLL_APPROVE, 20))
+    run.approve(authority("hr.dewi", actions::PAYROLL_APPROVE, 20))
         .unwrap_or_else(|error| panic!("approve: {error}"));
     assert_eq!(run.state(), RunState::Approved);
+    assert_eq!(
+        run.approver().map(ToString::to_string),
+        Some("hr.dewi".to_owned())
+    );
 }
 
 /// And the same run, stored, fails to hydrate — because a rule only the live
@@ -192,16 +202,16 @@ fn a_stored_run_signed_twice_by_one_person_refuses_to_load() {
         "incomplete_because": "no punch source",
         "history": [
             {
-                "step": "VERIFIED",
+                "step": "SUBMITTED",
                 "authorization": {
-                    "actor": "hr.dewi", "action_key": actions::PAYROLL_VERIFY,
-                    "at": instant(0), "reason": "dicek",
+                    "actor": "bu.rina", "action_key": actions::PAYROLL_SUBMIT,
+                    "at": instant(0), "reason": "dikirim",
                 }
             },
             {
                 "step": "APPROVED",
                 "authorization": {
-                    "actor": "hr.dewi", "action_key": actions::PAYROLL_APPROVE,
+                    "actor": "bu.rina", "action_key": actions::PAYROLL_APPROVE,
                     "at": instant(10), "reason": "disetujui",
                 }
             }
@@ -214,57 +224,97 @@ fn a_stored_run_signed_twice_by_one_person_refuses_to_load() {
     );
 }
 
-/// Sealing is the point past which the figures are the figures.
+/// Three states and no fourth. `VERIFIED` and `SEALED` are gone — the first
+/// because the middle signature moved to the place as `SUBMITTED`, the second
+/// because approval is final and a state whose only content is "and we mean
+/// it" cannot be told from the one before it.
 #[test]
-fn a_sealed_run_cannot_be_reopened() {
-    let mut run = draft();
-    run.verify(authority("hr.dewi", actions::PAYROLL_VERIFY, 0))
-        .unwrap_or_else(|error| panic!("verify: {error}"));
-    run.approve(authority("hr.budi", actions::PAYROLL_APPROVE, 10))
-        .unwrap_or_else(|error| panic!("approve: {error}"));
-    run.seal(authority("hr.dewi", actions::PAYROLL_SEAL, 20))
-        .unwrap_or_else(|error| panic!("seal: {error}"));
-    assert_eq!(run.state(), RunState::Sealed);
+fn there_are_exactly_three_states_and_approved_is_the_last() {
+    assert_eq!(RunState::parse("DRAFT"), Some(RunState::Draft));
+    assert_eq!(RunState::parse("SUBMITTED"), Some(RunState::Submitted));
+    assert_eq!(RunState::parse("APPROVED"), Some(RunState::Approved));
+    assert_eq!(RunState::parse("VERIFIED"), None);
+    assert_eq!(RunState::parse("SEALED"), None);
 
+    // Nothing follows an approval, so nothing may be done to an approved run
+    // but reopen it.
+    let mut run = draft();
+    run.submit(authority("bu.rina", actions::PAYROLL_SUBMIT, 0))
+        .unwrap_or_else(|error| panic!("submit: {error}"));
+    run.approve(authority("hr.dewi", actions::PAYROLL_APPROVE, 10))
+        .unwrap_or_else(|error| panic!("approve: {error}"));
     let error = run
-        .reopen(authority("hr.dewi", actions::PAYROLL_REOPEN, 30))
+        .approve(authority("hr.budi", actions::PAYROLL_APPROVE, 20))
         .unwrap_err();
-    assert_eq!(error.code(), "payroll_run_sealed");
+    assert_eq!(error.code(), "payroll_run_not_in_state");
+    let error = run
+        .submit(authority("bu.rina", actions::PAYROLL_SUBMIT, 30))
+        .unwrap_err();
+    assert_eq!(error.code(), "payroll_run_not_in_state");
 }
 
-/// A reopen clears the chain: the next approval is a fresh pair of signatures,
-/// not a continuation of the old one.
+/// Hari's decision of 2026-09-13, accepted with its consequence: head office
+/// may reopen an approved run even after Finance has booked the handoff, and
+/// nothing here refuses it. What the reopen does is clear the chain, so the
+/// next approval is a fresh pair of signatures.
 #[test]
-fn a_reopen_lets_the_earlier_verifier_approve_afterwards() {
+fn an_approved_run_can_be_reopened_and_the_reopen_clears_both_signatures() {
     let mut run = draft();
-    run.verify(authority("hr.dewi", actions::PAYROLL_VERIFY, 0))
-        .unwrap_or_else(|error| panic!("verify: {error}"));
-    run.reopen(authority("hr.budi", actions::PAYROLL_REOPEN, 10))
+    run.submit(authority("bu.rina", actions::PAYROLL_SUBMIT, 0))
+        .unwrap_or_else(|error| panic!("submit: {error}"));
+    run.approve(authority("hr.dewi", actions::PAYROLL_APPROVE, 10))
+        .unwrap_or_else(|error| panic!("approve: {error}"));
+
+    run.reopen(authority("hr.budi", actions::PAYROLL_REOPEN, 20))
         .unwrap_or_else(|error| panic!("reopen: {error}"));
     assert_eq!(run.state(), RunState::Draft);
-    assert!(run.verifier().is_none());
+    assert!(run.submitter().is_none());
+    assert!(
+        run.approver().is_none(),
+        "an approval that has been undone is not an approval"
+    );
+    // Nothing is lost: the history still says what happened.
+    assert_eq!(run.history().len(), 3);
 
-    // Budi verifies this time, so Dewi may approve — which she could not have
-    // done before the reopen.
-    run.verify(authority("hr.budi", actions::PAYROLL_VERIFY, 20))
-        .unwrap_or_else(|error| panic!("verify: {error}"));
-    run.approve(authority("hr.dewi", actions::PAYROLL_APPROVE, 30))
+    // And the officer who approved before the reopen may submit afterwards,
+    // which she could not have done while her own approval stood.
+    run.submit(authority("hr.dewi", actions::PAYROLL_SUBMIT, 30))
+        .unwrap_or_else(|error| panic!("submit: {error}"));
+    run.approve(authority("bu.rina", actions::PAYROLL_APPROVE, 40))
         .unwrap_or_else(|error| panic!("approve: {error}"));
     assert_eq!(run.state(), RunState::Approved);
 }
 
-/// Each step is its own key, so a grant to check figures is not a grant to
-/// approve them.
+/// A run head office has not answered yet is head office's to hand back, and a
+/// draft is not reopenable because there is nothing to undo.
+#[test]
+fn a_submitted_run_goes_back_to_the_place_and_a_draft_has_nothing_to_undo() {
+    let mut run = draft();
+    let error = run
+        .reopen(authority("hr.dewi", actions::PAYROLL_REOPEN, 0))
+        .unwrap_err();
+    assert_eq!(error.code(), "payroll_run_not_in_state");
+
+    run.submit(authority("bu.rina", actions::PAYROLL_SUBMIT, 10))
+        .unwrap_or_else(|error| panic!("submit: {error}"));
+    run.reopen(authority("hr.dewi", actions::PAYROLL_REOPEN, 20))
+        .unwrap_or_else(|error| panic!("reopen: {error}"));
+    assert_eq!(run.state(), RunState::Draft);
+    assert!(run.submitter().is_none());
+}
+
+/// Each step is its own key, so a grant to send a batch is not a grant to
+/// decide it.
 #[test]
 fn each_step_needs_its_own_key() {
     let mut run = draft();
     let error = run
-        .verify(authority("hr.dewi", actions::PAYROLL_APPROVE, 0))
+        .submit(authority("bu.rina", actions::PAYROLL_APPROVE, 0))
         .unwrap_err();
     assert_eq!(error.code(), "payroll_action_forbids_step");
     assert!(error.is_forbidden());
 
-    // And a draft cannot be approved without being verified first.
+    // And a draft cannot be approved without being submitted first.
     let error = run
         .approve(authority("hr.dewi", actions::PAYROLL_APPROVE, 10))
         .unwrap_err();
@@ -290,6 +340,170 @@ fn a_run_says_it_is_incomplete_and_why() {
     .unwrap_or_else(|error| panic!("draft: {error}"));
     assert!(whole.complete());
     assert!(whole.incomplete_because().is_none());
+}
+
+// ── the handover to Finance ──────────────────────────────────────────────
+
+fn approved() -> PayrollRun {
+    let mut run = draft();
+    run.submit(authority("bu.rina", actions::PAYROLL_SUBMIT, 0))
+        .unwrap_or_else(|error| panic!("submit: {error}"));
+    run.approve(authority("hr.dewi", actions::PAYROLL_APPROVE, 10))
+        .unwrap_or_else(|error| panic!("approve: {error}"));
+    run
+}
+
+fn line(employee: &str, gross: i64) -> PayrollHandoverLine {
+    PayrollHandoverLine::try_new(employee, gross).unwrap_or_else(|error| panic!("line: {error}"))
+}
+
+/// The liability is the sum of the people in it, and that is checked on the way
+/// out and again on the way in — because this row is what a payment will one
+/// day be reconciled against.
+#[test]
+fn a_liability_is_the_sum_of_its_breakdown() {
+    let handover = PayrollHandover::hand_over(
+        &approved(),
+        vec![line("E-1", 5_500_000), line("E-2", 4_250_000)],
+        authority("hr.dewi", actions::PAYROLL_HAND_TO_FINANCE, 20),
+    )
+    .unwrap_or_else(|error| panic!("hand over: {error}"));
+    assert_eq!(handover.gross_minor(), 9_750_000);
+    assert_eq!(handover.state(), HandoverState::Received);
+    assert_eq!(handover.lines().len(), 2);
+    assert!(handover.settled().is_none());
+
+    // A stored row whose header disagrees with its lines does not load.
+    let json = serde_json::json!({
+        "run_id": "PR-1",
+        "place": "store-07",
+        "period": "2026-04",
+        "gross_minor": 9_000_000,
+        "state": "RECEIVED",
+        "handed_over": {
+            "actor": "hr.dewi", "action_key": actions::PAYROLL_HAND_TO_FINANCE,
+            "at": instant(20), "reason": "diserahkan",
+        },
+        "lines": [
+            { "employee_id": "E-1", "gross_minor": 5_500_000 },
+            { "employee_id": "E-2", "gross_minor": 4_250_000 },
+        ],
+    });
+    let error = serde_json::from_value::<PayrollHandover>(json).unwrap_err();
+    assert!(
+        error.to_string().contains("breakdown adds up to"),
+        "unexpected: {error}"
+    );
+}
+
+/// Only a decided run crosses. A draft is a working figure and a submitted run
+/// is a request nobody has answered.
+#[test]
+fn only_an_approved_run_can_be_handed_to_finance() {
+    let authority = || authority("hr.dewi", actions::PAYROLL_HAND_TO_FINANCE, 20);
+    let error =
+        PayrollHandover::hand_over(&draft(), vec![line("E-1", 1)], authority()).unwrap_err();
+    assert_eq!(error.code(), "payroll_run_not_in_state");
+    assert!(error.is_conflict());
+
+    let mut submitted = draft();
+    submitted
+        .submit(authority("bu.rina", actions::PAYROLL_SUBMIT, 0))
+        .unwrap_or_else(|error| panic!("submit: {error}"));
+    let error =
+        PayrollHandover::hand_over(&submitted, vec![line("E-1", 1)], authority()).unwrap_err();
+    assert_eq!(error.code(), "payroll_run_not_in_state");
+}
+
+/// An empty run is not a liability of nought. Nobody there has a pay agreement
+/// yet, and a row saying the company owes nothing is a claim somebody looked.
+#[test]
+fn a_run_with_nobody_on_it_is_not_a_liability_worth_nothing() {
+    let error = PayrollHandover::hand_over(
+        &approved(),
+        Vec::new(),
+        authority("hr.dewi", actions::PAYROLL_HAND_TO_FINANCE, 20),
+    )
+    .unwrap_err();
+    assert_eq!(error.code(), "payroll_nothing_to_hand_over");
+    assert!(error.is_conflict());
+
+    // And neither is one person owed nothing.
+    let error = PayrollHandoverLine::try_new("E-1", 0).unwrap_err();
+    assert_eq!(error.code(), "payroll_handover_line_not_positive");
+}
+
+/// Two lines for one person would leave the sum right and the breakdown
+/// nonsense.
+#[test]
+fn nobody_appears_twice_in_a_breakdown() {
+    let error = PayrollHandover::hand_over(
+        &approved(),
+        vec![line("E-1", 5_000_000), line("E-1", 500_000)],
+        authority("hr.dewi", actions::PAYROLL_HAND_TO_FINANCE, 20),
+    )
+    .unwrap_err();
+    assert_eq!(error.code(), "payroll_handover_duplicate_line");
+}
+
+/// Asking Finance for the money and Finance answering are two acts under two
+/// keys, so one grant cannot close the loop on its own request.
+#[test]
+fn finance_answers_under_its_own_key_and_answers_once() {
+    let mut handover = PayrollHandover::hand_over(
+        &approved(),
+        vec![line("E-1", 5_500_000)],
+        authority("hr.dewi", actions::PAYROLL_HAND_TO_FINANCE, 20),
+    )
+    .unwrap_or_else(|error| panic!("hand over: {error}"));
+
+    // The key that handed it over cannot declare it paid.
+    let error = handover
+        .settle(authority("hr.dewi", actions::PAYROLL_HAND_TO_FINANCE, 30))
+        .unwrap_err();
+    assert_eq!(error.code(), "payroll_action_forbids_step");
+    assert!(error.is_forbidden());
+    assert_eq!(handover.state(), HandoverState::Received);
+
+    handover
+        .settle(authority("fin.tono", actions::PAYROLL_SETTLE, 40))
+        .unwrap_or_else(|error| panic!("settle: {error}"));
+    assert_eq!(handover.state(), HandoverState::Paid);
+    assert_eq!(
+        handover.settled().map(|a| a.actor().to_string()),
+        Some("fin.tono".to_owned())
+    );
+
+    // Twice would be a second payment of the same liability.
+    let error = handover
+        .settle(authority("fin.tono", actions::PAYROLL_SETTLE, 50))
+        .unwrap_err();
+    assert_eq!(error.code(), "payroll_handover_already_paid");
+    assert!(error.is_conflict());
+}
+
+/// `PAID` and "somebody signed for the payment" are the same fact, so a stored
+/// row cannot hold one without the other — the shape `supplier_invoice`
+/// refuses between its status and its `posted_at`.
+#[test]
+fn a_paid_liability_carries_the_signature_that_paid_it() {
+    let json = serde_json::json!({
+        "run_id": "PR-1",
+        "place": "store-07",
+        "period": "2026-04",
+        "gross_minor": 5_500_000,
+        "state": "PAID",
+        "handed_over": {
+            "actor": "hr.dewi", "action_key": actions::PAYROLL_HAND_TO_FINANCE,
+            "at": instant(20), "reason": "diserahkan",
+        },
+        "lines": [{ "employee_id": "E-1", "gross_minor": 5_500_000 }],
+    });
+    let error = serde_json::from_value::<PayrollHandover>(json).unwrap_err();
+    assert!(
+        error.to_string().contains("settled is required"),
+        "unexpected: {error}"
+    );
 }
 
 // ── payroll identity ─────────────────────────────────────────────────────

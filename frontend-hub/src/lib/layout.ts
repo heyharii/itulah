@@ -30,6 +30,13 @@ const NARROW = "(width < 64rem)"
 /// and the 27.5rem record beside it with its gutters (472). Below this the
 /// record has to cover something, so it goes back to covering the list.
 const WIDE = "(width >= 96rem)"
+/// 1440px: the sidebar (248), a list wide enough to still be a list (~900),
+/// and the 16rem filter panel beside it with its gutter (276).
+///
+/// Its own threshold and not `WIDE`, because it is a different thing standing
+/// beside the list: a record needs 27.5rem and a filter panel needs 16, so the
+/// panel can dock on a screen where a record still has to cover something.
+const DOCK = "(width >= 90rem)"
 
 export function useLayout(): Layout {
   const phone = useMedia(PHONE)
@@ -49,6 +56,18 @@ const ORDER: readonly Layout[] = ["phone", "tablet", "desktop", "monitor"]
 
 export function atLeast(layout: Layout, tier: Layout): boolean {
   return ORDER.indexOf(layout) >= ORDER.indexOf(tier)
+}
+
+/// Whether there is room for the filter panel to stand BESIDE the list.
+///
+/// Asked in JavaScript rather than left to `hidden min-[1440px]:flex`, because
+/// a panel hidden by CSS is still MOUNTED, and the sheets it carries are
+/// portalled out of it — so a screen that put the narrow-width `<FilterPanel>`
+/// beside a display:none `<DockedFilters>` had two components rendering a
+/// dialog under the same `?filters=` key, and opening either opened both.
+/// One of the two exists at a time now, which is the only way that stays true.
+export function usePanelDock(): boolean {
+  return useMedia(DOCK)
 }
 
 /// True when the pointer cannot hover: a finger, a stylus, a scanner's thumb —

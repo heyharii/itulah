@@ -256,7 +256,7 @@ export function Receive() {
               Drop
             </Button>
             <Button
-              variant="dark"
+              variant="primary"
               size="lg"
               block
               disabled={!ready || receive.isPending}

@@ -53,8 +53,12 @@ export function ChartOfAccounts() {
 
   const results = useQuery({
     queryKey: financeKeys.accountSearch(trimmed, inactive),
+    // 500 is the server's ceiling for one request, and `total` is what the
+    // screen now says out loud when the needle matches more than that — `101`
+    // matches 1,248 accounts in this client's chart. It used to ask for 2,000,
+    // get 500, and render them as if they were all of it.
     queryFn: ({ signal }) =>
-      searchAccounts(trimmed, { inactive, limit: 2000 }, signal),
+      searchAccounts(trimmed, { inactive, limit: 500 }, signal),
     enabled: searching,
     staleTime: 60_000,
   })
@@ -101,15 +105,15 @@ export function ChartOfAccounts() {
         {searching ? (
           queryState(results, {
             loading: "Searching the chart…",
-            render: (accounts) =>
-              accounts.length === 0 ? (
+            render: (page) =>
+              page.rows.length === 0 ? (
                 <EmptyState>
                   No account matches “{trimmed}”. Codes are matched from the
                   start, so a fragment from the middle of one will not find it.
                 </EmptyState>
               ) : (
                 <div>
-                  {accounts.map((row) => (
+                  {page.rows.map((row) => (
                     <AccountRow
                       key={`${row.account_code}-${row.site_id ?? ""}`}
                       account={row}
@@ -118,6 +122,13 @@ export function ChartOfAccounts() {
                       onOpen={() => account.open(row.account_code)}
                     />
                   ))}
+                  {page.total > page.rows.length && (
+                    <p className="border-t border-hairline px-4 py-3 text-[0.71875rem] text-mute">
+                      Showing the first {count(page.rows.length)} of{" "}
+                      {count(page.total)} matches. Narrow the search — a longer
+                      code prefix, or more of the name.
+                    </p>
+                  )}
                 </div>
               ),
           })
@@ -156,8 +167,13 @@ function Branch({
 
   const children = useQuery({
     queryKey: financeKeys.accountChildren(parent, inactive),
+    // A branch is safely whole: no heading in this client's chart has more
+    // than 36 children, against a page of 200. The envelope's `total` would
+    // say otherwise if that ever changed.
     queryFn: ({ signal }) =>
-      accountChildren({ parent: parent ?? undefined, inactive }, signal),
+      accountChildren({ parent: parent ?? undefined, inactive }, signal).then(
+        (page) => page.rows
+      ),
     // The chart is imported once and then sits for months; a branch reopened
     // twice in a session should not ask twice.
     staleTime: 10 * 60 * 1000,

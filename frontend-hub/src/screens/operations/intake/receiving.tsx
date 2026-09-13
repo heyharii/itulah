@@ -10,12 +10,15 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Checkbox, Field, Input, Money } from "@/components/ui/field"
+import { FilterPanel } from "@/components/ui/filter-panel"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
+import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState, Problem, Receipt } from "@/components/ui/states"
 import { dc } from "@/lib/api"
+import { useFilters } from "@/lib/filters"
 import { clock, count, money, variance } from "@/lib/format"
 import { keys } from "@/lib/operations/keys"
 import { queryState } from "@/lib/query-state"
@@ -136,6 +139,9 @@ export function Receiving() {
         accessorKey: "po_number",
         header: "Order",
         size: 150,
+        // The bay has no search box, so this is how somebody with a docket in
+        // their hand reaches the one order on it.
+        meta: { filter: { kind: "text", label: "Order" } },
         cell: ({ row }) => (
           <span className="font-mono text-id text-ink">
             {row.original.po_number}
@@ -146,6 +152,11 @@ export function Receiving() {
         accessorKey: "supplier_id",
         header: "Supplier",
         size: 220,
+        // Picked by code rather than by name, because the code is what this
+        // column holds: one lorry brings several orders from one supplier, and
+        // "everything Acme still owes us" is the morning's work in one clause.
+        // The name is on the row and in the picker's second line.
+        meta: { filter: { kind: "option", label: "Supplier" } },
         cell: ({ row }) => (
           <span className="min-w-0">
             <span className="block truncate font-medium text-ink">
@@ -162,6 +173,9 @@ export function Receiving() {
         accessorFn: (row: OrderRow) => row.lines.length,
         header: "Lines owed",
         size: 110,
+        // No filter: how many lines an order has is how big it is, and size is
+        // a question a header click answers. Nobody stands at a bay asking for
+        // orders with between four and nine lines.
         meta: { align: "right" },
         cell: ({ row }) => count(row.original.lines.length),
       },
@@ -169,7 +183,13 @@ export function Receiving() {
         accessorKey: "received",
         header: "Already in",
         size: 110,
-        meta: { align: "right" },
+        // "is 0" is an order nobody has touched, which is not the same as one
+        // with nothing waiting to be verified — a part-counted order shows a
+        // figure here and an empty queue beside it.
+        meta: {
+          align: "right",
+          filter: { kind: "number", label: "Already in", unit: "pcs" },
+        },
         cell: ({ row }) =>
           row.original.received === 0 ? (
             <span className="text-mute">—</span>
@@ -182,6 +202,13 @@ export function Receiving() {
         accessorFn: (row: OrderRow) => row.awaiting.length,
         header: "Waiting on",
         size: 170,
+        // Counted rather than worded, so the clause that matters is "more than
+        // 0" — every order where goods are counted and not yet stock. That is
+        // the queue for the second pair of eyes, and it is a different list
+        // from the one this screen opens on.
+        meta: {
+          filter: { kind: "number", label: "Counts to verify", unit: "counts" },
+        },
         cell: ({ row }) =>
           row.original.awaiting.length > 0 ? (
             <Pill tone="warn">
@@ -221,17 +248,19 @@ export function Receiving() {
     []
   )
 
+  const filters = useFilters(columns)
+
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
         data: rows,
-        columns,
+        columns: filters.columns,
         getRowId: (row: OrderRow) => row.po_number,
-        state: { sorting },
+        state: { columnFilters: filters.columnFilters, sorting },
         onSortingChange: setSorting,
       }),
-      [rows, columns, sorting]
+      [rows, filters.columns, filters.columnFilters, sorting]
     )
   )
 
@@ -256,6 +285,12 @@ export function Receiving() {
           tone={toVerify > 0 ? "down" : "flat"}
         />
       </KpiStrip>
+
+      {/* The strip above counts the whole bay and goes on doing so; a clause
+          here only changes which orders are listed below it. */}
+      <Toolbar>
+        <FilterPanel model={filters} table={table} />
+      </Toolbar>
 
       <Card className="overflow-hidden">
         {queryState(work, {

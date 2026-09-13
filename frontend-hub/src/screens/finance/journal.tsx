@@ -12,13 +12,21 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Field, Input, Money, Select, Textarea } from "@/components/ui/field"
+import { FilterPanel } from "@/components/ui/filter-panel"
 import { MiniTable, TotalsLadder } from "@/components/ui/rows"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState } from "@/components/ui/states"
+import {
+  Banner,
+  EmptyState,
+  NoAccessState,
+  NoMatch,
+  Truncated,
+} from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
+import { useFilters } from "@/lib/filters"
 import { count, day, label, money, moment } from "@/lib/format"
 import {
   financeKeys,
@@ -127,6 +135,20 @@ const columns: ColumnDef<TableSetup, JournalEntryRow>[] = [
     // The decision metric, and why the list leads with it: an entry that has
     // been reversed, or that is itself a reversal, is the one somebody is
     // looking for when they open this screen.
+    //
+    // It is also the only question on this list nothing else can ask: the
+    // toolbar narrows by window, source and location on the wire, and the
+    // search box reads the memo. Whether an entry was answered is derived from
+    // two nullable fields and appears nowhere the server can be asked about.
+    // The three arms are named rather than left as 0/1/2 — the accessor's
+    // numbers are a sort order, not a vocabulary.
+    meta: {
+      filter: {
+        kind: "option",
+        format: (value) =>
+          value === "2" ? "Reversed" : value === "1" ? "Reversal" : "Neither",
+      },
+    },
     cell: ({ row }) =>
       row.original.reversed_by !== null ? (
         <Pill tone="bad">Reversed</Pill>
@@ -147,7 +169,12 @@ const columns: ColumnDef<TableSetup, JournalEntryRow>[] = [
     accessorKey: "total_minor",
     header: "Total",
     size: 150,
-    meta: { align: "right" },
+    meta: {
+      align: "right",
+      // Minor units on the wire, whole rupiah in the box: somebody hunting the
+      // entries over ten million types 10000000.
+      filter: { kind: "number", unit: "Rp" },
+    },
     // Sorted on the minor integer and never on the rendered string: "Rp
     // 1.234.567" sorts a million between ten and eleven.
     cell: ({ row }) => (
@@ -157,6 +184,13 @@ const columns: ColumnDef<TableSetup, JournalEntryRow>[] = [
     ),
   },
 ]
+
+/// What this screen asks the register for, named once so the banner and the
+/// request cannot disagree. It is the server's ceiling and not a page size:
+/// the search box and every column heading below narrow what is already here,
+/// so this is also the number past which the register stops being able to
+/// answer the question it appears to answer.
+const CAP = 200
 
 export function Journal() {
   const [query, setQuery] = useState("")
@@ -170,8 +204,8 @@ export function Journal() {
   ])
 
   // Both filters go on the wire and neither is applied here. A register
-  // narrowed in the browser is a slice of the newest 200 entries of *every*
-  // kind, which answers a different question than the newest 200 payments —
+  // narrowed in the browser is a slice of the newest CAP entries of *every*
+  // kind, which answers a different question than the newest CAP payments —
   // and the difference is invisible until somebody trusts it.
   const entries = useQuery({
     queryKey: financeKeys.journal(
@@ -187,26 +221,37 @@ export function Journal() {
           to: range.to,
           kind: kind || undefined,
           site: site || undefined,
-          limit: 200,
+          limit: CAP,
         },
         signal
       ),
   })
 
-  const rows = useMemo(() => entries.data ?? [], [entries.data])
+  const rows = useMemo(() => entries.data?.rows ?? [], [entries.data])
+  // How many entries the window and the filters actually match, from the
+  // server. The table below still narrows what is on screen in the browser,
+  // and that is fine for a page — what was not fine was having no way to know
+  // the page was one.
+  const matched = entries.data?.total ?? rows.length
+
+  const filters = useFilters(columns)
 
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
         data: rows,
-        columns,
+        columns: filters.columns,
         getRowId: (row: JournalEntryRow) => row.entry_id,
-        state: { globalFilter: query, sorting },
+        state: {
+          columnFilters: filters.columnFilters,
+          globalFilter: query,
+          sorting,
+        },
         onSortingChange: setSorting,
         onGlobalFilterChange: setQuery,
       }),
-      [rows, query, sorting]
+      [rows, filters.columns, filters.columnFilters, query, sorting]
     )
   )
 
@@ -256,24 +301,50 @@ export function Journal() {
           className="h-8 w-44"
           aria-label="Location"
         />
+        {/* Only two columns are offered here, and the three controls to the
+            left are the reason: window, source and location all go on the wire,
+            so a second copy of any of them in the panel would narrow the
+            browser's slice of a list the server had already narrowed
+            differently — two answers to one question. What is left is what the
+            wire cannot carry. */}
+        <FilterPanel model={filters} table={table} />
         <Toolbar.Spacer />
         {/* The window is stated rather than implied, and so is everything else
-            narrowing the list. The cap is not the window's: 200 is the
+            narrowing the list. The cap is not the window's: it is the
             server's, and a reader who has narrowed to a fortnight should still
-            be told the list can be truncated. */}
+            be told what was asked for. */}
         <span className="text-[0.71875rem] text-mute">
           {range.chip}
           {kind !== "" &&
             ` · ${SOURCE_KINDS.find((row) => row.value === kind)?.label}`}
           {site !== "" && " · "}
           {site !== "" && <SiteName id={site} />}
-          {" · the newest 200 entries in it"}
+          {matched > rows.length
+            ? ` · the newest ${CAP} of ${count(matched)} entries in it`
+            : ` · ${count(matched)} ${matched === 1 ? "entry" : "entries"} in it`}
         </span>
       </Toolbar>
+
+      {/* The chip above says what was asked for; this says the answer came
+          back exactly that long, which is the only case where the register
+          cannot tell a complete fortnight from a truncated one. Outside the
+          card, because it is a statement about the list rather than a row in
+          it. */}
+      {matched > rows.length && <Truncated limit={CAP} noun="entries" />}
 
       <Card className="overflow-hidden">
         {queryState(entries, {
           loading: "Loading the journal…",
+          // Every `GET /api/v1/finance/…` is behind SUPERVISOR, so a cashier
+          // signed into the hub is refused here rather than served an empty
+          // register — and an empty register is exactly what a refusal would
+          // otherwise look like.
+          refused: (
+            <NoAccessState
+              what="the journal"
+              reach="Reading the books takes a supervisor's sign-in; posting to them, head office's."
+            />
+          ),
           render: () =>
             rows.length === 0 ? (
               <EmptyState>
@@ -288,7 +359,16 @@ export function Journal() {
                 table={table}
                 onRowClick={(row) => entry.open(row.entry_id)}
                 isSelected={(row) => row.entry_id === entry.value}
-                empty="No entry matches that search."
+                // The count is what separates "nothing was posted in this
+                // window" — the sentence above — from "something was, and none
+                // of it matches what you typed".
+                empty={
+                  <NoMatch
+                    what="entries"
+                    held={rows.length}
+                    onClear={() => setQuery("")}
+                  />
+                }
                 className="max-h-[calc(100vh-17rem)]"
               />
             ),

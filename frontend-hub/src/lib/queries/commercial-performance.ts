@@ -56,17 +56,39 @@ export interface PerformanceEnvelope {
 
 /// The aggregates every promotion key reports, over one window.
 ///
-/// The same five numbers appear at the top level of a row and again inside its
+/// The same numbers appear at the top level of a row and again inside its
 /// `previous`, which is what makes a delta a subtraction rather than a second
 /// request.
 export interface PromotionTotals {
   /// What the offer took off the tills. `SUM(edge_sale_promotion.benefit_minor)`.
   readonly benefit_minor: number
+  /// What a CAMPAIGN gave up by clearing prices, which is not a discount and is
+  /// never added to one: a markdown booked as a discount inflates revenue and
+  /// discount by the same invented amount. Always nought for a rule or coupon.
+  readonly clearance_minor: number
   /// Baskets, not promotion rows. A campaign whose two rules both fired on one
   /// basket counts that basket once.
   readonly sale_count: number
   /// The whole of every basket the offer touched — see `Attribution`.
   readonly basket_revenue_minor: number
+  /// Items in those baskets. Attributed per basket like the revenue beside it,
+  /// so a three-item basket where one item was discounted counts three.
+  readonly units: number
+  /// Those units at the last price we agreed to pay for their STYLE — the same
+  /// `ARTICLE_LATEST_PO` basis the pricelist report uses.
+  ///
+  /// Gross profit is `basket_revenue_minor - cost_minor`, and it is an ESTIMATE
+  /// for a reason that is structural rather than sloppy: a purchase order names
+  /// a style, never a size, so every colourway and size is costed at one price.
+  /// Read it with `costed_units`, always.
+  readonly cost_minor: number
+  /// How many of `units` a cost was actually found for. A style nobody ever
+  /// ordered contributes its units here and nothing to `cost_minor` — left out
+  /// of the sum rather than counted as free — so `costed_units < units` means
+  /// the margin above covers only part of what was sold, and a screen that
+  /// draws the margin without drawing this is claiming a coverage it does not
+  /// have.
+  readonly costed_units: number
   /// Distinct shoppers the till could name. Anonymous sales are counted in
   /// `sale_count` and in revenue, and in nobody here.
   readonly customer_count: number
@@ -84,8 +106,12 @@ export interface PerformancePoint {
   /// is asked from.
   readonly day: string
   readonly benefit_minor: number
+  readonly clearance_minor: number
   readonly sale_count: number
   readonly basket_revenue_minor: number
+  readonly units: number
+  readonly cost_minor: number
+  readonly costed_units: number
 }
 
 /// The row shape shared by campaigns, rules and coupons: what it did now, what
@@ -110,12 +136,7 @@ export interface PromotionPerformance extends PromotionTotals {
 /// A superset of the four states the old screen drew. Straight from the
 /// `commercial_campaign.status` check constraint.
 export type CampaignStatus =
-  | "DRAFT"
-  | "SCHEDULED"
-  | "ACTIVE"
-  | "PAUSED"
-  | "EXPIRED"
-  | "CANCELLED"
+  "DRAFT" | "SCHEDULED" | "ACTIVE" | "PAUSED" | "EXPIRED" | "CANCELLED"
 
 export interface CampaignPerformance extends PromotionPerformance {
   readonly campaign_id: string
@@ -230,7 +251,10 @@ export interface PricelistPerformanceReport extends PerformanceEnvelope {
   /// The unit price on the most recent issued or closed purchase order for the
   /// style. Null when nothing was ever ordered, which is not zero.
   readonly cost_unit_minor: number | null
-  readonly cost_source: { readonly po_number: string; readonly ordered_at: string } | null
+  readonly cost_source: {
+    readonly po_number: string
+    readonly ordered_at: string
+  } | null
   /// Totals across the style, for the window.
   readonly units: number
   readonly revenue_minor: number

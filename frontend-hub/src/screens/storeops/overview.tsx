@@ -57,7 +57,7 @@ export function Overview() {
   })
 
   const rows = useMemo(() => sales.data ?? [], [sales.data])
-  const refunds = useMemo(() => returns.data ?? [], [returns.data])
+  const refunds = useMemo(() => returns.data?.rows ?? [], [returns.data])
   const stores = useMemo(() => rollUp(rows, refunds), [rows, refunds])
 
   const open = useMemo(

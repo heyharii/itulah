@@ -5,25 +5,25 @@ import {
   Bookmark,
   CheckCheck,
   ChevronDown,
-  ChevronUp,
+  ChevronsUpDown,
+  ListFilter,
   Lock,
-  MessagesSquare,
   Unlock,
 } from "lucide-react"
 import { useDeferredValue, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
-import { Activity } from "@/components/ui/activity"
+import { RecordPanel } from "@/components/ui/record-panel"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Field, Input, Select, Textarea } from "@/components/ui/field"
+import { ChoiceMenu } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { KeyValue } from "@/components/ui/rows"
 import { ButtonGroup, Segmented, Toolbar } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
-import { Tag } from "@/components/ui/tag"
 import { count } from "@/lib/format"
 import { queryState } from "@/lib/query-state"
 import {
@@ -88,21 +88,24 @@ import type { DiscussionPost, DiscussionThread } from "@itulah/contract"
 ///     screen, two states, which one by a URL parameter — so a thread is a link
 ///     somebody can send, and every existing `?thread=` link still resolves.
 
+/// Which threads, of everybody's. A scope, and the only thing on this board
+/// drawn as tabs — see the note over the toolbar.
 const FEEDS = [
   { value: "all", label: "All" },
   { value: "bookmarked", label: "Bookmarked" },
   { value: "mine", label: "Mine" },
 ] as const
 
+/// What state they are in. `null` is every state, which is the board's
+/// resting position and so the menu's first row.
 const STATUSES = [
-  { value: "all", label: "Any" },
+  { value: null, label: "Any status" },
   { value: "open", label: "Open" },
   { value: "resolved", label: "Answered" },
   { value: "locked", label: "Locked" },
 ] as const
 
 type Feed = (typeof FEEDS)[number]["value"]
-type Status = (typeof STATUSES)[number]["value"]
 
 /// The colour beside a category, the way a forum draws one.
 ///
@@ -142,7 +145,7 @@ type Order = "activity" | "replies" | "views"
 
 function Board({ onOpen }: { onOpen: (id: string) => void }) {
   const [feed, setFeed] = useState<Feed>("all")
-  const [status, setStatus] = useState<Status>("all")
+  const [status, setStatus] = useState<string | null>(null)
   const [subject, setSubject] = useState<string | null>(null)
   const [search, setSearch] = useState("")
   const [order, setOrder] = useState<Order>("activity")
@@ -157,7 +160,7 @@ function Board({ onOpen }: { onOpen: (id: string) => void }) {
   const filter = useMemo<ThreadFilter>(
     () => ({
       feed: feed === "all" ? undefined : feed,
-      status: status === "all" ? undefined : status,
+      status: status ?? undefined,
       subjectKind: subject ?? undefined,
       q: typed.trim() === "" ? undefined : typed.trim(),
     }),
@@ -175,10 +178,7 @@ function Board({ onOpen }: { onOpen: (id: string) => void }) {
   })
 
   const filtered =
-    feed !== "all" ||
-    status !== "all" ||
-    subject !== null ||
-    typed.trim() !== ""
+    feed !== "all" || status !== null || subject !== null || typed.trim() !== ""
 
   /// Ordered here rather than at the server because the server has one order
   /// and the board offers three. Two hundred rows is the ceiling on this
@@ -223,7 +223,7 @@ function Board({ onOpen }: { onOpen: (id: string) => void }) {
         }
       />
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[11.5rem_minmax(0,1fr)]">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[12.5rem_minmax(0,1fr)]">
         {/* The forum's own left rail: every category, always visible, with the
             count beside it. A dropdown would hide the one thing this rail is
             for — seeing at a glance where the arguments are. */}
@@ -237,9 +237,37 @@ function Board({ onOpen }: { onOpen: (id: string) => void }) {
         />
 
         <div className="min-w-0">
+          {/* One row of tabs, not two.
+              
+              There were two segmented controls side by side here — whose
+              threads, and what state they are in — drawn identically, so the
+              board opened with two tab bars and no way to tell which one
+              switched what. They are not the same kind of question. The feed
+              is a SCOPE, the three places a person stands on this board, and
+              it stays as tabs. The status is a FILTER over whichever scope
+              that is, at rest for most readers, and a filter sitting open as
+              four pills claims the same rank as the scope above it. Sourcing
+              made this exact trade first: four pills became one menu. */}
           <Toolbar className="mb-3">
             <Segmented options={FEEDS} value={feed} onChange={setFeed} />
-            <Segmented options={STATUSES} value={status} onChange={setStatus} />
+            <ChoiceMenu
+              heading="Show"
+              icon={ListFilter}
+              value={status}
+              options={STATUSES}
+              onChange={setStatus}
+            />
+            <Toolbar.Spacer />
+            <span className="text-meta text-body">
+              <b className="font-medium text-ink">{count(rows.length)}</b>{" "}
+              {filtered
+                ? rows.length === 1
+                  ? "thread matches"
+                  : "threads match"
+                : rows.length === 1
+                  ? "thread"
+                  : "threads"}
+            </span>
           </Toolbar>
 
           {queryState(threads, {
@@ -254,7 +282,7 @@ function Board({ onOpen }: { onOpen: (id: string) => void }) {
                           variant="ghost"
                           onClick={() => {
                             setFeed("all")
-                            setStatus("all")
+                            setStatus(null)
                             setSubject(null)
                             setSearch("")
                           }}
@@ -320,91 +348,71 @@ function Rail({
   onSearch: (value: string) => void
 }) {
   return (
-    <div className="flex min-w-0 flex-col gap-5 text-[0.8125rem]">
+    <div className="flex min-w-0 flex-col gap-6 text-nav">
+      {/* One list under one heading, which is what "every category" means.
+          
+          "Topics" used to stand above this block as a button of its own, in
+          accent, with an icon nothing else in the rail had — so the loudest
+          mark on the page was a row that means NO category chosen. It is not
+          a different kind of thing from the rows under it; it is the first of
+          them, and it is drawn as the first of them. */}
       <div>
-        <button
-          type="button"
-          onClick={() => onSelect(null)}
-          className={cn(
-            "flex w-full items-center gap-2 rounded-inner px-2 py-1 text-left transition-colors",
-            selected === null
-              ? "bg-accent-bg font-medium text-accent"
-              : "text-text hover:bg-soft"
-          )}
-        >
-          <MessagesSquare className="size-3.5" />
-          Topics
-        </button>
-      </div>
-
-      <div>
-        <h3 className="mb-1.5 px-2 text-eyebrow font-semibold text-mute uppercase">
+        <h3 className="mb-2 px-2 text-eyebrow font-semibold text-mute uppercase">
           Categories
         </h3>
         {queryState(subjects, {
           loading: "Counting…",
-          render: (counts) =>
-            counts.length === 0 ? (
-              <p className="px-2 text-meta text-body">
-                No record has a thread on it yet.
-              </p>
-            ) : (
-              <>
-                {counts.map((row) => (
-                  <button
+          render: (counts) => (
+            <>
+              <RailRow
+                label="All topics"
+                count={counts.reduce((sum, row) => sum + row.threads, 0)}
+                selected={selected === null}
+                onClick={() => onSelect(null)}
+              />
+              {counts.length === 0 ? (
+                <p className="mt-1 px-2 text-meta text-body">
+                  No record has a thread on it yet.
+                </p>
+              ) : (
+                counts.map((row) => (
+                  <RailRow
                     key={row.subject_kind}
-                    type="button"
+                    label={subjectLabel(row.subject_kind)}
+                    dot={SUBJECT_DOT[row.subject_kind] ?? "bg-line-ico"}
+                    count={row.threads}
+                    selected={row.subject_kind === selected}
                     onClick={() =>
                       onSelect(
                         selected === row.subject_kind ? null : row.subject_kind
                       )
                     }
-                    className={cn(
-                      "flex w-full items-center gap-2 rounded-inner px-2 py-1 text-left transition-colors",
-                      row.subject_kind === selected
-                        ? "bg-accent-bg text-accent"
-                        : "text-text hover:bg-soft"
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        "size-2.5 shrink-0 rounded-[0.1875rem]",
-                        SUBJECT_DOT[row.subject_kind] ?? "bg-line-ico"
-                      )}
-                    />
-                    <span className="min-w-0 truncate">
-                      {subjectLabel(row.subject_kind)}
-                    </span>
-                    <span className="ml-auto shrink-0 text-pill text-mute tabular-nums">
-                      {count(row.threads)}
-                    </span>
-                  </button>
-                ))}
-              </>
-            ),
+                  />
+                ))
+              )}
+            </>
+          ),
         })}
       </div>
 
       {tags.length > 0 && (
         <div>
-          <h3 className="mb-1.5 px-2 text-eyebrow font-semibold text-mute uppercase">
+          <h3 className="mb-2 px-2 text-eyebrow font-semibold text-mute uppercase">
             Tags
           </h3>
-          <div className="flex flex-wrap gap-1 px-2">
+          <div className="flex flex-wrap gap-1.5 px-2">
             {tags.map((tag) => (
-              <button
+              <TagChip
                 key={tag}
-                type="button"
+                tag={tag}
+                selected={search === tag}
                 // A tag narrows by putting itself in the search box rather than
                 // by a filter of its own: the server has no `tag` parameter on
                 // this endpoint that the board also exposes, and a chip that
                 // silently searched a different field would be a filter that
                 // lies about what it did.
                 onClick={() => onSearch(search === tag ? "" : tag)}
-                className="cursor-pointer"
-              >
-                <Tag tone={search === tag ? "accent" : "neutral"}>{tag}</Tag>
-              </button>
+              />
             ))}
           </div>
         </div>
@@ -413,8 +421,107 @@ function Rail({
   )
 }
 
+/// A tag, as a word in an outline.
+///
+/// Not `<Tag>`, which this used: that component is a MONO micro-label for a
+/// code — a division, a movement type, `PO-20260902-B492`. These are words
+/// somebody typed, `faktur` and `kewenangan`, and setting a word in 10px
+/// semibold mono makes a ragged little wall of them that reads as machine
+/// output. Same outline grammar as `<Pill>`, at the size of the rest of the
+/// rail, so the column has one voice.
+function TagChip({
+  tag,
+  selected = false,
+  onClick,
+}: {
+  tag: string
+  selected?: boolean
+  onClick?: () => void
+}) {
+  const skin = cn(
+    "inline-flex h-[1.625rem] items-center rounded-full border px-2.5 text-meta whitespace-nowrap transition-colors",
+    selected
+      ? "border-accent/30 bg-accent-bg font-medium text-accent"
+      : "border-hairline-2 bg-canvas text-body"
+  )
+
+  if (onClick === undefined) return <span className={skin}>{tag}</span>
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(skin, !selected && "hover:bg-soft-2 hover:text-ink")}
+    >
+      {tag}
+    </button>
+  )
+}
+
+/// One row of the rail: a mark, a name, and how many threads are under it.
+///
+/// "All topics" and a category are the same row with and without the colour
+/// square, because they are the same act — choosing which slice of the board
+/// to read. The blank the square leaves behind is kept so every name in the
+/// column starts at one x.
+function RailRow({
+  label,
+  dot,
+  count: threads,
+  selected,
+  onClick,
+}: {
+  label: string
+  dot?: string
+  count: number
+  selected: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex h-7 w-full items-center gap-2.5 rounded-inner px-2 text-left transition-colors",
+        selected
+          ? "bg-accent-bg font-medium text-accent"
+          : "text-text hover:bg-soft"
+      )}
+    >
+      <span
+        className={cn("size-2.5 shrink-0 rounded-[0.1875rem]", dot ?? "")}
+      />
+      <span className="min-w-0 truncate">{label}</span>
+      <span
+        className={cn(
+          "ml-auto shrink-0 text-meta tabular-nums",
+          selected ? "text-accent" : "text-mute"
+        )}
+      >
+        {count(threads)}
+      </span>
+    </button>
+  )
+}
+
+/// The grid every row of the board stands on, heading included. One
+/// declaration, because a header whose columns drift from its rows is a header
+/// that lies about which number is which.
+const BOARD_GRID =
+  "grid grid-cols-[minmax(0,1fr)_5rem_4rem_4rem_4.5rem] items-center gap-3 px-3.5"
+
 /// The column heads. Replies, Views and Activity are the three every forum
-/// converged on, and two of them sort.
+/// converged on, and all three sort.
+///
+/// Sentence case at the size of the rows, on the tint, one grey lighter —
+/// what `<DataTable>` settled on for every other list in the app on
+/// 2026-09-10. This board was still shouting 11px uppercase micro-caps at the
+/// reader, which put the loudest type on the page above the quietest thing on
+/// it, and made the board look like a different app from the twelve screens
+/// next door. The sort mark follows the same table: a pale double chevron
+/// where the column COULD be sorted, a solid one where it is, and on a
+/// right-aligned column it rides in front so the heading stays flush with the
+/// figures beneath it.
 function BoardHeader({
   order,
   onOrder,
@@ -427,21 +534,26 @@ function BoardHeader({
       type="button"
       onClick={() => onOrder(key)}
       className={cn(
-        "flex items-center justify-end gap-0.5 transition-colors hover:text-ink",
-        order === key ? "text-ink" : "text-mute"
+        "inline-flex flex-row-reverse items-center gap-1 justify-self-end transition-colors hover:text-ink",
+        order === key && "text-ink"
       )}
     >
-      {label}
       {order === key ? (
-        <ChevronDown className="size-3" />
+        <ChevronDown className="size-3 text-ink" />
       ) : (
-        <ChevronUp className="size-3 opacity-0" />
+        <ChevronsUpDown className="size-3 text-faint" />
       )}
+      {label}
     </button>
   )
 
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_5rem_4rem_4rem_4.5rem] items-center gap-3 border-b border-hairline px-4 py-2 text-eyebrow font-semibold text-mute uppercase">
+    <div
+      className={cn(
+        BOARD_GRID,
+        "h-10 border-b border-hairline bg-soft text-eyebrow font-medium text-body normal-case"
+      )}
+    >
       <span>Topic</span>
       <span />
       {head("replies", "Replies")}
@@ -463,7 +575,10 @@ function TopicRow({
   return (
     <div
       onClick={onOpen}
-      className="grid cursor-pointer grid-cols-[minmax(0,1fr)_5rem_4rem_4rem_4.5rem] items-center gap-3 border-b border-hairline px-4 py-2.5 transition-colors last:border-b-0 hover:bg-soft"
+      className={cn(
+        BOARD_GRID,
+        "cursor-pointer border-b border-hairline py-2.5 transition-colors last:border-b-0 hover:bg-soft"
+      )}
     >
       <div className="min-w-0">
         {/* The title wraps rather than truncating. A forum row exists to be
@@ -485,8 +600,14 @@ function TopicRow({
             </span>
           )}
         </div>
-        <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-          <span className="flex shrink-0 items-center gap-1.5 text-pill text-body">
+        {/* What the argument is ABOUT, in the order somebody asks it: which
+            kind of record, which record, and then the words people filed it
+            under. The tags were running straight on from the id in the same
+            grey, so a row ended in five words with no telling where the
+            record's name stopped and the labels began; a separator is
+            cheaper than a chip per tag, which at twenty rows is confetti. */}
+        <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-pill text-mute">
+          <span className="flex shrink-0 items-center gap-1.5 text-body">
             <span
               className={cn(
                 "size-2 rounded-[0.125rem]",
@@ -495,13 +616,16 @@ function TopicRow({
             />
             {subjectLabel(thread.subject_kind)}
           </span>
-          <span className="shrink-0 font-mono text-id text-mute">
+          <span className="shrink-0 font-mono text-id">
             {thread.subject_id}
           </span>
-          {thread.tags.map((tag) => (
-            <span key={tag} className="text-pill text-mute">
-              {tag}
+          {thread.tags.length > 0 && (
+            <span aria-hidden className="text-faint">
+              ·
             </span>
+          )}
+          {thread.tags.map((tag) => (
+            <span key={tag}>{tag}</span>
           ))}
         </div>
       </div>
@@ -633,7 +757,7 @@ function OneThread({ id, onBack }: { id: string; onBack: () => void }) {
                   {open.subject_id}
                 </span>
                 {open.tags.map((tag) => (
-                  <Tag key={tag}>{tag}</Tag>
+                  <TagChip key={tag} tag={tag} />
                 ))}
                 <Pill tone={threadTone(open.status)}>
                   {THREAD_STATUS_LABEL[open.status] ?? open.status}
@@ -785,7 +909,7 @@ function OneThread({ id, onBack }: { id: string; onBack: () => void }) {
                   and had to be asked for by name once this stopped being a
                   sheet — a thread that cannot show what was done to it is a
                   thread missing half its history. */}
-              <Activity subject={{ kind: "discussion", id }} />
+              <RecordPanel subject={{ kind: "discussion", id }} />
             </aside>
           </div>
         ),

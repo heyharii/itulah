@@ -130,8 +130,8 @@ export interface Account {
 export interface BankAccount {
   readonly bank_account_id: string
   readonly unit_id: string
-  readonly bank: "BCA" | "MANDIRI" | "BRI" | "BNI"
-  readonly product: "GIRO" | "TABUNGAN"
+  readonly bank: "BCA" | "MANDIRI" | "BRI" | "BNI" | "DANAMON" | "BTN"
+  readonly product: "GIRO" | "TABUNGAN" | "DEPOSITO"
   /// Masked. The prototype never holds a real number.
   readonly number_masked: string
   readonly label: string
@@ -189,6 +189,36 @@ export type AccountRole =
   | "PREPAID_RENT"
   | "SUPPLIER_PAYABLE"
   | "ROUNDING"
+  | "INTEREST_INCOME"
+  | "TIME_DEPOSIT"
+  | "OUTSTANDING_GIRO"
+  | "EMPLOYEE_RECEIVABLE"
+  | "STORE_MANAGER_RECEIVABLE"
+  | "DOUBTFUL_ALLOWANCE"
+  // buying — the client keeps merchandise and non-merchandise payable apart,
+  // on 2012001001 and 2012001003, so the roles are apart too
+  | "VENDOR_PAYABLE"
+  | "UTILITY_EXPENSE"
+  | "ADVANCE"
+  // tax, both sides of it
+  | "TAX_PAYABLE"
+  | "PREPAID_TAX"
+  // financing
+  | "BANK_LOAN"
+  | "LOAN_CURRENT"
+  | "INTEREST_EXPENSE"
+  | "PAID_IN_CAPITAL"
+  | "DRAWINGS"
+  // long-lived costs that are not yet, or never were, a fixed asset
+  | "CIP"
+  | "PRE_OPENING"
+  | "ACCUM_AMORTISATION"
+  | "AMORTISATION_EXPENSE"
+  // stock that leaves without a sale
+  | "INVENTORY_LOSS"
+  | "DISPOSED_INVENTORY"
+  // the fourth affiliate family, 2012304, named after a unit like the rest
+  | "AFFILIATE_OTHER_PAYABLE"
 
 /// The dimensions a binding may be narrowed by. Typed, and the same key on
 /// both sides.
@@ -206,6 +236,9 @@ export interface Dimensions {
   readonly asset_class?: string
   /// The other unit, for an interunit leg.
   readonly counterparty_unit_id?: string
+  /// Which tax. `PPH_21`, `PPH_23`, `VAT_OUT`, `PPH_25`, `PBB` — the client's
+  /// own five, because `2012101` is five accounts and a payment names one.
+  readonly tax_kind?: string
   /// Which card scheme took the money.
   readonly acquirer?: string
   /// Which expense. Closed set, not free text — see `EXPENSE_KINDS`.
@@ -253,7 +286,11 @@ export type Resolution =
 /// What an accounting claim rests on, most authoritative first.
 export type Evidence =
   /// A journal the client actually posted. Carries the document number.
-  | { readonly kind: "ACTUAL_JOURNAL"; readonly document: string; readonly note: string }
+  | {
+      readonly kind: "ACTUAL_JOURNAL"
+      readonly document: string
+      readonly note: string
+    }
   /// Someone at the client said so, in as many words.
   | { readonly kind: "CLIENT_STATEMENT"; readonly note: string }
   /// The chart has accounts that would fit. This is the weakest kind and on
@@ -394,7 +431,11 @@ export interface JournalEntry {
 }
 
 export type PostOutcome =
-  | { readonly ok: true; readonly entry: JournalEntry; readonly replayed?: boolean }
+  | {
+      readonly ok: true
+      readonly entry: JournalEntry
+      readonly replayed?: boolean
+    }
   | {
       readonly ok: false
       readonly code: PostRefusal
@@ -546,7 +587,8 @@ export interface AssetFact {
   readonly condition: "NEW" | "GOOD" | "WORN" | "BROKEN"
   readonly serial?: string
   readonly photo_count: number
-  readonly status: "PROPOSED" | "RECEIVED" | "INSTALLED" | "IN_SERVICE" | "DISPOSED"
+  readonly status:
+    "PROPOSED" | "RECEIVED" | "INSTALLED" | "IN_SERVICE" | "DISPOSED"
   readonly notes?: string
 }
 
@@ -563,7 +605,8 @@ export interface AssetTreatment {
   /// What the monthly charge is CALLED, which decides the pair of accounts.
   /// `NONE` is how operating equipment is treated here until the client
   /// confirms a reserve rate — see the argument in `rules.ts`.
-  readonly charge: "DEPRECIATION" | "AMORTISATION" | "REPLACEMENT_RESERVE" | "NONE"
+  readonly charge:
+    "DEPRECIATION" | "AMORTISATION" | "REPLACEMENT_RESERVE" | "NONE"
   readonly in_service_on: Day
   readonly assessed_by: string
   readonly reason: string

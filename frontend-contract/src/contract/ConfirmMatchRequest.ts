@@ -5,4 +5,12 @@ export type ConfirmMatchRequest = { journal_line_id: string, score: number | nul
  * True when the matcher chose it unaided. Recorded so that an auto-match a
  * person later undoes is evidence the threshold is wrong.
  */
-automatic: boolean, };
+automatic: boolean, 
+/**
+ * How much of the bank line this voucher claims.
+ *
+ * Absent means all that is left of it, which is what every caller meant
+ * before a line could be split and what a caller settling a line in one
+ * go still means. Present is the Friday case: one transfer, two suppliers.
+ */
+allocated_minor?: number | null, };

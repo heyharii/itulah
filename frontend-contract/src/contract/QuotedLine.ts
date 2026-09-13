@@ -16,7 +16,27 @@ unit_price_minor: number,
  * What this line actually comes to. Promotions act on the line, not the
  * unit, so a discounted line is not always a whole number of unit prices.
  */
-line_total_minor: number, price_source: string, publication_version: number, 
+line_total_minor: number, 
+/**
+ * What of `line_total_minor` is goods, and what is tax.
+ *
+ * Three figures rather than one because they answer three questions that
+ * get confused: the net is SALES, the tax is money held for somebody else,
+ * and the line total is what the shopper pays. Under the tax-inclusive
+ * pricing Indonesian retail quotes, the first two sum to the third and the
+ * shopper's total does not move.
+ *
+ * A book that publishes no rate for the category gives `net` equal to the
+ * line total and nought tax — the honest reading of a book that says
+ * nothing, rather than a guessed rate.
+ */
+net_ex_tax_minor: number, tax_minor: number, 
+/**
+ * What this line earned, as the engine allocated it. See D02: allocated
+ * rather than divided, so a return of one line takes back exactly what
+ * that line was given.
+ */
+points_earned: number, price_source: string, publication_version: number, 
 /**
  * Which clearance set this price, when one did.
  *

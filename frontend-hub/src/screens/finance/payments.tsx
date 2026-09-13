@@ -19,12 +19,20 @@ import {
   Select,
   Textarea,
 } from "@/components/ui/field"
+import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { MiniCell, MiniRow, MiniTable, SubHead } from "@/components/ui/rows"
 import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState } from "@/components/ui/states"
+import {
+  Banner,
+  EmptyState,
+  NoAccessState,
+  NoMatch,
+  Truncated,
+} from "@/components/ui/states"
+import { useFilters } from "@/lib/filters"
 import { count, day, label, money, moment, toneFor } from "@/lib/format"
 import {
   financeKeys,
@@ -179,6 +187,22 @@ const columns: ColumnDef<TableSetup, SupplierPayment>[] = [
     accessorFn: (row) => `${row.account_key} ${row.account_qualifier}`,
     header: "From account",
     size: 200,
+    // Which pot the money left, and the one narrowing on this screen that
+    // nothing else offers: "everything that went out of BCA giro this month"
+    // is a bank question and the wire takes a site, not an account. The
+    // accessor is `key qualifier` because that pair IS the identity — the same
+    // meaning at one site legitimately holds one account per bank — so the
+    // label is rebuilt the way Cash & bank draws it rather than printed raw.
+    meta: {
+      filter: {
+        kind: "option",
+        format: (value) => {
+          const [key, ...rest] = value.split(" ")
+          const bank = rest.join(" ").trim()
+          return bank === "" ? label(key) : `${label(key)} · ${bank}`
+        },
+      },
+    },
     // The meaning and which bank, never the raw `bank_giro`. The code the pair
     // resolves to today is in `title` — it is what an accountant quotes.
     cell: ({ row }) => (
@@ -194,7 +218,10 @@ const columns: ColumnDef<TableSetup, SupplierPayment>[] = [
     accessorKey: "total_minor",
     header: "Total",
     size: 150,
-    meta: { align: "right" },
+    meta: {
+      align: "right",
+      filter: { kind: "number", unit: "Rp" },
+    },
     // Sorted on the minor integer and never on the rendered string: "Rp
     // 1.234.567" sorts a million between ten and eleven.
     cell: ({ row }) => (
@@ -207,6 +234,7 @@ const columns: ColumnDef<TableSetup, SupplierPayment>[] = [
     accessorKey: "status",
     header: "Status",
     size: 120,
+    meta: { filter: { kind: "option", format: label } },
     cell: ({ row }) => (
       <Pill tone={toneFor(row.original.status)}>
         {label(row.original.status)}
@@ -218,7 +246,10 @@ const columns: ColumnDef<TableSetup, SupplierPayment>[] = [
     header: "Posted by",
     size: 140,
     // Blank is the answer for a payment nobody has posted, and a dash says so
-    // without pretending the column is missing.
+    // without pretending the column is missing — which is also what makes the
+    // column worth a question: `is empty` is "every payment still in draft",
+    // asked from the side of who has not signed it rather than of its status.
+    meta: { filter: { kind: "option" } },
     cell: ({ row }) =>
       row.original.posted_by === null ? (
         <span className="text-faint">—</span>
@@ -240,6 +271,13 @@ function monthKey(iso: string): string {
   return iso.slice(0, 7)
 }
 
+/// What this screen asks the register for, named once so the chip, the banner
+/// and the request cannot drift apart. It is the server's ceiling and not a
+/// page size: the window, the search box and every column heading below narrow
+/// what is already here, and the outflow chart is summed from it — so this is
+/// the number past which every figure on the screen is about a slice.
+const CAP = 200
+
 export function Payments() {
   const [query, setQuery] = useState("")
   const [site, setSite] = useState("")
@@ -253,14 +291,14 @@ export function Payments() {
   const payments = useQuery({
     queryKey: financeKeys.payments(null, site || null, null),
     queryFn: ({ signal }) =>
-      listPayments({ site: site || undefined, limit: 200 }, signal),
+      listPayments({ site: site || undefined, limit: CAP }, signal),
   })
 
   // The window is applied here and not on the wire: `PaymentQuery` on the node
   // takes a status, a site, a supplier and a limit, and no dates. Narrowing in
-  // the browser over a list that is already capped at 200 is honest as long as
-  // the page says so — which the chip in the toolbar does, naming both the
-  // window and the cap.
+  // the browser over a list that is already capped is honest as long as the
+  // page says so — which the chip in the toolbar does, naming both the window
+  // and the cap.
   const rows = useMemo(
     () =>
       (payments.data ?? []).filter(
@@ -269,18 +307,29 @@ export function Payments() {
     [payments.data, range.from, range.to]
   )
 
+  /// Read off the answer and never off `rows`, which the window has already
+  /// thinned. A fortnight holding nine payments out of a full two hundred is
+  /// still a fortnight missing the ones that fell past the cap.
+  const truncated = (payments.data ?? []).length >= CAP
+
+  const filters = useFilters(columns)
+
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
         data: rows,
-        columns,
+        columns: filters.columns,
         getRowId: (row: SupplierPayment) => row.payment_id,
-        state: { globalFilter: query, sorting },
+        state: {
+          columnFilters: filters.columnFilters,
+          globalFilter: query,
+          sorting,
+        },
         onSortingChange: setSorting,
         onGlobalFilterChange: setQuery,
       }),
-      [rows, query, sorting]
+      [rows, filters.columns, filters.columnFilters, query, sorting]
     )
   )
 
@@ -353,14 +402,25 @@ export function Payments() {
           className="h-8 w-44"
           aria-label="Location"
         />
+        {/* The window and the location are already asked to the left — one in
+            the browser, one on the wire — so neither is offered again in the
+            panel. What is offered is what no control here can reach: which
+            pot the money left, how big it was, and whether anybody has posted
+            it. */}
+        <FilterPanel model={filters} table={table} />
         <Toolbar.Spacer />
         {/* The window is stated rather than implied. The cap is not the
-            window's: 200 is the server's, and a reader who has narrowed to a
-            fortnight should still be told the list can be truncated. */}
+            window's: it is the server's, and a reader who has narrowed to a
+            fortnight should still be told what was asked for. */}
         <span className="text-[0.71875rem] text-mute">
-          {range.chip} · the newest 200 payments
+          {range.chip} · the newest {CAP} payments
         </span>
       </Toolbar>
+
+      {/* Above the chart as well as the table, because the chart is summed
+          from the same rows: a bar that is short because the payments in that
+          month never arrived looks exactly like a quiet month. */}
+      {truncated && <Truncated limit={CAP} noun="payments" />}
 
       {/* Only when something has actually been paid in the window. With every
           payment still in draft the chart would be a row of empty months
@@ -402,6 +462,16 @@ export function Payments() {
       <Card className="overflow-hidden">
         {queryState(payments, {
           loading: "Loading the payments…",
+          // Every `GET /api/v1/finance/…` is behind SUPERVISOR, so a cashier
+          // signed into the hub is refused here rather than served an empty
+          // register — and an empty register is what a refusal would otherwise
+          // be read as, by somebody who then goes looking for the money.
+          refused: (
+            <NoAccessState
+              what="what the company has paid its suppliers"
+              reach="Reading finance takes a supervisor's sign-in; paying out of it, head office's."
+            />
+          ),
           render: () =>
             rows.length === 0 ? (
               <EmptyState>
@@ -414,7 +484,16 @@ export function Payments() {
                 table={table}
                 onRowClick={(row) => payment.open(row.payment_id)}
                 isSelected={(row) => row.payment_id === payment.value}
-                empty="No payment matches that search."
+                // The count is what separates "nothing was paid in this
+                // window" — the sentence above — from "something was, and none
+                // of it matches what you typed".
+                empty={
+                  <NoMatch
+                    what="payments"
+                    held={rows.length}
+                    onClear={() => setQuery("")}
+                  />
+                }
                 className={
                   outflow.payments > 0
                     ? "max-h-[calc(100vh-32rem)]"
@@ -695,7 +774,6 @@ function PaymentSheet({
 const METHODS: readonly { value: string; label: string }[] = [
   { value: "TRANSFER", label: "Transfer" },
   { value: "CASH", label: "Cash" },
-  { value: "CHEQUE", label: "Cheque" },
   { value: "GIRO", label: "Giro" },
   { value: "OTHER", label: "Other" },
 ]

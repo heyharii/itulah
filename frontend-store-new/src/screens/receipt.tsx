@@ -250,7 +250,7 @@ export function ReceiptScreen() {
                 ? "Print another copy"
                 : "Print the receipt"}
           </Button>
-          <Button variant="dark" size="lg" block onClick={() => go("/sell")}>
+          <Button variant="primary" size="lg" block onClick={() => go("/sell")}>
             Next sale
           </Button>
         </div>

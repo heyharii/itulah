@@ -33,7 +33,7 @@ import { ArrowRight, CheckCircle2, CircleDashed, TriangleAlert } from "lucide-re
 export function FinanceOverview() {
   const chart = useQuery({
     queryKey: financeKeys.accounts(),
-    queryFn: ({ signal }) => listAccounts({}, signal),
+    queryFn: ({ signal }) => listAccounts({}, signal).then((page) => page.rows),
     staleTime: 10 * 60 * 1000,
   })
   const map = useQuery({
@@ -42,11 +42,12 @@ export function FinanceOverview() {
   })
   const periods = useQuery({
     queryKey: financeKeys.periods(),
-    queryFn: ({ signal }) => listPeriods(signal),
+    queryFn: ({ signal }) => listPeriods(signal).then((page) => page.rows),
   })
   const journal = useQuery({
     queryKey: financeKeys.journal(),
-    queryFn: ({ signal }) => listJournal({ limit: 200 }, signal),
+    queryFn: ({ signal }) =>
+      listJournal({ limit: 200 }, signal).then((page) => page.rows),
   })
   const balance = useQuery({
     queryKey: financeKeys.trialBalance(),
@@ -56,7 +57,7 @@ export function FinanceOverview() {
   const roots = chart.data?.length ?? 0
   const locations = map.data?.locations.length ?? 0
   const needed = (map.data?.required_keys.length ?? 0) * locations
-  const mapped = map.data?.mappings.length ?? 0
+  const mapped = map.data?.rows.length ?? 0
   const openPeriods = (periods.data ?? []).filter((p) => p.status === "OPEN").length
   const entries = journal.data?.length ?? 0
 

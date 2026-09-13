@@ -2,7 +2,26 @@
 import type { GrantedLine } from "./GrantedLine";
 import type { PromotionOutcome } from "./PromotionOutcome";
 
-export type SaleResult = { sale_id: string, total_minor: number, paid_minor: number, change_minor: number, movement_group_id: string, completed_at: string, 
+export type SaleResult = { sale_id: string, 
+/**
+ * The GOODS. Unchanged in meaning by the arrival of fees, so nothing that
+ * already reads it started counting a courier the day delivery shipped.
+ */
+total_minor: number, 
+/**
+ * The fees on this bill, which are not goods — see
+ * `pricing_engine::Charge`. Nought when none were put on it.
+ */
+charge_total_minor: number, 
+/**
+ * What the shopper owed: `total_minor + charge_total_minor`. **The figure
+ * the tender was measured against**, and the one a receipt totals to.
+ *
+ * Held as its own field rather than left to a caller's addition, because
+ * the caller that forgets is a till that hands the goods over with the
+ * delivery uncollected — and its drawer balances, because it never asked.
+ */
+amount_due_minor: number, paid_minor: number, change_minor: number, movement_group_id: string, completed_at: string, 
 /**
  * What the promotions did, and what they did not do. A cashier asked "why
  * didn't the discount come off" has the answer on the same response that

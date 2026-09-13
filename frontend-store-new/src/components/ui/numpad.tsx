@@ -24,6 +24,10 @@ export function Numpad({
   onDigit: (digit: string) => void
   onBackspace: () => void
   /// The notes a shopper actually hands over. One tap instead of six.
+  ///
+  /// Deliberately the soft fill while the digits below are white: they sit in
+  /// the same grid and do different things, and a cashier reaching for
+  /// "50.000" should never land on a "5".
   quick?: readonly { readonly label: string; readonly minor: number }[]
   onQuick?: (minor: number) => void
   className?: string
@@ -37,7 +41,7 @@ export function Numpad({
               key={note.label}
               type="button"
               onClick={() => onQuick(note.minor)}
-              className="pressable h-11 rounded-full bg-soft-2 text-[0.84375rem] font-medium text-text tabular-nums"
+              className="pressable h-11 rounded-inner bg-soft-2 text-cell font-medium text-text tabular-nums"
             >
               {note.label}
             </button>
@@ -72,7 +76,12 @@ function Key({
     <button
       type="button"
       onClick={onPress}
-      className="pressable grid h-14 place-items-center rounded-inner bg-soft-2 text-[1.25rem] font-medium text-ink tabular-nums"
+      // A key is WHITE with a hairline and a whisper shadow, not a grey fill —
+      // the same recipe as `Button variant="ghost"`, and the same one the POS
+      // prototype draws its pad with. A grid of grey fills reads as one
+      // surface with lines scored into it; white keys with an edge read as
+      // twelve separate things to hit, which is what the hand is looking for.
+      className="pressable grid h-14 place-items-center rounded-inner border border-hairline-2 bg-canvas text-[1.25rem] font-medium text-ink tabular-nums shadow-soft active:bg-soft-2"
       {...props}
     >
       {children}

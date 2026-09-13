@@ -248,6 +248,21 @@ export class Node {
     return this.request<T>("PATCH", path, body, options);
   }
 
+  /// State the whole of something at a known address, however many times.
+  ///
+  /// Distinct from `post` in the way the server distinguishes them, and from
+  /// `patch` in what it promises: `patch` changes one field and leaves the rest,
+  /// `put` replaces the lot. A campaign's intent is the first such route —
+  /// stating an objective twice is somebody changing their mind, not declaring
+  /// a second one, so the same body sent twice has to mean the same thing.
+  ///
+  /// Added when that route arrived rather than in advance, which is the rule
+  /// `patch` above states: a verb with no route behind it is a verb somebody
+  /// uses wrongly.
+  put<T>(path: string, body: unknown, options?: RequestOptions): Promise<T> {
+    return this.request<T>("PUT", path, body, options);
+  }
+
   /// Put something away.
   ///
   /// Here for the same reason `patch` is: a route that answers `DELETE` and

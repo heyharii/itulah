@@ -5,6 +5,7 @@ import { useMemo, type ReactNode } from "react"
 import {
   ITEM,
   POPUP,
+  POSITIONER,
   retarget,
   type FilterOption,
 } from "@/lib/filter-chrome"
@@ -79,7 +80,12 @@ export function OperatorMenu({
     <Menu.Root>
       <Menu.Trigger className={className}>{children}</Menu.Trigger>
       <Menu.Portal>
-        <Menu.Positioner side="bottom" align="start" sideOffset={6}>
+        <Menu.Positioner
+          className={POSITIONER}
+          side="bottom"
+          align="start"
+          sideOffset={6}
+        >
           <Menu.Popup className={cn(POPUP, "min-w-[15rem]")}>
             {sections.map((section) => (
               <Menu.Group key={section.group}>
@@ -144,8 +150,16 @@ export function FilterChip({
   children?: ReactNode
 }) {
   return (
-    <span className="inline-flex h-8 items-stretch overflow-hidden rounded-full border border-hairline-2 bg-canvas text-meta">
-      <span className="flex items-center px-2.5 font-medium text-ink">
+    // `max-w-full`: the chip is as wide as its sentence, and its sentence can
+    // be a supplier's full legal name. In a row it wrapped and in the panel's
+    // 27.5rem column it would simply have hung over the edge, taking the
+    // remove button with it — so the chip gives way at the container's width
+    // and the value segment inside it truncates.
+    <span className="inline-flex h-8 max-w-full items-stretch overflow-hidden rounded-full border border-hairline-2 bg-canvas text-meta">
+      <span
+        title={field.label}
+        className="flex max-w-[10rem] shrink-0 items-center truncate px-2.5 font-medium text-ink"
+      >
         {field.label}
       </span>
 
@@ -153,7 +167,7 @@ export function FilterChip({
         field={field}
         operator={filter.operator}
         onChange={(operator) => onChange(retarget(filter, operator))}
-        className="flex items-center border-x border-hairline bg-soft px-2 font-mono text-[0.6875rem] text-body transition-colors hover:text-ink"
+        className="flex shrink-0 items-center border-x border-hairline bg-soft px-2 font-mono text-[0.6875rem] text-body transition-colors hover:text-ink"
       >
         {operatorSymbol(filter.operator)}
       </OperatorMenu>
@@ -164,7 +178,7 @@ export function FilterChip({
         type="button"
         aria-label={`Remove the ${field.label} filter`}
         onClick={onRemove}
-        className="flex items-center border-l border-hairline px-2 text-line-ico transition-colors hover:bg-soft-2 hover:text-ink"
+        className="flex shrink-0 items-center border-l border-hairline px-2 text-line-ico transition-colors hover:bg-soft-2 hover:text-ink"
       >
         <X className="size-3.5" />
       </button>

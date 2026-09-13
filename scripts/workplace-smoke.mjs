@@ -261,11 +261,15 @@ async function files() {
 
 // --- Reports: every saved report runs, and its totals are its own rows -------
 async function reports() {
+  // An envelope now — rows, a cursor, a total and facet counts — the shape
+  // every other list on this server answers in. It was `{ items }`, built by
+  // hand in a `json!`, which is how the browser ended up holding a
+  // hand-written mirror of it.
   const saved = await api("/api/v1/reports/saved")
-  check("reports - saved reports load", saved.items.length > 0, "no saved reports")
+  check("reports - saved reports load", saved.rows.length > 0, "no saved reports")
 
   let reconciled = 0
-  for (const row of saved.items) {
+  for (const row of saved.rows) {
     const result = await api(`/api/v1/reports/saved/${row.report_id}/run`, {
       method: "POST",
       body: JSON.stringify({ filters: [] }),

@@ -1,0 +1,14 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.app.json" },
+    { "path": "./tsconfig.node.json" }
+  ],
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./src/*"],
+      "@itulah/contract": ["../frontend-contract/src/index.ts"],
+      "@itulah/contract/client": ["../frontend-contract/src/client/index.ts"]
+    }
+  }
+}

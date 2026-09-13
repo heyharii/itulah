@@ -15,8 +15,10 @@ import { screens as commercial } from "@/screens/commercial"
 import { screens as allotment } from "@/screens/allotment"
 import { screens as finance } from "@/screens/finance"
 import { screens as financeLab } from "@/screens/finance-lab"
+import { screens as financeLab2 } from "@/screens/finance-lab-2"
 import { screens as home } from "@/screens/home"
 import { screens as inventory } from "@/screens/inventory"
+import { screens as letters } from "@/screens/letters"
 import { screens as members } from "@/screens/members"
 import { screens as operations } from "@/screens/operations"
 import { screens as people } from "@/screens/people"
@@ -25,6 +27,8 @@ import { screens as reports } from "@/screens/reports"
 import { screens as sales } from "@/screens/sales"
 import { screens as storeops } from "@/screens/storeops"
 import { screens as system } from "@/screens/system"
+import { screens as gaAssets } from "@/screens/assets"
+import { screens as vendors } from "@/screens/vendors"
 import { screens as workplace } from "@/screens/workplace"
 
 /// The route tree, built from the navigation registry.
@@ -67,7 +71,11 @@ const screens: Readonly<Record<string, () => React.ReactNode>> = {
   ...members,
   ...finance,
   ...financeLab,
+  ...financeLab2,
   ...people,
+  ...letters,
+  ...vendors,
+  ...gaAssets,
   ...workplace,
   ...reports,
   ...system,
@@ -124,6 +132,11 @@ const indexRoute = createRoute({
 /// nothing.
 const baseRedirects = [...modules, ...asides]
   .filter((module) => module.base !== undefined && module.base !== module.home)
+  // Only when nothing answers at the base already. System is the first
+  // module whose prefix IS a screen (`/system` is Nodes, its home is Health):
+  // a redirect there would be a second route with the same id, and Router
+  // refuses to start on a duplicate rather than picking one.
+  .filter((module) => !routed.has(module.base!))
   .map((module) =>
     createRoute({
       getParentRoute: () => rootRoute,

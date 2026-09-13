@@ -6,9 +6,25 @@ import type { PurchaseVerifyDecision } from "./PurchaseVerifyDecision";
  */
 export type PurchaseVerifyResult = { count_id: string, po_line_id: string, decision: PurchaseVerifyDecision, counted_by: string, verified_by: string, 
 /**
- * Only set when accepted: what actually became stock.
+ * Only set when accepted: what actually became stock. The checker's
+ * number, unchanged — physical truth is never trimmed to fit an order.
  */
 accepted_quantity: number | null, 
+/**
+ * How much of that the order still had room for.
+ */
+matched_quantity: number | null, 
+/**
+ * And how much it did not. Real goods, commercially unresolved until a
+ * buyer decides; they create no expected value and no liability.
+ */
+excess_quantity: number | null, 
+/**
+ * The agreed price that applied at this moment, written onto the
+ * acceptance so a later amendment cannot restate what this delivery was
+ * worth.
+ */
+agreed_unit_price_minor: number | null, 
 /**
  * Set when the invoice disagreed with the order: the query now waiting
  * for the buyer. The goods went in regardless.

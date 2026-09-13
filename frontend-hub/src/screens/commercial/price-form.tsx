@@ -231,7 +231,12 @@ export function NewPriceSheet({
   const needle = typed.trim()
 
   const results = useQuery({
-    queryKey: commercialKeys.products(needle),
+    // The limit is part of the key because it is part of the ANSWER — the
+    // key's own comment says so: two searches for the same words at different
+    // limits are different answers, and sharing one entry hands the narrower
+    // one a list it thinks is complete. This screen asks for 100 here and 500
+    // below, so they were colliding on a key that named neither.
+    queryKey: commercialKeys.products(needle, 100),
     queryFn: ({ signal }) => commercialProducts(needle, 100, signal),
     // Two characters, because one is every product in the catalogue and the
     // endpoint caps rather than refuses — a silent slice of five hundred is
@@ -248,7 +253,7 @@ export function NewPriceSheet({
   const seeds = seed?.articleCodes ?? []
   const seeded = useQueries({
     queries: seeds.map((code) => ({
-      queryKey: commercialKeys.products(code),
+      queryKey: commercialKeys.products(code, 500),
       queryFn: ({ signal }: { signal: AbortSignal }) =>
         commercialProducts(code, 500, signal),
       enabled: open,
@@ -764,39 +769,27 @@ export function NewPriceSheet({
 
           {books.length > 1 && (
             <Banner tone="info" className="mt-2">
-              {count(books.length)} start dates is {count(books.length)} books.
-              A price carries no date of its own — every till reads the book's
-              window — so publishing this writes one book per date, each taking
-              its own version number. That is safe: a shop loads every book
-              whose window is open, so a book naming one shop adds a price there
-              and leaves the rest standing.
+              {count(books.length)} start dates means {count(books.length)}{" "}
+              books, one per date. A price carries no date of its own — the
+              book's window is what every till reads.
             </Banner>
           )}
 
-          {/* What the tiles and the table above have actually come to, rather
-              than what the number of lit tiles suggests: two shops on one
-              figure and one day are a group, and the same two disagreeing on
-              either are two prices. */}
-          <p className="mt-2 text-[0.71875rem] leading-relaxed text-mute">
+          {/* What the tiles have actually come to, in one line. This was four
+              paragraphs explaining the engine's ranking; the reader is
+              choosing a level, not learning a cascade, and the sentence they
+              need is the consequence — who else this reaches, and who it
+              leaves behind. */}
+          <p className="mt-2 text-[0.71875rem] text-mute">
             {scope === "FLEET"
-              ? "The company price — the level every active product must have, and the one a shop falls back to. It is what a new shop sells at on its first day, without anybody remembering to add it."
+              ? "Every shop — and the price any shop opened later falls back to."
               : targets.some((one) => one.siteIds !== null)
-                ? "Shops that agree on the figure and the day are one price naming them all — a city, a format — rather than a row each. That is the difference the level exists for: a shop added to that group later is priced by it, where a row-per-shop list quietly leaves the new branch on the company price."
+                ? "One price naming several shops. A shop added to the group later is priced by it."
                 : targets.length === 1
-                  ? "A price for this shop alone. It outranks a group price and the company price — but only within the same book: a newer company-wide book supersedes it, because the engine ranks by version first."
-                  : "A price each, because these shops do not agree on the figure or on the day. Leave two of them on the same figure and the same date and they are written as one price naming both, which is what keeps a branch opened later on it."}
+                  ? "This shop only. It beats the company price inside this book."
+                  : "One price each — these shops differ on the figure or the day."}
           </p>
         </div>
-
-        <p className="text-[0.71875rem] leading-relaxed text-mute">
-          A price with no start of its own begins when the book does, and that
-          is decided once, at Publish. It is not a field on a price — the price
-          row carries no dates at all, and the engine reads the publication's
-          window for every price in it — which is why a shop given its own day
-          above goes out as its own book. An end date is a different thing
-          again: a cut that has to stop on a date is a sale price, and that one
-          does carry its own window.
-        </p>
       </div>
     </Sheet>
   )

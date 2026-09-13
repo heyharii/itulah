@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"What the counter window is allowed to ask the shell for","local":true,"windows":["main"],"permissions":["core:default","core:event:default"]}}

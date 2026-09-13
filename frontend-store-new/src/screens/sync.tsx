@@ -190,7 +190,7 @@ export function SyncScreen() {
             </Button>
           )}
           <Button
-            variant="dark"
+            variant="primary"
             size="lg"
             block
             disabled={send.isPending || status?.sender_enabled !== true}

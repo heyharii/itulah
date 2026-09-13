@@ -137,7 +137,18 @@ def main() -> int:
     if status != 200:
         print(f"! cannot read the directory: {status} {existing}", file=sys.stderr)
         return 1
-    known = {row.get("employee_code") for row in (existing or [])}
+    # The route answers with an envelope — rows, cursor, total, facets — so the
+    # page is under "rows". `total` is the whole company rather than this page,
+    # which is how a seed run can tell a short answer from a small company.
+    page = (existing or {}).get("rows") or []
+    known = {row.get("employee_code") for row in page}
+    if (existing or {}).get("next_cursor"):
+        print(
+            f"  … the directory has {(existing or {}).get('total')} people and this"
+            " read stopped at 500; codes past that page will look new and be"
+            " refused as duplicates.",
+            file=sys.stderr,
+        )
 
     added = skipped = 0
     failures: list[str] = []

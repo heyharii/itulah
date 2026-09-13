@@ -40,11 +40,10 @@ pub enum PayError {
         state: &'static str,
         step: &'static str,
     },
-    /// The two-person rule.
-    #[error("{actor} verified this run and may not also approve it")]
-    SameActorVerifiedAndApproved { actor: String },
-    #[error("a sealed run cannot be changed")]
-    RunSealed,
+    /// The two-person rule, in the shape the work actually has: the place
+    /// submits and head office approves, and one name cannot be both.
+    #[error("{actor} submitted this run and may not also approve it")]
+    SameActorSubmittedAndApproved { actor: String },
     #[error("the attendance for {place} in {period} is not closed")]
     AttendanceNotClosed { place: String, period: String },
     #[error("recorded state {claimed} is not what the history produces ({folded})")]
@@ -52,6 +51,23 @@ pub enum PayError {
         claimed: &'static str,
         folded: &'static str,
     },
+
+    // ── the handover to Finance ──────────────────────────────────────────
+    /// The header must agree with its lines — the rule the journal enforces on
+    /// itself at COMMIT, for the reason 0051 gives: a total with no evidence
+    /// behind it is what somebody has to explain from memory later.
+    #[error("the liability is {header} but its breakdown adds up to {lines}")]
+    HandoverDoesNotAddUp { header: i64, lines: i64 },
+    #[error("{employee_id} is owed nothing, so there is no line to hand over")]
+    HandoverLineNotPositive { employee_id: String },
+    #[error("{employee_id} appears twice in the breakdown")]
+    HandoverNamesSomebodyTwice { employee_id: String },
+    /// Not a liability of nought. Nobody at the place has a pay agreement yet,
+    /// and a row claiming the company owes nothing is a claim somebody looked.
+    #[error("this run has nobody on it, so there is nothing to hand to Finance")]
+    NothingToHandOver,
+    #[error("this liability is already recorded as paid")]
+    HandoverAlreadyPaid,
 }
 
 impl PayError {
@@ -69,10 +85,14 @@ impl PayError {
             Self::MalformedIdentity { .. } => "pay_malformed_identity",
             Self::ActionForbidsPayrollStep { .. } => "payroll_action_forbids_step",
             Self::RunNotInState { .. } => "payroll_run_not_in_state",
-            Self::SameActorVerifiedAndApproved { .. } => "payroll_same_actor",
-            Self::RunSealed => "payroll_run_sealed",
+            Self::SameActorSubmittedAndApproved { .. } => "payroll_same_actor",
             Self::AttendanceNotClosed { .. } => "payroll_attendance_not_closed",
             Self::RunStateDoesNotFollowHistory { .. } => "payroll_state_not_from_history",
+            Self::HandoverDoesNotAddUp { .. } => "payroll_handover_does_not_add_up",
+            Self::HandoverLineNotPositive { .. } => "payroll_handover_line_not_positive",
+            Self::HandoverNamesSomebodyTwice { .. } => "payroll_handover_duplicate_line",
+            Self::NothingToHandOver => "payroll_nothing_to_hand_over",
+            Self::HandoverAlreadyPaid => "payroll_handover_already_paid",
         }
     }
 
@@ -87,9 +107,10 @@ impl PayError {
             self,
             Self::PayNotForward { .. }
                 | Self::RunNotInState { .. }
-                | Self::SameActorVerifiedAndApproved { .. }
-                | Self::RunSealed
+                | Self::SameActorSubmittedAndApproved { .. }
                 | Self::AttendanceNotClosed { .. }
+                | Self::NothingToHandOver
+                | Self::HandoverAlreadyPaid
         )
     }
 

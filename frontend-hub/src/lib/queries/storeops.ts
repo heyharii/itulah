@@ -270,16 +270,58 @@ export function saleReceipt(id: string, signal?: AbortSignal) {
   return node.get<Receipt>(`/api/v1/sales/${id}/receipt`, { signal })
 }
 
+/// One value the refund list can be narrowed by, and what those refunds came
+/// to. Counted over what the search leaves, ignoring the filters applied.
+export interface ReturnFacet {
+  readonly value: string
+  readonly label: string | null
+  readonly count: number
+  readonly refund_total_minor: number
+}
+
+export interface ReturnFacets {
+  readonly sites: readonly ReturnFacet[]
+  readonly reasons: readonly ReturnFacet[]
+}
+
+/// A page of refunds, and the shape of everything it was drawn from.
+///
+/// This replaced `{ items, limit }`. Echoing the ceiling back told a caller
+/// what it had asked for, which it already knew, and never whether the answer
+/// was all of them — `total` and `refund_total_minor` are over the whole
+/// matched set, not this page.
+export interface ReturnList {
+  readonly rows: readonly ReturnRow[]
+  readonly next_cursor: string | null
+  readonly total: number
+  readonly refund_total_minor: number
+  readonly facets: ReturnFacets
+}
+
 export function listReturns(
-  filter: { readonly siteId?: string; readonly limit?: number },
+  filter: {
+    readonly siteId?: string
+    readonly q?: string
+    readonly reason?: string
+    readonly sort?: "at" | "number" | "refund" | "site"
+    readonly dir?: "asc" | "desc"
+    readonly cursor?: string
+    readonly limit?: number
+  },
   signal?: AbortSignal
 ) {
-  return node
-    .get<{ items: ReturnRow[]; limit: number }>(
-      `/api/v1/returns${search({ site_id: filter.siteId, limit: filter.limit })}`,
-      { signal }
-    )
-    .then((body) => body.items)
+  return node.get<ReturnList>(
+    `/api/v1/returns${search({
+      site_id: filter.siteId,
+      q: filter.q,
+      reason: filter.reason,
+      sort: filter.sort,
+      dir: filter.dir,
+      cursor: filter.cursor,
+      limit: filter.limit,
+    })}`,
+    { signal }
+  )
 }
 
 export function returnDetail(id: string, signal?: AbortSignal) {

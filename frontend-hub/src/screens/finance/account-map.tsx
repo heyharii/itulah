@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Checkbox, Field, Input } from "@/components/ui/field"
+import { FilterPanel } from "@/components/ui/filter-panel"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
@@ -23,6 +24,7 @@ import {
 } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
+import { useFilters } from "@/lib/filters"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { accountMapGaps } from "@/screens/finance/badges"
 import { AccountPicker } from "@/screens/finance/parts"
@@ -85,6 +87,11 @@ const columns: ColumnDef<TableSetup, KeyRow>[] = [
     accessorKey: "needed_for",
     header: "Needed for",
     size: 240,
+    // Which menu group stops working without it — a closed set of a dozen
+    // names, and the only column here that says what a gap COSTS. Somebody
+    // fixing payables before month end wants those rows and not the other
+    // hundred.
+    meta: { filter: { kind: "option" } },
     cell: ({ row }) => (
       <span className="text-body">{row.original.needed_for}</span>
     ),
@@ -93,6 +100,16 @@ const columns: ColumnDef<TableSetup, KeyRow>[] = [
     accessorKey: "qualified",
     header: "Shape",
     size: 150,
+    // `option` and not `boolean`, because the panel labels a boolean Yes and
+    // No: "Shape is Yes" is not a sentence, and the two arms already have
+    // names the rest of this screen uses.
+    meta: {
+      filter: {
+        kind: "option",
+        format: (value) =>
+          value === "true" ? "One per qualifier" : "One account",
+      },
+    },
     cell: ({ row }) =>
       row.original.qualified ? (
         <Pill tone="info">One per qualifier</Pill>
@@ -116,7 +133,10 @@ const columns: ColumnDef<TableSetup, KeyRow>[] = [
     accessorFn: (row) => row.missing.length,
     header: "Unset",
     size: 110,
-    meta: { align: "right" },
+    // The checkbox above asks "any gap at all"; this asks how big. A meaning
+    // unset at eleven locations and one unset at a single shop are different
+    // afternoons of work.
+    meta: { align: "right", filter: { kind: "number", unit: "locations" } },
     // The decision metric: a meaning missing at eleven locations breaks eleven
     // locations' postings, and it is the first thing to fix.
     cell: ({ row }) =>
@@ -178,18 +198,24 @@ export function AccountMap() {
   const total = gaps.required
   const done = gaps.set
 
+  const filters = useFilters(columns)
+
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
         data: rows,
-        columns,
+        columns: filters.columns,
         getRowId: (row: KeyRow) => row.key,
-        state: { globalFilter: query, sorting },
+        state: {
+          columnFilters: filters.columnFilters,
+          globalFilter: query,
+          sorting,
+        },
         onSortingChange: setSorting,
         onGlobalFilterChange: setQuery,
       }),
-      [rows, query, sorting]
+      [rows, filters.columns, filters.columnFilters, query, sorting]
     )
   )
 
@@ -215,6 +241,7 @@ export function AccountMap() {
           checked={onlyGaps}
           onChange={(next) => setOnlyGaps(next)}
         />
+        <FilterPanel model={filters} table={table} />
         <Toolbar.Spacer />
         {/* The effective answer, in words, like every other toolbar here: how
             much of the bridge is built, in the unit the table counts. */}
@@ -239,7 +266,7 @@ export function AccountMap() {
             <Kpi label="Locations" value={count(map.data.locations.length)} />
             <Kpi
               label="Accounts pointed at"
-              value={count(map.data.mappings.length)}
+              value={count(map.data.rows.length)}
             />
           </KpiStrip>
         </>
@@ -260,7 +287,7 @@ export function AccountMap() {
                 table={table}
                 onRowClick={(row) => mapping.open(row.key)}
                 isSelected={(row) => row.key === mapping.value}
-                empty="No meaning matches that search."
+                empty="No meaning matches the search and filters in force."
                 className="max-h-[calc(100vh-22rem)]"
               />
             ),
@@ -370,7 +397,7 @@ function MappingSheet({
 
               <div className="flex flex-col gap-2">
                 {view.locations.map((location) => {
-                  const set = view.mappings.filter(
+                  const set = view.rows.filter(
                     (row) =>
                       row.semantic_key === semanticKey &&
                       row.site_id === location.site_id

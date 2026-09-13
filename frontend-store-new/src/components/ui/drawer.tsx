@@ -2,7 +2,7 @@ import { Dialog } from "@base-ui/react/dialog"
 
 import { cn } from "@/lib/utils"
 
-/// The hamburger drawer: everything that is not one of the four destinations.
+/// The hamburger drawer: everything that is not one of the tab destinations.
 ///
 /// It slides in from the left over the **white veil**. Nothing in this system
 /// darkens — the content behind a drawer washes toward near-white and stays
@@ -63,7 +63,7 @@ export function DrawerItem({
       type="button"
       onClick={onClick}
       className={cn(
-        "pressable flex h-12 w-full items-center gap-3 rounded-inner px-3 text-left text-[0.875rem] font-medium",
+        "pressable flex h-12 w-full items-center gap-3 rounded-inner px-3 text-left text-control font-medium",
         tone === "bad" ? "text-bad-fg" : "text-text",
       )}
     >

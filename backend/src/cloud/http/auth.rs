@@ -15,14 +15,15 @@ use crate::cloud::{
         ResetPasswordRequest, SetEdgeAssignmentActiveRequest, SetRfidDeviceActiveRequest,
         SetUserActiveRequest, SetUserRoleRequest, UpsertEdgeAssignmentRequest,
     },
-    domain::{required_role, role_allows, Role},
+    domain::{required_role, role_allows, RecordKind, Role},
+    http::audit::{id_in, DeclaredSubject},
     postgres as infrastructure,
 };
 use crate::contract::{CloudMe, LoginRequest, LoginResponse, SessionUser};
 use crate::security::{self, CSRF_COOKIE, SESSION_COOKIE};
 use axum::{
     body::{to_bytes, Body},
-    extract::{Path, Request, State},
+    extract::{Path, Query, Request, State},
     http::{header, HeaderValue},
     middleware::Next,
     response::{IntoResponse, Response},
@@ -281,18 +282,28 @@ pub async fn set_user_role(
     ))
 }
 
-pub async fn list_users(State(state): State<AppState>) -> Result<Json<Value>, AppError> {
-    Ok(Json(infrastructure::list_users(&state.db).await?))
+/// Every login, as an envelope rather than a bare `{items}`.
+///
+/// Exact counts: this answers "who can sign in", and a rough count of that
+/// reads as a fact without being one.
+pub async fn list_users(
+    State(state): State<AppState>,
+    Query(scope): Query<infrastructure::UserScope>,
+) -> Result<Json<infrastructure::UserList>, AppError> {
+    Ok(Json(infrastructure::list_users(&state.db, scope).await?))
 }
 
 pub async fn create_user(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
+    Extension(acted_on): Extension<DeclaredSubject>,
     Json(request): Json<CreateUserRequest>,
 ) -> Result<Json<Value>, AppError> {
-    Ok(Json(
-        infrastructure::create_user(&state.db, request, &principal.username).await?,
-    ))
+    let body = infrastructure::create_user(&state.db, request, &principal.username).await?;
+    if let Some(user_id) = id_in(&body, "id") {
+        acted_on.set(RecordKind::AppUser, user_id);
+    }
+    Ok(Json(body))
 }
 
 pub async fn set_user_active(
@@ -310,9 +321,15 @@ pub async fn set_user_active(
     Ok(Json(json!({"user":user,"policies":policies})))
 }
 
-pub async fn edge_assignments(State(state): State<AppState>) -> Result<Json<Value>, AppError> {
+/// Who may sign in at which node — an envelope rather than a bare `{items}`.
+///
+/// An access surface, so `total` and every facet count is an exact `COUNT(*)`.
+pub async fn edge_assignments(
+    State(state): State<AppState>,
+    Query(scope): Query<infrastructure::EdgeAssignmentScope>,
+) -> Result<Json<infrastructure::EdgeAssignmentList>, AppError> {
     Ok(Json(
-        infrastructure::list_edge_assignments(&state.db).await?,
+        infrastructure::list_edge_assignments(&state.db, scope).await?,
     ))
 }
 
@@ -344,18 +361,29 @@ pub async fn set_edge_assignment_active(
     ))
 }
 
-pub async fn rfid_devices(State(state): State<AppState>) -> Result<Json<Value>, AppError> {
-    Ok(Json(infrastructure::list_rfid_devices(&state.db).await?))
+/// The readers, as an envelope rather than a bare `{items}`. Exact counts, for
+/// the same reason the assignment list has them.
+pub async fn rfid_devices(
+    State(state): State<AppState>,
+    Query(scope): Query<infrastructure::RfidDeviceScope>,
+) -> Result<Json<infrastructure::RfidDeviceList>, AppError> {
+    Ok(Json(
+        infrastructure::list_rfid_devices(&state.db, scope).await?,
+    ))
 }
 
 pub async fn register_rfid_device(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
+    Extension(acted_on): Extension<DeclaredSubject>,
     Json(request): Json<RegisterRfidDeviceRequest>,
 ) -> Result<Json<Value>, AppError> {
-    Ok(Json(
-        infrastructure::register_rfid_device(&state.db, request, &principal.username).await?,
-    ))
+    let body =
+        infrastructure::register_rfid_device(&state.db, request, &principal.username).await?;
+    if let Some(device_id) = id_in(&body, "device_id") {
+        acted_on.set(RecordKind::RfidDevice, device_id);
+    }
+    Ok(Json(body))
 }
 
 pub async fn set_rfid_device_active(

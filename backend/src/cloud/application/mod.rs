@@ -424,26 +424,215 @@ pub struct CorruptProjectionRequest {
     pub delta: i64,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+// The inventory lists' query strings.
+//
+// Every one of these carries `deny_unknown_fields`, which none of them did
+// before: `?pool_id=…&causee=SALE` used to list the whole ledger under a
+// filter the caller believed was applied, and answer 200. It is a 400 now.
+//
+// The additions are additive in the other direction too — every parameter
+// these routes already took is still here and still means what it did.
+
+/// `GET /api/v1/inventory/pools`.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PoolQuery {
     pub as_of: Option<DateTime<Utc>>,
+    /// Free text over the pool id, its label, the site id and the site's name.
+    #[serde(default)]
+    pub q: Option<String>,
+    #[serde(default)]
+    pub site_id: Option<String>,
+    #[serde(default)]
+    pub group: Option<String>,
+    #[serde(default)]
+    pub pool_id: Option<String>,
+    /// `COUNTED` or `NEVER`.
+    #[serde(default)]
+    pub counted: Option<String>,
+    /// `pool`, `site`, `stock`, `on_hand`, `missing`, `observed` or
+    /// `last_count`. Anything else is the house order rather than a 400 — a
+    /// stale bookmark should still open.
+    #[serde(default)]
+    pub sort: Option<String>,
+    /// `desc`, or left out for ascending.
+    #[serde(default)]
+    pub dir: Option<String>,
+    #[serde(default)]
+    pub cursor: Option<String>,
+    #[serde(default)]
+    pub limit: Option<i64>,
+    /// `0` or `false` to skip the exact total and the facet counts.
+    ///
+    /// Defaults to counting. Read as TEXT rather than as a `bool`, because
+    /// serde's `bool` accepts exactly `true` and `false` and **400s on
+    /// `count=0`** — which is what anybody writes. See
+    /// `http::audit::wants_counting`, which is the one place that reads it.
+    #[serde(default)]
+    pub count: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+/// `GET /api/v1/inventory/movements`.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MovementQuery {
     pub pool_id: Option<String>,
     pub subject_id: Option<Uuid>,
     pub limit: Option<i64>,
+    #[serde(default)]
+    pub q: Option<String>,
+    #[serde(default)]
+    pub cause: Option<String>,
+    #[serde(default)]
+    pub actor_id: Option<String>,
+    /// `occurred_at`, `recorded_at`, `quantity` or `cause`.
+    #[serde(default)]
+    pub sort: Option<String>,
+    #[serde(default)]
+    pub dir: Option<String>,
+    #[serde(default)]
+    pub cursor: Option<String>,
+    /// `0` or `false` to skip the exact total and the facet counts.
+    ///
+    /// Defaults to counting. Read as TEXT rather than as a `bool`, because
+    /// serde's `bool` accepts exactly `true` and `false` and **400s on
+    /// `count=0`** — which is what anybody writes. See
+    /// `http::audit::wants_counting`, which is the one place that reads it.
+    #[serde(default)]
+    pub count: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+/// `GET /api/v1/inventory/observations`.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ObservationQuery {
     pub pool_id: Option<String>,
     pub epc: Option<String>,
     pub limit: Option<i64>,
+    #[serde(default)]
+    pub q: Option<String>,
+    #[serde(default)]
+    pub device_id: Option<String>,
+    #[serde(default)]
+    pub method: Option<String>,
+    #[serde(default)]
+    pub site_id: Option<String>,
+    /// `last_seen_at`, `first_seen_at`, `received_at`, `read_count` or `epc`.
+    #[serde(default)]
+    pub sort: Option<String>,
+    #[serde(default)]
+    pub dir: Option<String>,
+    #[serde(default)]
+    pub cursor: Option<String>,
 }
 
+/// `GET /api/v1/inventory/counts`.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CountListQuery {
+    #[serde(default)]
+    pub q: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub site_id: Option<String>,
+    #[serde(default)]
+    pub pool_id: Option<String>,
+    #[serde(default)]
+    pub kind: Option<String>,
+    /// `created_at`, `pool`, `status`, `variance` or `closed_at`.
+    #[serde(default)]
+    pub sort: Option<String>,
+    #[serde(default)]
+    pub dir: Option<String>,
+    #[serde(default)]
+    pub cursor: Option<String>,
+    #[serde(default)]
+    pub limit: Option<i64>,
+}
+
+/// `GET /api/v1/inventory/missing`.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MissingQuery {
+    #[serde(default)]
+    pub q: Option<String>,
+    #[serde(default)]
+    pub pool_id: Option<String>,
+    #[serde(default)]
+    pub site_id: Option<String>,
+    /// `COUNTED` or `NEVER`.
+    #[serde(default)]
+    pub counted: Option<String>,
+    /// `missing_since`, `quantity`, `pool`, `last_observation` or `epc`.
+    #[serde(default)]
+    pub sort: Option<String>,
+    #[serde(default)]
+    pub dir: Option<String>,
+    #[serde(default)]
+    pub cursor: Option<String>,
+    #[serde(default)]
+    pub limit: Option<i64>,
+}
+
+/// `GET /api/v1/inventory/reconciliations`.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReconciliationQuery {
+    #[serde(default)]
+    pub q: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub destination_store_id: Option<String>,
+    /// The sending node's OWN site id — `dc-01` — not the centre's `dc`.
+    #[serde(default)]
+    pub source_dc_id: Option<String>,
+    /// `status`, `destination`, `epc` or `occurred_at`.
+    #[serde(default)]
+    pub sort: Option<String>,
+    #[serde(default)]
+    pub dir: Option<String>,
+    #[serde(default)]
+    pub cursor: Option<String>,
+    #[serde(default)]
+    pub limit: Option<i64>,
+}
+
+/// `GET /api/v1/inventory/control`.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ControlQuery {
+    #[serde(default)]
+    pub q: Option<String>,
+    #[serde(default)]
+    pub site_id: Option<String>,
+    #[serde(default)]
+    pub pool_id: Option<String>,
+    #[serde(default)]
+    pub subject_id: Option<Uuid>,
+    /// `place`, `difference`, `ledger` or `projection`.
+    #[serde(default)]
+    pub sort: Option<String>,
+    #[serde(default)]
+    pub dir: Option<String>,
+    #[serde(default)]
+    pub cursor: Option<String>,
+    #[serde(default)]
+    pub limit: Option<i64>,
+    /// `0` or `false` to skip the exact total and the facet counts.
+    ///
+    /// Defaults to counting. Read as TEXT rather than as a `bool`, because
+    /// serde's `bool` accepts exactly `true` and `false` and **400s on
+    /// `count=0`** — which is what anybody writes. See
+    /// `http::audit::wants_counting`, which is the one place that reads it.
+    #[serde(default)]
+    pub count: Option<String>,
+}
+
+/// `GET /api/v1/inventory/as-of`.
 #[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AsOfQuery {
     pub at: DateTime<Utc>,
     pub site_id: Option<String>,
@@ -477,6 +666,19 @@ pub struct CommercialOfferRuleInput {
 pub struct CreateCommercialPublicationRequest {
     pub version: i64,
     pub name: String,
+    /// What kind of change this book is — UI-001 §6 and UI-002.
+    ///
+    /// `REGULAR_PRICE`, `MARKDOWN`, `CLEARANCE` or `CORRECTION`. Declared at
+    /// publication and **never afterwards**: `protect_commercial_publication`
+    /// refuses every UPDATE to a published book, so a type left off here can
+    /// never be added. That is the right guarantee and it makes this the only
+    /// moment the intent can be captured.
+    ///
+    /// `#[serde(default)]` keeps every caller written before this field
+    /// working, and those books read as `UNCLASSIFIED` — which is true of them
+    /// and is not a classification anybody chose.
+    #[serde(default)]
+    pub change_type: Option<String>,
     pub effective_from: DateTime<Utc>,
     pub effective_to: Option<DateTime<Utc>>,
     pub tax_rules: Vec<CommercialTaxRuleInput>,
@@ -606,6 +808,14 @@ pub struct CommercialCampaignInput {
     pub budget_minor: Option<i64>,
     #[serde(default)]
     pub max_uses: Option<i64>,
+    /// The shops the campaign runs in. Empty or absent is everywhere.
+    ///
+    /// A shared CONSTRAINT, not a default that a rule overrides: a rule inside
+    /// the campaign runs where both lists allow, so naming six shops here
+    /// cannot be widened back to thirteen by a rule that names thirteen. That
+    /// is the same way the campaign's window already binds.
+    #[serde(default)]
+    pub site_ids: Vec<String>,
     /// The banner a shop puts in front of a shopper, the words on it, and the
     /// small print under it.
     ///
@@ -638,6 +848,19 @@ pub struct CreateSaleRequest {
     pub site_id: String,
     pub channel: CommercialChannel,
     pub actor_id: String,
+    /// The shopper, when they are known.
+    ///
+    /// Carried from the start of the basket rather than attached at the end,
+    /// because it decides things that happen along the way: a member-only offer
+    /// is evaluated while the basket is being priced, and points accrue against
+    /// whoever this is.
+    ///
+    /// `#[serde(default)]` so every caller that has never sent one keeps
+    /// working and keeps meaning what it meant — an anonymous sale. Absent is
+    /// not "unknown member"; it is a sale nobody identified, which is most of
+    /// them.
+    #[serde(default)]
+    pub customer_id: Option<String>,
     pub idempotency_key: String,
 }
 
@@ -717,9 +940,14 @@ pub struct CommercialProductQuery {
 ///
 /// The one exception is the price bounds, which cannot be applied first: what
 /// a style costs is the answer, not the question. They filter the priced rows
-/// on the way out, and `total_article_count` still counts the catalogue, so a
-/// reader is never told the range is smaller than it is.
+/// on the way out, and `total` still counts what the SQL matched, so a reader
+/// is never told the range is smaller than it is.
+///
+/// `deny_unknown_fields` because a misspelled filter is worse than a refused
+/// one: `?divisionss=KIDS` narrows nothing, the caller believes a filter is
+/// applied, and the screen prices the whole catalogue under it.
 #[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ArticlePriceQuery {
     pub channel: CommercialChannel,
     #[serde(default)]
@@ -729,6 +957,17 @@ pub struct ArticlePriceQuery {
     /// nobody meant to make.
     #[serde(default)]
     pub limit: Option<i64>,
+    /// `article_code`, `name`, `division` or `sku_count`. Anything else is the
+    /// house order rather than a 400 — see `ArticlePriceScope::sort`, which
+    /// also says why there is no sort by price.
+    #[serde(default)]
+    pub sort: Option<String>,
+    /// `desc` and nothing else.
+    #[serde(default)]
+    pub dir: Option<String>,
+    /// A `next_cursor` from the previous page, verbatim.
+    #[serde(default)]
+    pub cursor: Option<String>,
     /// Article code, article name, or SKU code — the three things somebody has
     /// in front of them when they go looking for a style.
     #[serde(default)]
@@ -779,7 +1018,11 @@ impl ArticlePriceQuery {
 /// the whole book, and a chip that arrives after it has already been paid for.
 /// The operator list the filter bar offers on these columns is cut to what is
 /// here — an operator the request cannot carry is a chip that narrows nothing.
+/// `deny_unknown_fields`, so a misspelled filter is refused rather than quietly
+/// ignored: `?statuss=ISSUED` narrows nothing, the caller believes a filter is
+/// applied, and the screen shows the whole book as though it were a shortlist.
 #[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PurchaseOrderQuery {
     /// PO number, supplier name or supplier code.
     #[serde(default)]
@@ -796,6 +1039,41 @@ pub struct PurchaseOrderQuery {
     pub issued_from: Option<chrono::NaiveDate>,
     #[serde(default)]
     pub issued_to: Option<chrono::NaiveDate>,
+    /// `issued` (the default), `po_number`, `supplier`, `value` or `expected`.
+    /// Anything else is the house order rather than a 400 — see
+    /// `PurchaseOrderFilter::sort`.
+    #[serde(default)]
+    pub sort: Option<String>,
+    /// `asc` or `desc`. Absent means each key's own natural direction.
+    #[serde(default)]
+    pub dir: Option<String>,
+    /// A `next_cursor` from the previous page, verbatim.
+    #[serde(default)]
+    pub cursor: Option<String>,
+    #[serde(default)]
+    pub limit: Option<i64>,
+}
+
+/// How the buyer's inbox of price queries is narrowed, ordered and paged.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PriceAmendmentQuery {
+    /// PO number, article code, article name, or who asked.
+    #[serde(default)]
+    pub q: Option<String>,
+    /// Warehouse ids, comma separated. Empty means every one of them.
+    #[serde(default)]
+    pub origin: Option<String>,
+    /// `requested` (the default), `difference` or `po_number`.
+    #[serde(default)]
+    pub sort: Option<String>,
+    /// `asc` or `desc`. Absent means each key's own natural direction — oldest
+    /// question first, because this is a queue.
+    #[serde(default)]
+    pub dir: Option<String>,
+    /// A `next_cursor` from the previous page, verbatim.
+    #[serde(default)]
+    pub cursor: Option<String>,
     #[serde(default)]
     pub limit: Option<i64>,
 }
@@ -852,7 +1130,15 @@ pub struct AllotmentQuery {
     pub limit: Option<i64>,
 }
 
+/// `GET /api/v1/inventory/availability`.
+///
+/// This route already narrowed on the server — the search, the keyset cursor,
+/// the `held`/`shortfall` filters and `total_items` were all here — so it
+/// keeps its own shape. The one thing it was missing is the refusal below:
+/// `?heldd=true` used to answer 200 with the whole catalogue, under a filter
+/// the caller believed was applied.
 #[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AvailabilityQuery {
     pub at: Option<DateTime<Utc>>,
     pub source_pool_id: Option<String>,
@@ -884,8 +1170,37 @@ pub struct AvailabilityQuery {
     pub unbounded: bool,
 }
 
+/// What a caller is asking the rejected-event list for.
+///
+/// `deny_unknown_fields`, so a misspelled filter is refused rather than quietly
+/// listing every rejection under one the caller believes is applied. `limit` is
+/// still here and still means what it did.
 #[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DeadLetterQuery {
+    /// Free text over the node, the event type and the reason it was refused.
+    /// Deliberately not the payload: it is arbitrary JSON written by whichever
+    /// handler produced the event, so a search over it would match on whatever
+    /// one lane happened to record, which is not a rule anybody could predict.
+    #[serde(default)]
+    pub q: Option<String>,
+    #[serde(default)]
+    pub origin_id: Option<String>,
+    #[serde(default)]
+    pub event_type: Option<String>,
+    #[serde(default)]
+    pub reason: Option<String>,
+    /// `at`, `origin` or `type`. Anything else is `at` rather than a 400, so a
+    /// stale bookmark still opens.
+    #[serde(default)]
+    pub sort: Option<String>,
+    /// `asc` and nothing else. Absent means descending — a rejection list is
+    /// read newest-first.
+    #[serde(default)]
+    pub dir: Option<String>,
+    /// A `next_cursor` from the previous page, verbatim.
+    #[serde(default)]
+    pub cursor: Option<String>,
     pub limit: Option<i64>,
 }
 
@@ -940,9 +1255,34 @@ pub struct CreateReturnRequest {
     pub idempotency_key: String,
 }
 
+/// What a caller is asking the returns list for.
+///
+/// `deny_unknown_fields`, so `?site=STORE-01` is refused rather than quietly
+/// listing every shop's refunds under a filter the caller believes is applied.
+/// Both parameters this route already had — `site_id` and `limit` — are still
+/// here and still mean what they did.
 #[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ReturnQuery {
     pub site_id: Option<String>,
+    /// Free text over the two numbers somebody has in their hand: the return's
+    /// own and the sale it came off.
+    #[serde(default)]
+    pub q: Option<String>,
+    /// Why it came back. One reason.
+    #[serde(default)]
+    pub reason: Option<String>,
+    /// `at`, `number`, `refund` or `site`. Anything else is `at` rather than a
+    /// 400, so a stale bookmark still opens.
+    #[serde(default)]
+    pub sort: Option<String>,
+    /// `asc` and nothing else. Absent means descending — a refund list is read
+    /// newest-first.
+    #[serde(default)]
+    pub dir: Option<String>,
+    /// A `next_cursor` from the previous page, verbatim.
+    #[serde(default)]
+    pub cursor: Option<String>,
     pub limit: Option<i64>,
 }
 

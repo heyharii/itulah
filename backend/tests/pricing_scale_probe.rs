@@ -108,6 +108,7 @@ fn how_the_pricing_path_scales() {
             &basket,
             &[],
             None,
+            &[],
         )
         .unwrap_or_else(|e| panic!("quote: {e}"));
         let sale = started.elapsed();

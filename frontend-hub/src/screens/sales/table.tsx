@@ -72,7 +72,7 @@ export function SalesTable({
   }
 
   const HEAD =
-    "sticky top-0 h-8 border-b border-hairline bg-canvas px-3 text-eyebrow font-semibold whitespace-nowrap text-mute uppercase"
+    "sticky top-0 h-10 border-b border-hairline bg-canvas px-3 text-cell font-normal whitespace-nowrap text-body"
   const FIGURE =
     "w-full cursor-pointer px-3 pt-1.5 text-right tabular-nums transition-colors hover:bg-soft-2 disabled:cursor-default disabled:hover:bg-transparent"
 

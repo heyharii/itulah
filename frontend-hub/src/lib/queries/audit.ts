@@ -1,4 +1,4 @@
-import type { AuditEntry } from "@itulah/contract"
+import type { AuditEntry, AuditFeed } from "@itulah/contract"
 
 import { node } from "@/lib/api"
 
@@ -6,7 +6,7 @@ import { node } from "@/lib/api"
 ///
 /// `AuditEntry` is generated from the Rust struct the server serialises — see
 /// `cloud/postgres/audit.rs`. Do not transcribe it here.
-export type { AuditEntry }
+export type { AuditEntry, AuditFeed }
 
 export const auditKeys = {
   all: ["audit"] as const,
@@ -17,17 +17,20 @@ export const auditKeys = {
   feed: (actor: string | null) => ["audit", "feed", actor] as const,
 }
 
+/// One record's history. The server answers an envelope — rows, a cursor and
+/// an exact total — and this sheet reads the first page of it, which is what it
+/// always showed. `total` is now available to say when there is more.
 export function auditForSubject(
   kind: string,
   id: string,
   signal?: AbortSignal
-): Promise<AuditEntry[]> {
+): Promise<AuditFeed> {
   const params = new URLSearchParams({
     subject_kind: kind,
     subject_id: id,
     limit: "100",
   })
-  return node.get<AuditEntry[]>(`/api/v1/audit?${params.toString()}`, {
+  return node.get<AuditFeed>(`/api/v1/audit?${params.toString()}`, {
     signal,
   })
 }
@@ -36,10 +39,10 @@ export function recentAudit(
   actor: string | null,
   limit = 200,
   signal?: AbortSignal
-): Promise<AuditEntry[]> {
+): Promise<AuditFeed> {
   const params = new URLSearchParams({ limit: String(limit) })
   if (actor) params.set("actor", actor)
-  return node.get<AuditEntry[]>(`/api/v1/audit?${params.toString()}`, {
+  return node.get<AuditFeed>(`/api/v1/audit?${params.toString()}`, {
     signal,
   })
 }
@@ -52,6 +55,20 @@ export function recentAudit(
 /// means one mapping rather than one per screen.
 export function readAction(entry: AuditEntry): string {
   const parts = entry.path.replace(/^\/api\/v1\//, "").split("/")
+
+  // The generic record surface, which the rule below cannot read: its verb is
+  // not the last segment. `.../tags/DENIM` would say "DENIM", which names the
+  // word and not the act, and `PATCH /comments/{id}` has no verb at all and
+  // would fall through to the bare "Changed".
+  if (parts[0] === "records" && parts[3] === "comments") return "Commented"
+  if (parts[0] === "records" && parts[3] === "tags") {
+    const word = parts[4] ?? ""
+    return entry.method === "DELETE" ? `Untagged ${word}` : `Tagged ${word}`
+  }
+  if (parts[0] === "comments") {
+    return entry.method === "DELETE" ? "Comment removed" : "Comment edited"
+  }
+
   const isId = (part: string) => /^[0-9a-f-]{20,}$/i.test(part)
 
   // A verb is a segment that comes AFTER the record's own id. Without that

@@ -33,7 +33,7 @@ export function PeriodsScreen() {
   const [pending, setPending] = useState<{ year: number; month: number } | null>(null)
   const periods = useQuery({
     queryKey: financeKeys.periods(),
-    queryFn: ({ signal }) => listPeriods(signal),
+    queryFn: ({ signal }) => listPeriods(signal).then((page) => page.rows),
   })
 
   const invalidate = () => {

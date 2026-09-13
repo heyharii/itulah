@@ -37,10 +37,8 @@ export function Kpi({
     // three one-line ones used to drop that card's number half a line below
     // the rest of the row, which reads as four unrelated boxes instead of one
     // strip — and a long label is not something the caller can always shorten.
-    <div className="flex h-full flex-col rounded-[0.8125rem] border border-hairline bg-canvas px-3.5 py-3 shadow-soft">
-      <div className="text-eyebrow font-semibold text-mute uppercase">
-        {label}
-      </div>
+    <div className="flex h-full flex-col rounded-card border border-hairline bg-canvas px-4 py-[0.8125rem] shadow-soft">
+      <div className="text-eyebrow font-medium text-body">{label}</div>
       <div className="mt-auto pt-[0.4375rem] text-[1.125rem] leading-none font-semibold tracking-[-0.02em] text-ink tabular-nums">
         {value}
       </div>

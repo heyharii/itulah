@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/inventory-time-machine", "crates/object-store", "crates/pricing-engine"]
+members = [".", "crates/inventory-time-machine", "crates/object-store", "crates/pricing-engine", "crates/tax"]
 default-members = ["."]
 resolver = "2"
 
@@ -75,6 +75,7 @@ qrcode = { version = "=0.14.1", default-features = false, features = ["svg"] }
 rusqlite = { version = "=0.32.1", features = ["bundled", "chrono"] }
 rust_decimal = { version = "=1.37.1", features = ["serde-with-str"] }
 serde = { version = "=1.0.219", features = ["derive"] }
+retail-tax = { path = "crates/tax" }
 serde_json = "=1.0.140"
 sha2 = "=0.10.9"
 sqlx = { version = "=0.8.6", features = ["runtime-tokio-rustls", "postgres", "chrono", "uuid", "rust_decimal", "migrate"] }

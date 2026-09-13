@@ -81,6 +81,7 @@ fn queued_facts(edge: &SqliteEdge) -> Vec<(String, serde_json::Value)> {
 /// are the point.
 fn cash(amount_minor: i64) -> Vec<SaleTender> {
     vec![SaleTender {
+        voucher_authorization_id: None,
         method: PaymentMethod::Cash,
         amount_minor,
         reference: None,
@@ -94,6 +95,7 @@ fn a_sale_queues_its_money_alongside_its_stock_movement() {
 
     let sale = edge
         .complete_sale(SaleRequest {
+            charges: Vec::new(),
             coupon_codes: Vec::new(),
             customer_id: None,
             idempotency_key: "sale-1".into(),
@@ -130,6 +132,7 @@ fn an_idempotent_replay_of_a_sale_queues_no_second_money_fact() {
     let edge = shop();
     stock_one(&edge, "EPC90000002", "GULA-1KG", 15_000, "b");
     let request = SaleRequest {
+        charges: Vec::new(),
         coupon_codes: Vec::new(),
         customer_id: None,
         idempotency_key: "sale-2".into(),
@@ -303,6 +306,7 @@ fn a_basket_paid_half_on_a_card_records_both_halves() {
 
     let sale = edge
         .complete_sale(SaleRequest {
+            charges: Vec::new(),
             coupon_codes: Vec::new(),
             customer_id: None,
             idempotency_key: "sale-split".into(),
@@ -310,11 +314,13 @@ fn a_basket_paid_half_on_a_card_records_both_halves() {
             epcs: vec!["EPC90000010".into()],
             tenders: vec![
                 SaleTender {
+                    voucher_authorization_id: None,
                     method: PaymentMethod::Card,
                     amount_minor: 150_000,
                     reference: Some("BCA auth 4471".into()),
                 },
                 SaleTender {
+                    voucher_authorization_id: None,
                     method: PaymentMethod::Cash,
                     amount_minor: 100_000,
                     reference: None,
@@ -379,12 +385,14 @@ fn a_card_cannot_be_charged_above_the_basket() {
     let edge = shop();
     stock_one(&edge, "EPC90000011", "CELANA", 100_000, "over");
     let refusal = edge.complete_sale(SaleRequest {
+        charges: Vec::new(),
         coupon_codes: Vec::new(),
         customer_id: None,
         idempotency_key: "sale-over".into(),
         actor_id: "kasir-1".into(),
         epcs: vec!["EPC90000011".into()],
         tenders: vec![SaleTender {
+            voucher_authorization_id: None,
             method: PaymentMethod::Card,
             amount_minor: 150_000,
             reference: None,
@@ -402,12 +410,14 @@ fn a_reference_that_looks_like_a_card_number_is_refused() {
     let edge = shop();
     stock_one(&edge, "EPC90000012", "TOPI", 50_000, "pan");
     let refusal = edge.complete_sale(SaleRequest {
+        charges: Vec::new(),
         coupon_codes: Vec::new(),
         customer_id: None,
         idempotency_key: "sale-pan".into(),
         actor_id: "kasir-1".into(),
         epcs: vec!["EPC90000012".into()],
         tenders: vec![SaleTender {
+            voucher_authorization_id: None,
             method: PaymentMethod::Card,
             amount_minor: 50_000,
             reference: Some("4571 2234 9981 0043".into()),

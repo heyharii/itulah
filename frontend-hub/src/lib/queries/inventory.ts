@@ -1,4 +1,5 @@
 import { node } from "@/lib/api"
+import type { Filter } from "@/lib/filters"
 import type { MovementCause } from "@itulah/contract"
 
 /// Inventory reads and writes, and the keys they are held under.
@@ -70,6 +71,16 @@ export interface Pool {
   readonly lost_rate: number | null
   readonly lost_quantity: number | null
   readonly exposure: number | null
+  /// When this pool was last counted, and **null when it never has been.**
+  ///
+  /// Three of the fleet's hundred and twelve pools have ever been counted. A
+  /// zero or an epoch here would put a number on that absence and read as
+  /// "counted, and found nothing", which is the one thing it does not mean.
+  ///
+  /// Optional rather than always present: `/inventory/pools` and `/as-of`
+  /// carry it, the fleet read's Edge-derived rows have no count history to
+  /// carry.
+  readonly last_counted_at?: string | null
 }
 
 /// Who owns a pool's number, and whether Cloud may write to it.
@@ -119,6 +130,52 @@ export interface PoolList {
   readonly lost_risk_window_days: number
   readonly inventory_equation: string
   readonly items: readonly Pool[]
+}
+
+/// One value a filter can take, and how many rows carry it.
+///
+/// Counted over what the SEARCH leaves and deliberately not over the filters
+/// already applied, so the number reads "how many of these there are" rather
+/// than "how many survive what you already ticked". Every inventory list
+/// answers with these; the generated `InventoryFacet` in `@itulah/contract` is
+/// the authority.
+export interface InventoryFacet {
+  readonly value: string
+  /// What to draw when it differs from the value — a site's name against its
+  /// id. Null when the value is already the label.
+  readonly label: string | null
+  readonly count: number
+}
+
+/// The envelope `GET /inventory/pools` and `GET /inventory/as-of` answer with.
+///
+/// `PoolList` above is the same answer with `rows` renamed to `items`, which
+/// is what `inventoryAsOf` hands the screens that already read a list. Anything
+/// that wants the total, the facets or a page reads this.
+export interface PoolPage {
+  readonly as_of: string
+  readonly read_only: boolean
+  readonly observed_window_hours: number
+  readonly lost_risk_window_days: number
+  readonly inventory_equation: string
+  readonly outbound_rollup_equation: string
+  readonly lost_risk_formula: string
+  readonly rows: readonly Pool[]
+  /// Opaque. Pass it back as `cursor`; null means this was the last page.
+  readonly next_cursor: string | null
+  /// Every pool the search and the filters match, not just this page.
+  ///
+  /// **Null means NOT COUNTED, never none.** The route takes `?count=0` and
+  /// answers without this and without the facets; a screen reading it has to
+  /// draw the absence as an absence — an em dash — rather than as a zero.
+  readonly total: number | null
+  readonly facets: {
+    readonly sites: readonly InventoryFacet[]
+    readonly groups: readonly InventoryFacet[]
+    /// COUNTED and NEVER. Three of the fleet's hundred and twelve pools have
+    /// ever been counted, and NEVER is not a zero — see `Pool.last_counted_at`.
+    readonly counted: readonly InventoryFacet[]
+  } | null
 }
 
 export interface FleetTotalDiagnostics {
@@ -450,7 +507,11 @@ export interface RollupDifference {
 
 export interface ControlStatus {
   readonly ledger_fact_count: number
-  readonly projection_difference_count: number
+  /// **Null means NOT COUNTED** — the caller passed `?count=0` — and never
+  /// none. `ledger_health` beside it is never null: whether the two agree at
+  /// all is answered by whether the first page of differences is empty, which
+  /// the server gets for nothing.
+  readonly projection_difference_count: number | null
   readonly outbound_rollup_status: "MATCH" | "DIFFERENCE"
   readonly outbound_rollup_difference_count: number
   /// HEALTHY when both the row-level and the rollup comparisons match.
@@ -468,6 +529,22 @@ export interface ControlStatus {
   } | null
   readonly differences: readonly ProjectionDifference[]
   readonly outbound_rollup_differences: readonly RollupDifference[]
+}
+
+/// What the route actually sends. The differences are an envelope — paged,
+/// with their own total — and `controlStatus` unwraps them into the flat array
+/// the screen reads. `projection_difference_count` beside it is the SAME
+/// number as `differences.total`, and is the count rather than the page.
+export interface ControlAnswer extends Omit<ControlStatus, "differences"> {
+  readonly differences: {
+    readonly rows: readonly ProjectionDifference[]
+    readonly next_cursor: string | null
+    readonly total: number | null
+    readonly facets: {
+      readonly pools: readonly InventoryFacet[]
+      readonly sites: readonly InventoryFacet[]
+    } | null
+  }
 }
 
 /// Narrows what replay and repost look at. All three fields optional; absent
@@ -1045,6 +1122,20 @@ export interface CountBoard {
   readonly history: readonly CountRow[]
 }
 
+/// The envelope `GET /inventory/counts` answers with. `listCounts` folds it
+/// back into a `CountBoard`; the four buckets are the `statuses` facet now.
+export interface CountPage {
+  readonly rows: readonly CountRow[]
+  readonly next_cursor: string | null
+  readonly total: number
+  readonly facets: {
+    readonly statuses: readonly InventoryFacet[]
+    readonly sites: readonly InventoryFacet[]
+    readonly pools: readonly InventoryFacet[]
+    readonly kinds: readonly InventoryFacet[]
+  }
+}
+
 /// One counted subject. `subject_id` is **absent** on an edge-owned count:
 /// those lines are the DC's verbatim result fact, and the DC speaks in EPCs
 /// and SKU codes, not in cloud UUIDs.
@@ -1058,9 +1149,14 @@ export interface CountLine {
 
 export interface CountScope {
   readonly sku_ids: readonly string[]
-  /// Filled in at activation, not at creation — empty on a draft.
-  readonly sku_codes: readonly string[]
-  readonly epcs: readonly string[]
+  /// **Optional on the wire, and it has to be.** Both are written into the
+  /// stored scope at ACTIVATION — `counts.rs` resolves each `sku_id` to its
+  /// code there — so a count whose scope was written before that step, or by
+  /// a seed, comes back as `{"sku_ids": []}` and nothing else. Typed as
+  /// present, `data.scope.sku_codes.length` threw and took the whole count
+  /// sheet down with it; every read of these has to survive the absence.
+  readonly sku_codes?: readonly string[]
+  readonly epcs?: readonly string[]
 }
 
 export interface CountDetail {
@@ -1275,6 +1371,10 @@ export const inventoryKeys = {
     ["inventory", "allotments", "by-pool", poolId] as const,
 
   counts: () => ["inventory", "counts"] as const,
+  /// The book under the question that was asked of it, under the same prefix
+  /// as the board so one invalidation drops both.
+  countsScoped: (scope: CountBookScope) =>
+    ["inventory", "counts", "scoped", scope] as const,
   count: (id: string) => ["inventory", "counts", id] as const,
 
   observations: (poolId: string, epc: string) =>
@@ -1283,7 +1383,13 @@ export const inventoryKeys = {
 
   missing: () => ["inventory", "missing"] as const,
 
-  movements: (poolId: string) => ["inventory", "movements", poolId] as const,
+  /// The ledger, under the question that was asked of it. Scoped and unscoped
+  /// spellings share a prefix, so one `invalidateQueries` on `movements()`
+  /// still drops every narrowed page a screen is holding.
+  movements: (scope?: MovementScope) =>
+    scope === undefined
+      ? (["inventory", "movements"] as const)
+      : (["inventory", "movements", "scoped", scope] as const),
 
   control: () => ["inventory", "control"] as const,
   timeMachineState: (seq: string, poolId: string) =>
@@ -1344,11 +1450,13 @@ export function inventoryAsOf(
   siteId: string,
   poolId: string,
   signal?: AbortSignal
-) {
-  return node.get<PoolList>(
-    `/api/v1/inventory/as-of${search({ at, site_id: siteId, pool_id: poolId })}`,
-    { signal }
-  )
+): Promise<PoolList> {
+  return node
+    .get<PoolPage>(
+      `/api/v1/inventory/as-of${search({ at, site_id: siteId, pool_id: poolId })}`,
+      { signal }
+    )
+    .then((page) => ({ ...page, items: page.rows }))
 }
 
 export function availability(
@@ -1484,15 +1592,96 @@ export function allotmentsByArticle(
   )
 }
 
-/// The count board — drafts, active, needs review, history — already
-/// partitioned by the server.
-export function listCounts(signal?: AbortSignal) {
-  return node.get<CountBoard>("/api/v1/inventory/counts", { signal })
+/// The count board — drafts, active, needs review, history.
+///
+/// The server used to hand the four buckets over already partitioned; it
+/// answers with one envelope and a `statuses` facet now, which is the same
+/// information with the partition as a filter somebody can change rather than
+/// one baked into the route. The four arrays are rebuilt here, so every screen
+/// that reads a board still reads a board — one place unwraps the envelope
+/// rather than four.
+///
+/// A screen that wants the total, the facets or a page asks
+/// `GET /inventory/counts` for `CountPage` itself.
+export function listCounts(signal?: AbortSignal): Promise<CountBoard> {
+  return node
+    .get<CountPage>("/api/v1/inventory/counts", { signal })
+    .then((page) => ({
+      drafts: page.rows.filter((row) => row.status === "DRAFT"),
+      active: page.rows.filter((row) => row.status === "ACTIVE"),
+      needs_review: page.rows.filter((row) => row.status === "REVIEW"),
+      history: page.rows.filter((row) => row.status === "CLOSED"),
+    }))
+}
+
+/// What the count book can be asked for.
+///
+/// Every field is a parameter `GET /api/v1/inventory/counts` answers.
+export interface CountBookScope {
+  /// Free text over the pool id, the reason, and who opened it.
+  readonly q?: string
+  /// `DRAFT`, `ACTIVE`, `REVIEW` or `CLOSED`.
+  readonly status?: string
+  readonly site_id?: string
+  readonly pool_id?: string
+  /// `FULL`, `CYCLE` or `TARGETED`.
+  readonly kind?: string
+  /// `created_at` (the house order), `pool`, `status`, `variance` or
+  /// `closed_at`.
+  readonly sort?: string
+  readonly desc?: boolean
+  readonly limit?: number
+  readonly cursor?: string
+}
+
+/// The chips as the parameters the endpoint answers. See
+/// `movementScopeFromFilters` for why this lives beside the fetcher.
+export function countScopeFromFilters(
+  filters: readonly Filter[]
+): CountBookScope {
+  const scope: { -readonly [K in keyof CountBookScope]: CountBookScope[K] } = {}
+  for (const { column, operator, values } of filters) {
+    if (values.length === 0 || operator !== "isAnyOf") continue
+    if (column === "status") scope.status = values[0]
+    else if (column === "kind") scope.kind = values[0]
+    else if (column === "site_id") scope.site_id = values[0]
+    else if (column === "pool_id") scope.pool_id = values[0]
+  }
+  return scope
+}
+
+/// The count book: searched, filtered, sorted and paged by the server.
+///
+/// `listCounts` above folds the same envelope back into the four buckets the
+/// board used to be, for the screens that read a board. This is the envelope
+/// itself, for the screen that draws the list — the total, the facets and the
+/// cursor are the three things folding it throws away.
+export function countsPage(scope: CountBookScope, signal?: AbortSignal) {
+  return node.get<CountPage>(
+    `/api/v1/inventory/counts${search({
+      q: scope.q,
+      status: scope.status,
+      site_id: scope.site_id,
+      pool_id: scope.pool_id,
+      kind: scope.kind,
+      sort: scope.sort,
+      dir: scope.desc === true ? "desc" : undefined,
+      limit: scope.limit,
+      cursor: scope.cursor,
+    })}`,
+    { signal }
+  )
 }
 
 export function countDetail(id: string, signal?: AbortSignal) {
   return node.get<CountDetail>(`/api/v1/inventory/counts/${id}`, { signal })
 }
+
+/// What one sweep list asks for, exported so the screen's "this was cut off"
+/// banner and this request cannot disagree about the number. The pool and the
+/// EPC go on the wire; everything else the screen asks of these rows is asked
+/// of THESE rows, which is exactly what the banner exists to say.
+export const OBSERVATIONS_LIMIT = 300
 
 export function listObservations(
   poolId: string,
@@ -1500,34 +1689,121 @@ export function listObservations(
   signal?: AbortSignal
 ) {
   return node
-    .get<{ items: Observation[] }>(
-      `/api/v1/inventory/observations${search({ pool_id: poolId, epc, limit: 300 })}`,
+    .get<{ rows: Observation[] }>(
+      `/api/v1/inventory/observations${search({ pool_id: poolId, epc, limit: OBSERVATIONS_LIMIT })}`,
       { signal }
     )
-    .then((body) => body.items)
+    .then((body) => body.rows)
 }
 
-/// The ledger movements in and out of one pool, newest first.
+/// What the ledger can be asked for.
+///
+/// Every field is a parameter `GET /api/v1/inventory/movements` answers, and
+/// that is the whole contract of this type: a scope the request cannot carry
+/// is a control that claims to narrow a list and does not. **There is no date
+/// range in here because the endpoint has none** — the ledger is walked newest
+/// first instead, a page at a time.
+export interface MovementScope {
+  /// Free text, tried by the server against the tag, the SKU code, who posted
+  /// it, both place ids and the reference.
+  readonly q?: string
+  /// One pool, matched against EITHER side of the posting — a movement is
+  /// double-entry, so a transfer between two pools appears once in each rather
+  /// than twice in one.
+  ///
+  /// The CENTRE’s spelling (`dc.warehouse`, never the edge’s `dc-01.warehouse`):
+  /// every place id in this table is written by the centre’s own ledger, so a
+  /// caller holding the edge’s vocabulary matches nothing, silently.
+  readonly pool_id?: string
+  /// One cause — `SALE`, `NORMAL_MOVE`, `CONFIRMED_LOST`.
+  readonly cause?: string
+  readonly actor_id?: string
+  /// `occurred_at` (the house order), `recorded_at`, `quantity` or `cause`.
+  readonly sort?: string
+  /// The house order is already newest first, so this asks for the ledger read
+  /// the OTHER way — see the note on the server’s `movements_page`.
+  readonly desc?: boolean
+  readonly limit?: number
+  /// From a previous page’s `next_cursor`.
+  readonly cursor?: string
+}
+
+/// What the ledger can be narrowed by, counted by the server over everything
+/// the search matches rather than over the page in hand.
+export interface MovementFacets {
+  readonly causes: readonly InventoryFacet[]
+  readonly actors: readonly InventoryFacet[]
+}
+
+/// A page of the ledger, and the shape of everything it was drawn from.
+export interface MovementPage {
+  readonly rows: readonly Movement[]
+  /// Feed it back as `cursor` for the next page. Null at the end of the log.
+  readonly next_cursor: string | null
+  /// Every posting the search and the chips match. **Null means NOT COUNTED**
+  /// — the caller passed `count=0` — which is a different statement from
+  /// nought and must never be drawn as one.
+  readonly total: number | null
+  readonly facets: MovementFacets | null
+  readonly limit: number
+}
+
+/// The chips as the parameters the endpoint answers.
+///
+/// Beside the fetcher rather than in the screen, like `orderScopeFromFilters`
+/// in `queries/procurement.ts` and for the same reason: this function is the
+/// statement of what the endpoint can be asked, and every operator the fields
+/// offer has a case here.
+export function movementScopeFromFilters(
+  filters: readonly Filter[]
+): MovementScope {
+  const scope: { -readonly [K in keyof MovementScope]: MovementScope[K] } = {}
+  for (const { column, operator, values } of filters) {
+    if (values.length === 0 || operator !== "isAnyOf") continue
+    // One value each, because the endpoint compares one column to one value.
+    // Every field is declared `single`, so no chip can offer a second.
+    if (column === "pool_id") scope.pool_id = values[0]
+    else if (column === "cause") scope.cause = values[0]
+    else if (column === "actor_id") scope.actor_id = values[0]
+  }
+  return scope
+}
+
+/// The ledger: searched, filtered, sorted and paged by the server.
 ///
 /// The endpoint has been there since the ledger was written and nothing in
 /// this app had ever asked it: movements reached the screen only as the tail
-/// carried on a pool's own detail, capped at whatever that read decides. This
-/// is the ledger asked directly, which is what "show me the log" means.
+/// carried on a pool’s own detail, capped at whatever that read decides.
 ///
-/// A movement is double-entry — `from` and `to` are place ids, so a transfer
-/// appears once, not twice — and `pool_id` matches either side of it.
-export function listMovements(
-  poolId: string,
-  limit = 300,
-  signal?: AbortSignal
-) {
-  return node
-    .get<{ items: Movement[] }>(
-      `/api/v1/inventory/movements${search({ pool_id: poolId, limit })}`,
-      { signal }
-    )
-    .then((body) => body.items)
+/// The screen used to ask for 300 rows and sift them in the browser, which put
+/// a banner over the table explaining that the figures under it were not
+/// totals. Both are gone: the question goes to the server now, and the answer
+/// walks with `next_cursor`.
+export function movementsPage(scope: MovementScope, signal?: AbortSignal) {
+  return node.get<MovementPage>(
+    `/api/v1/inventory/movements${search({
+      q: scope.q,
+      pool_id: scope.pool_id,
+      cause: scope.cause,
+      actor_id: scope.actor_id,
+      sort: scope.sort,
+      // Only the word the server looks for. Anything else — `asc` included —
+      // is the house order, so sending it would be a parameter that means
+      // nothing.
+      dir: scope.desc === true ? "desc" : undefined,
+      limit: scope.limit ?? MOVEMENTS_LIMIT,
+      cursor: scope.cursor,
+    })}`,
+    { signal }
+  )
 }
+
+/// How many movements one page of the log asks for.
+///
+/// A hundred, not the three hundred this screen used to ask for in one breath:
+/// the list pages now, so this is the size of a step rather than a ceiling
+/// dressed up as an answer. The server clamps anything above 500.
+export const MOVEMENTS_LIMIT = 100
 
 export function observationAnomalies(signal?: AbortSignal) {
   return node
@@ -1538,20 +1814,49 @@ export function observationAnomalies(signal?: AbortSignal) {
     .then((body) => body.items)
 }
 
-export function listMissing(signal?: AbortSignal) {
+/// Everything open, not the first page of it.
+///
+/// The limit is the server's own maximum and it is here on purpose: the route
+/// used to answer with five hundred rows and no way to ask for more, and the
+/// screen counts what it holds. Asking for the same five hundred keeps that
+/// count meaning exactly what it meant. The envelope's `total` is what should
+/// eventually replace it — a screen that says "200 open" when there are nine
+/// hundred is no better than one that says "500".
+export function listMissing(signal?: AbortSignal): Promise<MissingItem[]> {
   return node
-    .get<{ items: MissingItem[] }>("/api/v1/inventory/missing", { signal })
-    .then((body) => body.items)
+    .get<{ rows: MissingItem[] }>(
+      `/api/v1/inventory/missing${search({ limit: 500 })}`,
+      { signal }
+    )
+    .then((body) => body.rows)
 }
 
-export function listReconciliations(signal?: AbortSignal) {
-  return node.get<ReconciliationList>("/api/v1/inventory/reconciliations", {
-    signal,
-  })
+export function listReconciliations(
+  signal?: AbortSignal
+): Promise<ReconciliationList> {
+  return node
+    .get<{
+      readonly as_of: string
+      readonly summary: ReconciliationSummary
+      readonly rows: readonly Reconciliation[]
+    }>("/api/v1/inventory/reconciliations", { signal })
+    .then((page) => ({
+      as_of: page.as_of,
+      summary: page.summary,
+      items: page.rows,
+    }))
 }
 
-export function controlStatus(signal?: AbortSignal) {
-  return node.get<ControlStatus>("/api/v1/inventory/control", { signal })
+/// The ledger's health, and where it and the projection disagree.
+///
+/// `projection_difference_count` is a COUNT now rather than the length of the
+/// page. It used to be `differences.length` over a query capped at a thousand,
+/// so a ledger with twelve hundred broken rows reported exactly a thousand and
+/// nothing in the answer said it was a ceiling.
+export function controlStatus(signal?: AbortSignal): Promise<ControlStatus> {
+  return node
+    .get<ControlAnswer>("/api/v1/inventory/control", { signal })
+    .then((answer) => ({ ...answer, differences: answer.differences.rows }))
 }
 
 export function timeMachineState(

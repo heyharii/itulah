@@ -95,7 +95,9 @@ export function apart(one: string, two: string): number | null {
   const dg = a[1] - b[1]
   const db = a[2] - b[2]
   return Math.sqrt(
-    (2 + mean / 256) * dr * dr + 4 * dg * dg + (2 + (255 - mean) / 256) * db * db
+    (2 + mean / 256) * dr * dr +
+      4 * dg * dg +
+      (2 + (255 - mean) / 256) * db * db
   )
 }
 

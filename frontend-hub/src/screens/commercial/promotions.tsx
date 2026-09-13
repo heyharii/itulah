@@ -13,16 +13,27 @@ import { Meter } from "@/components/ui/meter"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { MiniCell, MiniRow, MiniTable, SubHead } from "@/components/ui/rows"
+import { DockedFilters } from "@/components/ui/list-chrome"
+import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState, ErrorState } from "@/components/ui/states"
+import {
+  Banner,
+  EmptyState,
+  ErrorState,
+  Truncated,
+} from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
+import { useFilters } from "@/lib/filters"
 import { count, day, label, money, toneFor } from "@/lib/format"
 import {
+  CATALOGUE_PAGE,
+  commercialFleet,
   commercialKeys,
   commercialUsage,
   promotionCatalogue,
   publishUsageToFleet,
   setRuleStatus,
+  type CampaignInput,
   type CampaignRow,
   type PromotionRow,
   type PromotionUsage,
@@ -38,9 +49,11 @@ import { RuleForm } from "@/screens/commercial/rule-form"
 import { Terms } from "@/screens/commercial/controls"
 import {
   capsOf,
+  conditionsOf,
   consumed,
   describeCustomers,
   describeEffect,
+  describePeriod,
   describeScope,
   percent,
   termsOf,
@@ -81,15 +94,14 @@ import {
 interface RowActions<T> {
   readonly busy: string | null
   readonly onToggle: (line: T) => void
+  /// How many shops there are, for the denominator beside each row. `null`
+  /// until the fleet read lands — a numerator on its own is still true.
+  readonly shops: number | null
 }
 
 function actionsOf<T>(table: unknown): RowActions<T> | undefined {
   return (table as { options?: { meta?: RowActions<T> } }).options?.meta
 }
-
-/// `null` budget is unlimited. Sorted below everything with a limit, because
-/// "no line to cross" is never the row somebody has to act on.
-const UNLIMITED = -1
 
 /// One promotion, with what it has actually cost joined on.
 interface PromotionLine {
@@ -100,45 +112,44 @@ interface PromotionLine {
   readonly reached: number
 }
 
-/// The spend meter, drawn the one way this app draws a proportion.
-function Spend({ usage }: { usage: PromotionUsage | null }) {
-  if (usage === null) return <span className="text-mute">Never used</span>
-  const share = consumed(usage.spent_minor, usage.budget_minor)
-  if (share === null) {
-    // `null` is unlimited, which is not zero and must never be drawn as a full
-    // bar — nor as an empty one, which reads as "plenty left" when the honest
-    // answer is "there is no line to cross".
-    return (
-      <span className="text-text tabular-nums">
-        {money(usage.spent_minor)} <span className="text-mute">· no limit</span>
-      </span>
-    )
-  }
+/// What a promotion has actually been taken up on: how often, and what that
+/// gave away.
+///
+/// One column because it is one answer. `Used` and `Spent` sat apart, which
+/// meant reading across the table to learn that five baskets cost Rp 234.000 —
+/// and the pair is never read singly. The budget they used to be measured
+/// against is in the panel now; a meter is a question about a limit, and most
+/// promotions here have none.
+function Usage({ usage }: { usage: PromotionUsage | null }) {
+  // "Never used" rather than a dash. The dash is this app\'s word for "no
+  // value here", and a promotion that has fired nought times HAS a value: the
+  // one this screen was built to be able to show.
+  if (usage === null || usage.uses === 0)
+    return <span className="text-mute">Never used</span>
   return (
-    <span className="flex items-center gap-2">
-      <Meter
-        value={share}
-        tone={share >= 0.9 ? "bad" : share >= 0.7 ? "warn" : "accent"}
-      />
-      <span
-        className={
-          share >= 0.9
-            ? "shrink-0 font-medium text-bad-fg tabular-nums"
-            : "shrink-0 text-body tabular-nums"
-        }
-      >
-        {percent(Math.round(share * 10_000))}
-      </span>
+    <span className="text-text tabular-nums">
+      {count(usage.uses)} use{usage.uses === 1 ? "" : "s"}{" "}
+      <span className="text-mute">· {money(usage.spent_minor)}</span>
     </span>
   )
 }
 
-function Reached({ shops }: { shops: number }) {
+/// How many shops are charging the book this promotion arrived in, against how
+/// many shops there are.
+///
+/// The denominator is the point. "10 shops" is a figure you have to already
+/// know the size of the estate to read, and it looked the same whether three
+/// were missing or none. Zero keeps its warning rather than becoming "0 / 13"
+/// in the ordinary type: a published promotion reaching nobody costs nothing
+/// and sells nothing, and in a list of live offers it reads as success.
+function Reached({ shops, of }: { shops: number; of: number | null }) {
+  const total = of === null ? null : ` / ${count(of)}`
   return shops === 0 ? (
-    <Pill tone="warn">No shop</Pill>
+    <Pill tone="warn">0{total ?? " shops"}</Pill>
   ) : (
-    <span className="text-text">
-      {count(shops)} shop{shops === 1 ? "" : "s"}
+    <span className="text-text tabular-nums">
+      {count(shops)}
+      {total === null ? " shops" : <span className="text-mute">{total}</span>}
     </span>
   )
 }
@@ -148,10 +159,32 @@ function Reached({ shops }: { shops: number }) {
 // is reached through `meta` on the table rather than through a closure here.
 const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
   {
+    id: "promotion",
+    accessorFn: (row) => row.row.name,
+    header: "Promotion",
+    size: 220,
+    meta: { filter: { kind: "text" } },
+    cell: ({ row }) => (
+      <span className="font-medium text-ink">{row.original.row.name}</span>
+    ),
+  },
+  {
     id: "live",
+    accessorFn: (row) => row.row.status,
     header: "Live",
-    size: 60,
+    size: 70,
     enableSorting: false,
+    // The switch IS the status. A `Status` pill beside it said the same word
+    // twice from two places, which is a disagreement waiting to happen: a green
+    // "Active" next to a toggle leaves somebody deciding which of the two is
+    // the fact.
+    //
+    // The clause that used to live on the pill is not here either, and that is
+    // deliberate: the tabs above the table ask the same question and ask it
+    // better. A facet can only offer the two words the column holds; the tabs
+    // also offer ENDED and SCHEDULED, which are not stored anywhere and are
+    // read off the dates instead. Two controls for one question is the
+    // duplication the pill was removed for.
     cell: ({ row, table }) => {
       const meta = actionsOf<PromotionLine>(table)
       const status = row.original.row.status
@@ -166,32 +199,16 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
     },
   },
   {
-    id: "promotion",
-    accessorFn: (row) => row.row.name,
-    header: "Promotion",
-    size: 220,
-    meta: { filter: { kind: "text" } },
-    cell: ({ row }) => (
-      <span className="font-medium text-ink">{row.original.row.name}</span>
-    ),
-  },
-  {
-    id: "status",
-    accessorFn: (row) => row.row.status,
-    header: "Status",
-    size: 110,
-    meta: { filter: { kind: "option", format: label } },
-    cell: ({ row }) => (
-      <Pill tone={toneFor(row.original.row.status)}>
-        {label(row.original.row.status)}
-      </Pill>
-    ),
-  },
-  {
     id: "scope",
     accessorFn: (row) => describeScope(row.row.definition),
     header: "Applies to",
     size: 160,
+    // **Not a facet.** The accessor is a sentence `describeScope` composes —
+    // "3 products", "Division MENSWEAR", "The whole basket" — so a picker over
+    // it would offer one option per rule rather than one per kind of scope,
+    // and ticking "2 articles" would narrow to the two unrelated rules that
+    // happen to name two articles each. The kind is not on the row to ask
+    // about; it is inside `definition.applicability`.
     cell: ({ row }) => (
       <span className="text-text">
         {describeScope(row.original.row.definition)}
@@ -204,8 +221,11 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
   {
     id: "effect",
     accessorFn: (row) => describeEffect(row.row.definition.effect),
-    header: "What it does",
-    size: 160,
+    // "Benefit" rather than "What it does": every other column on this row
+    // also says what it does, and this is the one that says what the shopper
+    // gets.
+    header: "Benefit",
+    size: 150,
     cell: ({ row }) => (
       <span className="text-text">
         {describeEffect(row.original.row.definition.effect)}
@@ -213,84 +233,144 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
     ),
   },
   {
-    id: "coupon",
-    accessorFn: (row) => row.row.definition.coupon_code ?? "",
-    header: "Coupon",
-    size: 130,
-    meta: { filter: { kind: "text" } },
-    // Open to everyone, or shut until a code is presented. Not a decoration:
-    // a coupon-gated rule that has never fired is behaving correctly, and one
-    // without a gate that has never fired is a fault.
-    cell: ({ row }) => {
-      const code = row.original.row.definition.coupon_code
-      return code === null || code === "" ? (
-        <span className="text-mute">Open to all</span>
-      ) : (
-        <span className="font-mono text-id text-ink">{code}</span>
-      )
-    },
-  },
-  {
-    id: "budget",
-    accessorFn: (row) => row.usage?.budget_minor ?? UNLIMITED,
-    header: "Budget",
-    size: 130,
-    meta: { align: "right" },
-    cell: ({ row }) => {
-      const budget =
-        row.original.usage?.budget_minor ??
-        capsOf(row.original.row.definition).budget?.minor ??
-        null
-      return budget === null ? (
-        <span className="text-mute">Unlimited</span>
-      ) : (
-        money(budget)
-      )
-    },
-  },
-  {
-    id: "spent",
-    accessorFn: (row) =>
-      consumed(row.usage?.spent_minor ?? 0, row.usage?.budget_minor ?? null) ??
-      UNLIMITED,
-    header: "Spent",
-    size: 150,
-    // The decision metric, and why this list sorts by it: a promotion at
-    // ninety-something per cent of its budget is the one somebody has to stop,
-    // pause or top up before the weekend.
-    cell: ({ row }) => <Spend usage={row.original.usage} />,
-  },
-  {
-    id: "uses",
-    accessorFn: (row) => row.usage?.uses ?? 0,
-    header: "Used",
-    size: 80,
-    meta: { align: "right" },
-    cell: ({ row }) => count(row.original.usage?.uses ?? 0),
-  },
-  {
     id: "reached",
     accessorFn: (row) => row.reached,
-    header: "In shops",
+    header: "Stores",
     size: 110,
-    // Published and in force are different things. A promotion nobody is
-    // carrying costs nothing and sells nothing, and on a usage-only list it
-    // looked identical to one that simply had not fired yet.
-    cell: ({ row }) => <Reached shops={row.original.reached} />,
+    // Published and in force are different things, and this is the clause that
+    // separates them: a promotion used 0 times in 13 shops has not caught on,
+    // and one used 0 times in 0 shops was never carried anywhere. They look
+    // identical until somebody asks.
+    meta: {
+      align: "right",
+      filter: { kind: "number", label: "Stores", unit: "shops" },
+    },
+    cell: ({ row, table }) => (
+      <Reached
+        shops={row.original.reached}
+        of={actionsOf<PromotionLine>(table)?.shops ?? null}
+      />
+    ),
+  },
+  {
+    id: "usage",
+    accessorFn: (row) => row.usage?.uses ?? 0,
+    header: "Usage",
+    size: 170,
+    // **Sorted and filtered on uses, not on spend.** The cell says both, and
+    // only one of them can be the number underneath it. Uses wins because
+    // "is 0" is the question this screen was built to be able to answer — a
+    // promotion that exists and has never fired. The screen it replaced could
+    // not show one at all, because it listed usage and an unused rule has none.
+    //
+    // Spend is therefore readable here but not sortable. The row that has run
+    // past what it was allowed to spend is not found by sorting anyway: the
+    // banner above the table names it.
+    meta: { filter: { kind: "number", label: "Used", unit: "times" } },
+    cell: ({ row }) => <Usage usage={row.original.usage} />,
+  },
+  {
+    id: "period",
+    accessorFn: (row) => {
+      const to = conditionsOf(row.row.definition).effective_to
+      const at = to === null ? Number.NaN : new Date(to).getTime()
+      // No end date sorts last. "It does not stop" is not a date, and a
+      // sentinel at zero would head up "ending soonest" with every promotion
+      // that never ends. Safe as a sentinel only because this column carries
+      // no clause — a filter would take `Infinity` at face value, which is the
+      // trap the old `Budget` column documented.
+      return Number.isNaN(at) ? Number.POSITIVE_INFINITY : at
+    },
+    header: "Period",
+    size: 150,
+    // The first column to go when the table is in a narrow card. Every other
+    // column answers "is this offer working"; this one answers "until when",
+    // which is the question somebody asks after they have picked a row — and
+    // the panel behind the row answers it.
+    meta: { priority: 2 },
+    cell: ({ row }) => {
+      const period = describePeriod(row.original.row.definition)
+      return period === null ? (
+        <span className="text-mute">—</span>
+      ) : (
+        <span className="text-text">{period}</span>
+      )
+    },
   },
 ]
+
+/// Where a promotion stands today — which is a different question from what
+/// its status column says.
+///
+/// `RuleStatus` is `DRAFT | ACTIVE | PAUSED | EXPIRED` and **nothing in the
+/// backend ever writes EXPIRED to a rule.** That is not an oversight; it is
+/// this shop's position, stated where vouchers say it: a status that means "the
+/// date has passed" is wrong from the instant it is written, because it has to
+/// be rewritten by something at midnight or it lies. The date passes; the row
+/// does not change.
+///
+/// So ENDED and SCHEDULED are read off the window rather than stored, which is
+/// also what makes the Period column load-bearing rather than decorative. A
+/// promotion with no window is never either — it starts when it is published
+/// and stops when somebody stops it.
+type Phase = "ACTIVE" | "PAUSED" | "ENDED" | "SCHEDULED"
+
+const PHASES = [
+  { value: "ALL", label: "All" },
+  { value: "ACTIVE", label: "Active" },
+  { value: "PAUSED", label: "Paused" },
+  { value: "ENDED", label: "Ended" },
+  { value: "SCHEDULED", label: "Scheduled" },
+] as const
+
+function phaseOf(line: PromotionLine, at: number): Phase {
+  // A window that has closed wins over a switch that is off. Both say the
+  // offer is not running; only one of them says resuming it would change
+  // nothing, and that is the more useful thing to be told.
+  if (line.row.status === "EXPIRED") return "ENDED"
+  const conditions = conditionsOf(line.row.definition)
+  const ends = instant(conditions.effective_to)
+  if (ends !== null && ends < at) return "ENDED"
+  if (line.row.status !== "ACTIVE") return "PAUSED"
+  const starts = instant(conditions.effective_from)
+  if (starts !== null && starts > at) return "SCHEDULED"
+  return "ACTIVE"
+}
+
+/// An instant, or `null` for both "not set" and "not a date". A malformed
+/// stored date must not decide which tab a row lands in.
+function instant(iso: string | null): number | null {
+  if (iso === null) return null
+  const at = new Date(iso).getTime()
+  return Number.isNaN(at) ? null : at
+}
+
+/// The tiles and the time series at the top of this screen, parked.
+///
+/// **Owner's call, 2026-09-13: hidden until somebody decides which figures
+/// belong there.** They were five metrics and a chart shared with the other
+/// list in this module, and the two do not ask the same question — "Promo
+/// Sales over the last 30 days" is a fact about offers, and a campaign is an
+/// envelope with its own window. A header that answers the wrong question
+/// confidently is worse than no header.
+///
+/// A flag rather than a deletion or a comment: the wiring stays type-checked
+/// and turning it back on is one word. A commented-out block rots, and a
+/// deleted one has to be rebuilt from memory.
+const SHOW_PERFORMANCE = false
 
 export function Promotions() {
   const client = useQueryClient()
   const actor = useActor()
   const sheet = useSheet("rule")
   const [query, setQuery] = useState("")
+  const [phase, setPhase] = useState<(typeof PHASES)[number]["value"]>("ALL")
   const [writing, setWriting] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [sent, setSent] = useState<UsageReceipt | null>(null)
   const [receipt, setReceipt] = useState<PublishReceipt | null>(null)
   const [sorting, setSorting] = useState<SortingState>([
-    { id: "spent", desc: true },
+    { id: "usage", desc: true },
   ])
 
   const catalogue = useQuery({
@@ -302,6 +382,16 @@ export function Promotions() {
     queryKey: commercialKeys.usage(),
     queryFn: ({ signal }) => commercialUsage(signal),
   })
+
+  /// How many shops there are to reach, which is the denominator beside every
+  /// row. Its own small read rather than a figure carried on the catalogue: the
+  /// size of the estate is a property of the estate, not of a price book, and
+  /// `commercialFleet` is the endpoint this module already has for it.
+  const fleet = useQuery({
+    queryKey: commercialKeys.fleet(),
+    queryFn: ({ signal }) => commercialFleet(signal),
+  })
+  const shops = fleet.data?.shop_count ?? null
 
   /// The two halves joined here and nowhere else. The count is an observation
   /// and changes with every sale; the limit is a decision, frozen with the book
@@ -366,25 +456,59 @@ export function Promotions() {
   // rebuild the whole table each time somebody flipped a switch.
   const flip = toggle.mutate
 
+  /// Narrowed before the table is built rather than as a column clause, so
+  /// every facet count under the Filter button counts the tab somebody is
+  /// looking at. A chip saying "3 shops" over a list of thirteen is how a
+  /// filter bar loses people\'s trust.
+  ///
+  /// The instant is the READ\'s, not the render\'s. `Date.now()` in a render is
+  /// impure — the compiler says so and it is right: the same rows would land in
+  /// different tabs on two renders that happen either side of midnight, with no
+  /// state change to explain it. `dataUpdatedAt` is when this list actually came
+  /// off the node, it is stable until the next fetch, and "ended as at when we
+  /// asked" is the honest reading anyway. It is 0 before the first answer, and
+  /// there are no rows to place then.
+  const at = catalogue.dataUpdatedAt
+  const shown = useMemo(() => {
+    if (phase === "ALL") return promotions
+    return promotions.filter((line) => phaseOf(line, at) === phase)
+  }, [promotions, phase, at])
+
+  const filters = useFilters(promotionColumns)
+
   const promotionTable = useTable(
     useMemo(
       () => ({
         features: tableSetup,
-        data: promotions,
-        columns: promotionColumns,
+        data: shown,
+        columns: filters.columns,
         getRowId: (row: PromotionLine) => row.row.rule_id,
-        state: { globalFilter: query, sorting },
+        state: {
+          columnFilters: filters.columnFilters,
+          globalFilter: query,
+          sorting,
+        },
         onSortingChange: setSorting,
         onGlobalFilterChange: setQuery,
         meta: {
           busy,
+          shops,
           onToggle: (line: PromotionLine) => {
             setBusy(line.row.rule_id)
             flip(line)
           },
         },
       }),
-      [promotions, query, sorting, busy, flip]
+      [
+        shown,
+        filters.columns,
+        filters.columnFilters,
+        query,
+        sorting,
+        busy,
+        shops,
+        flip,
+      ]
     )
   )
 
@@ -400,32 +524,25 @@ export function Promotions() {
       <PageHeader
         crumb="Commercial"
         title="Promotions"
-        sub="Which offers exist, what each has cost against what it was allowed to, and how far it has actually reached."
+        sub="Which offers are running, what each gives the shopper, and how many shops are actually charging it."
+        // Search and New promotion sit on the table\'s own toolbar now: they
+        // act on the list, and the list is no longer the first thing under this
+        // header. What stays is the one action that is about the fleet rather
+        // than about the rows — sending the counts the shops enforce from.
         actions={
-          <>
-            <Input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search"
-              className="h-8 w-44"
-            />
-            <Button
-              variant="soft"
-              disabled={send.isPending || actor === ""}
-              onClick={() => send.mutate()}
-            >
-              {send.isPending ? "Sending…" : "Send counts to shops"}
-            </Button>
-            <Button variant="primary" onClick={() => setWriting(true)}>
-              New promotion
-            </Button>
-          </>
+          <Button
+            variant="soft"
+            disabled={send.isPending || actor === ""}
+            onClick={() => send.mutate()}
+          >
+            {send.isPending ? "Sending…" : "Send counts to shops"}
+          </Button>
         }
       />
 
       {/* What the offers below actually did, over a window. The list says which
           exist and what they may spend; this says what they spent. */}
-      <PerformanceHeader of="rules" />
+      {SHOW_PERFORMANCE && <PerformanceHeader of="rules" />}
 
       {toggle.isError && (
         <div className="mb-4">
@@ -480,37 +597,91 @@ export function Promotions() {
         </Banner>
       )}
 
-      <Card className="overflow-hidden">
-        {queryState(catalogue, {
-          loading: "Opening every published book…",
-          render: (data) =>
-            promotions.length === 0 ? (
-              <EmptyState>
-                No promotion is published. {count(data.book_count)} book
-                {data.book_count === 1 ? "" : "s"} were opened to check — a
-                promotion sitting in an unpublished draft is authored, not
-                running, and is deliberately not listed here.
-              </EmptyState>
-            ) : (
-              <DataTable<PromotionLine>
-                table={promotionTable}
-                onRowClick={(row) => sheet.open(row.row.rule_id)}
-                isSelected={(row) => row.row.rule_id === sheet.value}
-                empty="No promotion matches that search."
-                className="max-h-[calc(100vh-19rem)]"
+      {/* Rows at the left, filters docked at the right — the same shape as
+          every other list in the module. The phase tabs and the search stay
+          over the table: they are what somebody reaches for first, and the
+          rail is where the fields live. */}
+      <div className="grid min-w-0 items-start gap-5 min-[1440px]:grid-cols-[minmax(0,1fr)_16rem]">
+        <div className="flex min-w-0 flex-col">
+          <Toolbar className="mb-3">
+            <Segmented options={PHASES} value={phase} onChange={setPhase} />
+            <div className="ml-auto flex items-center gap-2">
+              <Input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search promotions…"
+                className="h-8 w-56"
               />
-            ),
-        })}
-      </Card>
+              <Button variant="primary" onClick={() => setWriting(true)}>
+                New promotion
+              </Button>
+            </div>
+          </Toolbar>
 
-      {catalogue.data && (
-        // Where the list comes from, and the one rule worth knowing about it.
-        <p className="mt-2.5 text-[0.71875rem] text-mute">
-          Drawn from {count(catalogue.data.book_count)} published book
-          {catalogue.data.book_count === 1 ? "" : "s"}. Where one rule appears
-          in several books the newest wins, which is what a shop does too.
-        </p>
-      )}
+          {/* Every book was opened to build this list, but only the first five
+              hundred rules came back — see `promotionCatalogue`. The clauses
+              narrow those rows and no others. */}
+          {promotions.length >= CATALOGUE_PAGE && (
+            <Truncated limit={CATALOGUE_PAGE} noun="promotions" />
+          )}
+
+          <Card className="overflow-hidden">
+            {queryState(catalogue, {
+              loading: "Opening every published book…",
+              render: (data) =>
+                shown.length === 0 && phase !== "ALL" ? (
+                  <EmptyState>
+                    No promotion is{" "}
+                    {PHASES.find(
+                      (one) => one.value === phase
+                    )?.label.toLowerCase()}
+                    .
+                    {phase === "ENDED" || phase === "SCHEDULED" ? (
+                      <>
+                        {" "}
+                        Both are read off the promotion\'s own dates, and{" "}
+                        {count(
+                          promotions.filter(
+                            (one) => describePeriod(one.row.definition) === null
+                          ).length
+                        )}{" "}
+                        of {count(promotions.length)} promotions here carry no
+                        dates at all — one of those never ends and never waits
+                        to start.
+                      </>
+                    ) : null}
+                  </EmptyState>
+                ) : promotions.length === 0 ? (
+                  <EmptyState>
+                    No promotion is published. {count(data.book_count)} book
+                    {data.book_count === 1 ? "" : "s"} were opened to check — a
+                    promotion sitting in an unpublished draft is authored, not
+                    running, and is deliberately not listed here.
+                  </EmptyState>
+                ) : (
+                  <DataTable<PromotionLine>
+                    table={promotionTable}
+                    onRowClick={(row) => sheet.open(row.row.rule_id)}
+                    isSelected={(row) => row.row.rule_id === sheet.value}
+                    empty="No promotion matches that search."
+                    className="max-h-[calc(100vh-19rem)]"
+                  />
+                ),
+            })}
+          </Card>
+
+          {catalogue.data && (
+            // Where the list comes from, and the one rule worth knowing.
+            <p className="mt-2.5 text-[0.71875rem] text-mute">
+              Drawn from {count(catalogue.data.book_count)} published book
+              {catalogue.data.book_count === 1 ? "" : "s"}. Where one rule is in
+              several, the newest wins — as it does at a till.
+            </p>
+          )}
+        </div>
+
+        <DockedFilters model={filters} id="promotions" subject="Promotion" />
+      </div>
 
       <PromotionSheet
         line={promotions.find((one) => one.row.rule_id === sheet.value) ?? null}
@@ -536,30 +707,53 @@ export function Promotions() {
 /// The server refuses a book whose rule names a campaign that book does not
 /// define — a shop drops such a rule, so the offer would apply nowhere. Pausing
 /// a rule therefore has to carry its campaign along unchanged.
+///
+/// ## Unchanged means EVERY field, and this function used to hand-pick seven
+///
+/// Restating a campaign republishes it to the whole fleet, and any field left
+/// out of the restatement is not "unchanged" — it is written as absent. This
+/// returned seven fields and dropped the poster, so pausing one promotion under
+/// the Lebaran sale republished that sale to thirteen shops with its banner,
+/// its headline and its small print blanked. The same fault is documented on
+/// the server reader that feeds this (`cloud/postgres/commercial.rs`), which
+/// was fixed there and stayed broken here.
+///
+/// `site_ids` makes it worse rather than merely repeating it: a blanked poster
+/// is visible to anyone walking past a till, and a campaign silently widened
+/// from six shops to thirteen is visible nowhere until the discounts appear in
+/// seven shops that were never meant to have them.
+///
+/// So the whole row goes, and the one field the server's input does not accept
+/// is named here rather than silently dropped.
 function campaignFor(
   line: PromotionLine,
   campaigns: readonly CampaignRow[]
-): {
-  campaign_id: string
-  name: string
-  status: string
-  valid_from: string | null
-  valid_to: string | null
-  budget_minor: number | null
-  max_uses: number | null
-} | null {
+): CampaignInput | null {
   const id = line.row.definition.campaign_id
   if (id === null) return null
   const found = campaigns.find((one) => one.campaign.campaign_id === id)
   if (found === undefined) return null
+  const whole = found.campaign
   return {
-    campaign_id: found.campaign.campaign_id,
-    name: found.campaign.name,
-    status: found.campaign.status,
-    valid_from: found.campaign.valid_from,
-    valid_to: found.campaign.valid_to,
-    budget_minor: found.campaign.budget_minor,
-    max_uses: found.campaign.max_uses,
+    campaign_id: whole.campaign_id,
+    name: whole.name,
+    status: whole.status,
+    valid_from: whole.valid_from,
+    valid_to: whole.valid_to,
+    budget_minor: whole.budget_minor,
+    max_uses: whole.max_uses,
+    image_url: whole.image_url,
+    headline: whole.headline,
+    terms: whole.terms,
+    // `null` is "everywhere", and so is `[]` — but only one of them survives a
+    // round trip through `CommercialCampaignInput`, whose field is a plain
+    // `Vec<String>`. Sent as the empty list, which the server stores back as
+    // null, so restating a fleet-wide campaign leaves it fleet-wide.
+    site_ids: whole.site_ids ?? [],
+    // `max_uses_per_customer` is NOT here, and cannot be: the server's
+    // `CommercialCampaignInput` has no field for it, so no restatement of any
+    // campaign anywhere can carry it. Named rather than silently absent, so the
+    // next reader meets the gap instead of assuming this list is complete.
   }
 }
 
@@ -574,6 +768,29 @@ function campaignFor(
 /// The engine's own document is the source for all of it. Nothing here derives
 /// a second opinion about what a rule does; it reads `definition`, which is the
 /// same JSON the till applies.
+/// One promotion, read back.
+///
+/// ## Why this is sections and not one scroll
+///
+/// It was one scroll: status, facts, budget meter, terms, shops. Honest, and
+/// the wrong shape for the questions actually asked of it — "why did this not
+/// fire" (terms), "is it working" (spend and uses) and "has it reached the
+/// shops" (activation) are three different people on three different days, and
+/// a single column made each of them read the other two's answer on the way
+/// past.
+///
+/// The sections are the owner's, ruled 2026-09-13: **Overview · Rules ·
+/// Coupons · Performance · Activity**. Nothing here is new data — every block
+/// below already existed on that scroll. What changed is which question each
+/// one is filed under.
+///
+/// They are `Sheet`'s own `tabs` rather than a `<SubTabs>` inside the body, so
+/// the strip sits outside the scroll: the sections do not scroll away from each
+/// other, and switching does not leave somebody halfway down a different one.
+///
+/// **Coupons appears only when there is a coupon**, which is the rule as given.
+/// A section that is present and empty on nine promotions out of ten teaches
+/// the reader to stop looking at it, and then it is missed on the tenth.
 function PromotionSheet({
   line,
   onClose,
@@ -588,6 +805,174 @@ function PromotionSheet({
   // the master list that turns `MENSWEAR` into "Menswear" is not fetched for a
   // panel — so the code is shown, which is also what a shop's own log says.
   const reading = rule === undefined ? null : termsOf(rule)
+  const coupon =
+    rule?.coupon_code !== undefined &&
+    rule.coupon_code !== null &&
+    rule.coupon_code !== ""
+      ? rule.coupon_code
+      : null
+  const caps = rule === undefined ? null : capsOf(rule)
+
+  // The budget figure, resolved once. The counter's number first and the
+  // rule's own where nothing has been counted yet: a promotion that has never
+  // fired has no usage row at all, and reading only that made a rule capped at
+  // five million report "Unlimited" beside terms that say it stops there.
+  const budget =
+    line === null
+      ? null
+      : (line.usage?.budget_minor ?? caps?.budget?.minor ?? null)
+
+  const sections =
+    line === null || rule === undefined || reading === null
+      ? undefined
+      : [
+          {
+            value: "overview",
+            label: "Overview",
+            content: (
+              <Facts>
+                <Fact term="Benefit">{describeEffect(rule.effect)}</Fact>
+                <Fact term="Applies to">{describeScope(rule)}</Fact>
+                {/* A date here and a sentence under Rules, which is the same
+                    split as Budget: the facts are scanned, the terms are read.
+                    `null` is BOTH ends open, not just the far one — a rule
+                    with no window starts when it is published and stops when
+                    somebody stops it. */}
+                <Fact term="Period">{describePeriod(rule) ?? "Always on"}</Fact>
+                <Fact term="Campaign">{rule.campaign_id ?? "On its own"}</Fact>
+                <Fact term="Shoppers">{describeCustomers(rule)}</Fact>
+                <Fact term="Gate">
+                  {coupon === null ? "Open to every basket" : `Code ${coupon}`}
+                </Fact>
+                <Fact term="From">{line.row.book.name}</Fact>
+              </Facts>
+            ),
+          },
+          {
+            value: "rules",
+            label: "Rules",
+            content: (
+              /* What has to be true before it fires, in the same words the
+                 composer showed while it was being written — one `termsOf`,
+                 read here and previewed there, so "what did I publish" and
+                 "what does this do" cannot answer differently.
+
+                 It replaces a four-row table of the same conditions. The table
+                 was honest and unreadable: a promotion that never fired is
+                 explained by the COMBINATION — a minimum, a window and a
+                 coupon, each unremarkable on its own — and four rows of
+                 figures is the one shape that hides a combination. */
+              <div>
+                <SubHead aside="as it reads">Its terms</SubHead>
+                <Terms
+                  headline={describeEffect(rule.effect)}
+                  name={line.row.name}
+                  clauses={reading.clauses}
+                  hidden={reading.hidden}
+                  empty="This rule names nothing it applies to."
+                />
+              </div>
+            ),
+          },
+          ...(coupon === null
+            ? []
+            : [
+                {
+                  value: "coupons",
+                  label: "Coupons",
+                  content: (
+                    <div className="flex flex-col gap-5">
+                      <Facts>
+                        <Fact term="Code">
+                          <Tag tone="warn">{coupon}</Tag>
+                        </Fact>
+                        <Fact term="Times presented">
+                          {count(line.usage?.uses ?? 0)}
+                        </Fact>
+                        <Fact term="Shoppers who used it">
+                          {count(line.usage?.customer_count ?? 0)}
+                        </Fact>
+                        <Fact term="Uses allowed">
+                          {caps?.max_uses === undefined ||
+                          caps?.max_uses === null
+                            ? "Unlimited"
+                            : count(caps.max_uses)}
+                        </Fact>
+                      </Facts>
+                      {/* Said out loud because the counter is the only place
+                          these numbers come from, and a coupon nobody has
+                          presented looks exactly like a coupon that does not
+                          work. */}
+                      <p className="text-meta text-mute">
+                        One code, counted at the centre from the sales the shops
+                        have reported. A till enforces the limit with the count
+                        it last received, so a code at its ceiling can still be
+                        taken once or twice before every shop hears — the number
+                        that binds is this one.
+                      </p>
+                    </div>
+                  ),
+                },
+              ]),
+          {
+            value: "performance",
+            label: "Performance",
+            content: (
+              <div className="flex flex-col gap-5">
+                <Facts>
+                  <Fact term="Budget">
+                    {budget === null ? "Unlimited" : money(budget)}
+                  </Fact>
+                  <Fact term="Spent">{money(spent)}</Fact>
+                  <Fact term="Used">{count(line.usage?.uses ?? 0)}</Fact>
+                  <Fact term="Customers">
+                    {count(line.usage?.customer_count ?? 0)}
+                  </Fact>
+                </Facts>
+
+                {share !== null && (
+                  <div>
+                    <SubHead aside={percent(Math.round(share * 10_000))}>
+                      Budget
+                    </SubHead>
+                    <Meter
+                      value={share}
+                      tone={
+                        share >= 0.9 ? "bad" : share >= 0.7 ? "warn" : "accent"
+                      }
+                    />
+                  </div>
+                )}
+              </div>
+            ),
+          },
+          {
+            value: "activity",
+            label: `Activity (${count(line.row.book.activated_by.length)})`,
+            content: (
+              <div>
+                <SubHead aside={count(line.reached)}>In service at</SubHead>
+                {line.row.book.activated_by.length === 0 ? (
+                  // Published and reaching nobody looks exactly like success
+                  // everywhere else on this screen, so it is said in words.
+                  <p className="py-3 text-meta text-mute">
+                    No shop has put the book carrying this promotion into
+                    service, so it is applying nowhere yet.
+                  </p>
+                ) : (
+                  <MiniTable head={["Shop", { label: "Since", align: "left" }]}>
+                    {line.row.book.activated_by.map((shop) => (
+                      <MiniRow key={shop.origin_id}>
+                        <MiniCell>{shop.site_id ?? shop.origin_id}</MiniCell>
+                        <MiniCell>{day(shop.activated_at)}</MiniCell>
+                      </MiniRow>
+                    ))}
+                  </MiniTable>
+                )}
+              </div>
+            ),
+          },
+        ]
 
   return (
     <Sheet
@@ -595,104 +980,25 @@ function PromotionSheet({
       onOpenChange={(next) => !next && onClose()}
       id={line?.row.rule_id}
       title={line?.row.name ?? "Promotion"}
-    >
-      {line === null || rule === undefined || reading === null ? null : (
-        <div className="flex flex-col gap-5">
-          <div className="flex flex-wrap items-center gap-2">
+      tabs={sections}
+      // In the head, not repeated in every section. What a promotion IS — live
+      // or stopped, gated or open — is the reader's bearing on all five, and
+      // five copies of it is how two of them come to disagree.
+      badge={
+        line === null ? undefined : (
+          <span className="flex flex-wrap items-center gap-1.5">
             <Pill tone={toneFor(line.row.status)}>
               {label(line.row.status)}
             </Pill>
-            {rule.coupon_code ? (
-              <Tag tone="warn">Needs code {rule.coupon_code}</Tag>
-            ) : (
-              <Tag>Open to all</Tag>
-            )}
-            <span className="text-[0.71875rem] text-mute">
-              from {line.row.book.name}
-            </span>
-          </div>
-
-          <Facts>
-            <Fact term="Does">{describeEffect(rule.effect)}</Fact>
-            <Fact term="Applies to">{describeScope(rule)}</Fact>
-            <Fact term="Campaign">{rule.campaign_id ?? "On its own"}</Fact>
-            <Fact term="Shoppers">
-              {describeCustomers(rule)}
-            </Fact>
-            {/* The counter's figure first, the rule's own where nothing has
-                been counted yet. A promotion that has never fired has no usage
-                row at all, and reading only that made a rule capped at five
-                million report "Unlimited" — beside terms, on this same panel,
-                that say it stops at five million. The list column already had
-                the fallback; this did not. */}
-            <Fact term="Budget">
-              {(line.usage?.budget_minor ?? capsOf(rule).budget?.minor ?? null) ===
-              null
-                ? "Unlimited"
-                : money(line.usage?.budget_minor ?? capsOf(rule).budget!.minor)}
-            </Fact>
-            <Fact term="Spent">{money(spent)}</Fact>
-            <Fact term="Used">{count(line.usage?.uses ?? 0)}</Fact>
-            <Fact term="Customers">
-              {count(line.usage?.customer_count ?? 0)}
-            </Fact>
-          </Facts>
-
-          {share !== null && (
-            <div>
-              <SubHead aside={percent(Math.round(share * 10_000))}>
-                Budget
-              </SubHead>
-              <Meter
-                value={share}
-                tone={share >= 0.9 ? "bad" : share >= 0.7 ? "warn" : "accent"}
-              />
-            </div>
-          )}
-
-          {/* What has to be true before it fires, in the same words the
-              composer showed while it was being written — one `termsOf`, read
-              here and previewed there, so "what did I publish" and "what does
-              this do" cannot answer differently.
-
-              It replaces a four-row table of the same conditions. The table
-              was honest and unreadable: a promotion that never fired is
-              explained by the COMBINATION — a minimum, a window and a coupon,
-              each unremarkable on its own — and four rows of figures is the
-              one shape that hides a combination. */}
-          <div>
-            <SubHead aside="as it reads">Its terms</SubHead>
-            <Terms
-              headline={describeEffect(rule.effect)}
-              name={line.row.name}
-              clauses={reading.clauses}
-              hidden={reading.hidden}
-              empty="This rule names nothing it applies to."
-            />
-          </div>
-
-          <div>
-            <SubHead aside={count(line.reached)}>In service at</SubHead>
-            {line.row.book.activated_by.length === 0 ? (
-              // Published and reaching nobody looks exactly like success
-              // everywhere else on this screen, so it is said in words.
-              <p className="py-3 text-meta text-mute">
-                No shop has put the book carrying this promotion into service,
-                so it is applying nowhere yet.
-              </p>
-            ) : (
-              <MiniTable head={["Shop", { label: "Since", align: "left" }]}>
-                {line.row.book.activated_by.map((shop) => (
-                  <MiniRow key={shop.origin_id}>
-                    <MiniCell>{shop.site_id ?? shop.origin_id}</MiniCell>
-                    <MiniCell>{day(shop.activated_at)}</MiniCell>
-                  </MiniRow>
-                ))}
-              </MiniTable>
-            )}
-          </div>
-        </div>
-      )}
+            {/* Only the gate, never its absence. "Open to all" is not a
+                property a promotion has — it is the ordinary case wearing a
+                badge, and a row of them taught nobody anything. */}
+            {coupon !== null && <Tag tone="warn">Needs code {coupon}</Tag>}
+          </span>
+        )
+      }
+    >
+      {null}
     </Sheet>
   )
 }

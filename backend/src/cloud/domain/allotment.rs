@@ -122,39 +122,21 @@ impl FromStr for AllotmentStatus {
     }
 }
 
-pub fn remaining_allotted(
-    quantity: i64,
-    picked_quantity: i64,
-    cancelled_quantity: i64,
-) -> Result<i64, AllotmentError> {
-    if quantity <= 0 {
-        return Err(AllotmentError::NonPositiveQuantity);
-    }
-    if picked_quantity < 0
-        || cancelled_quantity < 0
-        || picked_quantity + cancelled_quantity > quantity
-    {
-        return Err(AllotmentError::InvalidReservationConsumption);
-    }
-    Ok(quantity - picked_quantity - cancelled_quantity)
-}
-
-/// Cloud-native compatibility workflow has only reached Pick. It must not call
-/// that DC completion; Dispatch and Store receipt are explicit later facts.
-pub fn derive_allotment_status(
-    quantity: i64,
-    picked_quantity: i64,
-    cancelled_quantity: i64,
-) -> Result<AllotmentStatus, AllotmentError> {
-    let remaining = remaining_allotted(quantity, picked_quantity, cancelled_quantity)?;
-    Ok(if remaining == 0 && picked_quantity == 0 {
-        AllotmentStatus::Cancelled
-    } else if picked_quantity > 0 {
-        AllotmentStatus::InProgress
-    } else {
-        AllotmentStatus::Active
-    })
-}
+// `remaining_allotted` and `derive_allotment_status` were here, and both
+// subtracted at pick: one allotment's commitment released the moment a picker
+// touched the goods, and the status went IN_PROGRESS because somebody had
+// started rather than because a shop had received anything.
+//
+// Picking is destination-less and commits to nobody, so neither answer was
+// about the shop. Both now come from `commitment::Fulfillment` and the view
+// built on it — `allotment_line_commitment` / `allotment_commitment` — which
+// is the only place the arithmetic exists. A caller that wants a status reads
+// the fold; a caller that wants what is still owed reads `to_receive_qty`, and
+// what still has to leave the shelf is `to_pack_qty`.
+//
+// `AllotmentStatus` below is the legacy spelling of the column. It is still
+// written while the old routes live, and is mapped through
+// `FulfillmentStatus::from_legacy` on the way out.
 
 #[derive(Debug, Error, Eq, PartialEq)]
 pub enum AllotmentError {
@@ -173,13 +155,27 @@ pub enum AllotmentError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cloud::domain::FulfillmentStatus;
 
     #[test]
-    fn pick_releases_allotted_without_claiming_completion() {
-        assert_eq!(remaining_allotted(100, 40, 15), Ok(45));
-        assert_eq!(
-            derive_allotment_status(100, 100, 0),
-            Ok(AllotmentStatus::InProgress)
-        );
+    fn every_legacy_status_maps_onto_one_of_the_three() {
+        // The four that said something about the DC's progress rather than
+        // about whether the shop got its goods are all live work again; only
+        // a real ending stays an ending.
+        for (stored, expected) in [
+            ("ACTIVE", FulfillmentStatus::Active),
+            ("IN_PROGRESS", FulfillmentStatus::Active),
+            ("DC_COMPLETED", FulfillmentStatus::Active),
+            ("COMPLETED", FulfillmentStatus::Completed),
+            ("CANCELLED", FulfillmentStatus::Closed),
+            ("REJECTED", FulfillmentStatus::Closed),
+        ] {
+            assert_eq!(
+                FulfillmentStatus::from_legacy(stored),
+                expected,
+                "{stored} reads wrongly"
+            );
+            assert!(AllotmentStatus::from_str(stored).is_ok());
+        }
     }
 }

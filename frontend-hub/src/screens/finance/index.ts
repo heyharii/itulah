@@ -6,10 +6,12 @@ import { BankReconciliation } from "@/screens/finance/bank"
 import { ChartOfAccounts } from "@/screens/finance/chart-of-accounts"
 import { FinanceOverview } from "@/screens/finance/overview"
 import { GeneralLedgerScreen } from "@/screens/finance/general-ledger"
+import { GiroPrinting } from "@/screens/finance/giro-print"
 import { Journal } from "@/screens/finance/journal"
 import { Payments } from "@/screens/finance/payments"
 import { Periods } from "@/screens/finance/periods"
 import { Reports } from "@/screens/finance/reports"
+import { UnmatchedCharges } from "@/screens/finance/unmatched-charges"
 import { SupplierBills } from "@/screens/finance/supplier-bills"
 
 /// Screens this module has written. Keys must be paths declared in
@@ -58,6 +60,7 @@ export const screens: ScreenMap = {
   "/finance/bills": SupplierBills,
   "/finance/payments": Payments,
   "/finance/bank": BankReconciliation,
+  "/finance/unmatched-charges": UnmatchedCharges,
   "/finance/assets": AssetRegister,
   "/finance/journal": Journal,
   "/finance/reports": Reports,
@@ -65,4 +68,5 @@ export const screens: ScreenMap = {
   "/finance/accounts": ChartOfAccounts,
   "/finance/account-map": AccountMap,
   "/finance/periods": Periods,
+  "/finance/giro-print": GiroPrinting,
 }

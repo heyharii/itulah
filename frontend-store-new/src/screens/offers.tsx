@@ -1,5 +1,11 @@
 import { useQuery } from "@tanstack/react-query"
-import { CalendarClock, Clock, Sparkles, TicketPercent, TrendingDown } from "lucide-react"
+import {
+  CalendarClock,
+  Clock,
+  Sparkles,
+  TicketPercent,
+  TrendingDown,
+} from "lucide-react"
 import { useEffect, useState } from "react"
 
 import { Pill } from "@/components/ui/pill"
@@ -10,7 +16,12 @@ import { count, label, moment } from "@/lib/format"
 import { fetchOffers, offersKey } from "@/lib/queries"
 import { queryState } from "@/lib/query-state"
 import { cn } from "@/lib/utils"
-import type { Applicability, Effect, PriceDropWindow, StoreOffer } from "@itulah/contract"
+import type {
+  Applicability,
+  Effect,
+  PriceDropWindow,
+  StoreOffer,
+} from "@itulah/contract"
 import { money } from "@itulah/contract/money"
 
 /// What this shop is running, and what it is about to run.
@@ -138,7 +149,7 @@ function OfferCard({ offer }: { offer: StoreOffer }) {
         <Banner campaign={offer.campaign_id} alt={offer.campaign_name ?? ""} />
       )}
       <div className="flex items-start gap-2.5 bg-soft px-3.5 py-3">
-        <span className="grid size-[1.6875rem] shrink-0 place-items-center rounded-[0.5rem] border border-hairline bg-canvas text-accent">
+        <span className="grid size-[1.6875rem] shrink-0 place-items-center rounded-inner border border-hairline-2 bg-canvas text-accent">
           <Sparkles className="size-[0.9375rem]" />
         </span>
         <span className="min-w-0 flex-1">
@@ -167,10 +178,12 @@ function OfferCard({ offer }: { offer: StoreOffer }) {
       </div>
 
       <div className="px-3.5 py-3">
-        <p className="text-body font-medium text-ink">
+        <p className="font-medium text-body text-ink">
           {describeEffect(offer.effect)}
         </p>
-        <p className="mt-0.5 text-meta text-body">{describeScope(offer.applies_to)}</p>
+        <p className="mt-0.5 text-meta text-body">
+          {describeScope(offer.applies_to)}
+        </p>
 
         {/* The countdown. Two different sentences and the difference is the
             whole reason this screen exists: one is a deadline a cashier can
@@ -180,7 +193,11 @@ function OfferCard({ offer }: { offer: StoreOffer }) {
         <div
           className={cn(
             "mt-2.5 flex items-center gap-1.5 text-meta font-medium tabular-nums",
-            upcoming ? "text-info-fg" : urgent(offer.ends_at, now) ? "text-bad-fg" : "text-body",
+            upcoming
+              ? "text-info-fg"
+              : urgent(offer.ends_at, now)
+                ? "text-bad-fg"
+                : "text-body",
           )}
         >
           {upcoming ? (
@@ -234,7 +251,9 @@ function OfferCard({ offer }: { offer: StoreOffer }) {
               </Pill>
             )}
             {offer.budget_remaining_minor !== null && (
-              <Pill tone={offer.budget_remaining_minor === 0 ? "bad" : "neutral"}>
+              <Pill
+                tone={offer.budget_remaining_minor === 0 ? "bad" : "neutral"}
+              >
                 {money(offer.budget_remaining_minor)} budget
               </Pill>
             )}
@@ -308,7 +327,7 @@ function DropCard({ window }: { window: PriceDropWindow }) {
   if (window.campaign_id === null) {
     return (
       <div className="flex items-start gap-2.5 rounded-card border border-hairline bg-canvas px-3.5 py-3 shadow-soft">
-        <span className="grid size-[1.6875rem] shrink-0 place-items-center rounded-[0.5rem] border border-hairline bg-canvas text-bad-fg">
+        <span className="grid size-[1.6875rem] shrink-0 place-items-center rounded-inner border border-hairline-2 bg-canvas text-bad-fg">
           <TrendingDown className="size-[0.9375rem]" />
         </span>
         <div className="min-w-0 flex-1">
@@ -316,7 +335,11 @@ function DropCard({ window }: { window: PriceDropWindow }) {
           <div className="mt-1">{clock}</div>
           {slot}
         </div>
-        {upcoming ? <Pill tone="info">Soon</Pill> : <Pill tone="bad">Down</Pill>}
+        {upcoming ? (
+          <Pill tone="info">Soon</Pill>
+        ) : (
+          <Pill tone="bad">Down</Pill>
+        )}
       </div>
     )
   }

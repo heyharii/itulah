@@ -7,7 +7,7 @@ import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
-import { FilterBar } from "@/components/ui/filter-bar"
+import { FilterPanel } from "@/components/ui/filter-panel"
 import { Input, Textarea } from "@/components/ui/field"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
@@ -79,7 +79,7 @@ const columns: ColumnDef<TableSetup, PriceAmendment>[] = [
     size: 130,
     meta: {
       align: "right",
-      filter: { kind: "number", scale: 100, unit: "Rp" },
+      filter: { kind: "number", unit: "Rp" },
     },
     cell: ({ row }) => money(row.original.ordered_price_minor),
   },
@@ -89,7 +89,7 @@ const columns: ColumnDef<TableSetup, PriceAmendment>[] = [
     size: 130,
     meta: {
       align: "right",
-      filter: { kind: "number", scale: 100, unit: "Rp" },
+      filter: { kind: "number", unit: "Rp" },
     },
     cell: ({ row }) => money(row.original.invoiced_price_minor),
   },
@@ -99,7 +99,7 @@ const columns: ColumnDef<TableSetup, PriceAmendment>[] = [
     size: 140,
     meta: {
       align: "right",
-      filter: { kind: "number", scale: 100, unit: "Rp" },
+      filter: { kind: "number", unit: "Rp" },
     },
     // The decision metric and the default sort: the supplier billing most above
     // what was agreed is the answer somebody should write first. A negative gap
@@ -204,7 +204,7 @@ export function PriceAmendments() {
       </KpiStrip>
 
       <Toolbar>
-        <FilterBar model={filters} table={table} />
+        <FilterPanel model={filters} table={table} />
       </Toolbar>
 
       <Card className="overflow-hidden">

@@ -11,7 +11,8 @@ import { defineConfig } from "vite"
 // reproduce that single origin rather than point the browser at a second one:
 // a cross-origin dev setup drops the session cookie, and the login then appears
 // to succeed and immediately fail.
-const apiTarget = process.env.VITE_API_TARGET ?? "https://itulah-cloud.onrender.com"
+const apiTarget =
+  process.env.VITE_API_TARGET ?? "https://itulah-cloud.onrender.com"
 
 // And to a DC EDGE node, for the Operations module.
 //
@@ -64,19 +65,19 @@ export default defineConfig({
       // live in it.
       "@itulah/contract/money": path.resolve(
         __dirname,
-        "../frontend-contract/src/money/index.ts",
+        "../frontend-contract/src/money/index.ts"
       ),
       "@itulah/contract/reporting": path.resolve(
         __dirname,
-        "../frontend-contract/src/reporting/index.ts",
+        "../frontend-contract/src/reporting/index.ts"
       ),
       "@itulah/contract/client": path.resolve(
         __dirname,
-        "../frontend-contract/src/client/index.ts",
+        "../frontend-contract/src/client/index.ts"
       ),
       "@itulah/contract": path.resolve(
         __dirname,
-        "../frontend-contract/src/index.ts",
+        "../frontend-contract/src/index.ts"
       ),
     },
   },

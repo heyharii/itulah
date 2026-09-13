@@ -225,7 +225,7 @@ export function Reports() {
 
 /// The run of days.
 ///
-/// Thin bars on a faint track, `{accent}` because a primary series is indigo,
+/// Thin bars on a faint track, `{accent}` because a primary series is the accent,
 /// with the busiest bucket named. The chart grammar never simplifies on a phone
 /// — it only narrows — so this is the same bar chart the console draws, laid
 /// out as rows because a phone is taller than it is wide.

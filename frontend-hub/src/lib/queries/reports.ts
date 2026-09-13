@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { node } from "@/lib/api"
 import type { Filter, FilterKind, Operator } from "@/lib/filters"
+import type { SavedReportPage, SavedReportRow } from "@itulah/contract"
 
 /// Reports: the definition, not the rows.
 ///
@@ -161,18 +162,14 @@ export interface SavedReport {
   readonly versions: readonly ReportVersion[]
 }
 
-export interface SavedReportRow {
-  readonly report_id: string
-  readonly name: string
-  readonly owner: string
-  readonly shared: boolean
-  readonly version: number
-  readonly dataset: string | null
-  readonly prompt: string | null
-  readonly model: string | null
-  readonly created_at: string
-  readonly updated_at: string
-}
+/// Re-exported from the contract rather than transcribed.
+///
+/// It was hand-written here while `/reports/saved` answered with a `json!()`
+/// literal the generator had nothing to read. The endpoint carries a struct
+/// now, so this is generated from the Rust like everything else — and the day
+/// somebody adds a field to it, the screen gets the field rather than a
+/// silence.
+export type { SavedReportRow }
 
 export const reportKeys = {
   catalogue: () => ["reports", "catalogue"] as const,
@@ -192,11 +189,26 @@ export function useCatalogue() {
   })
 }
 
+/// The saved reports, with the envelope opened here rather than on the screen.
+///
+/// `/reports/saved` answers `{ rows, … }` — it was given the same envelope every
+/// other list in this system now carries. It used to answer `{ items }`, and for
+/// a while after the change this hook still said `items`: the screen read
+/// `page.items.length` on `undefined` and threw before it could draw. Nothing
+/// was wrong with either side on its own, which is exactly why the break was
+/// invisible until somebody opened the screen.
+///
+/// So the unwrapping lives in ONE place. `items` is kept as the name the screen
+/// reads, because the screen holds the whole list and does not page — and the
+/// day it should page, it asks for the envelope here instead of eight screens
+/// each learning a new shape.
 export function useSavedReports() {
   return useQuery({
     queryKey: reportKeys.saved(),
-    queryFn: () =>
-      node.get<{ items: SavedReportRow[] }>("/api/v1/reports/saved"),
+    queryFn: async () => {
+      const page = await node.get<SavedReportPage>("/api/v1/reports/saved")
+      return { items: page.rows }
+    },
   })
 }
 
@@ -287,7 +299,10 @@ export function useSpecRun(
   filters: readonly SpecFilter[] = []
 ) {
   return useQuery({
-    queryKey: [...reportKeys.adhoc(spec ?? { dataset: "", measures: [] }), filters],
+    queryKey: [
+      ...reportKeys.adhoc(spec ?? { dataset: "", measures: [] }),
+      filters,
+    ],
     queryFn: () =>
       node.post<ReportResult>("/api/v1/reports/run", { spec, filters }),
     enabled: spec !== null,

@@ -83,12 +83,24 @@ export function useSourcingCatalogue(scope: Omit<SourcingScope, "cursor">) {
   }
 }
 
+/// A page of the supplier book, and the shape of everything it was drawn from.
+export interface SupplierPage {
+  readonly rows: Supplier[]
+  readonly next_cursor: string | null
+  readonly total: number
+}
+
+/// Every supplier the status leaves, as the rows alone — which is all the
+/// pickers that call this want. The envelope is unwrapped here rather than in
+/// each of them.
 export function listSuppliers(
   status?: SupplierStatus,
   signal?: AbortSignal,
 ): Promise<Supplier[]> {
   const query = status === undefined ? "" : `?status=${status}`
-  return node.get<Supplier[]>(`/api/v1/suppliers${query}`, { signal })
+  return node
+    .get<SupplierPage>(`/api/v1/suppliers${query}`, { signal })
+    .then((body) => body.rows)
 }
 
 /// Add a candidate to a supplier's catalogue.

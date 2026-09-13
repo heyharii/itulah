@@ -1,23 +1,26 @@
 import { ChevronRight } from "lucide-react"
 import { useMemo, useState } from "react"
 
+import { PageContent } from "@/components/shell/app-shell"
+import { Card } from "@/components/ui/card"
 import { PageHeader } from "@/components/ui/page-header"
 import { Tag } from "@/components/ui/tag"
 import { cn } from "@/lib/utils"
 import {
   Amount,
-  Blocked,
   Cell,
   CheckMark,
   EntryView,
-  Panel,
   Row,
   Section,
-  SimBadge,
   Table,
 } from "@/screens/finance-lab/parts"
 import type { ReconRow } from "@/screens/finance-lab/engine/depreciation"
-import { SCENARIOS, World, type ScenarioResult } from "@/screens/finance-lab/engine/scenarios"
+import {
+  SCENARIOS,
+  World,
+  type ScenarioResult,
+} from "@/screens/finance-lab/engine/scenarios"
 
 /// The acceptance scenarios, run in the browser, with every step shown.
 ///
@@ -40,7 +43,9 @@ export function Scenarios() {
         out.set(s.id, {
           id: s.id,
           steps: [{ title: "The scenario threw", detail: String(err) }],
-          checks: [{ label: "The scenario ran", pass: false, actual: String(err) }],
+          checks: [
+            { label: "The scenario ran", pass: false, actual: String(err) },
+          ],
           passed: false,
         })
       }
@@ -52,27 +57,25 @@ export function Scenarios() {
   const open = SCENARIOS.find((s) => s.id === openId)
   const openResult = results.get(openId)
 
-  const totalChecks = [...results.values()].reduce((n, r) => n + r.checks.length, 0)
-  const failed = [...results.values()].reduce((n, r) => n + r.checks.filter((c) => !c.pass).length, 0)
+  const totalChecks = [...results.values()].reduce(
+    (n, r) => n + r.checks.length,
+    0
+  )
+  const failed = [...results.values()].reduce(
+    (n, r) => n + r.checks.filter((c) => !c.pass).length,
+    0
+  )
 
   return (
-    <div>
-      <PageHeader
-        crumb="Finance lab"
-        title="Skenario penerimaan"
-        sub={
-          <>
-            Delapan alur dari §10, dijalankan di browser terhadap fixture yang diambil dari jurnal
-            C006 Juli 2026. Angka yang cocok adalah angka klien; yang ditolak menyebutkan alasannya.
-          </>
-        }
-        actions={<SimBadge />}
-      />
+    <PageContent>
+      <PageHeader crumb="Finance" title="Acceptance scenarios" />
 
       <div
         className={cn(
           "mb-5 rounded-[0.8125rem] border px-3.5 py-3",
-          failed === 0 ? "border-ok-fg/25 bg-ok-bg/50" : "border-bad-fg/25 bg-bad-bg/50"
+          failed === 0
+            ? "border-ok-fg/25 bg-ok-bg/50"
+            : "border-bad-fg/25 bg-bad-bg/50"
         )}
       >
         <div className="text-[0.9375rem] font-semibold text-ink">
@@ -86,7 +89,7 @@ export function Scenarios() {
       </div>
 
       <div className="grid gap-5 lg:grid-cols-[19rem_minmax(0,1fr)]">
-        <Panel className="h-max">
+        <Card className="h-max overflow-hidden">
           <ul>
             {SCENARIOS.map((s) => {
               const r = results.get(s.id)
@@ -103,16 +106,22 @@ export function Scenarios() {
                   >
                     <span
                       className={cn(
-                        "mt-0.5 inline-flex size-5 shrink-0 items-center justify-center rounded-md text-[0.6875rem] font-bold",
-                        bad === 0 ? "bg-ok-bg text-ok-fg" : "bg-bad-bg text-bad-fg"
+                        "mt-0.5 inline-flex size-5 shrink-0 items-center justify-center rounded-md text-[0.6875rem] font-semibold",
+                        bad === 0
+                          ? "bg-ok-bg text-ok-fg"
+                          : "bg-bad-bg text-bad-fg"
                       )}
                     >
                       {s.letter}
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block text-[0.8125rem] font-medium text-ink">{s.title}</span>
+                      <span className="block text-[0.8125rem] font-medium text-ink">
+                        {s.title}
+                      </span>
                       <span className="block text-[0.75rem] text-mute">
-                        {r ? `${r.checks.length - bad}/${r.checks.length} checks` : "—"}
+                        {r
+                          ? `${r.checks.length - bad}/${r.checks.length} checks`
+                          : "—"}
                       </span>
                     </span>
                     <ChevronRight className="mt-1 size-3.5 shrink-0 text-faint" />
@@ -121,13 +130,15 @@ export function Scenarios() {
               )
             })}
           </ul>
-        </Panel>
+        </Card>
 
         <div className="min-w-0">
-          {open && openResult && <ScenarioDetail scenario={open} result={openResult} />}
+          {open && openResult && (
+            <ScenarioDetail scenario={open} result={openResult} />
+          )}
         </div>
       </div>
-    </div>
+    </PageContent>
   )
 }
 
@@ -144,37 +155,26 @@ function ScenarioDetail({
         <h2 className="text-[1.0625rem] font-semibold text-ink">
           {scenario.letter}. {scenario.title}
         </h2>
-        <p className="mt-1 text-[0.8125rem] text-body">{scenario.asks}</p>
-        <p className="mt-1.5 text-[0.8125rem] text-mute">
-          <span className="font-medium text-body">Bukti: </span>
-          {scenario.evidence}
-        </p>
       </div>
 
-      <Section title="Apa yang terjadi">
+      <Section title="What happened">
         <ol className="space-y-3">
           {result.steps.map((s, i) => (
             <li key={i}>
               <div className="mb-1.5 flex items-baseline gap-2">
-                <span className="inline-flex size-[1.125rem] shrink-0 items-center justify-center rounded-full bg-soft-2 text-[0.625rem] font-bold text-body">
+                <span className="inline-flex size-[1.125rem] shrink-0 items-center justify-center rounded-full bg-soft-2 text-[0.625rem] font-semibold text-body">
                   {i + 1}
                 </span>
-                <span className="text-[0.875rem] font-medium text-ink">{s.title}</span>
+                <span className="text-[0.875rem] font-medium text-ink">
+                  {s.title}
+                </span>
               </div>
-              {s.detail && <p className="mb-1.5 pl-6 text-[0.8125rem] text-body">{s.detail}</p>}
-              {s.refusal && (
-                <div className="pl-6">
-                  <Blocked>
-                    <span className="font-mono text-[0.75rem] font-semibold">{s.refusal.code}</span>{" "}
-                    {s.refusal.message}
-                    {s.refusal.detail?.map((d, j) => (
-                      <div key={j} className="mt-1 text-[0.75rem] opacity-90">
-                        {d}
-                      </div>
-                    ))}
-                  </Blocked>
-                </div>
+              {s.detail && (
+                <p className="mb-1.5 pl-6 text-[0.8125rem] text-body">
+                  {s.detail}
+                </p>
               )}
+              {s.refusal && <div className="pl-6"></div>}
               {s.entry && (
                 <div className="pl-6">
                   <EntryView entry={s.entry} />
@@ -186,10 +186,15 @@ function ScenarioDetail({
       </Section>
 
       {result.extra?.recon ? <Reconciliation extra={result.extra} /> : null}
-      {result.extra?.disagreement ? <Disagreement extra={result.extra} /> : null}
+      {result.extra?.disagreement ? (
+        <Disagreement extra={result.extra} />
+      ) : null}
 
-      <Section title="Yang diperiksa" sub="Setiap baris adalah klaim yang bisa gagal.">
-        <Panel>
+      <Section
+        title="What was checked"
+        sub="Every line is a claim that can fail."
+      >
+        <>
           <Table head={["", "Check", "Expected", "Actual"]}>
             {result.checks.map((c, i) => (
               <Row key={i} tone={c.pass ? undefined : "bad"}>
@@ -198,16 +203,20 @@ function ScenarioDetail({
                 </Cell>
                 <Cell>
                   <span className="text-ink">{c.label}</span>
-                  {c.note && <div className="text-[0.75rem] text-mute">{c.note}</div>}
+                  {c.note && (
+                    <div className="text-[0.75rem] text-mute">{c.note}</div>
+                  )}
                 </Cell>
                 <Cell className="text-body">{c.expected ?? "—"}</Cell>
-                <Cell className={c.pass ? "text-body" : "font-semibold text-bad-fg"}>
+                <Cell
+                  className={c.pass ? "text-body" : "font-semibold text-bad-fg"}
+                >
                   {c.actual ?? "—"}
                 </Cell>
               </Row>
             ))}
           </Table>
-        </Panel>
+        </>
       </Section>
     </div>
   )
@@ -219,14 +228,10 @@ function Reconciliation({ extra }: { extra: Record<string, unknown> }) {
     computedTotal: number
     actualTotal: number
   }
-  const byPeriode = extra.byPeriode as number
   return (
-    <Section
-      title="Rekonsiliasi terhadap GL-26-07-00004"
-      sub="Replay dari register di sebelah kiri, entri klien di sebelah kanan. Baris yang tidak cocok tetap ditampilkan."
-    >
-      <Panel>
-        <Table head={["Asset", ">Replay", ">Klien", "", "Catatan"]}>
+    <Section title="Reconciliation terhyesp GL-26-07-00004">
+      <>
+        <Table head={["Asset", ">Replay", ">Klien", "", "Note"]}>
           {recon.rows.map((r, i) => (
             <Row key={i} tone={r.matched ? undefined : "warn"}>
               <Cell>{r.label}</Cell>
@@ -239,7 +244,7 @@ function Reconciliation({ extra }: { extra: Record<string, unknown> }) {
               <Cell className="w-8">
                 <CheckMark pass={r.matched} />
               </Cell>
-              <Cell className="text-mute">{r.note ?? "cocok persis"}</Cell>
+              <Cell className="text-mute">{r.note ?? "exact match"}</Cell>
             </Row>
           ))}
           <Row className="border-t border-hairline font-semibold">
@@ -253,16 +258,7 @@ function Reconciliation({ extra }: { extra: Record<string, unknown> }) {
             <Cell colSpan={2} />
           </Row>
         </Table>
-      </Panel>
-      <p className="mt-2 text-[0.8125rem] text-body">
-        Konvensi bulan pertama diselesaikan oleh angka ini, bukan oleh asumsi. Kalau jadwal dimulai
-        dari kolom PERIODE register, Juli akan membebankan{" "}
-        <span className="font-semibold text-ink">
-          <Amount minor={byPeriode} />
-        </span>{" "}
-        — 13 aset, bukan 9 — dan selisihnya{" "}
-        <Amount minor={byPeriode - recon.actualTotal} /> tidak pernah diposting klien.
-      </p>
+      </>
     </Section>
   )
 }
@@ -275,12 +271,9 @@ function Disagreement({ extra }: { extra: Record<string, unknown> }) {
     note: string
   }[]
   return (
-    <Section
-      title="Tiga sumber yang belum cocok"
-      sub="Ditampilkan sebagai masalah rekonsiliasi. Tidak ada satu pun yang dipilih sebagai data final."
-    >
-      <Panel>
-        <Table head={["Sumber", "Nilai", "Unit", "Catatan"]}>
+    <Section title="Three sources that disagree">
+      <>
+        <Table head={["Source", "Value", "Unit", "Note"]}>
           {rows.map((r, i) => (
             <Row key={i} tone="warn">
               <Cell>{r.source}</Cell>
@@ -292,7 +285,7 @@ function Disagreement({ extra }: { extra: Record<string, unknown> }) {
             </Row>
           ))}
         </Table>
-      </Panel>
+      </>
     </Section>
   )
 }

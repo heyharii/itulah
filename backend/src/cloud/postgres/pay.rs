@@ -12,14 +12,24 @@
 //! The attendance period is the payroll gate. `attendance_period` is asked
 //! before a run is created, and an open month is a conflict — the facts are
 //! still moving.
+//!
+//! # The handover to Finance is written once and never doubled
+//!
+//! `payroll_handover` is keyed by the run and unique per (place, period), so
+//! the two ways of reaching it agree: sending the same month twice inserts
+//! nothing and is told so. Settling it is a **guarded update** — `WHERE state =
+//! 'RECEIVED'` — so two people pressing at once produce one payment and the
+//! second is told the money has already gone out. The unguarded form, which
+//! pre-checks and then updates by id, has a window between the two; the cash
+//! count's form does not, and this follows the cash count's.
 
 use crate::cloud::application::AppError;
 use crate::cloud::domain::{
-    AllowanceCode, AttendanceMonth, Authorization, BankAccount, FixedAllowance, IdentityAmendment,
-    PayError, PayRecord, PayTimeline, PayrollIdentity, PayrollRun, PayrollRunWire, PlaceId,
-    RunEvent, RunState,
+    AllowanceCode, AttendanceMonth, Authorization, BankAccount, FixedAllowance, HandoverState,
+    IdentityAmendment, PayError, PayRecord, PayTimeline, PayrollHandover, PayrollHandoverLine,
+    PayrollHandoverWire, PayrollIdentity, PayrollRun, PayrollRunWire, PlaceId, RunEvent, RunState,
 };
-use chrono::{Datelike, NaiveDate};
+use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use pricing_engine::Money;
 use serde::Serialize;
 use sqlx::{PgPool, Postgres, Row, Transaction};
@@ -463,10 +473,11 @@ pub async fn slips_of(pool: &PgPool, employee_id: &str) -> Result<Vec<PayrollSli
            LEFT JOIN employee_profile p ON p.employee_id = s.employee_id
            LEFT JOIN payroll_identity i ON i.employee_id = s.employee_id
           WHERE s.employee_id = $1
-            -- Only what somebody has actually signed for. A draft is a working
-            -- figure, and showing it to the person it is about invites them to
-            -- plan around a number that is still moving.
-            AND r.state IN ('APPROVED', 'SEALED')
+            -- Only what head office has actually decided. A draft is a working
+            -- figure and a submitted run is a request nobody has answered;
+            -- showing either to the person it is about invites them to plan
+            -- around a number that is still moving.
+            AND r.state = 'APPROVED'
           ORDER BY r.period DESC",
     )
     .bind(employee_id)
@@ -579,3 +590,273 @@ pub fn month_first_day(month: AttendanceMonth) -> Result<NaiveDate, AppError> {
 /// The allowance code type, re-exported so a handler need not reach into the
 /// domain for one name.
 pub type PayAllowanceCode = AllowanceCode;
+
+// ── the handover to Finance ──────────────────────────────────────────────
+
+/// A run's crossing to Finance as a list needs it: the state, the figure, and
+/// the two signatures.
+///
+/// Deliberately **without the breakdown**. A list of runs wants to know which
+/// months have gone to Finance and which of those have been paid; loading every
+/// employee line to answer that would be a query per row. The breakdown has its
+/// own route, and this type never claims to carry it — which is the difference
+/// between a summary and a lie by omission.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct HandoverStanding {
+    pub run_id: String,
+    /// `RECEIVED` or `PAID`.
+    pub state: String,
+    pub gross_minor: i64,
+    pub people: i64,
+    pub handed_over_by: String,
+    pub handed_over_at: DateTime<Utc>,
+    pub handed_over_reason: String,
+    /// `null` while the money has not gone out. Absence is the state, not a
+    /// missing value.
+    pub settled_by: Option<String>,
+    pub settled_at: Option<DateTime<Utc>>,
+    pub settled_reason: Option<String>,
+}
+
+fn standing(row: &sqlx::postgres::PgRow) -> Result<HandoverStanding, AppError> {
+    let handed: Authorization = serde_json::from_value(row.try_get("handed_over")?)
+        .map_err(|error| corrupt("handover authority", error.to_string()))?;
+    let settled: Option<Authorization> = row
+        .try_get::<Option<serde_json::Value>, _>("settled")?
+        .map(serde_json::from_value)
+        .transpose()
+        .map_err(|error| corrupt("settlement authority", error.to_string()))?;
+    Ok(HandoverStanding {
+        run_id: row.try_get("run_id")?,
+        state: row.try_get("state")?,
+        gross_minor: row.try_get("gross_minor")?,
+        people: row.try_get("people")?,
+        handed_over_by: handed.actor().to_string(),
+        handed_over_at: handed.at(),
+        handed_over_reason: handed.reason().to_string(),
+        settled_by: settled.as_ref().map(|a| a.actor().to_string()),
+        settled_at: settled.as_ref().map(Authorization::at),
+        settled_reason: settled.as_ref().map(|a| a.reason().to_string()),
+    })
+}
+
+const STANDING_COLUMNS: &str = "h.run_id, h.state, h.gross_minor, h.handed_over, h.settled,
+        (SELECT count(*) FROM payroll_handover_line l WHERE l.run_id = h.run_id) AS people";
+
+/// Where every run at a place stands with Finance, in one query.
+///
+/// One query for the whole list rather than one per run, and `place_id IS NULL`
+/// reads every place — which only an unbounded caller ever asks for.
+pub async fn handover_standings(
+    pool: &PgPool,
+    place_id: Option<&str>,
+) -> Result<Vec<HandoverStanding>, AppError> {
+    let rows = sqlx::query(&format!(
+        "SELECT {STANDING_COLUMNS} FROM payroll_handover h
+          WHERE ($1::text IS NULL OR h.place_id = $1)
+          ORDER BY h.period DESC, h.place_id"
+    ))
+    .bind(place_id)
+    .fetch_all(pool)
+    .await?;
+    rows.iter().map(standing).collect()
+}
+
+/// Where one run stands with Finance.
+pub async fn handover_standing(
+    pool: &PgPool,
+    run_id: &str,
+) -> Result<Option<HandoverStanding>, AppError> {
+    let row = sqlx::query(&format!(
+        "SELECT {STANDING_COLUMNS} FROM payroll_handover h WHERE h.run_id = $1"
+    ))
+    .bind(run_id)
+    .fetch_optional(pool)
+    .await?;
+    row.as_ref().map(standing).transpose()
+}
+
+/// One handover, breakdown and all, re-hydrated through its own rules.
+///
+/// The header-agrees-with-its-lines check fires on the way in as well as on the
+/// way out — which is the point of loading this through the kernel rather than
+/// serving the rows. A row somebody edited in psql fails to load rather than
+/// becoming a figure a payment is reconciled against.
+pub async fn load_handover(
+    pool: &PgPool,
+    run_id: &str,
+) -> Result<Option<PayrollHandover>, AppError> {
+    let header = sqlx::query(
+        "SELECT run_id, place_id, period, gross_minor, state, handed_over, settled
+           FROM payroll_handover WHERE run_id = $1",
+    )
+    .bind(run_id)
+    .fetch_optional(pool)
+    .await?;
+    let Some(header) = header else {
+        return Ok(None);
+    };
+
+    let lines = sqlx::query(
+        "SELECT employee_id, gross_minor FROM payroll_handover_line
+          WHERE run_id = $1 ORDER BY employee_id",
+    )
+    .bind(run_id)
+    .fetch_all(pool)
+    .await?;
+    let lines = lines
+        .iter()
+        .map(|row| {
+            PayrollHandoverLine::try_new(
+                row.try_get::<String, _>("employee_id")?,
+                row.try_get::<i64, _>("gross_minor")?,
+            )
+            .map_err(|error| corrupt("handover line", error.to_string()))
+        })
+        .collect::<Result<Vec<_>, AppError>>()?;
+
+    let period: NaiveDate = header.try_get("period")?;
+    let state: String = header.try_get("state")?;
+    PayrollHandover::try_new(PayrollHandoverWire {
+        run_id: header.try_get("run_id")?,
+        place: PlaceId::try_new(&header.try_get::<String, _>("place_id")?)
+            .map_err(|error| corrupt("place id", error.to_string()))?,
+        period: format!("{:04}-{:02}", period.year(), period.month()),
+        gross_minor: header.try_get("gross_minor")?,
+        state: HandoverState::parse(&state)
+            .ok_or_else(|| corrupt("handover state", state.clone()))?,
+        handed_over: serde_json::from_value(header.try_get("handed_over")?)
+            .map_err(|error| corrupt("handover authority", error.to_string()))?,
+        settled: header
+            .try_get::<Option<serde_json::Value>, _>("settled")?
+            .map(serde_json::from_value)
+            .transpose()
+            .map_err(|error| corrupt("settlement authority", error.to_string()))?,
+        lines,
+    })
+    .map(Some)
+    .map_err(|error| corrupt("payroll handover", error.to_string()))
+}
+
+/// The breakdown a run would cross with, read off its slips.
+///
+/// Gross is `statutory_base_minor` — base plus the standing allowances — and
+/// nothing else on a slip is money. Overtime is minutes and leave is days, and
+/// no rate for either exists anywhere in this estate, so neither is turned into
+/// rupiah here. A slip whose figure is not positive is **refused rather than
+/// skipped**: leaving somebody out of a liability quietly is worse than
+/// stopping and saying which slip cannot be crossed.
+pub async fn handover_lines_of(
+    pool: &PgPool,
+    run_id: &str,
+) -> Result<Vec<PayrollHandoverLine>, AppError> {
+    let rows = sqlx::query(
+        "SELECT employee_id, statutory_base_minor FROM payroll_slip
+          WHERE run_id = $1 ORDER BY employee_id",
+    )
+    .bind(run_id)
+    .fetch_all(pool)
+    .await?;
+    rows.iter()
+        .map(|row| {
+            PayrollHandoverLine::try_new(
+                row.try_get::<String, _>("employee_id")?,
+                row.try_get::<i64, _>("statutory_base_minor")?,
+            )
+            .map_err(pay_error)
+        })
+        .collect()
+}
+
+/// Write the crossing: the header and its breakdown, together.
+///
+/// Together, because the deferred trigger refuses a header without lines at
+/// COMMIT — and a caller that crashed between the two would have left exactly
+/// the shape that trigger exists to make impossible.
+///
+/// `ON CONFLICT DO NOTHING` on the header is the idempotency: the primary key
+/// is the run and there is a unique on (place, period), so a second send
+/// inserts nothing and is told the liability is already with Finance. Sending
+/// twice cannot double what the company owes.
+pub async fn hand_over(pool: &PgPool, handover: &PayrollHandover) -> Result<(), AppError> {
+    let mut tx = pool.begin().await?;
+    let first_day = period_first_day(handover.period())?;
+    let inserted = sqlx::query(
+        "INSERT INTO payroll_handover
+             (run_id, place_id, period, gross_minor, state, handed_over, settled)
+         VALUES ($1, $2, $3, $4, $5, $6, NULL)
+         ON CONFLICT (run_id) DO NOTHING",
+    )
+    .bind(handover.run_id())
+    .bind(handover.place().as_str())
+    .bind(first_day)
+    .bind(handover.gross_minor())
+    .bind(handover.state().code())
+    .bind(serde_json::to_value(handover.handed_over())?)
+    .execute(&mut *tx)
+    .await?;
+    if inserted.rows_affected() == 0 {
+        return Err(AppError::Conflict(format!(
+            "{} for {} is already with Finance",
+            handover.place(),
+            handover.period()
+        )));
+    }
+
+    for line in handover.lines() {
+        sqlx::query(
+            "INSERT INTO payroll_handover_line (run_id, employee_id, gross_minor)
+             VALUES ($1, $2, $3)",
+        )
+        .bind(handover.run_id())
+        .bind(line.employee_id())
+        .bind(line.gross_minor())
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Record that Finance has paid it.
+///
+/// A **guarded** update: `WHERE state = 'RECEIVED'`, so two people pressing at
+/// once produce one settlement and the second is told the money has already
+/// gone out. The unguarded form — pre-check the state, then update by id — has
+/// a window between the two, and this is the shape `cash_count::post_variance`
+/// settled on for the same reason.
+pub async fn settle_handover(pool: &PgPool, handover: &PayrollHandover) -> Result<(), AppError> {
+    let updated = sqlx::query(
+        "UPDATE payroll_handover
+            SET state = $2, settled = $3, updated_at = now()
+          WHERE run_id = $1 AND state = 'RECEIVED'",
+    )
+    .bind(handover.run_id())
+    .bind(handover.state().code())
+    .bind(
+        handover
+            .settled()
+            .map(serde_json::to_value)
+            .transpose()?
+            .ok_or_else(|| {
+                AppError::Validation("a settled handover carries the signature that paid it".into())
+            })?,
+    )
+    .execute(pool)
+    .await?;
+    if updated.rows_affected() == 0 {
+        return Err(AppError::Conflict(format!(
+            "the liability for {} is already recorded as paid",
+            handover.period()
+        )));
+    }
+    Ok(())
+}
+
+/// `YYYY-MM` as the first of that month, which is how both period columns
+/// store it.
+fn period_first_day(period: &str) -> Result<NaiveDate, AppError> {
+    let month = AttendanceMonth::parse(period).map_err(crate::cloud::postgres::attendance_error)?;
+    month_first_day(month)
+}

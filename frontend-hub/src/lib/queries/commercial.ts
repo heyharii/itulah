@@ -1,4 +1,26 @@
-import type { Rule, RuleStatus } from "@itulah/contract"
+import type {
+  CampaignActivityInput,
+  CampaignActivityRow,
+  CampaignBaselineView,
+  CampaignBreachRow,
+  CampaignGuardrailInput,
+  CampaignGuardrailReading,
+  CampaignGuardrailRow,
+  CampaignOutcomeView,
+  CampaignPerDayView,
+  CampaignPlanInput,
+  CampaignPlanView,
+  CampaignReadingView,
+  CampaignScopeEntry,
+  CampaignScopeView,
+  CampaignTargetInput,
+  CampaignTargetScore,
+  CampaignWindowView,
+  GuardrailCheckReport,
+  PriceHistory,
+  Rule,
+  RuleStatus,
+} from "@itulah/contract"
 
 import type { Filter } from "@/lib/filters"
 
@@ -160,6 +182,13 @@ export interface BookCampaign {
   readonly budget_minor: number | null
   readonly max_uses: number | null
   readonly max_uses_per_customer: number | null
+  /// The shops it runs in. `null` or empty is everywhere.
+  ///
+  /// A shared CONSTRAINT rather than a default: a rule inside the campaign runs
+  /// where BOTH lists allow, so six here cannot be widened back to thirteen by
+  /// a rule naming thirteen. The till enforces it beside the campaign's window,
+  /// which binds the same way.
+  readonly site_ids: readonly string[] | null
   /// The poster a shop puts in front of a shopper.
   ///
   /// The only part of a price book a customer is meant to read, and the only
@@ -283,6 +312,10 @@ export interface CampaignInput {
   readonly image_url?: string | null
   readonly headline?: string | null
   readonly terms?: string | null
+  /// The shops it runs in. Absent or empty is everywhere — so omitting this
+  /// when restating a campaign WIDENS it to the whole fleet. See `campaignFor`
+  /// in the promotions screen for why that is not a theoretical hazard.
+  readonly site_ids?: readonly string[]
 }
 
 /// Stop a campaign, restart it, or move its dates — and tell every shop.
@@ -550,6 +583,11 @@ export interface PricedLine {
   readonly base_unit_price_minor: number
   readonly unit_price_minor: number
   readonly line_total_minor: number
+  /// The split of `line_total`: what the shop earns and what it collects for
+  /// the state. Computed once in the engine — dividing again here would give a
+  /// second answer on the rounding.
+  readonly net_ex_tax_minor: number
+  readonly tax_minor: number
   readonly tax_category: string
   readonly publication_version: number
   readonly markdown_id: string | null
@@ -586,11 +624,18 @@ export interface FreeLine {
   readonly value_minor: number
 }
 
+export interface LinePoints {
+  readonly line: number
+  readonly points: number
+}
+
 export interface EarnAward {
   readonly rule_id: string
   readonly name: string
   readonly points: number
   readonly basis_amount_minor: number
+  /// Which line earned which points, by its index in the basket as sent.
+  readonly line_points: readonly LinePoints[]
 }
 
 export interface SimulateResult {
@@ -610,6 +655,44 @@ export interface SimulateResult {
   readonly points_earned: number
   readonly discount_total_minor: number
   readonly total_minor: number
+  /// The goods without tax, the tax, and what actually has to be settled.
+  /// `amount_due` equals `total` for a tax-inclusive book and exceeds it for an
+  /// exclusive one — showing only `total` cannot tell the two apart.
+  readonly net_ex_tax_minor: number
+  readonly tax_total_minor: number
+  readonly amount_due_minor: number
+}
+
+/// What one shop has charged for one product, and what moved it.
+///
+/// The Pricelist answers "why this price" — the cascade with its losers, as of
+/// now. This answers "why did it move", which is the question somebody asks
+/// when a shelf edge and a customer's memory disagree.
+///
+/// Generated from Rust, unlike most of this file: the handler serialises a
+/// struct rather than building a `json!()` literal, so ts-rs has something to
+/// generate from and there is nothing to transcribe by hand.
+export const priceHistoryKeys = {
+  all: ["price-history"] as const,
+  of: (sku: string, site: string, channel: CommercialChannel) =>
+    ["price-history", sku, site, channel] as const,
+}
+
+export function priceHistory(
+  skuCode: string,
+  siteId: string,
+  channel: CommercialChannel,
+  signal?: AbortSignal
+): Promise<PriceHistory> {
+  const query = new URLSearchParams({
+    sku_code: skuCode,
+    site_id: siteId,
+    channel,
+  })
+  return node.get<PriceHistory>(
+    `/api/v1/commercial/price-history?${query.toString()}`,
+    { signal }
+  )
 }
 
 // ── keys ───────────────────────────────────────────────────────────────────
@@ -808,6 +891,16 @@ function carriedBy(row: CarriedRow): CarriedBy {
   }
 }
 
+/// How many rules and how many campaigns one catalogue read carries.
+///
+/// Exported rather than written into the two URLs below and forgotten, because
+/// the screens have to say it out loud: everything Promotions and Campaign
+/// draw — the clauses, the sort, the overspend banner — is computed over this
+/// many rows, and a list that came back exactly this long may be a list with
+/// rules missing. A number that lives in one place is a number the notice on
+/// those screens cannot drift from.
+export const CATALOGUE_PAGE = 500
+
 /// Every promotion, coupon and campaign the fleet is actually carrying.
 ///
 /// Four requests, flat, where this used to be one plus one per published book.
@@ -827,22 +920,28 @@ export async function promotionCatalogue(
 ): Promise<PromotionCatalogue> {
   const [books, ruleRows, couponRows, campaignRows] = await Promise.all([
     listPriceBooks(signal),
-    node.get<{ items: (BookRule & CarriedRow)[]; book_count: number }>(
-      "/api/v1/commercial/rules",
+    // Rules and campaigns answer in an envelope now — `rows` beside a cursor, a
+    // total and facet counts — the shape `GET /finance/money` set. This screen
+    // has no pager, so it asks for the server's ceiling in one request and
+    // reads `rows`; a screen that wants to page reads `next_cursor` instead.
+    // Coupons are still a bare list, deliberately: a coupon is read under the
+    // promotion it unlocks rather than browsed.
+    node.get<{ rows: (BookRule & CarriedRow)[]; book_count: number }>(
+      `/api/v1/commercial/rules?limit=${CATALOGUE_PAGE}`,
       { signal }
     ),
     node.get<{ items: (BookCoupon & CarriedRow)[]; book_count: number }>(
       "/api/v1/commercial/coupons",
       { signal }
     ),
-    node.get<{ items: (BookCampaign & CarriedRow)[]; book_count: number }>(
-      "/api/v1/commercial/campaigns",
+    node.get<{ rows: (BookCampaign & CarriedRow)[]; book_count: number }>(
+      `/api/v1/commercial/campaigns?limit=${CATALOGUE_PAGE}`,
       { signal }
     ),
   ])
 
   return {
-    rules: ruleRows.items.map((row) => ({
+    rules: ruleRows.rows.map((row) => ({
       rule_id: row.rule_id,
       name: row.name,
       status: row.status,
@@ -862,7 +961,7 @@ export async function promotionCatalogue(
       },
       book: carriedBy(row),
     })),
-    campaigns: campaignRows.items.map((row) => ({
+    campaigns: campaignRows.rows.map((row) => ({
       campaign: {
         campaign_id: row.campaign_id,
         name: row.name,
@@ -877,6 +976,9 @@ export async function promotionCatalogue(
         image_url: row.image_url ?? null,
         headline: row.headline ?? null,
         terms: row.terms ?? null,
+        // The shops it runs in. `null` from a node that predates the column,
+        // and `null` means everywhere — which is what those books meant.
+        site_ids: row.site_ids ?? null,
       },
       book: carriedBy(row),
     })),
@@ -1242,31 +1344,70 @@ export interface ArticlePriceRow {
   readonly shops: readonly ArticlePriceShop[]
 }
 
+/// One column of the matrix, and the evidence behind it.
+///
+/// UI-001 §2: the prices under a shop's name come from **the version that shop
+/// has activated**, not from the newest book head office published. So the
+/// column has to carry which version that is — a heading with only a name
+/// invites the reader to assume the numbers under it are what the till is
+/// charging, and for a shop that has confirmed nothing that is the one claim
+/// the estate cannot make.
+export interface PricelistShop {
+  readonly site_id: string
+  readonly label: string | null
+  /// The newest version this shop has reported putting into service.
+  ///
+  /// `null` is a shop that has confirmed nothing, and its column is empty —
+  /// §3's last row: "Belum terkonfirmasi / harga aktif tidak tersedia; jangan
+  /// fallback diam-diam ke latest HO."
+  readonly active_version: number | null
+  /// A book head office has published over the top which this shop has not
+  /// switched to. **Beside the price, never instead of it** — §3: "Active store
+  /// price tetap utama; badge publication baru/pending."
+  ///
+  /// Scoped to the page: a newer book that reprices nothing on screen is not
+  /// reported, because a badge that always shows is a badge nobody reads.
+  readonly pending_publication: {
+    readonly version: number
+    readonly name: string
+    readonly effective_from: string
+    readonly published_by: string | null
+    readonly published_at: string | null
+    /// How many products on this page it would reprice.
+    readonly affects_skus: number
+  } | null
+}
+
 export interface ArticlePrices {
   readonly channel: string
   readonly as_of: string
-  readonly shops: readonly {
-    readonly site_id: string
-    readonly label: string | null
-  }[]
-  readonly article_count: number
-  /// How many articles exist, against how many came back — so the screen can
-  /// say it is showing a slice rather than implying it is showing everything.
-  readonly total_article_count: number
-  /// What the whole catalogue holds, for the filter pickers — counted over
-  /// everything rather than over what came back, so ticking a second box shows
-  /// what it would add rather than reading zero.
+  readonly shops: readonly PricelistShop[]
+  readonly rows: readonly ArticlePriceRow[]
+  /// Opaque. Pass it back as `cursor` for the next page; absent means this was
+  /// the last one. A short page is NOT the end when a price bound is set — the
+  /// server prices a page and then drops what falls outside the bound — so this
+  /// is the only honest signal that there is nothing more.
+  readonly next_cursor: string | null
+  /// How many styles match, against how many came back — so the screen can say
+  /// it is showing a slice rather than implying it is showing everything.
+  readonly total: number
+  /// What the search left, for the filter pickers — counted over what the
+  /// search matched but ignoring the boxes already ticked, so ticking a second
+  /// one shows what it would add rather than reading zero.
   readonly facets?: {
     readonly divisions: readonly FacetCount[]
     readonly tags: readonly FacetCount[]
   }
-  readonly items: readonly ArticlePriceRow[]
 }
 
 /// One option and how many styles carry it. Shaped like `FilterSpec.counted`
 /// on purpose, so `facets.divisions` assigns straight into a field's spec.
 export interface FacetCount {
   readonly value: string
+  /// What to draw when it differs from the value — a division's or a tag's own
+  /// name, resolved by the server from the master it lives in. Null when the
+  /// value is already the label.
+  readonly label?: string | null
   readonly count: number
 }
 
@@ -1290,13 +1431,24 @@ export function articlePrices(
     channel?: string
     at?: string
     limit?: number
+    /// Opaque, from a previous answer's `next_cursor`. Absent asks for the
+    /// first page.
+    cursor?: string
   } & ArticlePriceScope = {},
   signal?: AbortSignal
 ): Promise<ArticlePrices> {
   const params = new URLSearchParams()
   if (options.channel) params.set("channel", options.channel)
   if (options.at) params.set("at", options.at)
-  params.set("limit", String(options.limit ?? 200))
+  // Only when the caller names one. This used to force 200, and 200 is the
+  // page size that made this the slowest read in the system — its cost is
+  // fixed per REQUEST (each shop's whole price book was fetched to price the
+  // styles on the page), so a big page paid that cost once for many rows and a
+  // caller who wanted a small page paid it anyway. The server's own default is
+  // tuned against its measured budget; overriding it from here is how that
+  // tuning gets quietly undone.
+  if (options.limit !== undefined) params.set("limit", String(options.limit))
+  if (options.cursor) params.set("cursor", options.cursor)
   if (options.q) params.set("q", options.q)
   // Left off entirely when empty rather than sent blank: `?divisions=` is a
   // list holding one empty string, which matches no division and would empty
@@ -1377,4 +1529,322 @@ export function commercialProducts(
       { signal }
     )
     .then((body) => body.items)
+}
+
+// ── why a campaign exists ──────────────────────────────────────────────────
+//
+// Everything above reads the price book: what a shop will charge, which offers
+// are live, what a campaign may spend. None of it says WHY, which is what made
+// a campaign hard to tell from a folder of promotions.
+//
+// These read a table that is NOT in any book — see migration 0161. A till has
+// no use for "clear seasonal inventory", and putting it in a publication would
+// mean repricing thirteen shops to move a goal from 75% to 80%.
+
+/// What a campaign is for, how we will know, and where the line is.
+export interface CampaignIntent {
+  readonly campaign_id: string
+  readonly objective: string
+  readonly success_metric: string
+  readonly target_direction: "AT_LEAST" | "AT_MOST"
+  /// Read according to `success_metric`: money is minor units, counts are
+  /// whole, and `SELL_THROUGH` is BASIS POINTS — 8000 is 80%. The unit is never
+  /// stored beside it because the metric already decides it.
+  readonly target_value: number
+  /// The campaign this one is read against — a CAMPAIGN, not a period.
+  ///
+  /// "Versus the previous thirty days" is the wrong question for the campaigns
+  /// this shop runs: Lebaran moves about eleven days earlier each year, so the
+  /// month before it is ordinary trading and the same dates last year were not
+  /// Lebaran. Which Lebaran is the precedent for this one is a judgement, and
+  /// this is where it is recorded.
+  readonly baseline_campaign_id: string | null
+  readonly notes: string | null
+  readonly updated_at: string
+  readonly updated_by: string
+}
+
+export interface CampaignIntentInput {
+  readonly objective: string
+  readonly success_metric: string
+  readonly target_direction: "AT_LEAST" | "AT_MOST"
+  readonly target_value: number
+  readonly baseline_campaign_id?: string | null
+  readonly notes?: string | null
+  readonly updated_by: string
+}
+
+/// One article's share of a campaign's stock question.
+export interface SellThroughArticle {
+  readonly article_code: string
+  readonly name: string | null
+  readonly units_sold: number
+  readonly on_hand: number
+  /// `null` when the style sold nothing and holds nothing — which is not 0%.
+  readonly sell_through_bps: number | null
+}
+
+export interface SellThrough {
+  readonly campaign_id: string
+  /// When the SHELF was read, which is not the end of the window: the stock
+  /// projection holds no history, so a finished campaign is scored against
+  /// today's shelf. For a running one — which is when anybody asks — that is
+  /// exactly right.
+  readonly as_of: string
+  readonly from: string
+  readonly to: string
+  readonly scope: {
+    readonly rules: number
+    /// Offers that apply to the whole basket, or to something this build cannot
+    /// read. One of them is why a campaign has no sell-through, and the screen
+    /// has to be able to say which.
+    readonly unscoped_rules: number
+    readonly articles: number
+  }
+  readonly units_sold: number
+  readonly on_hand: number
+  /// `null` when the campaign names no product at all. Not zero: zero would
+  /// read as "nothing sold", and the truth is there is nothing to measure.
+  readonly sell_through_bps: number | null
+  readonly articles: readonly SellThroughArticle[]
+}
+
+export const intentKeys = {
+  all: ["commercial", "intent"] as const,
+  list: () => ["commercial", "intent", "all"] as const,
+  one: (campaignId: string) => ["commercial", "intent", campaignId] as const,
+  sellThrough: (campaignId: string, scope: { from?: string; to?: string }) =>
+    [
+      "commercial",
+      "sell-through",
+      campaignId,
+      scope.from ?? "default",
+      scope.to ?? "now",
+    ] as const,
+}
+
+/// `null` where nobody has stated one — a 200, not a 404.
+///
+/// "This campaign has no objective" is the finding rather than an error: it is
+/// precisely the campaign somebody should be asked to justify or delete.
+export function campaignIntent(
+  campaignId: string,
+  signal?: AbortSignal
+): Promise<CampaignIntent | null> {
+  return node.get<CampaignIntent | null>(
+    `/api/v1/commercial/campaigns/${encodeURIComponent(campaignId)}/intent`,
+    { signal }
+  )
+}
+
+/// Every stated intent in one read, for the list that shows a column of them.
+export function campaignIntents(
+  signal?: AbortSignal
+): Promise<readonly CampaignIntent[]> {
+  return node
+    .get<{ items: CampaignIntent[] }>("/api/v1/commercial/campaign-intents", {
+      signal,
+    })
+    .then((body) => body.items)
+}
+
+/// State it, or restate it. An upsert: a second save is somebody changing their
+/// mind about the target, not declaring a second objective.
+export function saveCampaignIntent(
+  campaignId: string,
+  input: CampaignIntentInput,
+  signal?: AbortSignal
+): Promise<CampaignIntent> {
+  return node.put<CampaignIntent>(
+    `/api/v1/commercial/campaigns/${encodeURIComponent(campaignId)}/intent`,
+    input,
+    { signal }
+  )
+}
+
+export function deleteCampaignIntent(
+  campaignId: string,
+  signal?: AbortSignal
+): Promise<{ deleted: number }> {
+  return node.delete<{ deleted: number }>(
+    `/api/v1/commercial/campaigns/${encodeURIComponent(campaignId)}/intent`,
+    { signal }
+  )
+}
+
+/// How much of what a campaign set out to shift has shifted.
+///
+/// Its own read rather than a field on the performance aggregate: it needs the
+/// stock projection as well as the tills, and it is asked about ONE campaign —
+/// there is no fleet-wide version of "did this clear".
+export function campaignSellThrough(
+  campaignId: string,
+  scope: { from?: string | null; to?: string | null; siteId?: string | null },
+  signal?: AbortSignal
+): Promise<SellThrough> {
+  const params = new URLSearchParams()
+  if (scope.from) params.set("from", scope.from)
+  if (scope.to) params.set("to", scope.to)
+  if (scope.siteId) params.set("site_id", scope.siteId)
+  return node.get<SellThrough>(
+    `/api/v1/commercial/campaigns/${encodeURIComponent(campaignId)}/sell-through?${params.toString()}`,
+    { signal }
+  )
+}
+
+// ── the campaign as an initiative ───────────────────────────────────────────
+
+/// The one corner of this file whose shapes are NOT hand-written.
+///
+/// The header above explains why the rest are: those handlers build their
+/// bodies with `json!()`, so there is no struct for ts-rs to read. These
+/// routes — `/plan`, `/outcome`, `/target`, `/guardrail-check` — serialise
+/// typed structs from `cloud/postgres/campaigns.rs`, so their types are
+/// GENERATED and imported here rather than transcribed. A field that moves on
+/// the server breaks this file at build time instead of reading `undefined` in
+/// a panel, which is what the transcribed half still risks.
+export type {
+  CampaignActivityInput,
+  CampaignActivityRow,
+  CampaignBaselineView,
+  CampaignBreachRow,
+  CampaignGuardrailInput,
+  CampaignGuardrailReading,
+  CampaignGuardrailRow,
+  CampaignOutcomeView,
+  CampaignPerDayView,
+  CampaignPlanInput,
+  CampaignPlanView,
+  CampaignReadingView,
+  CampaignScopeEntry,
+  CampaignScopeView,
+  CampaignTargetInput,
+  CampaignTargetScore,
+  CampaignWindowView,
+  GuardrailCheckReport,
+}
+
+export const campaignKeys = {
+  all: ["commercial", "campaign"] as const,
+  plan: (campaignId: string) =>
+    ["commercial", "campaign", campaignId, "plan"] as const,
+  /// The outcome is keyed by the campaign and the shop and by NO window: the
+  /// window is the campaign's own and the server resolves it. A key carrying
+  /// dates would cache one campaign's score under the header's filter and
+  /// redraw it every time somebody changed the tiles above.
+  outcome: (campaignId: string, siteId?: string | null) =>
+    ["commercial", "campaign", campaignId, "outcome", siteId ?? "all"] as const,
+}
+
+export function campaignPlan(
+  campaignId: string,
+  signal?: AbortSignal
+): Promise<CampaignPlanView> {
+  return node.get<CampaignPlanView>(
+    `/api/v1/commercial/campaigns/${encodeURIComponent(campaignId)}/plan`,
+    { signal }
+  )
+}
+
+/// Restate the reach and the rails, whole. Both are documents: six shops and
+/// two limits are one decision, and patching a shop out of a list is how half a
+/// decision gets written.
+export function saveCampaignPlan(
+  campaignId: string,
+  input: CampaignPlanInput,
+  signal?: AbortSignal
+): Promise<CampaignPlanView> {
+  return node.put<CampaignPlanView>(
+    `/api/v1/commercial/campaigns/${encodeURIComponent(campaignId)}/plan`,
+    input,
+    { signal }
+  )
+}
+
+/// Add something the campaign runs, or restate it. The id is minted by the
+/// caller so a retried request writes one poster rather than two.
+export function saveCampaignActivity(
+  campaignId: string,
+  activityId: string,
+  input: CampaignActivityInput,
+  signal?: AbortSignal
+): Promise<CampaignActivityRow> {
+  return node.put<CampaignActivityRow>(
+    `/api/v1/commercial/campaigns/${encodeURIComponent(campaignId)}/activities/${encodeURIComponent(activityId)}`,
+    input,
+    { signal }
+  )
+}
+
+export function deleteCampaignActivity(
+  campaignId: string,
+  activityId: string,
+  signal?: AbortSignal
+): Promise<{ deleted: number }> {
+  return node.delete<{ deleted: number }>(
+    `/api/v1/commercial/campaigns/${encodeURIComponent(campaignId)}/activities/${encodeURIComponent(activityId)}`,
+    { signal }
+  )
+}
+
+/// One campaign, scored — over its OWN window, against the campaign it was
+/// meant to beat, with the day counts normalised by the server.
+export function campaignOutcome(
+  campaignId: string,
+  siteId?: string | null,
+  signal?: AbortSignal
+): Promise<CampaignOutcomeView> {
+  const query = siteId ? `?site_id=${encodeURIComponent(siteId)}` : ""
+  return node.get<CampaignOutcomeView>(
+    `/api/v1/commercial/campaigns/${encodeURIComponent(campaignId)}/outcome${query}`,
+    { signal }
+  )
+}
+
+/// Say what the line is measured against. Writes two columns and no others:
+/// the objective route owns the rest of the row, so a target cannot revert
+/// because two requests crossed.
+export function saveCampaignTarget(
+  campaignId: string,
+  input: CampaignTargetInput,
+  signal?: AbortSignal
+): Promise<{
+  readonly campaign_id: string
+  readonly target_model: string
+  readonly target_value: number
+  readonly target_value_upper: number | null
+}> {
+  return node.put(
+    `/api/v1/commercial/campaigns/${encodeURIComponent(campaignId)}/target`,
+    input,
+    { signal }
+  )
+}
+
+/// Measure every rail now, record what has been crossed, and stop the campaign
+/// where a rail says to.
+///
+/// A write, and the only one on this surface that can reach a shop — through
+/// `switch_campaign`, which dispatches the pause. Never called on a render.
+export function checkCampaignGuardrails(
+  campaignId: string,
+  signal?: AbortSignal
+): Promise<GuardrailCheckReport> {
+  return node.post<GuardrailCheckReport>(
+    `/api/v1/commercial/campaigns/${encodeURIComponent(campaignId)}/guardrail-check`,
+    {},
+    { signal }
+  )
+}
+
+export function acknowledgeCampaignBreach(
+  campaignId: string,
+  breachId: string,
+  signal?: AbortSignal
+): Promise<CampaignBreachRow> {
+  return node.post<CampaignBreachRow>(
+    `/api/v1/commercial/campaigns/${encodeURIComponent(campaignId)}/breaches/${encodeURIComponent(breachId)}`,
+    {},
+    { signal }
+  )
 }

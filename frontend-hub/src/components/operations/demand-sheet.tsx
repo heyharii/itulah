@@ -187,7 +187,10 @@ export function DemandSheet({
         const first = sorted[0].identity
         const available = sorted.every((row) => row.demand.available === null)
           ? null
-          : sorted.reduce((total, row) => total + (row.demand.available ?? 0), 0)
+          : sorted.reduce(
+              (total, row) => total + (row.demand.available ?? 0),
+              0
+            )
         return {
           id: key,
           code: first?.article_code ?? "",

@@ -1,4 +1,4 @@
-import { Files, MessageSquare, MessagesSquare } from "lucide-react"
+import { Library, MessageSquare, MessagesSquare } from "lucide-react"
 
 import type { AppModule } from "@/lib/navigation"
 
@@ -71,12 +71,18 @@ export const chatNav: AppModule = {
 /// So the two became one screen with a `Where` facet, and `/documents` is
 /// `moved` rather than deleted: the path is in people's history and in links
 /// they have sent each other, and `?document=` still opens the same sheet.
-export const filesNav: AppModule = {
-  id: "files",
-  label: "Files",
-  icon: Files,
-  home: "/files",
-  moved: ["/documents"],
+export const libraryNav: AppModule = {
+  id: "library",
+  label: "Library",
+  icon: Library,
+  home: "/library",
+  // Both of its old addresses. `/documents` is the screen this one absorbed;
+  // `/files` is what this screen itself answered at until the owner renamed
+  // it on 2026-09-13 — and a rename that 404s the links people have already
+  // sent each other is a rename that costs somebody their afternoon.
+  moved: ["/documents", "/files"],
   aside: true,
-  sections: [{ items: [{ path: "/files", label: "Files", icon: Files }] }],
+  sections: [
+    { items: [{ path: "/library", label: "Library", icon: Library }] },
+  ],
 }

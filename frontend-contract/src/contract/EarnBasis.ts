@@ -3,8 +3,18 @@
 /**
  * Which amount points accrue on.
  *
- * Default is the selling price after any markdown but before discounts: a
- * shopper who buys a marked-down shirt earns on what the shirt now costs, and
- * a promotion the shop chose to run does not also cut the points it awards.
+ * Default is [`PostDiscountNet`](EarnBasis::PostDiscountNet) — the goods after
+ * every discount has come off, and before tax. That is the locked rule: a
+ * shopper earns on what the shop actually took for the merchandise.
+ *
+ * The two halves are separate decisions and both were argued. *After discount*
+ * because the alternative pays loyalty on money nobody paid. *Before tax*
+ * because the tax is not the shop's to reward: on an inclusive book it is
+ * already inside the ticket price, and awarding on it would hand out points
+ * that rise and fall with a rate the shop does not set.
+ *
+ * The old default was [`PostMarkdownPreDiscount`](EarnBasis::PostMarkdownPreDiscount),
+ * which reads reasonably and was never anybody's policy — it arrived as a
+ * field default and stayed. It is still selectable, for a rule that means it.
  */
-export type EarnBasis = "POST_MARKDOWN_PRE_DISCOUNT" | "POST_DISCOUNT_NET" | "ORIGINAL";
+export type EarnBasis = "POST_DISCOUNT_NET" | "POST_MARKDOWN_PRE_DISCOUNT" | "ORIGINAL";

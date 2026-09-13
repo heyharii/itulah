@@ -252,6 +252,120 @@ pub struct QuoteRequest {
     pub coupon_codes: Vec<String>,
     #[serde(default)]
     pub customer_id: Option<String>,
+    /// Fees the counter is about to put on the bill. Quoted with the basket so
+    /// the figure on screen is the figure the till will settle against — a
+    /// preview that showed the goods and not the delivery is a preview that
+    /// quotes a price the sale will not honour.
+    #[serde(default)]
+    pub charges: Vec<pricing_engine::Charge>,
+}
+
+/// Declaring a checkout before the money is asked for.
+///
+/// Carries what the till is ABOUT to do rather than what it did: the amount on
+/// screen and the tenders it intends, each with the reference the operator will
+/// use. None of it is a promise — the point is that a crash mid-payment leaves
+/// behind a note saying what was being attempted and with which acquirer
+/// references, which is the difference between a reconcilable charge and a
+/// customer's word against the shop's.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct BeginCheckoutRequest {
+    /// The key the sale will be written under. The checkout and the sale share
+    /// it so the two can be joined without a second identifier, and so a
+    /// retried checkout finds its own row instead of opening a second attempt
+    /// against the same basket.
+    pub idempotency_key: String,
+    pub actor_id: String,
+    /// What is on screen. Held on the checkout as well as on the sale because
+    /// during FINALIZING there is no sale to read it from.
+    pub total_minor: i64,
+    /// The tenders the operator is about to take, in order.
+    pub tenders: Vec<crate::tender::SaleTender>,
+    /// Why the basket came to this number, so the question can be answered at
+    /// the counter and offline.
+    #[serde(default)]
+    pub pricing_trace_id: Option<String>,
+}
+
+/// What an acquirer said about one tender.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct TenderOutcomeRequest {
+    pub idempotency_key: String,
+    /// Which tender, by its position in the checkout.
+    pub tender_seq: i64,
+    /// One of the five words in [`crate::checkout::TenderState`]. A word this
+    /// build does not know is refused rather than stored, because an
+    /// unrecognised status silently drops out of every "is this resolved?"
+    /// test.
+    pub status: String,
+    /// What the acquirer calls it — the handle a shop needs when it rings up to
+    /// ask whether the money went through.
+    #[serde(default)]
+    pub external_reference: Option<String>,
+    #[serde(default)]
+    pub last_error: Option<String>,
+}
+
+/// Closing a checkout that did not become a sale.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ResolveCheckoutRequest {
+    pub idempotency_key: String,
+    /// `VOIDED` for a deliberate abandon, `FAILED` for one that broke. The
+    /// distinction is not cosmetic: FAILED is a queue somebody works, and
+    /// putting walk-aways in it means nobody works it.
+    pub status: String,
+    pub actor_id: String,
+    #[serde(default)]
+    pub last_error: Option<String>,
+}
+
+/// A checkout as it stands.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct CheckoutResult {
+    pub checkout_id: String,
+    pub idempotency_key: String,
+    pub status: String,
+    pub total_minor: i64,
+    /// The sale it became, once it has.
+    pub sale_id: Option<String>,
+    pub tenders: Vec<CheckoutTenderState>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct CheckoutTenderState {
+    pub tender_seq: i64,
+    pub method: String,
+    pub amount_minor: i64,
+    pub status: String,
+    pub attempt_count: i64,
+    pub external_reference: Option<String>,
+    pub last_error: Option<String>,
+}
+
+/// One checkout that never finished, with the shape of the problem named.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct UnresolvedCheckout {
+    pub checkout_id: String,
+    pub idempotency_key: String,
+    pub status: String,
+    pub actor_id: String,
+    pub total_minor: i64,
+    pub opened_at: String,
+    pub finalizing_at: Option<String>,
+    /// What a person should do about it, from
+    /// [`crate::checkout::recovery`] — whether anything was taken, whether an
+    /// acquirer still has to be asked, and how much is held with no sale
+    /// against it.
+    pub recovery: String,
+    /// Money the shop is holding for this checkout with no sale to show for it.
+    pub money_held_minor: i64,
+    pub tenders: Vec<CheckoutTenderState>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -276,6 +390,14 @@ pub struct SaleRequest {
     /// until its code appears here.
     #[serde(default)]
     pub coupon_codes: Vec<String>,
+    /// Fees on this bill that are not goods — delivery, service, wrapping.
+    ///
+    /// Sent with the sale rather than added to a total, because the engine is
+    /// what keeps them out of the promotions, the thresholds and the points.
+    /// A caller that folded a delivery fee into a line price would get a
+    /// discount on the courier and loyalty points for the ride.
+    #[serde(default)]
+    pub charges: Vec<pricing_engine::Charge>,
     /// The shopper, when they are known. Needed for a coupon issued to one
     /// person, and for a per-customer usage limit.
     #[serde(default)]
@@ -449,7 +571,21 @@ pub struct CommandResult {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct SaleResult {
     pub sale_id: Uuid,
+    /// The GOODS. Unchanged in meaning by the arrival of fees, so nothing that
+    /// already reads it started counting a courier the day delivery shipped.
     pub total_minor: i64,
+    /// The fees on this bill, which are not goods — see
+    /// `pricing_engine::Charge`. Nought when none were put on it.
+    #[serde(default)]
+    pub charge_total_minor: i64,
+    /// What the shopper owed: `total_minor + charge_total_minor`. **The figure
+    /// the tender was measured against**, and the one a receipt totals to.
+    ///
+    /// Held as its own field rather than left to a caller's addition, because
+    /// the caller that forgets is a till that hands the goods over with the
+    /// delivery uncollected — and its drawer balances, because it never asked.
+    #[serde(default)]
+    pub amount_due_minor: i64,
     pub paid_minor: i64,
     pub change_minor: i64,
     pub movement_group_id: Uuid,
@@ -477,8 +613,16 @@ pub struct PoolBalance {
     pub pool_id: String,
     pub site_id: SiteId,
     pub stock: i64,
+    /// What this pool still has to put into cartons. `None` on a pool that
+    /// cannot be a source of one — the shared picking area carries no store
+    /// attribution, so it has no answer rather than nought.
     pub allotted: Option<i64>,
+    /// What may still be spent out of this pool, and never below nought.
     pub on_hand: i64,
+    /// How far the promises against this pool outrun what is in it. The
+    /// warehouse used to refuse to report at all when this went positive,
+    /// which took the whole pool list down with it.
+    pub shortfall: i64,
     pub missing: i64,
 }
 
@@ -747,6 +891,45 @@ pub trait EdgeInventory: Send + Sync {
     fn receive_store_batch(&self, request: ReceiveBatchRequest)
         -> Result<CommandResult, EdgeError>;
     fn move_stock(&self, request: MoveRequest) -> Result<CommandResult, EdgeError>;
+    /// Write down a checkout BEFORE asking anybody for money.
+    ///
+    /// Separate from [`complete_sale`](Self::complete_sale) because the money
+    /// has already moved by the time that is called: the card terminal is
+    /// driven by the till in front of the operator, and `complete_sale` is the
+    /// "write it down" step afterwards. Folding the declaration into it would
+    /// declare the attempt after the risk had passed, which is no declaration
+    /// at all.
+    ///
+    /// Commits on its own, which is the point — the row has to survive the
+    /// process that is about to talk to a terminal and may not come back.
+    fn begin_checkout(&self, request: BeginCheckoutRequest) -> Result<CheckoutResult, EdgeError>;
+
+    /// Record what an acquirer said about one tender.
+    ///
+    /// Keyed by position, so a retried answer updates the tender it already has
+    /// rather than writing a second one — a second row here would be a second
+    /// charge in every report that sums them.
+    fn record_tender_outcome(
+        &self,
+        request: TenderOutcomeRequest,
+    ) -> Result<CheckoutResult, EdgeError>;
+
+    /// Checkouts that never reached an end state, oldest first.
+    ///
+    /// The query a till runs when it starts. An empty answer is the ordinary
+    /// case; a non-empty one is money that may be in hand with no sale against
+    /// it, and it is work for a person.
+    fn unresolved_checkouts(&self) -> Result<Vec<UnresolvedCheckout>, EdgeError>;
+
+    /// Close an unresolved checkout that did not become a sale.
+    ///
+    /// Refuses while any tender is still unanswered: voiding a checkout whose
+    /// card is still in flight abandons money that may land a minute later.
+    fn resolve_checkout(
+        &self,
+        request: ResolveCheckoutRequest,
+    ) -> Result<CheckoutResult, EdgeError>;
+
     fn complete_sale(&self, request: SaleRequest) -> Result<SaleResult, EdgeError>;
     fn list_pools(&self) -> Result<Vec<PoolBalance>, EdgeError>;
     /// Who these SKUs are, without pricing them.
@@ -868,6 +1051,35 @@ pub trait EdgeInventory: Send + Sync {
     ) -> Result<super::till::ReturnResult, EdgeError>;
     /// What the customer walks out with, resolved and ready to render.
     fn sale_receipt(&self, sale_id: &str) -> Result<super::escpos::ReceiptDocument, EdgeError>;
+
+    // ── The shop's small money ──────────────────────────────────────────
+    //
+    // Petty cash, and only petty cash. None of these four can reach the
+    // drawer or the day's takings: there is no shift on any of them, and
+    // there is nowhere for one to be passed. See `petty.rs` for the three
+    // pots and which one a shop is allowed to spend.
+
+    /// Record a cost paid out of the petty cash tin. Refuses a category the
+    /// chart does not know, an amount above what a store manager may approve,
+    /// an approver who is the claimant, and more than the tin holds.
+    fn record_expense(
+        &self,
+        request: super::petty::RecordExpenseRequest,
+    ) -> Result<super::petty::ExpenseRecorded, EdgeError>;
+    /// Record the float head office handed over. Not an expense: this is the
+    /// imprest being put back.
+    fn record_petty_cash_top_up(
+        &self,
+        request: super::petty::PettyCashTopUpRequest,
+    ) -> Result<super::petty::PettyCashTopUpRecorded, EdgeError>;
+    /// What is in the tin: handed over, spent, left.
+    fn petty_cash_position(&self) -> Result<super::petty::PettyCashPosition, EdgeError>;
+    /// The shop's own petty cash book over a span.
+    fn expense_window(
+        &self,
+        query: super::petty::ExpenseWindowQuery,
+    ) -> Result<super::petty::ExpenseWindow, EdgeError>;
+
     /// Render it and put it on the shop's own printer. The drawer kick rides
     /// the same socket.
     fn print_sale_receipt(
@@ -915,6 +1127,12 @@ pub trait EdgeInventory: Send + Sync {
     ) -> Result<GoodsReceiptView, EdgeError>;
     /// Deliveries still being worked through at this DC.
     fn open_goods_receipts(&self) -> Result<Vec<GoodsReceiptView>, EdgeError>;
+
+    /// Turn a whole delivery away, with the reason it went back.
+    fn reject_delivery(
+        &self,
+        request: RejectDeliveryRequest,
+    ) -> Result<GoodsReceiptView, EdgeError>;
     /// Record the supplier's invoice against a delivery.
     ///
     /// The verifier is holding the paper; nothing else in the estate can see
@@ -1128,6 +1346,15 @@ pub struct PurchaseWorkLine {
     /// Present only on the verifier's view of the same line.
     pub expected_stock_units: Option<i64>,
     pub received_stock_units: i64,
+    /// When this order landed HERE — not when the centre raised it.
+    ///
+    /// The bay's question is "what turned up recently", and the centre's
+    /// issue date does not answer it: an order raised on Monday and
+    /// activated at this DC on Thursday is Thursday's work. Carried so the
+    /// list can lead with the newest arrival; the PO number cannot stand in
+    /// for it, because the book holds numbers in several shapes and sorting
+    /// them as text puts `PO-R1-…` above every dated one.
+    pub activated_at: chrono::DateTime<chrono::Utc>,
 }
 
 /// What a completed receipt did.
@@ -1140,40 +1367,22 @@ pub struct PurchaseReceiptResult {
     pub received_at: chrono::DateTime<chrono::Utc>,
 }
 
-/// Whether one pair of hands may both count a delivery and approve it.
+/// Turning a whole delivery away.
 ///
-/// The rule protects the accepted quantity — the number that becomes supplier
-/// debt — from being asserted and confirmed by the same person. Someone who
-/// can do both can sign phantom stock onto the shelf, and no later report
-/// would show anything wrong: the books and the shelf would agree, and both
-/// would be a lie.
-///
-/// It is a policy rather than a hard rule because a site with one receiving
-/// clerk on shift would otherwise be unable to receive at all. Turning it off
-/// is a decision a site makes out loud, not a default it drifts into.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
-pub enum SegregationPolicy {
-    /// The verifier must be someone other than the counter.
-    Enforced,
-    /// No separation. Only for single-operator sites that have accepted the
-    /// exposure.
-    Relaxed,
-}
-
-impl SegregationPolicy {
-    pub fn from_env() -> Self {
-        match std::env::var("DC_RECEIVING_SEGREGATION")
-            .unwrap_or_default()
-            .trim()
-        {
-            "off" | "false" | "0" | "relaxed" => Self::Relaxed,
-            _ => Self::Enforced,
-        }
-    }
-
-    pub const fn requires_two_people(self) -> bool {
-        matches!(self, Self::Enforced)
-    }
+/// A delivery is the supplier's arrival, not our decision about it, so it
+/// exists whatever we decide — and a lorry that went back soaked is the one
+/// fact worth keeping about that supplier. Refusing is only possible while
+/// nothing on it has been accepted: goods already on the shelf cannot be
+/// un-arrived.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct RejectDeliveryRequest {
+    #[serde(default)]
+    pub receipt_id: uuid::Uuid,
+    /// Why it went back. A rejection with no reason is a rumour.
+    pub reason: String,
+    pub actor_id: String,
+    pub idempotency_key: String,
 }
 
 /// Approving a counted delivery, which is what puts it on the shelf.
@@ -1224,8 +1433,18 @@ pub struct PurchaseVerifyResult {
     pub decision: PurchaseVerifyDecision,
     pub counted_by: String,
     pub verified_by: String,
-    /// Only set when accepted: what actually became stock.
+    /// Only set when accepted: what actually became stock. The checker's
+    /// number, unchanged — physical truth is never trimmed to fit an order.
     pub accepted_quantity: Option<i64>,
+    /// How much of that the order still had room for.
+    pub matched_quantity: Option<i64>,
+    /// And how much it did not. Real goods, commercially unresolved until a
+    /// buyer decides; they create no expected value and no liability.
+    pub excess_quantity: Option<i64>,
+    /// The agreed price that applied at this moment, written onto the
+    /// acceptance so a later amendment cannot restate what this delivery was
+    /// worth.
+    pub agreed_unit_price_minor: Option<i64>,
     /// Set when the invoice disagreed with the order: the query now waiting
     /// for the buyer. The goods went in regardless.
     pub price_amendment_request_id: Option<uuid::Uuid>,
@@ -1261,6 +1480,12 @@ pub struct PurchaseCountAwaitingVerification {
     pub expected_stock_units: i64,
     /// Counted minus expected. Negative is short, positive is over.
     pub variance: i64,
+    /// What this line can still take before a count becomes excess: ordered
+    /// less everything already matched against it. A verifier accepting 105
+    /// against an order with 100 outstanding is accepting 100 the company
+    /// bought and 5 it did not, and should be able to see that before they
+    /// press the button.
+    pub outstanding_stock_units: i64,
     /// The agreed price per piece, to check the invoice against.
     pub unit_price_minor: Option<i64>,
 }

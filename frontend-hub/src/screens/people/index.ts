@@ -1,12 +1,10 @@
 import type { ScreenMap } from "@/screens/registry"
-import { AttendancePolicy } from "@/screens/people/attendance"
 import { Directory } from "@/screens/people/directory"
-import { Holidays } from "@/screens/people/holidays"
-import { LeaveTypes } from "@/screens/people/leave-types"
 import { Overtime } from "@/screens/people/overtime"
 import { Pay } from "@/screens/people/pay"
 import { PayrollRuns } from "@/screens/people/payroll"
 import { Periods } from "@/screens/people/periods"
+import { TimePolicy } from "@/screens/people/policy"
 import { Roster } from "@/screens/people/roster"
 import { Requests } from "@/screens/people/requests"
 
@@ -23,7 +21,7 @@ export const screens: ScreenMap = {
   "/people/periods": Periods,
   "/people/pay": Pay,
   "/people/payroll": PayrollRuns,
-  "/people/leave-types": LeaveTypes,
-  "/people/holidays": Holidays,
-  "/people/attendance": AttendancePolicy,
+  /// One door onto four panels — see `policy.tsx` for why, and for the four
+  /// addresses this replaced.
+  "/people/policy": TimePolicy,
 }

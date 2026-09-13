@@ -21,15 +21,31 @@ pub fn bind_addr(default_port: u16) -> Result<std::net::SocketAddr, String> {
         .map_err(|error| format!("invalid {source} value {raw:?}: {error}"))
 }
 
+/// The state a checkout is in between "the shopper agreed" and "the sale is
+/// written". Pure: no clock, no database, no terminal. See the module note for
+/// why FINALIZING is committed BEFORE the first tender is attempted.
+pub mod checkout;
 pub mod cloud;
 pub mod contract;
 pub mod edge;
+/// Splitting a refund back across the tenders that paid. Pure: no clock, no
+/// database, no provider. See the module note for why it measures against
+/// what each tender has LEFT rather than recomputing the original split.
+pub mod refund;
 pub mod reporting;
 pub mod security;
 pub mod sync;
 /// What a line comes to once tax has had its say — one implementation for
 /// both nodes, because it was two.
-pub mod tax;
+/// Tax, from the one crate that owns the rule.
+///
+/// Re-exported under its old path so every `crate::tax::…` call site keeps
+/// working. It moved out of this binary and into `crates/tax` when the pricing
+/// engine also needed it: the engine cannot depend on this crate — this crate
+/// depends on the engine — so a shared rule had to live below both rather than
+/// be copied into one of them. Copying it is what `retail-tax`'s own note says
+/// went wrong last time.
+pub use retail_tax as tax;
 /// How a sale is paid for — one implementation for both nodes, because it
 /// was two.
 pub mod tender;

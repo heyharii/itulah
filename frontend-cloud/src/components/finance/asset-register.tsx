@@ -39,7 +39,8 @@ export function AssetRegisterScreen() {
 
   const assets = useQuery({
     queryKey: financeKeys.assets(undefined, onlyUnassessed),
-    queryFn: ({ signal }) => listAssets({ unassessed: onlyUnassessed }, signal),
+    queryFn: ({ signal }) =>
+      listAssets({ unassessed: onlyUnassessed }, signal).then((page) => page.rows),
   })
 
   const now = new Date()

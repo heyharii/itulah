@@ -12,13 +12,13 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.ExpandMore
@@ -29,8 +29,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
@@ -40,6 +38,16 @@ import id.itulah.pindai.ui.kit.*
 import id.itulah.pindai.ui.theme.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+
+/**
+ * What a sweep screen must leave clear at its foot, so the last card fades under
+ * the furniture as a scroll cue rather than being hidden behind it: the floating
+ * action bar, the tab squircles below it, and the float each of them sits on.
+ */
+private val FootClearance = 236.dp
+
+/** Where the action bar floats: clear of the squircles and their own 18 dp. */
+private val ActionFloat = 84.dp
 
 /**
  * The sweep, as one list.
@@ -59,50 +67,45 @@ fun SweepScreen(vm: SweepViewModel, state: SweepState, onOpenSessions: () -> Uni
     // because somebody looked further down the list is a panel nobody trusts.
     var powerOpen by rememberSaveable { mutableStateOf(false) }
 
-    Column(Modifier.fillMaxSize().background(Surface.canvas)) {
-        LazyColumn(
-            modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(Space.lg),
-            verticalArrangement = Arrangement.spacedBy(Space.md),
-        ) {
-            item(key = "hero") {
-                HeroCount(state, vm, powerOpen) { powerOpen = !powerOpen }
-            }
-            item(key = "session") { SessionRow(state, onOpenSessions) }
-            item(key = "extras") { ModeExtras(vm, state) }
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().background(Surface.canvas),
+        contentPadding = PaddingValues(
+            start = Space.lg, end = Space.lg, top = Space.sm, bottom = FootClearance,
+        ),
+        verticalArrangement = Arrangement.spacedBy(Space.sm),
+    ) {
+        item(key = "hero") {
+            HeroCount(state, vm, powerOpen) { powerOpen = !powerOpen }
+        }
+        item(key = "session") { SessionRow(state, onOpenSessions) }
+        item(key = "extras") { ModeExtras(vm, state) }
 
-            if (lines.isNotEmpty()) {
-                item(key = "header") {
-                    Row(
-                        Modifier.fillMaxWidth().padding(top = Space.xs),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        SectionLabel("${lines.size} products · ${state.tagCount} tags")
-                        state.resolveNote?.let {
-                            Text(it, style = Type.micro, color = Ink.text(.60f))
-                        }
+        if (lines.isNotEmpty()) {
+            item(key = "header") {
+                Row(
+                    Modifier.fillMaxWidth().padding(top = Space.md, bottom = Space.xs),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    SectionLabel("${lines.size} products · ${state.tagCount} tags")
+                    state.resolveNote?.let {
+                        Text(it, style = Type.meta, color = Ink.mute)
                     }
                 }
-                itemsIndexed(lines) { index, line ->
-                    ProductRow(
-                        line,
-                        first = index == 0,
-                        last = index == lines.lastIndex,
-                        auth = state.imageAuth,
+            }
+            itemsIndexed(lines) { _, line ->
+                ProductRow(line, auth = state.imageAuth)
+            }
+            if (foreign > 0) {
+                item(key = "foreign") {
+                    Text(
+                        "$foreign tags are not ours — not counted as product",
+                        style = Type.meta, color = Ink.mute,
+                        modifier = Modifier.padding(top = Space.xs),
                     )
-                }
-                if (foreign > 0) {
-                    item(key = "foreign") {
-                        Text(
-                            "$foreign tags are not ours — not counted as product",
-                            style = Type.micro, color = Ink.text(.60f),
-                        )
-                    }
                 }
             }
         }
-        BottomActions(vm, state)
     }
 }
 
@@ -113,7 +116,9 @@ private fun androidx.compose.foundation.lazy.LazyListScope.itemsIndexed(
 ) = items(lines.size, key = { lines[it].sku }) { index -> row(index, lines[index]) }
 
 /**
- * One button, two meanings.
+ * One button, two meanings — and it belongs to the shell's foot, not to the
+ * list, which is why [id.itulah.pindai.MainActivity] places it over the fade
+ * rather than the screen stacking it under one.
  *
  * Reading and finishing are the same gesture from the operator's side — you
  * pull the trigger, you walk the aisle, you are done — so they are one control
@@ -124,13 +129,26 @@ private fun androidx.compose.foundation.lazy.LazyListScope.itemsIndexed(
  * The label slides rather than swaps. A word replaced in place at this size
  * reads as a flicker; a word that travels reads as the same button changing
  * its mind, which is what actually happened.
+ *
+ * The bar carries the count as well, at metric size. The hero card has the
+ * figure at full size, but the hero card scrolls away and this does not — and
+ * what the thumb is about to file is the one thing that must never be off
+ * screen.
  */
 @Composable
-private fun BottomActions(vm: SweepViewModel, state: SweepState) {
+fun SweepAction(vm: SweepViewModel, state: SweepState, modifier: Modifier = Modifier) {
     val reading = state.sweeping
-    Column(
-        Modifier.fillMaxWidth().background(Surface.canvas).padding(Space.lg),
-    ) {
+    FloatingBar(modifier.padding(horizontal = Space.lg).padding(bottom = ActionFloat)) {
+        Column(Modifier.weight(1f)) {
+            Text("${state.tagCount} tags", style = Type.metric, color = Ink.ink)
+            Text(
+                // Not the mode: the app bar has already said which one this is.
+                if (state.lines.isEmpty()) "nothing swept yet"
+                else "${state.lines.size} products",
+                style = Type.meta, color = Ink.mute,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
+        }
         AnimatedContent(
             targetState = reading,
             transitionSpec = {
@@ -141,10 +159,12 @@ private fun BottomActions(vm: SweepViewModel, state: SweepState) {
                 // ways would make the pair look like a carousel of two equal
                 // options, which is exactly what this stopped being.
                 if (targetState) {
-                    (slideInHorizontally(tween(220)) { w -> w / 3 } + fadeIn(tween(160)))
-                        .togetherWith(fadeOut(tween(110)))
+                    (slideInHorizontally(
+                        tween(Motion.panel, easing = Motion.easeOut),
+                    ) { w -> w / 3 } + fadeIn(tween(Motion.pop)))
+                        .togetherWith(fadeOut(tween(Motion.press)))
                 } else {
-                    fadeIn(tween(140)) togetherWith fadeOut(tween(90))
+                    fadeIn(tween(Motion.hover)) togetherWith fadeOut(tween(90))
                 }
             },
             label = "action",
@@ -157,7 +177,7 @@ private fun BottomActions(vm: SweepViewModel, state: SweepState) {
                     loading = state.busy,
                 )
             } else {
-                QuietButton(
+                PrimaryButton(
                     text = "Start reading",
                     onClick = vm::toggleSweep,
                     enabled = !state.busy,
@@ -169,7 +189,7 @@ private fun BottomActions(vm: SweepViewModel, state: SweepState) {
 
 /**
  * The count is the one number read from arm's length while the other hand is
- * holding a garment, so it is the only thing on screen at hero size.
+ * holding a garment, so it is the only thing on this screen at `total` size.
  */
 @Composable
 private fun HeroCount(
@@ -187,45 +207,48 @@ private fun HeroCount(
     var draft by remember(settled) { mutableIntStateOf(settled) }
     val motion = LocalMotion.current
 
-    PlanetCard {
+    HubCard {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.Top) {
             Column {
-                SectionLabel("Swept")
+                Text("SWEPT", style = Type.eyebrow, color = Ink.mute)
+                Spacer(Modifier.height(Space.xs))
                 RollingNumber(
                     value = state.tagCount,
-                    style = Type.hero,
-                    color = if (state.sweeping) Success else Ink.text(),
+                    style = Type.total,
+                    // The figure goes green while the radio is live. It is the
+                    // one number on this surface that changes by itself, and
+                    // the colour is what says the change is happening now.
+                    color = if (state.sweeping) OkFg else Ink.ink,
                 )
             }
             Column(horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.spacedBy(Space.xs)) {
+                verticalArrangement = Arrangement.spacedBy(Space.sm)) {
                 when {
-                    state.busy -> StatusDot(Warning, "busy")
-                    state.sweeping -> StatusDot(Success, "reading")
-                    state.failed -> StatusDot(Destructive, "failed")
-                    else -> StatusDot(Ink.text(.36f), "ready")
+                    state.busy -> Pill(Tone.WARN, "busy")
+                    state.sweeping -> Pill(Tone.OK, "reading")
+                    state.failed -> Pill(Tone.BAD, "failed")
+                    else -> Pill(Tone.NEUTRAL, "ready")
                 }
                 state.readerInfo?.let {
-                    Text(it, style = Type.micro, color = Ink.text(.60f))
+                    Text(it, style = Type.meta, color = Ink.mute)
                 }
-                PowerPill(settled, state.readerPower > 0, powerOpen, onTogglePower)
+                PowerControl(settled, state.readerPower > 0, powerOpen, onTogglePower)
                 state.filingNote?.let {
-                    Text(it, style = Type.micro, color = Ink.text(.60f))
+                    Text(it, style = Type.meta, color = Ink.mute)
                 }
             }
         }
         state.message?.let {
-            Spacer(Modifier.height(Space.sm))
-            Text(it, style = Type.caption,
-                color = if (state.failed) Destructive else Ink.text(.74f))
+            Spacer(Modifier.height(Space.md))
+            Text(it, style = Type.cell, color = if (state.failed) BadFg else Ink.text)
         }
         AnimatedVisibility(
             visible = powerOpen,
-            enter = expandVertically(tween(if (motion) 200 else 0)) +
-                fadeIn(tween(if (motion) 150 else 0)),
-            exit = shrinkVertically(tween(if (motion) 160 else 0)) +
-                fadeOut(tween(if (motion) 100 else 0)),
+            enter = expandVertically(tween(if (motion) Motion.panel else 0)) +
+                fadeIn(tween(if (motion) Motion.pop else 0)),
+            exit = shrinkVertically(tween(if (motion) Motion.pop else 0)) +
+                fadeOut(tween(if (motion) Motion.press else 0)),
         ) {
             Column {
                 Spacer(Modifier.height(Space.md))
@@ -239,13 +262,13 @@ private fun HeroCount(
                 Row(Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("${Reader.MIN_POWER} · this shelf",
-                        style = Type.micro, color = Ink.text(.60f))
+                        style = Type.meta, color = Ink.mute)
                     Text("${Reader.MAX_POWER} · the whole aisle",
-                        style = Type.micro, color = Ink.text(.60f))
+                        style = Type.meta, color = Ink.mute)
                 }
                 state.powerNote?.let {
                     Spacer(Modifier.height(Space.xs))
-                    Text(it, style = Type.micro, color = Ink.text(.60f))
+                    Text(it, style = Type.meta, color = Ink.mute)
                 }
             }
         }
@@ -258,11 +281,12 @@ private fun HeroCount(
  * Power is chosen per aisle, not per commissioning, so the sweep screen has to
  * carry it — but it must not cost the count any room. A chevron on the reading
  * already in the corner costs none until somebody wants it, and it puts the
- * control on the number it moves rather than three taps away in Setelan.
+ * control on the number it moves rather than three taps away in Settings.
  */
 @Composable
-private fun PowerPill(value: Int, known: Boolean, open: Boolean, onClick: () -> Unit) {
+private fun PowerControl(value: Int, known: Boolean, open: Boolean, onClick: () -> Unit) {
     val motion = LocalMotion.current
+    val source = remember { MutableInteractionSource() }
     val turn by animateFloatAsState(
         targetValue = if (open) 180f else 0f,
         animationSpec = if (motion) {
@@ -272,23 +296,25 @@ private fun PowerPill(value: Int, known: Boolean, open: Boolean, onClick: () -> 
         label = "chevron",
     )
     Row(
-        Modifier.heightIn(min = 32.dp).clip(ControlShape).clickable(onClick = onClick)
-            .background(Ink.fill(if (open) .08f else .06f))
-            .padding(horizontal = Space.sm),
+        Modifier.height(32.dp)
+            .background(if (open) Surface.soft2 else Surface.canvas, ControlShape)
+            .border(1.dp, if (open) Surface.hairline2 else Surface.hairline, ControlShape)
+            .clickable(interactionSource = source, indication = null, onClick = onClick)
+            .padding(start = 10.dp, end = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         // Before the module has ever answered there is no reading to show, and
         // inventing one is exactly what this control exists to stop.
         Text(if (known) "$value dBm" else "set power",
-            style = Type.micro, color = Ink.text(.74f))
+            style = Type.meta, color = Ink.text)
         Icon(Icons.Outlined.ExpandMore, contentDescription = null,
-            modifier = Modifier.size(14.dp).rotate(turn), tint = Ink.text(.60f))
+            modifier = Modifier.size(14.dp).rotate(turn), tint = Ink.lineIco)
     }
 }
 
 /**
- * One line, not a card.
+ * One line, not a card full of them.
  *
  * Working alone is the ordinary case and joining is a deliberate act, so this
  * says where you stand and gets out of the way. The choosing happens on its own
@@ -296,33 +322,28 @@ private fun PowerPill(value: Int, known: Boolean, open: Boolean, onClick: () -> 
  */
 @Composable
 private fun SessionRow(state: SweepState, onOpen: () -> Unit) {
-    Surface(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen),
-        shape = CardShape,
-        color = Surface.card,
-        border = BorderStroke(1.dp, Ink.border(.04f)),
+    HubCard(
+        onPress = onOpen,
+        padding = PaddingValues(horizontal = Space.lg, vertical = Space.md),
     ) {
-        Row(
-            Modifier.padding(horizontal = Space.lg, vertical = Space.md),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 if (state.sessionCode.isBlank()) {
-                    Text("Working alone", style = Type.body, color = Ink.text())
+                    Text("Working alone", style = Type.cardTitle, color = Ink.ink)
                     Text("Join a session to count with other handhelds",
-                        style = Type.micro, color = Ink.text(.60f))
+                        style = Type.meta, color = Ink.mute)
                 } else {
-                    Text(state.sessionCode, style = Type.body, color = Ink.text())
+                    Text(state.sessionCode, style = Type.cardTitle, color = Ink.ink)
                     Text(
                         state.shared?.let {
                             "${it.tagCount} tags · ${it.helpers.size} readers"
                         } ?: "shared session",
-                        style = Type.micro, color = Ink.text(.60f),
+                        style = Type.meta, color = Ink.mute,
                     )
                 }
             }
             Icon(Icons.Outlined.ChevronRight, contentDescription = null,
-                modifier = Modifier.size(18.dp), tint = Ink.text(.36f))
+                modifier = Modifier.size(18.dp), tint = Ink.faint)
         }
     }
 }
@@ -332,48 +353,52 @@ private fun SessionRow(state: SweepState, onOpen: () -> Unit) {
 private fun ModeExtras(vm: SweepViewModel, state: SweepState) {
     when (state.mode) {
         Mode.SCAN -> Unit
-        Mode.PACKING -> PlanetCard {
-            SectionLabel("Destination shop")
-            Spacer(Modifier.height(Space.sm))
-            OutlinedTextField(
-                value = state.destination, onValueChange = vm::setDestination,
-                placeholder = { Text("store-07", style = Type.body, color = Ink.text(.36f)) },
-                singleLine = true, modifier = Modifier.fillMaxWidth(), shape = ControlShape,
+        Mode.PACKING -> HubCard {
+            HubField(
+                value = state.destination,
+                onChange = vm::setDestination,
+                label = "Destination shop",
+                placeholder = "store-07",
+                hint = "The carton target comes from what was swept, not from typing — " +
+                    "a target edited to match the sweep is not a target.",
             )
-            Spacer(Modifier.height(Space.sm))
-            Text("The carton target comes from what was swept, not from typing — " +
-                "a target edited to match the sweep is not a target.",
-                style = Type.micro, color = Ink.text(.60f))
         }
-        Mode.RECEIVING -> PlanetCard {
+        Mode.RECEIVING -> HubCard {
             SectionLabel("Shop receiving")
             Spacer(Modifier.height(Space.sm))
             Text("Each tag enters as one unit in this shop's stockroom. Tags that " +
                 "are not ours are reported, never silently dropped.",
-                style = Type.caption, color = Ink.text(.74f))
+                style = Type.cell, color = Ink.text)
         }
-        Mode.COUNT -> PlanetCard {
+        Mode.COUNT -> HubCard {
             LaunchedEffect(Unit) { vm.loadCounts() }
             SectionLabel("Official counts on this node")
             Spacer(Modifier.height(Space.sm))
             when {
                 !state.countsLoaded ->
-                    Text("Loading…", style = Type.caption, color = Ink.text(.60f))
+                    Text("Loading…", style = Type.cell, color = Ink.body)
                 state.counts.isEmpty() -> Text(
                     "No active count. The sweep is still filed as observation — " +
                         "evidence that these tags were here, which holds with or " +
                         "without a count.",
-                    style = Type.caption, color = Ink.text(.74f),
+                    style = Type.cell, color = Ink.text,
                 )
                 else -> state.counts.forEach { (id, label) ->
+                    val chosen = id == state.countId
+                    val source = remember(id) { MutableInteractionSource() }
                     Row(
-                        Modifier.fillMaxWidth().clickable { vm.setCountId(id) }
-                            .padding(vertical = Space.sm),
+                        Modifier.fillMaxWidth().heightIn(min = Tap.floor)
+                            .clickable(interactionSource = source, indication = null) {
+                                vm.setCountId(id)
+                            },
                         horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(label, style = Type.body,
-                            color = if (id == state.countId) Ink.text() else Ink.text(.74f))
-                        if (id == state.countId) StatusDot(Blue, "chosen")
+                        Text(label, style = Type.cell,
+                            color = if (chosen) Ink.ink else Ink.text,
+                            modifier = Modifier.weight(1f, fill = false),
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (chosen) Pill(Tone.ACCENT, "chosen")
                     }
                 }
             }
@@ -384,57 +409,44 @@ private fun ModeExtras(vm: SweepViewModel, state: SweepState) {
 /**
  * One product: a picture, what it is, and how many are in front of you.
  *
+ * A list here is a stack of cards, never a table — and each card is drawn by a
+ * shaped background and a shaped border rather than by a clip. Every clip is a
+ * saved layer, and this chip's own system apps do not reach sixty frames; the
+ * one clip left in the row is the photograph, which has to be cut to the tile.
+ *
  * The quantity rolls when it changes, because during a sweep it is the only
  * number moving and a value that swaps in place reads as a flicker. Rows do NOT
  * animate on entry — a recycled row would replay that animation on every
  * scroll, which is the jitter this list used to have.
  */
 @Composable
-private fun ProductRow(line: Grouped, first: Boolean, last: Boolean, auth: String?) {
-    // No clip() and no per-row Surface. Every clip is a saved layer, and
-    // seventeen of them is seventeen layers to compose on a chip whose own
-    // system apps do not reach sixty frames. Corners are drawn by the shaped
-    // background of the first and last rows only; the ones between are square
-    // and nobody has ever noticed.
-    Column(
-        Modifier.fillMaxWidth().background(
-            color = Surface.card,
-            shape = when {
-                first && last -> CardShape
-                first -> RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)
-                last -> RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp)
-                else -> RectangleShape
-            },
-        ),
+private fun ProductRow(line: Grouped, auth: String?) {
+    Row(
+        Modifier.fillMaxWidth()
+            .background(Surface.canvas, CardShape)
+            .border(1.dp, Surface.hairline, CardShape)
+            .padding(horizontal = Space.md, vertical = Space.md),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Space.md),
     ) {
-        if (!first) {
-            Box(
-                Modifier.fillMaxWidth().padding(start = Space.lg + 44.dp + Space.md)
-                    .height(1.dp).background(Ink.border(.04f)),
-            )
-        }
-        Row(
-            Modifier.padding(horizontal = Space.lg, vertical = Space.md),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(Space.md),
+        Box(
+            Modifier.size(44.dp)
+                .background(Surface.soft2, ControlShape)
+                .border(1.dp, Surface.hairline2, ControlShape),
+            contentAlignment = Alignment.Center,
         ) {
-            Box(
-                Modifier.size(44.dp).background(Ink.fill(.06f), RoundedCornerShape(8.dp)),
-                contentAlignment = Alignment.Center,
-            ) {
-                val url = line.identity?.imageUrl
-                if (url != null) RemoteThumb(url, auth)
-            }
-            Column(Modifier.weight(1f)) {
-                Text(
-                    line.identity?.name ?: line.sku,
-                    style = Type.body, color = Ink.text(),
-                    maxLines = 1, overflow = TextOverflow.Ellipsis,
-                )
-                Text(line.sku, style = Type.mono, color = Ink.text(.60f))
-            }
-            Text("${line.qty}", style = Type.anchor, color = Ink.text())
+            val url = line.identity?.imageUrl
+            if (url != null) RemoteThumb(url, auth)
         }
+        Column(Modifier.weight(1f)) {
+            Text(
+                line.identity?.name ?: line.sku,
+                style = Type.cardTitle, color = Ink.ink,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
+            Text(line.sku, style = Type.id, color = Ink.mute)
+        }
+        Text("${line.qty}", style = Type.kpi, color = Ink.ink)
     }
 }
 
@@ -494,7 +506,8 @@ private fun RemoteThumb(url: String, auth: String?) {
     var bitmap by remember(url) { mutableStateOf(Thumbs.cached(url)) }
     LaunchedEffect(url) { if (bitmap == null) bitmap = Thumbs.load(url, auth) }
     bitmap?.let {
-        Image(it, contentDescription = null, modifier = Modifier.fillMaxSize(),
+        Image(it, contentDescription = null,
+            modifier = Modifier.fillMaxSize().clip(ControlShape),
             contentScale = ContentScale.Crop)
     }
 }

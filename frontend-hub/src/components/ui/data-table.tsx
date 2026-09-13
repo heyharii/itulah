@@ -16,13 +16,25 @@ import type { TableSetup } from "@/lib/table"
 
 /// The full-width list table — the shape most of this app is.
 ///
-/// Header case: the workbench prototypes (`inventory-`, `finance-`,
-/// `commercial-prototype.html`) all paint uppercase micro-caps in Inter, while
-/// DESIGN.md's component table asks for sentence case. This app follows the
-/// prototypes, because its whole shell is lifted from `inventory-prototype.html`
-/// and a screen wearing that shell with different table headers matches neither
-/// reference. The rule DESIGN.md is actually protecting — *mono* micro-caps are
-/// reserved for in-card mini-tables — is honoured: these are Inter.
+/// Header case: SENTENCE case, at the same size as the cells below it.
+///
+/// This reversed on 2026-09-10. The old rule followed
+/// `inventory-prototype.html`, which paints uppercase micro-caps — and that
+/// was right while the whole shell came from that prototype. The shell is now
+/// the one Hari ruled on across the `directory-table` and `cash-bank`
+/// prototypes, and there a heading is 15px Inter at weight 400 in `body` grey,
+/// separated from its column by a hairline rather than by shouting.
+///
+/// The substantive reason, not just the lineage: 11px uppercase with letter
+/// spacing is the hardest text on the page to read and it names the column
+/// somebody is trying to read. It was small enough that the *sort arrow* beside
+/// it was the larger mark. A heading the same size as its data, one grey
+/// lighter, is quieter in the way that matters — by rank, not by size.
+///
+/// Uppercase micro-caps survive where they were always right: the `dt` of a
+/// phone card and the section headings inside a sheet, where they label a block
+/// rather than a column, and where there is no data at the same size to confuse
+/// them with.
 ///
 /// Rows are virtualised above `virtualizeAbove` and rendered plainly below it.
 /// Never `slice()` to cap a list: that hides rows and calls it fast.
@@ -74,6 +86,17 @@ export interface DataTableProps<TRow> {
   readonly rowHeight?: number
   readonly virtualizeAbove?: number
   readonly empty?: React.ReactNode
+  /// The one thing this row is waiting for, drawn IN the status cell.
+  ///
+  /// Status and the verb are the same question asked twice — what this row IS,
+  /// and what it is therefore waiting for — so they share a cell rather than
+  /// costing the table a column of twelve buttons. The pill stands while the
+  /// list is being read down; the row under the pointer swaps it for the thing
+  /// to press. Return `null` for a row with nothing to do, and its pill simply
+  /// stays put.
+  ///
+  /// The cell it lands in is the one whose column declares `meta.swap`.
+  readonly rowAction?: (row: TRow) => React.ReactNode
   readonly className?: string
 }
 
@@ -91,6 +114,7 @@ export function DataTable<TRow>({
   rowHeight,
   virtualizeAbove = 150,
   empty,
+  rowAction,
   className,
 }: DataTableProps<TRow>) {
   const rows = (table as AnyTable).getRowModel().rows
@@ -284,6 +308,7 @@ export function DataTable<TRow>({
               onRowClick={onRowClick}
               selected={isSelected?.(row.original as TRow) ?? false}
               touch={tap}
+              rowAction={rowAction}
               style={{
                 position: "absolute",
                 top: 0,
@@ -307,6 +332,7 @@ export function DataTable<TRow>({
             onRowClick={onRowClick}
             selected={isSelected?.(row.original as TRow) ?? false}
             touch={tap}
+            rowAction={rowAction}
           />
         ))}
       </tbody>
@@ -343,8 +369,12 @@ export function DataTable<TRow>({
                       // than `<thead>` — a sticky thead does nothing in a
                       // table, the cells are what stick — and opaque, or the
                       // rows show through as they pass underneath.
-                      "sticky top-0 z-10 bg-canvas",
-                      "border-b border-hairline px-3.5 py-[0.5625rem] text-eyebrow font-semibold whitespace-nowrap text-mute uppercase",
+                      // Tinted, not white: the heading row is chrome over the
+                      // rows, and the tint is what says so now that the
+                      // vertical rules are gone.
+                      "sticky top-0 z-10 bg-soft",
+                      "border-b border-hairline",
+                      "h-10 px-3.5 py-0 text-eyebrow font-medium whitespace-nowrap text-body normal-case",
                       align === "right" ? "text-right" : "text-left",
                       align === "center" && "text-center"
                     )}
@@ -354,7 +384,11 @@ export function DataTable<TRow>({
                         type="button"
                         onClick={() => header.column.toggleSorting()}
                         className={cn(
-                          "inline-flex items-center gap-1 uppercase transition-colors hover:text-ink",
+                          // `flex-row-reverse` on a right-aligned column puts
+                          // the arrow in FRONT, so what stops at the column's
+                          // edge is the heading — flush with the figures under
+                          // it, rather than pushed an arrow's width off them.
+                          "inline-flex items-center gap-1 transition-colors hover:text-ink",
                           align === "right" && "flex-row-reverse"
                         )}
                       >
@@ -393,6 +427,7 @@ function Row({
   onRowClick,
   selected,
   touch,
+  rowAction,
   style,
   virtual,
 }: {
@@ -402,17 +437,26 @@ function Row({
   onRowClick?: (original: any) => void
   selected: boolean
   touch: boolean
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  rowAction?: (original: any) => React.ReactNode
   style?: React.CSSProperties
   virtual?: boolean
 }) {
+  const verb = rowAction?.(row.original) ?? null
   return (
     <tr
       style={style}
       onClick={onRowClick ? () => onRowClick(row.original) : undefined}
       data-selected={selected || undefined}
       className={cn(
-        "border-b border-hairline last:border-b-0",
+        "group/row border-b border-hairline last:border-b-0",
         onRowClick && "cursor-pointer",
+        // 48px, from `--spacing-row`. A minimum rather than a height, so a row
+        // holding a wrapped cell grows instead of clipping. Not applied while
+        // virtualising: there the height comes from the measurement the
+        // virtualiser positions against, and a second opinion here would put
+        // the rows and their offsets out of step.
+        !virtual && !touch && "h-row",
         // `height` on a table row is a MINIMUM, which is what is wanted: a row
         // with a wrapped cell in it grows rather than clipping. Not applied
         // when virtualising — there the height is set from the measurement the
@@ -420,13 +464,24 @@ function Row({
         // would put the rows and their offsets out of step.
         touch && !virtual && "h-tap",
         // Selection is a tint. DESIGN.md is explicit that there is no left bar.
-        selected ? "bg-accent-bg" : "hover:bg-soft"
+        // The prototype's exact hover, which is a shade cooler than `soft`:
+        // a row under the pointer should read as lit, not as a second surface.
+        selected ? "bg-accent-bg" : "hover:bg-[#f7f9fc]"
       )}
     >
       {row.getVisibleCells().map(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (cell: any) => {
           const align = cell.column.columnDef.meta?.align
+          // The cell that hands itself over to the verb while the row is
+          // pointed at. Only when there IS a verb: a closed order keeps its
+          // pill, and nothing blinks under the cursor for no reason.
+          const swaps =
+            cell.column.columnDef.meta?.swap === true && verb !== null
+          const drawn = flexRender(
+            cell.column.columnDef.cell,
+            cell.getContext()
+          )
           return (
             <td
               key={cell.id}
@@ -437,11 +492,31 @@ function Row({
                 "px-3.5 whitespace-nowrap text-text",
                 touch ? "py-3" : "py-2.5",
                 virtual && "flex items-center",
+                swaps && "relative",
                 align === "right" && "justify-end text-right",
                 align === "center" && "justify-center text-center"
               )}
             >
-              {flexRender(cell.column.columnDef.cell, cell.getContext())}
+              {swaps ? (
+                <>
+                  <span className="inline-block transition-[opacity,transform] duration-[--t-hover] ease-out group-focus-within/row:translate-x-1.5 group-focus-within/row:opacity-0 group-hover/row:translate-x-1.5 group-hover/row:opacity-0 pointer-coarse:opacity-0">
+                    {drawn}
+                  </span>
+                  <span
+                    className={cn(
+                      "absolute top-1/2 left-3.5 origin-left -translate-x-1.5 -translate-y-1/2 scale-[0.96] opacity-0",
+                      "transition-[opacity,transform] duration-[--t-pop] ease-out",
+                      "pointer-events-none group-hover/row:pointer-events-auto group-hover/row:translate-x-0 group-hover/row:scale-100 group-hover/row:opacity-100",
+                      "group-focus-within/row:pointer-events-auto group-focus-within/row:translate-x-0 group-focus-within/row:scale-100 group-focus-within/row:opacity-100",
+                      "pointer-coarse:pointer-events-auto pointer-coarse:translate-x-0 pointer-coarse:scale-100 pointer-coarse:opacity-100"
+                    )}
+                  >
+                    {verb}
+                  </span>
+                </>
+              ) : (
+                drawn
+              )}
             </td>
           )
         }

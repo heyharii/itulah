@@ -176,13 +176,61 @@ pub struct MemberRow {
     pub segment: String,
 }
 
+/// One value a filter can take, and how many members would still be there.
+///
+/// `EmployeeFacet`'s shape and its reasoning: a value that would leave nothing
+/// is a value nobody should have to click to find out about. Counted over
+/// everything the SEARCH leaves, deliberately ignoring which filters are
+/// currently applied — so the number reads as "how many of these there are",
+/// which is the question somebody has while choosing.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct MemberFacet {
+    /// What to send back as the filter — a segment key. Never a display string.
+    pub value: String,
+    /// What to draw when it differs from the value. Absent for a segment,
+    /// whose words belong to the screen: "Lapsing" is the hub's phrasing of
+    /// `LAPSING`, not the server's.
+    pub label: Option<String>,
+    pub count: i64,
+}
+
+/// What the directory can be narrowed by.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct MemberFacets {
+    /// The six, only those with anybody in them. The segment BOOK is the place
+    /// that guarantees all six including the zeroes — this is the filter panel,
+    /// and a value that would leave an empty list is one nobody should have to
+    /// click to discover.
+    pub segments: Vec<MemberFacet>,
+}
+
+/// A page of the directory, and the shape of everything it was drawn from.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct MemberDirectory {
     pub members: Vec<MemberRow>,
     /// Everybody enrolled, not just the page. So a filtered list can say what
     /// it is a fraction of.
+    ///
+    /// Kept spelled as it was — every caller reads it and it still means the
+    /// whole scheme, unnarrowed. It is NOT the envelope's `total`, which counts
+    /// what the search and the filters match. Two numbers because a screen
+    /// genuinely wants both: "41 of 9,320".
     pub member_count: i64,
+    /// Opaque. Pass it back as `cursor` for the next page; absent means this
+    /// was the last one.
+    ///
+    /// Deliberately not an offset. Cards are enrolled and members are blocked
+    /// while somebody pages through them, and an offset would skip or repeat
+    /// rows without anything saying so.
+    pub next_cursor: Option<String>,
+    /// Every member the search, the segment and any saved narrowing match —
+    /// not just this page. Without it a screen can only say "200 members",
+    /// which is a statement about the page size rather than about the scheme.
+    pub total: i64,
+    pub facets: MemberFacets,
 }
 
 /// One segment, and what it is worth.
@@ -281,6 +329,7 @@ pub struct UnenrolledList {
 const SEGMENT_ORDER: [&str; 6] = ["NEW", "ACTIVE", "LAPSING", "LAPSED", "NEVER", "BLOCKED"];
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct MemberQuery {
     /// One of the six. Anything else is refused rather than silently matching
     /// nothing — a filter that returns an empty list for a typo is worse than
@@ -293,13 +342,76 @@ pub struct MemberQuery {
     /// it, and the list would then differ from the count on the card that
     /// linked here — the one comparison a reader is guaranteed to make.
     pub segment_id: Option<Uuid>,
-    /// Card number or name.
+    /// **Card number or name. Those two and nothing else, ever.**
+    ///
+    /// This is the one parameter in this file that has to be argued rather than
+    /// listed. A member directory is a register of people, and a search box
+    /// over it is a lookup tool: widening it to a phone number would turn "find
+    /// the customer holding this card" into "confirm that this phone number
+    /// belongs to somebody who shops here", which is a different power and one
+    /// nobody granted.
+    ///
+    /// The `member` table happens to hold no phone, address or identity number
+    /// today, so the rule costs nothing to keep — and that is exactly why it is
+    /// written down now. The reachable personal data is one join away in
+    /// `member_session.paired_by` and `paired_at_site`, and [`MemberRow`]
+    /// deliberately reduces that whole join to a single `paired` boolean. A
+    /// search that reached into it would be reaching around a summary type that
+    /// omits the field on purpose — see `EmployeeScope::needle`, which makes
+    /// the same argument about NIK.
     pub q: Option<String>,
+    /// `spent`, `name`, `card`, `joined` or `last_purchase` — the closed set
+    /// this server names, and nothing else is a sort.
+    ///
+    /// Anything unrecognised falls back to `spent`, the house order, rather
+    /// than refusing: a sort arrives from a URL somebody may have kept from an
+    /// older build, and a 400 for a stale bookmark is a worse answer than the
+    /// rows in the house order.
+    #[serde(default)]
+    pub sort: Option<String>,
+    /// `desc` and nothing else. Absent, empty and anything unrecognised all
+    /// mean the key's own natural direction — see [`list_members`], where money
+    /// and recency read downwards and names read upwards.
+    #[serde(default)]
+    pub dir: Option<String>,
+    /// A `next_cursor` from the previous page, verbatim.
+    #[serde(default)]
+    pub cursor: Option<String>,
     pub limit: Option<i64>,
 }
 
 const DEFAULT_PAGE: i64 = 200;
 const MAX_PAGE: i64 = 1_000;
+
+/// Where the previous page stopped — as a ROW, not as a position.
+///
+/// It carries the card number and nothing else, whatever the list is sorted by,
+/// exactly as `EmployeeCursor` carries the employee id. The seek re-reads that
+/// row's own sort value in SQL, so one cursor shape serves every order and a
+/// sixth sort cannot arrive without its cursor.
+///
+/// Hex-wrapped JSON rather than a bare card number, and on this list that is
+/// more than tidiness: a bare cursor would be a card number in a URL, in a
+/// browser history, in a server log. Opaque is the right default for a
+/// per-person identifier even when the payload is one the caller already has.
+#[derive(Serialize, Deserialize)]
+struct MemberCursor {
+    member_id: String,
+}
+
+impl MemberCursor {
+    fn encode(&self) -> Result<String, AppError> {
+        Ok(hex::encode(serde_json::to_vec(self)?))
+    }
+
+    fn decode(raw: &str) -> Result<Self, AppError> {
+        let bytes = hex::decode(raw).map_err(|_| {
+            AppError::Validation("cursor is not a cursor this server issued".into())
+        })?;
+        serde_json::from_slice(&bytes)
+            .map_err(|_| AppError::Validation("cursor is not a cursor this server issued".into()))
+    }
+}
 
 fn member_from_row(row: &PgRow) -> Result<MemberRow, AppError> {
     Ok(MemberRow {
@@ -334,17 +446,34 @@ fn checked_segment(raw: Option<&str>) -> Result<Option<String>, AppError> {
     Ok(Some(upper))
 }
 
-/// Everybody holding a card, with what they have spent joined on.
+/// Everybody holding a card, with what they have spent joined on — one page at
+/// a time, beside the shape of the whole answer.
 ///
 /// A member with no purchases is not an error and not an omission: they are
 /// somebody who was handed a card and has not used it yet, and they are the
-/// segment worth the most attention. Hence the LEFT JOIN, and hence `NEVER`
-/// being a segment rather than a gap.
+/// segment worth the most attention. Hence the LEFT JOIN in [`MEMBER_SOURCE`],
+/// and hence `NEVER` being a segment rather than a gap.
+///
 /// `narrowing` is a saved segment's definition, already compiled against the
 /// `member` dataset. Applied here rather than in the browser because a segment
 /// is a statement about the whole directory: a page of a thousand rows narrowed
 /// after the fact would answer a different question, and would disagree with
 /// the count on the card that linked here.
+///
+/// It is spliced **inside** the searched set rather than beside the segment
+/// filter, and the difference is what the facet counts mean. A saved segment is
+/// the population being looked at — the screen reads "this segment's members" —
+/// so the six counts beside it describe that population. The segment filter is
+/// the thing somebody is choosing between, so it is applied outside and the
+/// counts ignore it.
+///
+/// # Placeholders
+///
+/// `$1` the search pattern, `$2` the segment filter, then the narrowing's own
+/// parameters from `$3` — which is the whole contract between this query and
+/// the compiler, and why the handler passes it a `bound` of 2. The cursor and
+/// the limit come after those, at positions this function computes, because
+/// their number depends on how many clauses the saved segment carries.
 pub async fn list_members(
     pool: &PgPool,
     query: MemberQuery,
@@ -352,6 +481,8 @@ pub async fn list_members(
 ) -> Result<MemberDirectory, AppError> {
     let limit = query.limit.unwrap_or(DEFAULT_PAGE).clamp(1, MAX_PAGE);
     let segment = checked_segment(query.segment.as_deref())?;
+    // A blank search is not a search: `Some("")` would compile to a LIKE that
+    // matches everything and costs a scan to say so.
     let search = query
         .q
         .as_deref()
@@ -359,15 +490,36 @@ pub async fn list_members(
         .filter(|value| !value.is_empty())
         .map(str::to_uppercase);
 
-    // Placeholders continue from the three bound below, which is the whole
-    // contract between this query and the compiler: it is told where to start
-    // numbering and never guesses.
     let extra = match narrowing.and_then(|one| one.sql.as_deref()) {
         Some(fragment) => format!("\n            AND ({fragment})"),
         None => String::new(),
     };
+    let params = narrowing.map(|one| one.params.len()).unwrap_or(0);
+    // Where the caller's own placeholders end and ours resume. Computed rather
+    // than written, because a saved segment carries as many clauses as somebody
+    // wrote and every one of them is a bound parameter.
+    let cursor_at = 3 + params;
+    let limit_at = 4 + params;
 
-    let sql = format!(
+    // One row definition, used by the page and by the facet counts. That is the
+    // whole reason it is built once here: the facets are only honest if they
+    // count exactly what the page can show.
+    //
+    // The two `*_key` columns are computed rather than only named in ORDER BY,
+    // because a keyset has to COMPARE the sort value in a WHERE and a sort
+    // expression that is not a column is one a WHERE cannot see. Both are
+    // non-null, which is the rule that is easy to miss and expensive to find: a
+    // row comparison against NULL is NULL rather than true, so one member who
+    // has never bought — and `NEVER` is a segment precisely because there are
+    // many — would end paging at whatever row happened to carry it, silently,
+    // with the rest of the scheme below the fold.
+    //
+    // `-infinity` is that rule for a last purchase, and it is also the more
+    // useful answer: somebody who has never been in sorts after everybody who
+    // has, which is where a reader looking for the most recent visit expects
+    // them. A sentinel VALUE rather than a `NULLS LAST` decoration, because
+    // `NULLS LAST` orders a result and says nothing a keyset can seek against.
+    let rows_sql = format!(
         "SELECT m.member_id, m.display_name, m.joined_on, m.blocked_at,
                 {PAIRED}                                         AS paired,
                 COALESCE(s.transaction_count, 0)                 AS transaction_count,
@@ -378,22 +530,153 @@ pub async fn list_members(
                 s.last_purchase_at,
                 {DAYS_SINCE_PURCHASE}                            AS days_since_purchase,
                 COALESCE(h.voucher_balance_minor, 0)             AS voucher_balance_minor,
-                {SEGMENT_CASE}                                   AS segment
+                {SEGMENT_CASE}                                   AS segment,
+                COALESCE(s.spent_minor, 0)                       AS spent_key,
+                upper(COALESCE(m.display_name, ''))              AS name_key,
+                COALESCE(s.last_purchase_at,
+                         TIMESTAMPTZ '-infinity')                AS last_key
            {MEMBER_SOURCE}
-          WHERE ($1::text IS NULL OR {SEGMENT_CASE} = $1)
-            AND ($2::text IS NULL
-                 OR upper(m.member_id) LIKE '%' || $2 || '%'
-                 OR upper(COALESCE(m.display_name, '')) LIKE '%' || $2 || '%'){extra}
-          -- Biggest spenders first. The directory is read to find somebody,
-          -- and failing that, to see who matters.
-          ORDER BY COALESCE(s.spent_minor, 0) DESC, m.member_id
-          LIMIT $3"
+          -- The card number and the name on it. Not personal data this list
+          -- deliberately does not carry — see `MemberQuery::q`.
+          WHERE ($1::text IS NULL
+                 OR upper(m.member_id) LIKE '%' || $1 || '%'
+                 OR upper(COALESCE(m.display_name, '')) LIKE '%' || $1 || '%'){extra}"
     );
-    let mut statement = sqlx::query(&sql).bind(&segment).bind(&search).bind(limit);
+
+    // The sort, and the tie-break that makes it total. Every order ends in the
+    // card number, which is the primary key, so no two rows can compare equal —
+    // which is what stops a keyset repeating or losing the rows that tie.
+    //
+    // Each key carries its OWN natural direction, which `dir` overrides rather
+    // than replaces. Money and recency read downwards — "who matters" and "who
+    // was in last" are questions asked from the top — and names and card
+    // numbers read upwards. A single shared default would have made `spent`
+    // ascending, which is this list's house order reversed and would have been
+    // a silent change to every screen that did not pass `dir`.
+    let (lead, natural_desc): (&str, bool) = match query.sort.as_deref() {
+        Some("name") => ("name_key", false),
+        Some("card") => ("member_id", false),
+        Some("joined") => ("joined_on", true),
+        Some("last_purchase") => ("last_key", true),
+        _ => ("spent_key", true),
+    };
+    let descending = match query.dir.as_deref() {
+        Some("asc") => false,
+        Some("desc") => true,
+        _ => natural_desc,
+    };
+    // TWO spellings of the same thing, and they are not interchangeable:
+    // `ORDER BY` takes directions, a ROW EXPRESSION does not. Writing
+    // `(a DESC, b) < (…)` is a syntax error the compiler cannot catch, because
+    // the whole clause is a string.
+    let cols = if lead == "member_id" {
+        "member_id".to_owned()
+    } else {
+        format!("{lead}, member_id")
+    };
+    let dir = if descending { "DESC" } else { "ASC" };
+    let order = if lead == "member_id" {
+        format!("member_id {dir}")
+    } else {
+        format!("{lead} {dir}, member_id {dir}")
+    };
+    // Which way the seek points follows the direction, or paging a descending
+    // list walks back up it.
+    let seek = if descending { "<" } else { ">" };
+
+    let cursor = query
+        .cursor
+        .as_deref()
+        .map(MemberCursor::decode)
+        .transpose()?;
+
+    // The seek re-reads the previous row's own sort value rather than trusting
+    // one encoded in the cursor — see [`MemberCursor`]. A cursor whose row the
+    // filters no longer keep — somebody blocked, or moved out of the segment
+    // being listed, between one page and the next — finds no row to compare
+    // against, so the page comes back empty. The list ends early rather than
+    // starting again, which is the safer of the two wrong answers.
+    // `NOT MATERIALIZED`: `kept` is referenced twice — as the page and
+    // inside the seek — and two references makes PostgreSQL materialise a
+    // CTE, which is an optimisation fence the `ORDER BY … LIMIT` cannot be
+    // pushed through. Materialised, this reads the whole table and sorts it
+    // to hand back one page; inlined, it seeks the index. See
+    // `postgres::audit::list_audit`, where the difference was measured.
+    let sql = format!(
+        "WITH searched AS NOT MATERIALIZED ({rows_sql}),
+              kept AS NOT MATERIALIZED (
+             SELECT * FROM searched WHERE ($2::text IS NULL OR segment = $2)
+         )
+         SELECT * FROM kept
+          WHERE ${cursor_at}::text IS NULL
+             OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE member_id = ${cursor_at})
+          ORDER BY {order}
+          LIMIT ${limit_at}"
+    );
+    let mut statement = sqlx::query(&sql).bind(&search).bind(&segment);
     if let Some(one) = narrowing {
         statement = bind_params(statement, &one.params);
     }
-    let rows = statement.fetch_all(pool).await?;
+    let rows = statement
+        .bind(cursor.as_ref().map(|one| one.member_id.clone()))
+        .bind(limit)
+        .fetch_all(pool)
+        .await?;
+
+    // A short page is the last page. A full one may not be — the next request
+    // can come back empty — and that is the honest answer: knowing whether more
+    // rows exist without asking costs a second pass over the same query.
+    let next_cursor = match rows.last() {
+        Some(row) if rows.len() as i64 == limit => Some(
+            MemberCursor {
+                member_id: row.try_get("member_id")?,
+            }
+            .encode()?,
+        ),
+        _ => None,
+    };
+
+    let facets_sql = format!(
+        "WITH searched AS ({rows_sql}), kept AS (
+             SELECT * FROM searched WHERE ($2::text IS NULL OR segment = $2)
+         )
+         SELECT 'segment' AS kind, segment AS value, COUNT(*)::bigint AS n
+           FROM searched GROUP BY segment
+          UNION ALL
+         SELECT 'all', '', COUNT(*)::bigint FROM kept"
+    );
+    let mut statement = sqlx::query(&facets_sql).bind(&search).bind(&segment);
+    if let Some(one) = narrowing {
+        statement = bind_params(statement, &one.params);
+    }
+    let counted = statement.fetch_all(pool).await?;
+
+    let mut total = 0i64;
+    let mut segments = Vec::new();
+    for row in &counted {
+        let kind: String = row.try_get("kind")?;
+        let facet = MemberFacet {
+            value: row.try_get("value")?,
+            label: None,
+            count: row.try_get("n")?,
+        };
+        if kind == "segment" {
+            segments.push(facet);
+        } else {
+            total = facet.count;
+        }
+    }
+    // In the six's own reading order rather than biggest-first, which is where
+    // this list parts company with every other facet panel here on purpose. The
+    // six are a sequence — from the people who just arrived to the people who
+    // have gone — and the segment book next door already prints them in it. Two
+    // orders for one vocabulary is two orders somebody has to reconcile.
+    segments.sort_by_key(|facet| {
+        SEGMENT_ORDER
+            .iter()
+            .position(|key| *key == facet.value)
+            .unwrap_or(SEGMENT_ORDER.len())
+    });
 
     let member_count = sqlx::query_scalar::<_, i64>("SELECT count(*)::bigint FROM member")
         .fetch_one(pool)
@@ -405,6 +688,9 @@ pub async fn list_members(
             .map(member_from_row)
             .collect::<Result<Vec<_>, _>>()?,
         member_count,
+        next_cursor,
+        total,
+        facets: MemberFacets { segments },
     })
 }
 

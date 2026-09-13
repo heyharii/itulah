@@ -461,8 +461,8 @@ fn apply_activation(
         tx.execute(
             "INSERT OR REPLACE INTO commercial_campaign
                  (campaign_id, publication_id, name, status, valid_from, valid_to,
-                  budget_minor, max_uses, image_url, headline, terms)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                  budget_minor, max_uses, image_url, headline, terms, site_ids_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 campaign.campaign_id,
                 publication_id,
@@ -479,6 +479,13 @@ fn apply_activation(
                 campaign.image_url.as_deref(),
                 campaign.headline.as_deref(),
                 campaign.terms.as_deref(),
+                // Null for "everywhere" rather than "[]", so the column reads
+                // exactly as one written before this field existed.
+                if campaign.site_ids.is_empty() {
+                    None
+                } else {
+                    Some(serde_json::to_string(&campaign.site_ids).unwrap_or_default())
+                },
             ],
         )
         .map_err(err)?;
@@ -1214,10 +1221,10 @@ fn apply_allotment_cancellation(
             )));
         }
     }
-    let (accepted, picked, dispatched, cancelled): (i64, i64, i64, i64) = tx
+    let (accepted, packed, dispatched, cancelled): (i64, i64, i64, i64) = tx
         .query_row(
             "SELECT COALESCE(SUM(accepted_quantity),0),
-                    COALESCE(SUM(picked_quantity),0),
+                    COALESCE(SUM(packed_quantity),0),
                     COALESCE(SUM(dispatched_quantity),0),
                     COALESCE(SUM(cancelled_quantity),0)
              FROM dc_allotment_work_line WHERE allotment_id=?1",
@@ -1226,7 +1233,7 @@ fn apply_allotment_cancellation(
         )
         .map_err(err)?;
     let status =
-        derive_allotment_status(accepted, picked, dispatched, cancelled, false).map_err(err)?;
+        derive_allotment_status(accepted, packed, dispatched, cancelled, false).map_err(err)?;
     if tx
         .execute(
             "UPDATE dc_allotment_work SET fulfillment_status=?2,updated_at=?3
@@ -2239,7 +2246,8 @@ fn apply_price_amendment_decision(
     };
     tx.execute(
         "UPDATE purchase_price_amendment
-         SET status=?2, approved_price_minor=?3, decided_by=?4, decided_at=?5, decision_note=?6
+         SET status=?2, approved_price_minor=?3, decided_by=?4, decided_at=?5, decision_note=?6,
+             scope=?7
          WHERE request_id=?1",
         params![
             decision.causation_request_id.to_string(),
@@ -2247,10 +2255,27 @@ fn apply_price_amendment_decision(
             decision.approved_price_minor,
             decision.decided_by,
             time_text(decision.decided_at),
-            decision.decision_note
+            decision.decision_note,
+            decision.scope
         ],
     )
     .map_err(err)?;
+    // An approval that reaches the rest of the order changes what the next
+    // lorry is expected to cost, so this node's copy of the order has to move
+    // with it — the verifier's queue reads that price to compare against the
+    // invoice, and showing yesterday's raises the same query all over again.
+    //
+    // A DELIVERY approval changes nothing here: it settled one acceptance, and
+    // that acceptance already carries the price it was accepted at.
+    if decision.scope.as_deref() == Some("REMAINING") {
+        if let Some(price) = decision.approved_price_minor {
+            tx.execute(
+                "UPDATE purchase_order_line SET unit_price_minor = ?2 WHERE po_line_id = ?1",
+                params![decision.po_line_id.to_string(), price],
+            )
+            .map_err(err)?;
+        }
+    }
     Ok(())
 }
 
@@ -2319,6 +2344,72 @@ fn apply_command_effect(tx: &Transaction<'_>, command: &PushedCommand) -> Result
             "this edge does not understand command type {unknown}"
         ))),
     }
+}
+
+/// Tell the centre that this shop could not apply a price book.
+///
+/// This is the half of the rollout picture that did not exist. A shop that fell
+/// over applying a book wrote the reason into its own command watermark and
+/// stopped, and from the centre that looked exactly like a shop that was merely
+/// slow — so `RolloutProgress::failed` was nought by construction and UI-001
+/// §6's "2 pending, 1 failed" could never show the third number.
+///
+/// Outside the failed transaction, and it has to be: the effect rolled back, so
+/// a fact enqueued inside it would have rolled back with it and the report would
+/// be lost exactly when there was something to report.
+///
+/// Only for the command that carries a price book. A block on any other kind is
+/// a different shop's problem and belongs in the watermark, which already has
+/// it; a failure fact per command type would be a parallel error channel for
+/// facts nothing reads.
+fn report_activation_failure(
+    connection: &mut Connection,
+    command: &PushedCommand,
+    reason: &str,
+) -> Result<(), SyncError> {
+    if command.command_type != COMMAND_ACTIVATE_PUBLICATION {
+        return Ok(());
+    }
+    // Read off the raw payload rather than the parsed one, because parsing is
+    // one of the things that can have failed. A payload so malformed that even
+    // these two fields cannot be read names no book, and a failure report that
+    // cannot say WHICH book would arrive at the centre with nowhere to go — the
+    // watermark still carries the reason, and that is the honest floor.
+    let publication_id = command
+        .payload
+        .get("publication_id")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|text| Uuid::parse_str(text).ok());
+    let version = command
+        .payload
+        .get("version")
+        .and_then(serde_json::Value::as_i64);
+    let (Some(publication_id), Some(version)) = (publication_id, version) else {
+        return Ok(());
+    };
+    let tx = connection.transaction().map_err(err)?;
+    // A fresh id, and NOT the publication id.
+    //
+    // `FACT_PUBLICATION_ACTIVATED` uses the publication id as its event id so a
+    // replay deduplicates, and the centre holds event ids across a re-sequenced
+    // stream. A failure reusing it would make the SUCCESS that follows — the
+    // shop retried and got there — arrive as a duplicate of a fact already held
+    // and be discarded without a word. The shop would then be charging the new
+    // prices while the centre reported it as failed, for ever.
+    enqueue_fact(
+        &tx,
+        Uuid::new_v4(),
+        crate::cloud::domain::FACT_PUBLICATION_ACTIVATION_FAILED,
+        &serde_json::json!({
+            "publication_id": publication_id,
+            "version": version,
+            "attempted_at": now_text(),
+            "error": reason,
+        }),
+    )
+    .map_err(err)?;
+    tx.commit().map_err(err)?;
+    Ok(())
 }
 
 #[async_trait::async_trait]
@@ -2522,7 +2613,7 @@ impl SyncStore for SqliteSyncStore {
         self.with_connection(|connection| {
             let mut report = CommandApplyReport::default();
             for command in commands {
-                let (watermark, _) = read_command_watermark(connection)?;
+                let (watermark, standing_block) = read_command_watermark(connection)?;
                 if command.seq <= watermark {
                     continue; // already settled; a resend after a lost response
                 }
@@ -2558,7 +2649,20 @@ impl SyncStore for SqliteSyncStore {
                         // The transaction rolls back on drop, so the inbox row
                         // goes with the failed effect: the retry re-inserts it.
                         drop(tx);
+                        // Only once per blocked position. The cloud re-pushes
+                        // this command on every cycle for as long as it stays
+                        // blocked, so reporting on each attempt would send one
+                        // fact a minute, for ever, saying the same thing.
+                        let already_reported = standing_block
+                            .is_some_and(|block| block.seq == command.seq);
                         record_command_block(connection, command.seq, &effect_error.0)?;
+                        if !already_reported {
+                            report_activation_failure(
+                                connection,
+                                command,
+                                &effect_error.0,
+                            )?;
+                        }
                         break;
                     }
                 }
@@ -3231,6 +3335,7 @@ mod tests {
 /// must arrive before its lines" — and a rule like that is one more way for a
 /// stream to block. This way each line stands alone and the centre upserts.
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 pub fn record_accepted_receipt_line(
     tx: &Transaction<'_>,
     receipt_line_id: Uuid,
@@ -3238,6 +3343,15 @@ pub fn record_accepted_receipt_line(
     po_line_id: Uuid,
     movement_group_id: Uuid,
     counted_quantity: i64,
+    // `matched_quantity` / `excess_quantity`: the split as this node computed
+    // it. The centre re-derives both and does not take them on trust — a node
+    // can be behind, rebuilt, or wrong — but a disagreement is worth seeing.
+    //
+    // `agreed_unit_price_minor`: the price at the moment of acceptance, so
+    // what this delivery was worth cannot be restated by a later amendment.
+    matched_quantity: i64,
+    excess_quantity: i64,
+    agreed_unit_price_minor: Option<i64>,
     counted_by: &str,
     verified_by: &str,
     verified_at: DateTime<Utc>,
@@ -3303,9 +3417,13 @@ pub fn record_accepted_receipt_line(
             "opened_by": opened_by,
             "opened_at": opened_at,
             "receipt_line_id": receipt_line_id,
+            "count_id": count_id,
             "po_line_id": po_line_id,
             "movement_group_id": movement_group_id,
             "quantity": counted_quantity,
+            "matched_quantity": matched_quantity,
+            "excess_quantity": excess_quantity,
+            "agreed_unit_price_minor": agreed_unit_price_minor,
             "article_code": article_code,
             "counted_by": counted_by,
             "verified_by": verified_by,
@@ -3315,6 +3433,47 @@ pub fn record_accepted_receipt_line(
     )
     .map_err(err)?;
     Ok(counted_quantity)
+}
+
+/// A delivery that was turned away whole.
+///
+/// It travels because supplier performance is a question asked at head office,
+/// and a refusal that lives only on the node that refused it answers nothing.
+/// There are no lines: nothing was accepted, which is the point.
+pub fn record_rejected_delivery(
+    tx: &Transaction<'_>,
+    receipt_id: Uuid,
+    supplier_id: &str,
+    reason: &str,
+    rejected_by: &str,
+    rejected_at: DateTime<Utc>,
+) -> Result<(), SyncError> {
+    let (receipt_number, arrived_at, opened_by, opened_at): (String, String, String, String) = tx
+        .query_row(
+            "SELECT receipt_number, arrived_at, opened_by, opened_at
+             FROM goods_receipt WHERE receipt_id = ?1",
+            params![receipt_id.to_string()],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .map_err(err)?;
+    enqueue_fact(
+        tx,
+        receipt_id,
+        crate::cloud::domain::FACT_GOODS_RECEIPT_REJECTED,
+        &serde_json::json!({
+            "receipt_id": receipt_id,
+            "receipt_number": receipt_number,
+            "supplier_id": supplier_id,
+            "arrived_at": arrived_at,
+            "opened_by": opened_by,
+            "opened_at": opened_at,
+            "reason": reason,
+            "rejected_by": rejected_by,
+            "rejected_at": rejected_at,
+        }),
+    )
+    .map_err(err)?;
+    Ok(())
 }
 
 /// The supplier's invoice, as the verifier read it off the paper that came

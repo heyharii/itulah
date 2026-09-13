@@ -44,6 +44,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use thiserror::Error;
 
 pub mod engine;
@@ -55,8 +56,8 @@ pub use money::{Currency, Money};
 pub use price::{resolve_price, Markdown, PriceEntry, PriceLevel};
 pub use rule::{
     Applicability, Campaign, CampaignStatus, Caps, Conditions, Coupon, CustomerScope, DaySet,
-    EarnBasis, EarnEffect, Effect, RejectionReason, Rule, RuleScope, RuleStatus, Stacking,
-    TimeWindow,
+    EarnBasis, EarnEffect, Effect, ExclusiveScope, MarkdownPolicy, PointsCombination,
+    RejectionReason, Rule, RuleScope, RuleStatus, Stacking, TaxRule, TimeWindow,
 };
 
 // ---------------------------------------------------------------------------
@@ -77,6 +78,55 @@ pub struct PricingSnapshot {
     /// The envelopes those rules sit in.
     #[serde(default)]
     pub campaigns: Vec<Campaign>,
+    /// What each tax category carries, and whether the shelf price contains it.
+    ///
+    /// Empty is not "no tax" as a policy — it is a book that says nothing about
+    /// tax, and the engine reports nought rather than guessing a rate. Every
+    /// book published before this field existed reads that way, and every
+    /// figure they produced stays exactly what it was.
+    #[serde(default)]
+    pub tax_rules: Vec<TaxRule>,
+}
+
+/// Something on the bill that is not goods.
+///
+/// A delivery fee, a service charge, a bag, gift wrap. It is on the receipt and
+/// the shopper pays it, and it is **not merchandise** — which has four
+/// consequences the engine has to enforce rather than trust a caller to
+/// remember:
+///
+/// - **No promotion touches it.** Not even a whole-cart rule, which is the one
+///   that would: "10% off everything" means everything the shop sells, not 10%
+///   off the courier. A shop that wants to give delivery away says so with a
+///   charge of nought, which is a decision somebody made and can see.
+/// - **It does not count toward a minimum spend.** "Spend Rp500.000, get 10%
+///   off" unlocked by a Rp50.000 delivery fee is a discount the shop did not
+///   agree to, and the shopper reaches the threshold by paying the courier.
+/// - **It earns no points.** The locked rule: points accrue on the goods after
+///   discount, before tax, without charges.
+/// - **It is taxed on its own terms.** A delivery fee and a shirt are not
+///   always the same tax category, and assuming they are gets the return wrong
+///   in whichever direction the rates differ.
+///
+/// It rides on the context rather than the snapshot because it is a property of
+/// THIS order — where it is going, how it is wrapped — and not of the price
+/// book. No book has ever had an opinion about one shopper's courier.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Charge {
+    /// `DELIVERY`, `SERVICE`, `PACKAGING` — the shop's own word, passed
+    /// through. The engine does not interpret it; a report groups by it.
+    pub code: String,
+    /// What the receipt says. Held beside the code because a receipt reading
+    /// "SERVICE" is not a receipt anybody wants to argue about at a counter.
+    pub description: String,
+    /// What the shopper is charged, in minor units. Read the same way a shelf
+    /// price is: whether the tax is inside it is the tax rule's answer, not
+    /// this field's.
+    pub amount_minor: i64,
+    /// Which tax rule applies. A category the book does not mention is charged
+    /// untaxed and reported as such — the same honesty the goods get.
+    pub tax_category: String,
 }
 
 /// Who is asking, where, and when.
@@ -94,6 +144,9 @@ pub struct PricingContext {
     /// The shopper, when they are known. Absent for an anonymous sale.
     #[serde(default)]
     pub customer_id: Option<String>,
+    /// Fees on this bill that are not goods. See [`Charge`].
+    #[serde(default)]
+    pub charges: Vec<Charge>,
     /// How far ahead of UTC the shop is, in minutes.
     ///
     /// Read only by the day-of-week and time-of-day conditions, which are the
@@ -103,6 +156,20 @@ pub struct PricingContext {
     /// that know where the shop is set it, and the engine assumes nothing.
     #[serde(default)]
     pub utc_offset_minutes: i32,
+    /// How often this shopper has already had each promotion, by `rule_id`.
+    ///
+    /// Counted from sales the centre has accepted, and carried on the context
+    /// rather than on the snapshot because it is a fact about a PERSON: one
+    /// snapshot prices every basket in the shop, and two shoppers under the
+    /// same book get different answers from the same rule.
+    ///
+    /// An absent key is nought — that shopper has not had that offer. `None`
+    /// for the whole map is a different statement: this node does not count
+    /// customer history at all, and a rule limited per shopper is refused
+    /// rather than given away. See [`RejectionReason::CustomerUsageUnknown`],
+    /// and [`Rule::max_uses_per_customer`] for the only thing that reads this.
+    #[serde(default)]
+    pub customer_history: Option<BTreeMap<String, i64>>,
 }
 
 impl PricingContext {
@@ -113,8 +180,20 @@ impl PricingContext {
             at,
             coupon_codes: Vec::new(),
             customer_id: None,
+            charges: Vec::new(),
             utc_offset_minutes: 0,
+            customer_history: None,
         }
+    }
+
+    /// Put a fee on the bill — delivery, service, wrapping.
+    ///
+    /// A builder rather than a field a caller sets, so the order the charges
+    /// arrive in is the order the receipt prints them: a bill whose lines move
+    /// between two readings of the same sale is one nobody trusts.
+    pub fn with_charge(mut self, charge: Charge) -> Self {
+        self.charges.push(charge);
+        self
     }
 
     pub fn with_coupon(mut self, code: impl Into<String>) -> Self {
@@ -124,6 +203,17 @@ impl PricingContext {
 
     pub fn for_customer(mut self, customer_id: impl Into<String>) -> Self {
         self.customer_id = Some(customer_id.into());
+        self
+    }
+
+    /// Say what this node has counted for this shopper.
+    ///
+    /// Calling it at all is the claim that matters: a node that has looked says
+    /// so even when it found nothing, and a node that has not looked leaves
+    /// this unset rather than passing an empty map, which would read as "this
+    /// shopper has never used anything" and is a different sentence.
+    pub fn with_history(mut self, history: BTreeMap<String, i64>) -> Self {
+        self.customer_history = Some(history);
         self
     }
 }
@@ -239,6 +329,19 @@ pub struct LineResult {
     pub line_total: Money,
     pub currency: Currency,
     pub tax_category: String,
+    /// The goods in this line, with the tax taken out of them.
+    ///
+    /// Three figures rather than one because they answer three questions that
+    /// are routinely confused: `net_ex_tax` is SALES, `tax_amount` is money
+    /// collected for somebody else, and `line_total` is what the shopper pays.
+    /// A report that adds tax into sales overstates the business; one that
+    /// bills `net_ex_tax` undercharges the shopper.
+    ///
+    /// With no tax rule for the category, `tax_amount` is nought and
+    /// `net_ex_tax` equals `line_total` — which is what every book published
+    /// before tax was modelled means.
+    pub net_ex_tax: Money,
+    pub tax_amount: Money,
     pub publication_version: i64,
     /// Named when a markdown won, so a reader can go and look at it.
     pub markdown_id: Option<String>,
@@ -340,6 +443,29 @@ pub struct EarnAward {
     pub points: i64,
     /// The amount the points were computed from. Zero for a flat bonus.
     pub basis_amount: Money,
+    /// Which lines earned them, and how many each.
+    ///
+    /// Not a presentation detail. A shopper who returns one of two items has
+    /// the points for THAT item reversed, and the only honest source for how
+    /// many those were is what was awarded at the time — the scheme may have
+    /// changed since, and re-running today's rate against yesterday's goods can
+    /// take back more points than the purchase ever gave.
+    ///
+    /// The parts always sum to `points`: allocated by largest fractional
+    /// remainder over each line's share of the basis, so no point is invented
+    /// and none is lost. Empty for a flat bonus that belongs to the whole
+    /// basket rather than to any line in it.
+    pub line_points: Vec<LinePoints>,
+}
+
+/// One line's share of an award.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LinePoints {
+    /// The line's position in the cart as it was handed in, the same index
+    /// `LineBenefit` uses and for the same reason.
+    pub line: usize,
+    pub points: i64,
 }
 
 /// The answer, whole — including what did not happen and why.
@@ -366,7 +492,58 @@ pub struct PricingResult {
     pub points_earned: i64,
     /// What every applied rule took off, together.
     pub discount_total: Money,
+    /// What the shopper is charged for the merchandise lines as priced.
+    ///
+    /// With tax-INCLUSIVE pricing — Indonesian retail — this is already the
+    /// amount due, and `amount_due` below equals it. With exclusive pricing the
+    /// tax is added on top and `amount_due` is larger. Kept under its old name
+    /// and its old meaning so that nothing which reads it changed the day tax
+    /// arrived.
     pub total: Money,
+    /// The merchandise, with tax taken out. **This is Net Sales.**
+    ///
+    /// Not `total`, and not `amount_due`. A campaign, a margin and a finance
+    /// report all mean this one; saying "sales" of a figure with tax in it is
+    /// the single most common way a retail number is overstated.
+    pub net_ex_tax: Money,
+    /// Tax on the MERCHANDISE. Pairs with `net_ex_tax`, and the pair sums to
+    /// `total`.
+    ///
+    /// Not the tax owed to the state — that is this plus `charge_tax_total`,
+    /// because a delivery fee is taxed too. The two are held apart rather than
+    /// summed because they are different lines on different returns: goods tax
+    /// belongs against Net Sales, and a fee's tax belongs against fee income.
+    /// A caller filing a return adds them; a caller reporting margin does not.
+    pub tax_total: Money,
+    /// The fees on this bill that are not goods, priced and taxed. See
+    /// [`Charge`] for why no promotion, threshold or points rule reaches them.
+    pub charges: Vec<ChargeResult>,
+    /// The fees with tax taken out — fee income, which is not Net Sales.
+    pub charge_net_ex_tax: Money,
+    pub charge_tax_total: Money,
+    /// The fees as the shopper is charged them, tax included.
+    pub charge_total: Money,
+    /// What has to be settled: merchandise plus tax plus every charge. Tender
+    /// is measured against this and against nothing else.
+    ///
+    /// Exactly `total + charge_total`, which a test holds — the arithmetic is
+    /// trivial and the failure is not: a till that settled against `total`
+    /// would hand the goods over and never collect the delivery fee, and the
+    /// drawer would balance, because the fee was never asked for.
+    pub amount_due: Money,
+}
+
+/// One charge, priced and taxed.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChargeResult {
+    pub code: String,
+    pub description: String,
+    /// As the shopper is charged, tax included where the rule says it is.
+    pub amount: Money,
+    pub net_ex_tax: Money,
+    pub tax_amount: Money,
+    pub tax_category: String,
 }
 
 /// One price that could have applied, and whether it did.

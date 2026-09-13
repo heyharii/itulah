@@ -37,6 +37,49 @@ export function day(iso: string | null | undefined): string {
   })
 }
 
+const rangeDay = new Intl.DateTimeFormat("id-ID", {
+  day: "numeric",
+  month: "short",
+})
+
+const rangeFull = new Intl.DateTimeFormat("id-ID", {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+})
+
+/// Two dates as one phrase.
+///
+/// `day()` twice reads "01 Sep 2026 – 30 Sep 2026", which spends nine tokens
+/// saying September. A range that shares a month says the month once, and one
+/// that shares a year says the year once, so what is left on the page is the
+/// part that actually differs. Open at one end is still a range: something with
+/// a start and no end is running, and a dash for it would read as "no dates at
+/// all", which is a different fact — the caller that wants to draw *that*
+/// nothing has to ask before calling.
+export function span(
+  fromIso: string | null | undefined,
+  toIso: string | null | undefined
+): string {
+  const from = parsed(fromIso)
+  const to = parsed(toIso)
+  if (from === null) return to === null ? "—" : `Until ${rangeFull.format(to)}`
+  if (to === null) return `From ${rangeFull.format(from)}`
+  if (from.getFullYear() !== to.getFullYear())
+    return `${rangeFull.format(from)} – ${rangeFull.format(to)}`
+  if (from.getMonth() === to.getMonth())
+    return `${from.getDate()}–${rangeFull.format(to)}`
+  return `${rangeDay.format(from)} – ${rangeFull.format(to)}`
+}
+
+/// A date `Intl` can be handed, or `null`. Everything here is given a string
+/// off the wire, and a malformed one must not reach a formatter.
+function parsed(iso: string | null | undefined): Date | null {
+  if (!iso) return null
+  const at = new Date(iso)
+  return Number.isNaN(at.getTime()) ? null : at
+}
+
 export function moment(iso: string | null | undefined): string {
   if (!iso) return "—"
   const parsed = new Date(iso)
@@ -70,6 +113,12 @@ const tones: Readonly<Record<string, Tone>> = {
   approved: "ok",
   settled: "ok",
   in_stock: "ok",
+
+  // A purchase order's derived lifecycle. `active` is already "ok" above, and
+  // wrongly so for an order nobody has delivered against — but it is shared
+  // with half the estate, so the two that matter are named here instead.
+  partially_received: "warn",
+  fully_received: "ok",
 
   pending: "warn",
   awaiting: "warn",

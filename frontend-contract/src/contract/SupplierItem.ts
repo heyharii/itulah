@@ -31,4 +31,18 @@ colours: Array<SupplierItemColour>,
  * the list are the ends of the range, and "S–XXL" is the first and the
  * last rather than a sort every reader has to redo.
  */
-size_codes: Array<string>, status: SupplierStatus, version: number, created_by: string, created_at: string, updated_by: string, updated_at: string, };
+size_codes: Array<string>, status: SupplierStatus, 
+/**
+ * Which book this party is in: `MERCHANDISE`, `EXPENSE` or `AFFILIATE`.
+ *
+ * A word rather than an enum, and that is a deliberate limit on how much
+ * this knows: the categories are a business distinction the client's
+ * chart of accounts drew (see migration 0212), and the one place they are
+ * checked is the CHECK constraint that stores them.
+ */
+category: string, 
+/**
+ * The account this party's bills usually debit. Only a non-merchandise
+ * party has one — merchandise debits inventory by rule.
+ */
+expense_account_code: string | null, version: number, created_by: string, created_at: string, updated_by: string, updated_at: string, };

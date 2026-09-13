@@ -32,7 +32,7 @@ use crate::cloud::domain::{
     PlaceId, Position, Profile,
 };
 use chrono::{DateTime, NaiveDate, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use uuid::Uuid;
 
@@ -299,63 +299,483 @@ pub async fn load_employee(
     }))
 }
 
-/// The workforce list.
+// ── the workforce list ───────────────────────────────────────────────────
+//
+// Brought up to the shape `money_overview` set in `postgres::statements`: a
+// scope struct assembled by the handler, a keyset cursor over the sort order,
+// and an envelope carrying the page beside the size and the shape of the whole
+// matched set. The convention is copied deliberately rather than reinvented —
+// two list endpoints that page differently are two things to learn and two
+// things to get wrong.
+
+/// How many rows the workforce list returns when the caller does not say.
+///
+/// Here rather than in the handler, beside the only clamp that enforces it. It
+/// was in both once, which is one spelling too many for a number that decides
+/// how much of the company a screen can see.
+const DEFAULT_LIMIT: i64 = 200;
+/// And the most it will return however loudly a caller asks.
+///
+/// A thousand, not `money_overview`'s two hundred, because this list has
+/// callers that legitimately want the whole workforce in one read — the roster
+/// and payroll pickers hold every active employee — and clamping them to a page
+/// would silently drop people out of a dropdown. The envelope is what makes
+/// that safe now: `total` says how many there really are, so a caller that hits
+/// the ceiling can see that it did.
+const MAX_LIMIT: i64 = 1000;
+
+/// What a caller is asking the workforce list for.
+///
+/// Two fields here name a place, and the difference between them is the whole
+/// reach model — see [`EmployeeScope::reach_place`].
+#[derive(Clone, Debug, Default)]
+pub struct EmployeeScope {
+    /// The bound the caller's OWN POSTING puts on this answer, never anything
+    /// they sent. `None` means unbounded — `Reach::Everywhere` — and never
+    /// "nowhere", which the handler refuses long before it reaches here.
+    ///
+    /// Deliberately separate from `place_id`, and both are applied. `place_id`
+    /// is a filter somebody chose and may change at will; this is a fence they
+    /// cannot. Folding the two into one column works exactly as long as the
+    /// handler keeps reconciling them correctly, and the day that
+    /// reconciliation is edited by somebody who does not know it is
+    /// load-bearing is the day a store manager is served another store's staff.
+    /// Two fields cost one redundant predicate and make that edit harmless.
+    pub reach_place: Option<String>,
+    /// Free text, tried against the employee number and the person's name.
+    ///
+    /// Those two and nothing else. A workforce list must not become a way to
+    /// search the personal data it deliberately does not carry: matching on NIK
+    /// or address would let a caller confirm a national identity number they
+    /// already hold without ever being granted `people.profile.read` — see
+    /// `domain::employment::audit`.
+    pub needle: Option<String>,
+    /// `CANDIDATE`, `ACTIVE`, `SUSPENDED` or `TERMINATED`, and one of them.
+    ///
+    /// Single-valued where `MoneyScope` takes a set, because a status is what
+    /// somebody picks one of rather than a set they tick, and because this
+    /// parameter already existed on this route with exactly this meaning. An
+    /// unknown value narrows to nothing rather than being dropped: it is a
+    /// column comparison, not a vocabulary this build has to recognise.
+    pub status: Option<String>,
+    /// The place the caller asked for, AFTER the handler has reconciled it
+    /// against their reach. Never a raw query parameter.
+    pub place_id: Option<String>,
+    /// `code`, `name`, `contract_end` or `place` — the closed set this server
+    /// names, and nothing else is a sort.
+    ///
+    /// Anything unrecognised falls back to `code` rather than refusing, for the
+    /// reason `MoneyScope::sort` gives: a sort arrives from a URL somebody may
+    /// have kept from an older build, and a 400 for a stale bookmark is a worse
+    /// answer than the rows in the house order.
+    ///
+    /// There is no `status` sort on purpose. Sorting four state names
+    /// alphabetically groups nothing anybody asked for — "show me the suspended
+    /// ones" is a filter, and the facet counts are how it is asked.
+    pub sort: Option<String>,
+    /// `true` for descending. Read for every key, the default included:
+    /// unlike the money list's house order, employee number reversed is a
+    /// direction somebody can mean.
+    pub desc: bool,
+    pub cursor: Option<String>,
+    /// Absent means [`DEFAULT_LIMIT`], not "everything".
+    ///
+    /// Where `money_overview` treats an absent limit as unpaged, this route has
+    /// always truncated — at two hundred, in silence, with no way for a caller
+    /// to tell a short list from a full company. Keeping the default and
+    /// answering with `total` beside it turns that silent truncation into a
+    /// visible one, which is the whole point of the envelope.
+    pub limit: Option<i64>,
+}
+
+/// One value a filter can take, and how many rows would still be there.
+///
+/// `MoneyFacet`'s shape and `MoneyFacet`'s reasoning: a value that would leave
+/// nothing is a value nobody should have to click to find out about. Counted
+/// over everything the search and the caller's REACH leave, deliberately
+/// ignoring which filters are currently applied — so the number reads as "how
+/// many of these there are", which is the question somebody has while choosing.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct EmployeeFacet {
+    /// What to send back as the filter — a status code, a place id. Never a
+    /// display string.
+    pub value: String,
+    /// What to draw, when it differs from the value.
+    ///
+    /// Absent for a status, whose words belong to the screen ("Working here"
+    /// is the hub's phrasing of `ACTIVE`, not the server's). Present for a
+    /// place, because `store-01` is an id this system files it under and the
+    /// list beside the filter shows `Store 01`.
+    pub label: Option<String>,
+    pub count: i64,
+}
+
+/// The two things this list can be narrowed by.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct EmployeeFacets {
+    pub statuses: Vec<EmployeeFacet>,
+    /// **Empty for a caller bounded to one place**, and that is not the same as
+    /// "no places matched". A filter offering a single value is a control that
+    /// cannot change the answer, and drawing one beside a store manager's list
+    /// suggests there is somewhere else they might look.
+    ///
+    /// Also deliberately silent about people posted nowhere. They are countable
+    /// — an unposted record is head office's to place — but the filter has no
+    /// spelling for "nowhere", and a count nobody can click is worse than no
+    /// count. Only an unbounded caller ever sees such a row at all:
+    /// `Reach::covers(None)` is true for `Everywhere` alone.
+    pub places: Vec<EmployeeFacet>,
+}
+
+/// A page of the workforce, and the shape of everything it was drawn from.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct EmployeeList {
+    /// The place this answer is actually about, echoed back.
+    ///
+    /// Not merely the parameter repeated: for a caller bounded to one posting
+    /// who asked for no place in particular, the server applied theirs, and
+    /// saying so is the difference between a screen that reads as "the
+    /// workforce" and one that reads as "your shop's workforce". A list that
+    /// silently shows eight people where the company has ninety reads as a
+    /// company of eight.
+    pub place_id: Option<String>,
+    pub rows: Vec<EmployeeSummary>,
+    /// Opaque. Pass it back as `cursor` for the next page; absent means this
+    /// was the last one.
+    ///
+    /// Deliberately not an offset. People are hired, transferred and
+    /// terminated while somebody pages through them, and an offset would skip
+    /// or repeat rows without anything saying so — on a list where a skipped
+    /// row is a person nobody looked at.
+    pub next_cursor: Option<String>,
+    /// Every row the search, the filters and the caller's reach match — not
+    /// just this page. Without it a screen can only say "200 employees", which
+    /// is a statement about the page size rather than about the company.
+    pub total: i64,
+    pub facets: EmployeeFacets,
+}
+
+/// Where the previous page stopped — as a ROW, not as a position.
+///
+/// It carries the employee id and nothing else, whatever the list is sorted by,
+/// exactly as `MoneyCursor` carries the account map's natural key. The seek
+/// re-reads that row's own sort value in SQL, so one cursor shape serves every
+/// order and a fifth sort cannot arrive without its cursor.
+///
+/// Hex-wrapped JSON rather than a bare id, for the same reason: it is opaque,
+/// so a client cannot start constructing one from an employee id it happens to
+/// hold, and the shape can gain a field without every stored URL becoming a
+/// cursor this server has to keep understanding.
+#[derive(Serialize, Deserialize)]
+struct EmployeeCursor {
+    employee_id: String,
+}
+
+impl EmployeeCursor {
+    fn encode(&self) -> Result<String, AppError> {
+        Ok(hex::encode(serde_json::to_vec(self)?))
+    }
+
+    fn decode(raw: &str) -> Result<Self, AppError> {
+        let bytes = hex::decode(raw).map_err(|_| {
+            AppError::Validation("cursor is not a cursor this server issued".into())
+        })?;
+        serde_json::from_slice(&bytes)
+            .map_err(|_| AppError::Validation("cursor is not a cursor this server issued".into()))
+    }
+}
+
+/// One workforce row, defined once.
+///
+/// Used by the page query and by the facet counts, and that is the whole reason
+/// it is a constant: the facets are only honest if they count exactly what the
+/// page can show. Two copies would agree on every ordinary day and part company
+/// the moment somebody changes what "the current contract" means.
 ///
 /// One query rather than N+1: the open posting, the latest contract and the
 /// bound login are all joined in, because a list that fetched them per row
 /// would make a page of forty people forty-one round trips.
-pub async fn list_employees(
-    pool: &PgPool,
-    status: Option<&str>,
-    place_id: Option<&str>,
-    limit: i64,
-) -> Result<Vec<EmployeeSummary>, AppError> {
-    let rows = sqlx::query(
-        "SELECT e.id, e.code, e.status,
-                p.full_name,
-                a.place_id, place.name AS place_name,
-                c.kind AS contract_kind, c.ends_on AS contract_ends_on, c.position,
-                u.username
-           FROM employee e
-           LEFT JOIN employee_profile p ON p.employee_id = e.id
-           LEFT JOIN employee_assignment a
-                  ON a.employee_id = e.id AND a.valid_to IS NULL
-           LEFT JOIN org_place place ON place.id = a.place_id
-           LEFT JOIN LATERAL (
-                SELECT kind, ends_on, position
-                  FROM employee_contract
-                 WHERE employee_id = e.id
-                 ORDER BY starts_on DESC, id DESC
-                 LIMIT 1
-           ) c ON TRUE
-           LEFT JOIN app_user u ON u.employee_id = e.id
-          WHERE ($1::text IS NULL OR e.status = $1)
-            AND ($2::text IS NULL OR a.place_id = $2)
-          ORDER BY e.code
-          LIMIT $3",
-    )
-    .bind(status)
-    .bind(place_id)
-    .bind(limit)
-    .fetch_all(pool)
-    .await?;
+///
+/// Binds: `$1` the caller's reach bound or NULL, `$2` the search pattern or
+/// NULL.
+///
+/// It stops at the REACH and the SEARCH. The status and place filters are
+/// applied outside it by each caller, which is what lets one definition answer
+/// two different questions from the same rows: the page wants what the filters
+/// leave, while the filter panel's counts want what the search alone leaves —
+/// because "Active 41" has to mean "there are 41 active people", not "41 among
+/// the ones you have already narrowed to active".
+///
+/// The three `*_key` columns are computed here rather than only in `ORDER BY`
+/// because the keyset has to COMPARE the sort value in a `WHERE`, and a sort
+/// expression that is not also a column is one a `WHERE` cannot see. They are
+/// non-null for a reason that is easy to miss and expensive to find: a row
+/// comparison against NULL is NULL rather than true, so one person with no name
+/// enrolled — or one permanent contract, which is most of them — would end
+/// paging at whatever row happened to carry it, silently, with the rest of the
+/// company below the fold.
+///
+/// `9999-12-31` is that rule for contracts, and it is the sort the hub was
+/// doing in the browser: a term that never ends sorts after every term that
+/// does. As a sentinel VALUE rather than a `NULLS LAST` decoration, because
+/// `NULLS LAST` orders a result and says nothing a keyset can seek against.
+const WORKFORCE_ROWS: &str = "
+    SELECT e.id, e.code, e.status,
+           p.full_name,
+           a.place_id, place.name AS place_name,
+           c.kind AS contract_kind, c.ends_on AS contract_ends_on, c.position,
+           u.username,
+           -- An unenrolled record sorts to the front of the alphabet rather
+           -- than vanishing into a NULL the keyset cannot compare. That is
+           -- also the more useful answer: a list of people whose paperwork is
+           -- unfinished is exactly what somebody sorting by name should meet.
+           COALESCE(p.full_name, '') AS name_key,
+           COALESCE(place.name, a.place_id, '') AS place_key,
+           COALESCE(c.ends_on, DATE '9999-12-31') AS ends_at
+      FROM employee e
+      LEFT JOIN employee_profile p ON p.employee_id = e.id
+      LEFT JOIN employee_assignment a
+             ON a.employee_id = e.id AND a.valid_to IS NULL
+      LEFT JOIN org_place place ON place.id = a.place_id
+      LEFT JOIN LATERAL (
+           SELECT kind, ends_on, position
+             FROM employee_contract
+            WHERE employee_id = e.id
+            ORDER BY starts_on DESC, id DESC
+            LIMIT 1
+      ) c ON TRUE
+      LEFT JOIN app_user u ON u.employee_id = e.id
+     -- The fence. A bounded caller's own posting, applied here where no filter
+     -- and no sort can reach around it; a NULL place_id fails it, which is
+     -- `Reach::covers(None)` spelled in SQL.
+     WHERE ($1::text IS NULL OR a.place_id = $1)
+       -- The number off a badge and the name on it. Not the personal data this
+       -- list does not carry.
+       AND ($2::text IS NULL OR e.code ILIKE $2 OR p.full_name ILIKE $2)
+";
 
-    rows.iter()
-        .map(|row| {
-            Ok(EmployeeSummary {
+/// The workforce, one page at a time, beside how big the whole answer is.
+///
+/// `scope.reach_place` is the caller's own bound and `scope.place_id` is the
+/// filter they asked for; both are applied, and the handler has already refused
+/// the combination where they disagree. See [`EmployeeScope::reach_place`].
+pub async fn list_employees(pool: &PgPool, scope: EmployeeScope) -> Result<EmployeeList, AppError> {
+    // A blank search is not a search. `Some("")` would compile to `ILIKE '%%'`,
+    // which matches everything and costs a scan to say so.
+    let needle = scope
+        .needle
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(|text| format!("%{text}%"));
+
+    // The sort, and the tie-break that makes it total. Every order ends in the
+    // employee id, which is the primary key, so no two rows can compare equal —
+    // which is what stops a keyset from repeating or losing the rows that tie.
+    // The code would nearly do, but it is a number the business reissues and
+    // the id is the one thing about a record that never moves.
+    //
+    // TWO spellings of the same thing, and they are not interchangeable:
+    // `ORDER BY` takes directions, a ROW EXPRESSION does not. Writing
+    // `(a ASC, b) > (…)` is a syntax error the compiler cannot catch, because
+    // the whole clause is a string.
+    let (lead, descending): (&str, bool) = match scope.sort.as_deref() {
+        Some("name") => ("name_key", scope.desc),
+        // The one the hub was doing in the browser over a thousand-row fetch:
+        // whoever needs a renewal first, with the permanent contracts last.
+        // Server-side, it survives paging — which the client-side version could
+        // not, because the rows it sorted were only the rows it had.
+        Some("contract_end") => ("ends_at", scope.desc),
+        Some("place") => ("place_key", scope.desc),
+        _ => ("code", scope.desc),
+    };
+    let cols = format!("{lead}, id");
+    let dir = if descending { "DESC" } else { "ASC" };
+    let order = format!("{lead} {dir}, id {dir}");
+    // Which way the seek points follows the direction, or paging a descending
+    // list walks back up it.
+    let seek = if descending { "<" } else { ">" };
+
+    let cursor = scope
+        .cursor
+        .as_deref()
+        .map(EmployeeCursor::decode)
+        .transpose()?;
+    let limit = scope.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
+
+    // The seek re-reads the previous row's own sort value rather than trusting
+    // one encoded in the cursor — see [`EmployeeCursor`].
+    //
+    // A cursor whose row the filters no longer keep — somebody terminated, or
+    // transferred out of the place being listed, between one page and the next
+    // — finds no row to compare against, so the comparison is NULL and the page
+    // comes back empty. The list ends early rather than starting again, which
+    // is the safer of the two wrong answers: a stale cursor stops, and stopping
+    // is visible.
+    // `NOT MATERIALIZED`: `kept` is referenced twice — as the page and
+    // inside the seek — and two references makes PostgreSQL materialise a
+    // CTE, which is an optimisation fence the `ORDER BY … LIMIT` cannot be
+    // pushed through. Materialised, this reads the whole table and sorts it
+    // to hand back one page; inlined, it seeks the index. See
+    // `postgres::audit::list_audit`, where the difference was measured.
+    let sql = format!(
+        "WITH searched AS NOT MATERIALIZED ({WORKFORCE_ROWS}),
+              kept AS NOT MATERIALIZED (
+             SELECT * FROM searched
+              WHERE ($3::text IS NULL OR status = $3)
+                AND ($4::text IS NULL OR place_id = $4)
+         )
+         SELECT * FROM kept
+          WHERE $5::text IS NULL
+             OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE id = $5)
+          ORDER BY {order}
+          LIMIT $6"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(&scope.reach_place)
+        .bind(&needle)
+        .bind(&scope.status)
+        .bind(&scope.place_id)
+        .bind(cursor.as_ref().map(|c| c.employee_id.clone()))
+        .bind(limit)
+        .fetch_all(pool)
+        .await?;
+
+    // A short page is the last page. A full one may not be — the next request
+    // can come back empty — and that is the honest answer: knowing whether more
+    // rows exist without asking costs a second count of the same query.
+    let next_cursor = match rows.last() {
+        Some(row) if rows.len() as i64 == limit => Some(
+            EmployeeCursor {
                 employee_id: row.try_get("id")?,
-                employee_code: row.try_get("code")?,
-                status: row.try_get("status")?,
-                full_name: row.try_get("full_name")?,
-                place_id: row.try_get("place_id")?,
-                place_name: row.try_get("place_name")?,
-                contract_kind: row.try_get("contract_kind")?,
-                contract_ends_on: row.try_get("contract_ends_on")?,
-                position: row.try_get("position")?,
-                username: row.try_get("username")?,
-            })
-        })
-        .collect()
+            }
+            .encode()?,
+        ),
+        _ => None,
+    };
+
+    let mut out = Vec::with_capacity(rows.len());
+    for row in &rows {
+        out.push(summary_from(row)?);
+    }
+
+    let (total, facets) = workforce_facets(pool, &scope, needle.as_deref()).await?;
+    Ok(EmployeeList {
+        place_id: scope.place_id.clone(),
+        rows: out,
+        next_cursor,
+        total,
+        facets,
+    })
+}
+
+/// One row of [`WORKFORCE_ROWS`], as the type a screen reads.
+fn summary_from(row: &sqlx::postgres::PgRow) -> Result<EmployeeSummary, AppError> {
+    Ok(EmployeeSummary {
+        employee_id: row.try_get("id")?,
+        employee_code: row.try_get("code")?,
+        status: row.try_get("status")?,
+        full_name: row.try_get("full_name")?,
+        place_id: row.try_get("place_id")?,
+        place_name: row.try_get("place_name")?,
+        contract_kind: row.try_get("contract_kind")?,
+        contract_ends_on: row.try_get("contract_ends_on")?,
+        position: row.try_get("position")?,
+        username: row.try_get("username")?,
+    })
+}
+
+/// How many rows there are, and how they split.
+///
+/// Counted from the SAME [`WORKFORCE_ROWS`] the page is drawn from, so the
+/// reach bound applies to the counts as well. A facet panel counted over a
+/// wider set than the list would tell a store manager how many people work at
+/// head office, which is precisely the leak the bound exists to close.
+///
+/// The two scopes here are deliberate, and `money_facets` had them wrong once:
+///
+///   per-value counts read the SEARCHED set, ignoring what is filtered. The
+///     number beside `ACTIVE` answers "how many active people are there", which
+///     is the question somebody has while deciding whether to click it.
+///     Counting the already-filtered set instead shows the chosen value its own
+///     row count and every other one a zero.
+///   the total reads the FILTERED set, because it describes the list on screen.
+async fn workforce_facets(
+    pool: &PgPool,
+    scope: &EmployeeScope,
+    needle: Option<&str>,
+) -> Result<(i64, EmployeeFacets), AppError> {
+    // Only counted when there is a choice to make — see `EmployeeFacets`. A
+    // bounded caller reaches one place, so the clause is left out of the query
+    // rather than computed and thrown away.
+    let places = if scope.reach_place.is_none() {
+        "UNION ALL
+         SELECT 'place', place_id, place_name, COUNT(*)::bigint
+           FROM searched WHERE place_id IS NOT NULL
+          GROUP BY place_id, place_name"
+    } else {
+        ""
+    };
+    let sql = format!(
+        "WITH searched AS ({WORKFORCE_ROWS}), kept AS (
+             SELECT * FROM searched
+              WHERE ($3::text IS NULL OR status = $3)
+                AND ($4::text IS NULL OR place_id = $4)
+         )
+         SELECT 'status' AS kind, status AS value, NULL::text AS label,
+                COUNT(*)::bigint AS n
+           FROM searched GROUP BY status
+          {places}
+          UNION ALL
+         SELECT 'all', '', NULL::text, COUNT(*)::bigint FROM kept"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(&scope.reach_place)
+        .bind(needle)
+        .bind(&scope.status)
+        .bind(&scope.place_id)
+        .fetch_all(pool)
+        .await?;
+
+    let mut total = 0i64;
+    let mut statuses = Vec::new();
+    let mut places_out = Vec::new();
+    for row in &rows {
+        let kind: String = row.try_get("kind")?;
+        let value: String = row.try_get("value")?;
+        let label: Option<String> = row.try_get("label")?;
+        let n: i64 = row.try_get("n")?;
+        match kind.as_str() {
+            "status" => statuses.push(EmployeeFacet {
+                value,
+                label,
+                count: n,
+            }),
+            "place" => places_out.push(EmployeeFacet {
+                value,
+                label,
+                count: n,
+            }),
+            _ => total = n,
+        }
+    }
+    // Biggest first, as the money list does: a filter list is read top-down and
+    // the value somebody is most likely to want is the one with the most behind
+    // it. Ties break on the value so the order is stable between calls — a list
+    // that reshuffles under the cursor is a list nobody can click.
+    for list in [&mut statuses, &mut places_out] {
+        list.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.value.cmp(&b.value)));
+    }
+    Ok((
+        total,
+        EmployeeFacets {
+            statuses,
+            places: places_out,
+        },
+    ))
 }
 
 /// Which fixed terms end on or before `before`.

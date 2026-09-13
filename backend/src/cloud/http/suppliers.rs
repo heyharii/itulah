@@ -285,6 +285,8 @@ pub struct SupplierListQuery {
     cursor: Option<String>,
     #[serde(default)]
     limit: Option<i64>,
+    #[serde(default)]
+    category: Option<String>,
 }
 
 pub async fn list_suppliers(
@@ -297,6 +299,13 @@ pub async fn list_suppliers(
             infrastructure::SupplierScope {
                 q: query.q.clone().filter(|value| !value.trim().is_empty()),
                 status: query.status.map(|value| value.as_str().to_owned()),
+                // Which book. The Buying menu asks for merchandise, the
+                // Finance one for the rest; a caller that names none gets
+                // every party, which is what the record surface wants.
+                category: query
+                    .category
+                    .clone()
+                    .filter(|value| !value.trim().is_empty()),
                 sort: query.sort.clone(),
                 // `dir=desc` and nothing else. Absent, empty and anything
                 // unrecognised all mean ascending, which is the direction a

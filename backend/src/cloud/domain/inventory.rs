@@ -18,14 +18,20 @@ macro_rules! quantity_type {
 quantity_type!(StockQty);
 quantity_type!(AllottedQty);
 quantity_type!(OnHandQty);
+quantity_type!(ShortfallQty);
 quantity_type!(MissingQty);
 quantity_type!(ObservedQty);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct InventoryBalance {
     pub stock: StockQty,
+    /// What still has to leave this pool in a carton. `None` where the pool
+    /// cannot be a source of a commitment.
     pub allotted: Option<AllottedQty>,
+    /// What may still be spent. Never negative.
     pub on_hand: OnHandQty,
+    /// By how much the promises outrun the goods. Nought unless they do.
+    pub shortfall: ShortfallQty,
     pub missing: MissingQty,
     pub observed: ObservedQty,
 }
@@ -40,8 +46,20 @@ pub enum InventoryBalanceError {
 
 impl InventoryBalance {
     /// Projects user-facing quantities from the neutral ledger balance.
-    /// The constructor owns the equation, so callers cannot provide an
-    /// inconsistent Stock or On Hand value.
+    ///
+    /// # `Stock = On Hand + Allotted + Missing` is no longer an invariant
+    ///
+    /// It held only while a promise could never outrun the shelf it was made
+    /// against. `Allotted` is now what still has to go into a carton, and a
+    /// warehouse is allowed to find out it cannot keep a promise — so the
+    /// excess is reported as `shortfall` and On Hand stops at nought, rather
+    /// than the screen showing a negative quantity of shirts.
+    ///
+    /// The clamp is also what keeps the fleet readable through the steps that
+    /// follow: between retiring the pick that used to discharge a commitment
+    /// and the routes that discharge it properly, a pool can carry more
+    /// promise than stock for a while, and every list that reads it has to go
+    /// on working.
     pub fn project(
         normal: i64,
         allotted: Option<i64>,
@@ -55,18 +73,21 @@ impl InventoryBalance {
         let stock = normal
             .checked_add(missing)
             .ok_or(InventoryBalanceError::ArithmeticOverflow)?;
-        let on_hand = normal
+        let spendable = normal
             .checked_sub(allotted_value)
             .ok_or(InventoryBalanceError::ArithmeticOverflow)?;
         let result = Self {
             stock: StockQty(stock),
             allotted: allotted.map(AllottedQty),
-            on_hand: OnHandQty(on_hand),
+            on_hand: OnHandQty(spendable.max(0)),
+            shortfall: ShortfallQty((-spendable).max(0)),
             missing: MissingQty(missing),
             observed: ObservedQty(observed),
         };
+        // What the old equation becomes once On Hand cannot go below nought.
+        // Asserted rather than assumed, because every screen adds these up.
         debug_assert_eq!(
-            result.stock.value(),
+            result.stock.value() + result.shortfall.value(),
             result.on_hand.value() + allotted_value + result.missing.value()
         );
         Ok(result)
@@ -78,11 +99,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_promise_past_the_shelf_is_a_shortfall_and_not_a_negative_shirt() {
+        let balance = InventoryBalance::project(100, Some(250), 0, 0)
+            .unwrap_or_else(|error| panic!("projection: {error}"));
+        assert_eq!(balance.on_hand.value(), 0, "nothing left to spend");
+        assert_eq!(balance.shortfall.value(), 150);
+    }
+
+    #[test]
     fn projection_guarantees_the_inventory_equation() {
         let balance = InventoryBalance::project(990, Some(200), 10, 850)
             .unwrap_or_else(|error| panic!("projection: {error}"));
         assert_eq!(balance.stock.value(), 1_000);
         assert_eq!(balance.on_hand.value(), 790);
+        assert_eq!(balance.shortfall.value(), 0);
         assert_eq!(balance.allotted.map(AllottedQty::value), Some(200));
         assert_eq!(
             balance.stock.value(),

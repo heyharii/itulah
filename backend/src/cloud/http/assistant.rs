@@ -1251,6 +1251,7 @@ async fn run_tool(state: &AppState, name: &str, input: &Value) -> Result<ToolOut
                 size_codes: Vec::new(),
                 colour_codes: Vec::new(),
                 active: input.get("active").and_then(Value::as_bool),
+                order: Default::default(),
                 cursor: None,
                 limit: number("limit").unwrap_or(20).clamp(1, 100),
             };
@@ -1268,13 +1269,16 @@ async fn run_tool(state: &AppState, name: &str, input: &Value) -> Result<ToolOut
                 &state.db,
                 channel,
                 Utc::now(),
-                number("limit").unwrap_or(50).clamp(1, 200),
                 // The tool asks for a slice of the range, not a search. What
                 // the assistant narrows by is the question it was asked, and
                 // it has no filter arguments to pass on.
-                infrastructure::ArticlePriceFilter::default(),
+                infrastructure::ArticlePriceScope {
+                    limit: Some(number("limit").unwrap_or(50).clamp(1, 200)),
+                    ..Default::default()
+                },
             )
             .await
+            .and_then(|page| serde_json::to_value(page).map_err(AppError::from))
         }
         "sales_daily" => {
             let site_id = text("site_id").ok_or_else(|| "site_id is required".to_owned())?;
@@ -1318,9 +1322,21 @@ async fn run_tool(state: &AppState, name: &str, input: &Value) -> Result<ToolOut
         "commercial_activation" => infrastructure::commercial_activation(&state.db).await,
         "trial_balance" => {
             let as_of = date("as_of")?.unwrap_or_else(|| local_today().date());
-            infrastructure::trial_balance(&state.db, as_of, text("site_id").as_deref())
-                .await
-                .and_then(|balance| serde_json::to_value(balance).map_err(AppError::from))
+            infrastructure::trial_balance(
+                &state.db,
+                infrastructure::TrialBalanceScope {
+                    as_of: Some(as_of),
+                    site_id: text("site_id"),
+                    // The assistant asks for a proof, not a page: it reads the
+                    // totals and reports whether the books balance. The rows
+                    // come back at the endpoint's own default, which is what
+                    // stops a model tool from pulling 7,528 accounts into a
+                    // context window to answer "does it balance".
+                    ..Default::default()
+                },
+            )
+            .await
+            .and_then(|balance| serde_json::to_value(balance).map_err(AppError::from))
         }
         // Composing a report is the one tool that does not answer a question:
         // it proposes a definition. The preview is real rows from the real

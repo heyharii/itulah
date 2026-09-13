@@ -9,6 +9,8 @@
 use super::auth::Principal;
 use crate::cloud::{
     application::{AppError, AppState},
+    domain::RecordKind,
+    http::audit::DeclaredSubject,
     postgres::{
         self as infrastructure, DiscussionPost, DiscussionThread, OpenThreadRequest, ReplyRequest,
         SubjectCount, ThreadQuery,
@@ -44,9 +46,11 @@ pub async fn subject_counts(
 pub async fn open_thread(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
+    Extension(acted_on): Extension<DeclaredSubject>,
     Json(request): Json<OpenThreadRequest>,
 ) -> Result<(StatusCode, Json<DiscussionThread>), AppError> {
     let thread = infrastructure::open_thread(&state.db, &principal.username, &request).await?;
+    acted_on.set(RecordKind::Discussion, thread.thread_id.to_string());
     Ok((StatusCode::CREATED, Json(thread)))
 }
 

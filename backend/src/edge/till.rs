@@ -541,6 +541,21 @@ pub fn report(connection: &Connection, shift_id: &str) -> Result<ShiftReport, Ed
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct Supervisor {
     pub username: String,
+    /// Read from the wire, never written back out.
+    ///
+    /// Every command that carries a supervisor — a void, a return, a payout —
+    /// is serialised whole into `idempotency_response.request_json` so a
+    /// replayed key can be told from a reused one
+    /// (`SqliteEdge::encode_idempotent_request`). Without this attribute that
+    /// record is a supervisor's password, in plaintext, kept in the shop's
+    /// SQLite for as long as the row lives — and a shop node is a box under a
+    /// counter, not a vault.
+    ///
+    /// Skipping it leaves the replay check intact: the username, the tags, the
+    /// reason and the amounts all still distinguish one request from another.
+    /// Two attempts that differ only in the password are the same action tried
+    /// twice, which is exactly what an idempotency key is for.
+    #[serde(skip_serializing)]
     pub password: String,
 }
 

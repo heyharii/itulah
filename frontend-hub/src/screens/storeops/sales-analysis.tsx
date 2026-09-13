@@ -6,10 +6,12 @@ import { useMemo, useState } from "react"
 import { PageContent } from "@/components/shell/app-shell"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
+import { FilterPanel } from "@/components/ui/filter-panel"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { ButtonGroup, Segmented, Toolbar } from "@/components/ui/segmented"
 import { EmptyState } from "@/components/ui/states"
+import { useFilters } from "@/lib/filters"
 import { count, money } from "@/lib/format"
 import {
   analyticsKeys,
@@ -65,6 +67,7 @@ const columns: ColumnDef<TableSetup, ShopRow>[] = [
     accessorKey: "site_name",
     header: "Shop",
     size: 220,
+    meta: { filter: { kind: "option" } },
     cell: ({ row }) => (
       <span className="font-medium text-ink">{row.original.site_name}</span>
     ),
@@ -76,6 +79,13 @@ const columns: ColumnDef<TableSetup, ShopRow>[] = [
     accessorFn: (row) => row.growth ?? Number.POSITIVE_INFINITY,
     header: "vs before",
     size: 120,
+    /// **Deliberately not filterable, and the accessor above is why.** A shop
+    /// with nothing to compare against is `null` — not assessed — and this
+    /// column stands `+∞` in for it so the sort can put it last. A number
+    /// clause cannot see that substitution: "grew by at least 0%" would answer
+    /// with every shop that opened this month, each one reported as having
+    /// grown infinitely. The sort survives the lie because it only ever asks
+    /// which of two rows is larger; a filter states it as a fact.
     meta: { align: "right" },
     cell: ({ row }) => {
       const value = row.original.growth
@@ -101,7 +111,15 @@ const columns: ColumnDef<TableSetup, ShopRow>[] = [
     accessorKey: "gross_minor",
     header: "Takings",
     size: 160,
-    meta: { align: "right" },
+    /// **No `scale`, despite the `_minor` in the name.** `lib/format.ts` says
+    /// it plainly — IDR has no minor unit in practice, so the server's "minor"
+    /// is already whole rupiah and `money()` prints it undivided. A
+    /// `scale: 100` would put every bound out by a factor of a hundred, which
+    /// is a narrowed list that looks right and is not.
+    meta: {
+      align: "right",
+      filter: { kind: "number", unit: "Rp" },
+    },
     cell: ({ row }) => (
       <span className="font-medium text-ink">
         {money(row.original.gross_minor)}
@@ -112,6 +130,9 @@ const columns: ColumnDef<TableSetup, ShopRow>[] = [
     accessorKey: "before_minor",
     header: "Before",
     size: 150,
+    // Not filterable: it is here to be read ACROSS, against the column to its
+    // left. Nobody narrows a list by what a shop took in a span they are not
+    // looking at.
     meta: { align: "right" },
     cell: ({ row }) => (
       <span className="text-mute">{money(row.original.before_minor)}</span>
@@ -121,21 +142,24 @@ const columns: ColumnDef<TableSetup, ShopRow>[] = [
     accessorKey: "sales_count",
     header: "Sales",
     size: 100,
-    meta: { align: "right" },
+    meta: { align: "right", filter: { kind: "number", unit: "sales" } },
     cell: ({ row }) => count(row.original.sales_count),
   },
   {
     accessorKey: "units_sold",
     header: "Units",
     size: 100,
-    meta: { align: "right" },
+    meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
     cell: ({ row }) => count(row.original.units_sold),
   },
   {
     accessorKey: "average_minor",
     header: "Average basket",
     size: 150,
-    meta: { align: "right" },
+    meta: {
+      align: "right",
+      filter: { kind: "number", unit: "Rp" },
+    },
     cell: ({ row }) => money(row.original.average_minor),
   },
 ]
@@ -211,17 +235,19 @@ export function SalesAnalysis() {
     })
   }, [series.data, before.data, compared])
 
+  const filters = useFilters(columns)
+
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
         data: rows,
-        columns,
+        columns: filters.columns,
         getRowId: (row: ShopRow) => row.site_id,
-        state: { sorting },
+        state: { columnFilters: filters.columnFilters, sorting },
         onSortingChange: setSorting,
       }),
-      [rows, sorting]
+      [rows, filters.columns, filters.columnFilters, sorting]
     )
   )
 
@@ -338,12 +364,25 @@ export function SalesAnalysis() {
                 </div>
               </Card>
 
+              {/* Down here rather than in the toolbar at the top, because the
+                  tiles and the chart above are the FLEET — the server's own
+                  totals over every shop — and a clause cannot narrow them.
+                  Chips sitting over the six tiles would say it had. */}
+              <Toolbar>
+                <FilterPanel model={filters} table={table} />
+              </Toolbar>
+
               <Card className="overflow-hidden">
                 <DataTable<ShopRow>
                   table={table}
                   onRowClick={(row) => store.open(row.site_id)}
                   isSelected={(row) => row.site_id === store.value}
-                  empty="No shop traded in this span."
+                  empty={
+                    <>
+                      None of the {count(rows.length)} shops trading in this
+                      span match the filters in force.
+                    </>
+                  }
                   className="max-h-[calc(100vh-24rem)]"
                 />
               </Card>

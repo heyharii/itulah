@@ -1,7 +1,7 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { LayoutGrid, ListFilter, Rows3, Search, X } from "lucide-react"
+import { LayoutGrid, Rows3, Search } from "lucide-react"
 import { useCallback, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -9,35 +9,38 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { PageHeader } from "@/components/ui/page-header"
+import { SetupSheets, SetupTrigger } from "@/screens/procurement/setups"
 import { Pill } from "@/components/ui/pill"
-import { Segmented, Toolbar } from "@/components/ui/segmented"
-import { Sheet } from "@/components/ui/sheet"
+import { Segmented } from "@/components/ui/segmented"
 import { EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
-import { CHIP } from "@/lib/filter-chrome"
+import { FilterOmnibox } from "@/components/ui/filter-omnibox"
+import {
+  ChoiceMenu,
+  ColumnsMenu,
+  DockedFilters,
+  ViewPicker,
+} from "@/components/ui/list-chrome"
+import { useFilterState, type FilterField } from "@/lib/filters"
 import { count, money } from "@/lib/format"
 import {
   articleKeys,
+  articleScopeFromFilters,
   searchArticles,
+  type ArticleFacets,
   type ArticleRow,
   type ArticleScope,
+  type FacetCount,
 } from "@/lib/queries/articles"
 import { colourKeys, listColours, type ColourTerm } from "@/lib/queries/colours"
 import { catalogueVocabulary, procurementKeys } from "@/lib/queries/procurement"
 import { queryState } from "@/lib/query-state"
-import { cn } from "@/lib/utils"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
-import { FacetGroup } from "@/components/ui/facets"
 import { ColourSwatch, Swatches } from "@/components/ui/swatch"
 import { Thumbnail } from "@/components/ui/thumbnail"
 import { ArticleSheet } from "@/screens/master/detail"
-import {
-  sizeLabel,
-  sizeSpan,
-  termLabel,
-  toggle,
-} from "@/screens/procurement/shared"
+import { sizeLabel, sizeSpan, termLabel } from "@/screens/procurement/shared"
 
 /// The master product catalogue, read as itself.
 ///
@@ -189,15 +192,6 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
   },
 ]
 
-/// One facet that is currently on, as the chip row and the trigger both read
-/// it. `leading` is the colour swatch and nothing else has one.
-interface ChosenFacet {
-  readonly key: string
-  readonly label: string
-  readonly leading?: React.ReactNode
-  readonly drop: () => void
-}
-
 export function Articles() {
   /// Which article is open. In the URL rather than in state beside the list,
   /// so a merchandiser can send "look at this one" and so the back button
@@ -206,12 +200,13 @@ export function Articles() {
   /// What was typed. Also in the URL: a filtered catalogue is a thing people
   /// send each other, and a `useState` box cannot be sent.
   const search = useSheet("q")
+  /// Which way the master is read. In the URL for the same reason, and absent
+  /// rather than `oldest` when nobody has chosen: the plain URL is the plain
+  /// catalogue, and one spelling of "no order chosen" is what stops two query
+  /// keys standing for the same page.
+  const sort = useSheet("sort")
 
   const [view, setView] = useState<"grid" | "table">("grid")
-  const [divisions, setDivisions] = useState<readonly string[]>([])
-  const [tags, setTags] = useState<readonly string[]>([])
-  const [sizes, setSizes] = useState<readonly string[]>([])
-  const [colours, setColours] = useState<readonly string[]>([])
   const [sorting, setSorting] = useState<SortingState>([])
 
   const needle = (search.value ?? "").trim()
@@ -242,9 +237,9 @@ export function Articles() {
   )
 
   /// How each facet's codes are read out loud. Held as callbacks rather than
-  /// inlined because `<FacetGroup>` memoises its sifting on them — an arrow
-  /// rebuilt every render would re-filter the colour master on every keystroke
-  /// anywhere on the page.
+  /// inlined because the field list below is memoised on them — an arrow
+  /// rebuilt every render would rebuild every field, and with it the counted
+  /// copy, on every keystroke anywhere on the page.
   const divisionLabel = useCallback(
     (code: string) => termLabel(vocabulary.data?.divisions, code),
     [vocabulary.data]
@@ -262,23 +257,101 @@ export function Articles() {
     [vocabulary.data]
   )
 
-  const scope = useMemo<ArticleScope>(
-    () => ({
-      q: needle === "" ? undefined : needle,
-      divisionCodes: divisions.length === 0 ? undefined : divisions,
-      tagCodes: tags.length === 0 ? undefined : tags,
+  /// The four questions this catalogue can be narrowed by, in the shape the
+  /// filter model reads — the same declaration Sourcing makes next door, so a
+  /// merchandiser who has learnt one catalogue has learnt both.
+  ///
+  /// Uncounted here on purpose. The counts arrive in the response, the response
+  /// comes from the scope and the scope comes from these clauses, so a field
+  /// list carrying counts could not be built before the request it shapes; the
+  /// counted copy is assembled below, once there is an answer to count.
+  ///
+  /// Each operator list is cut to what `GET /api/v1/articles` actually answers:
+  /// four repeated positive sets and nothing else. There is no parameter for
+  /// "is none of" or "is empty", so offering one would be a chip that narrows
+  /// nothing while claiming to.
+  ///
+  /// No Status field, deliberately, for the reason the scope used to carry in a
+  /// comment: a retired article is still a real one — on shelves, in last
+  /// season's sales, in somebody's stocktake — and a master-data screen that
+  /// hid it would make the catalogue disagree with the shop floor. Status is a
+  /// column, not a filter.
+  const fields = useMemo<FilterField[]>(
+    () => [
+      {
+        column: "division",
+        label: "Division",
+        spec: {
+          kind: "option",
+          format: divisionLabel,
+          single: true,
+          operators: ["isAnyOf"],
+        },
+      },
+      {
+        column: "tag",
+        label: "Tag",
+        spec: {
+          kind: "multi",
+          format: tagLabel,
+          single: true,
+          operators: ["includesAnyOf"],
+        },
+      },
       // Colour and size filter SKUs while this list is articles, so they mean
       // "articles having at least one SKU in this colour or size". They narrow
       // which articles appear; they never hide the other variants inside a row,
       // because half an article is not an article.
-      sizeCodes: sizes.length === 0 ? undefined : sizes,
-      colourCodes: colours.length === 0 ? undefined : colours,
-      // No status filter, deliberately. A retired article is still a real one —
-      // it is on shelves, in last season's sales and in somebody's stocktake —
-      // and a master-data screen that hid it would make the catalogue disagree
-      // with the shop floor. Status is a column, not a filter.
+      //
+      // `multi` and not `option` for the same reason Tag is: an article is sold
+      // in several colours and several sizes at once, and "is navy" would be a
+      // chip that lies about a tee sold in five.
+      {
+        column: "colour",
+        label: "Colour",
+        spec: {
+          kind: "multi",
+          format: colourLabel,
+          single: true,
+          operators: ["includesAnyOf"],
+          // The swatch beside the name. Colour is the one facet here that is
+          // recognised rather than read — "the navy one" is how somebody
+          // describes a garment they are holding — and a list of ticked words
+          // throws that away.
+          leading: (value) => (
+            <ColourSwatch hex={colourTerms.get(value)?.hex_code ?? null} />
+          ),
+        },
+      },
+      {
+        column: "size",
+        label: "Size",
+        spec: {
+          kind: "multi",
+          format: sizeLabelOf,
+          single: true,
+          operators: ["includesAnyOf"],
+        },
+      },
+    ],
+    [divisionLabel, tagLabel, colourLabel, sizeLabelOf, colourTerms]
+  )
+
+  /// The clauses, read out of `?f=` rather than out of four `useState` boxes.
+  ///
+  /// That is the whole point of the move: a facet selection held in component
+  /// state cannot be sent to a colleague and does not survive the reload a
+  /// shop's browser gets every morning, and "look at this" is exactly what
+  /// somebody does with a narrowed catalogue.
+  const filters = useFilterState(fields)
+
+  const scope = useMemo<ArticleScope>(
+    () => ({
+      ...articleScopeFromFilters(filters.filters),
+      q: needle === "" ? undefined : needle,
+      sort: sort.value === "newest" ? "newest" : undefined,
     }),
-    [needle, divisions, tags, sizes, colours]
+    [filters.filters, needle, sort.value]
   )
 
   const catalogue = useInfiniteQuery({
@@ -330,105 +403,83 @@ export function Articles() {
     )
   )
 
-  const filtered =
-    needle !== "" ||
-    divisions.length > 0 ||
-    tags.length > 0 ||
-    sizes.length > 0 ||
-    colours.length > 0
-
-  function clear() {
-    setDivisions([])
-    setTags([])
-    setSizes([])
-    setColours([])
-    search.close()
-  }
-
-  /// Open or shut in the URL, like every other panel in this app — and the
-  /// same `?filters=` flag the tables elsewhere use, so a person who has
-  /// learnt one has learnt all of them.
-  const panel = useSheet("filters")
-
-  /// What is currently narrowing the list, as one flat row of chips.
+  /// The same fields, now carrying the server's counts.
   ///
-  /// Built here rather than inside the chip row so the count on the trigger
-  /// and the chips above the results cannot disagree — they are the same
-  /// array, read twice.
-  const chosen = useMemo<ChosenFacet[]>(
-    () => [
-      ...divisions.map((code) => ({
-        key: `division:${code}`,
-        label: divisionLabel(code),
-        drop: () => setDivisions((was) => was.filter((one) => one !== code)),
-      })),
-      ...tags.map((code) => ({
-        key: `tag:${code}`,
-        label: tagLabel(code),
-        drop: () => setTags((was) => was.filter((one) => one !== code)),
-      })),
-      ...sizes.map((code) => ({
-        key: `size:${code}`,
-        // Prefixed, because "M" on its own beside a division and a tag reads
-        // as a word rather than as a size.
-        label: `Size ${sizeLabelOf(code)}`,
-        drop: () => setSizes((was) => was.filter((one) => one !== code)),
-      })),
-      ...colours.map((code) => ({
-        key: `colour:${code}`,
-        label: colourLabel(code),
-        leading: <ColourSwatch hex={colourTerms.get(code)?.hex_code ?? null} />,
-        drop: () => setColours((was) => was.filter((one) => one !== code)),
-      })),
-    ],
-    [
-      divisions,
-      tags,
-      sizes,
-      colours,
-      divisionLabel,
-      tagLabel,
-      sizeLabelOf,
-      colourLabel,
-      colourTerms,
-    ]
-  )
+  /// The number beside a value is the whole affordance of a facet: it is how
+  /// somebody decides whether a filter is worth pressing before they press it.
+  /// These are counted over everything the SEARCH matches rather than over the
+  /// current selection, which is what stops ticking one division making the
+  /// others read zero — a list that only describes what you have already chosen
+  /// cannot answer "what if I looked at kids instead".
+  const counted = useMemo<FilterField[]>(() => {
+    const source: Record<string, readonly FacetCount[] | undefined> = {
+      division: facets?.divisions,
+      tag: facets?.tags,
+      colour: facets?.colours,
+      size: facets?.sizes,
+    }
+    return fields.map((field) => {
+      const values = source[field.column]
+      return values
+        ? { ...field, spec: { ...field.spec, counted: values } }
+        : field
+    })
+  }, [fields, facets])
+
+  /// Whether anything is narrowing the list, which is a different question
+  /// from whether the list is empty: "there are none" and "none match what you
+  /// asked for" have different fixes.
+  const filtered = needle !== "" || filters.filters.length > 0
 
   return (
-    /* One column, not two.
-    
-       The facets stood in a 15.5rem column on the left until 2026-09-12, which
-       made the screen read as three layers of chrome before any work: rail,
-       module sidebar, filters, and only then the catalogue. The owner's
-       objection is the right one — a filter is not navigation. It does not say
-       where you are; it says which part of what you are looking at you want to
-       see, and that belongs on the side the rest of this app already puts
-       contextual things on.
-    
-       So the facets moved into the panel every other list in this app uses:
-       `<Sheet>`, which at 96rem and up docks a 27.5rem column on the RIGHT and
-       lets the shell narrow the page into what is left, and below that arrives
-       over the page like any other sheet. Nothing here re-decides that
-       boundary, and the panel is wider than the column it replaces — the
-       colour master and a nineteen-tag vocabulary were the two things the old
-       212-and-then-248px column could never really show. */
-    <div className="@container">
-      <PageContent>
-        <PageHeader
-          title="Articles"
-          sub="Every article the company sells, with the colourways, sizes and SKUs minted against it."
-        />
+    <PageContent>
+      <PageHeader
+        title="Articles"
+        sub="Every article the company sells, with the colourways, sizes and SKUs minted against it."
+        // A delivery that arrived under no article is a gap in THIS
+        // catalogue, which is why the queue hangs from this header and not
+        // from the order book's. Moved back 2026-09-13 on the owner's word.
+        actions={<SetupTrigger />}
+      />
+      <SetupSheets />
 
-        {/* The search sits over the list, not in the filter column: it asks a
-              different question. The facets narrow what is already being
-              shown; this changes what is being looked for.
+      {/* Two columns from 1440 up: the catalogue, and the facets standing
+          beside it.
 
-              One box for the identifiers, because somebody holding a garment
-              does not know which of them they are holding: the swing tag has a
-              QR, the label has a SKU and the carton has the supplier's own
-              code. Asking them to pick the right box first is asking them for
-              the answer. The server does the matching, so all this sends is
-              `q`.
+          The facets stood in a 15.5rem column on the LEFT until 2026-09-12,
+          which made the screen read as three layers of chrome before any work —
+          rail, module sidebar, filters, and only then the catalogue. Then they
+          spent a day inside `<Sheet>`, behind a button, which cost a click
+          before a merchandiser could see what else the catalogue holds.
+
+          This is the shape Sourcing already wears, and it is the right one for
+          the same reason: a catalogue is BROWSED, not queried. Somebody arrives
+          without knowing what they want, and the counted facets are how they
+          discover that the thing they are after is filed under a division they
+          had not thought of — which a panel they have to open first cannot do.
+          Below 1440 it is the same model, reached from the omnibox. */}
+      <div className="grid min-w-0 items-start gap-5 min-[1440px]:grid-cols-[minmax(0,1fr)_16rem]">
+        {/* `@container` on the column the cards are laid out in, not on the
+            page: this column's width is whatever the rail, the sidebar and the
+            filter panel leave it, and a `md:` breakpoint reading the VIEWPORT
+            would put four cards in the space for three. */}
+        <div className="@container flex min-w-0 flex-col">
+          {/* One line, the width of the grid, carrying everything that acts
+              on it — the same line the order book wears, in the same order:
+              what narrows it at the left, what orders and shapes it in the
+              middle, which view it is at the right.
+
+              It was a full-width pill above a second row of controls until
+              2026-09-13. Two rows of chrome over a catalogue is one row too
+              many, and the owner said so: the order book says all of this in
+              one line, and this screen had no reason to be louder.
+
+              The box is one box for the identifiers, because somebody holding
+              a garment does not know which of them they are holding: the swing
+              tag has a QR, the label has a SKU and the carton has the
+              supplier's own code. Asking them to pick the right box first is
+              asking them for the answer. The server does the matching, so all
+              this sends is `q`.
 
               EPC is not named, on the owner's instruction of 2026-09-12,
               though the server still accepts one. An EPC identifies a PHYSICAL
@@ -436,267 +487,218 @@ export function Articles() {
               product definition, where the honest answer to a scan is a whole
               article rather than the piece in somebody's hand. That question
               belongs to Inventory and to global search. */}
-        <div className="relative mb-4">
-          <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-line-ico" />
-          <input
-            value={search.value ?? ""}
-            onChange={(event) =>
-              event.target.value === ""
-                ? search.close()
-                : search.open(event.target.value)
-            }
-            placeholder="Search article, SKU, name, QR or supplier code"
-            aria-label="Search the article master"
-            className="h-10 w-full rounded-full border border-transparent bg-soft-2 pr-4 pl-10 text-[0.875rem] text-ink transition-colors outline-none placeholder:text-mute hover:border-hairline-2 hover:bg-soft-3"
-          />
-        </div>
-
-        <Toolbar>
-          <Segmented
-            options={[
-              {
-                value: "grid",
-                label: (
-                  <span className="inline-flex items-center gap-1.5">
-                    <LayoutGrid className="size-3.5" />
-                    Grid
-                  </span>
-                ),
-              },
-              {
-                value: "table",
-                label: (
-                  <span className="inline-flex items-center gap-1.5">
-                    <Rows3 className="size-3.5" />
-                    Table
-                  </span>
-                ),
-              },
-            ]}
-            value={view}
-            onChange={setView}
-          />
-          {/* The way to the facets, and how many are on.
+          <div className="mb-3 flex flex-wrap items-center gap-1.5">
+            {/* The plain box, where the panel beside it is carrying the
+                filters. Below 1440 the panel is gone and the omnibox below
+                takes both jobs, so only one of the two is ever on screen. */}
+            <span className="relative mr-auto hidden min-[1440px]:block">
+              <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-line-ico" />
+              <input
+                value={search.value ?? ""}
+                onChange={(event) =>
+                  event.target.value
+                    ? search.open(event.target.value)
+                    : search.close()
+                }
+                placeholder="Search article, SKU or QR"
+                aria-label="Search the article master — article code, SKU, name, QR payload or the supplier's own code"
+                className="h-[2.125rem] w-64 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.8125rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent"
+              />
+            </span>
+            <span className="mr-auto text-[0.84375rem] text-body min-[1440px]:mr-0">
+              <b className="font-medium text-ink">{count(articles.length)}</b>{" "}
+              {filtered
+                ? catalogue.hasNextPage
+                  ? "shown, more to load"
+                  : articles.length === 1
+                    ? "article matches"
+                    : "articles match"
+                : `of ${count(searchable)} shown`}
+            </span>
+            {/* The order the SERVER reads the master in, so it applies to the
+                whole catalogue rather than to the pages that happen to have
+                loaded — and to both views, because it is a property of the
+                list and not of the table.
             
-                A chip rather than a permanent column: on a catalogue of five
-                hundred articles most people are looking rather than
-                narrowing, and the count is what tells somebody who IS
-                narrowing that the panel they shut is still doing something. */}
-          <button
-            type="button"
-            onClick={() => (panel.isOpen ? panel.close() : panel.open(true))}
-            aria-expanded={panel.isOpen}
-            className={cn(
-              CHIP,
-              "items-center gap-1.5 border border-dashed border-hairline-strong px-2.5 text-body transition-colors hover:bg-soft-2 hover:text-ink",
-              // Pressed-looking while the panel stands, so the docked column
-              // has a visible origin on the screen it belongs to.
-              panel.isOpen && "border-solid bg-soft-2 text-ink"
-            )}
-          >
-            <ListFilter className="size-3.5" />
-            Filters
-            {chosen.length > 0 && (
-              <span className="text-mute tabular-nums">{chosen.length}</span>
-            )}
-          </button>
-          <Toolbar.Spacer />
-          <span className="text-[0.84375rem] text-body">
-            <b className="font-medium text-ink">{count(articles.length)}</b>{" "}
-            {filtered
-              ? catalogue.hasNextPage
-                ? "shown, more to load"
-                : articles.length === 1
-                  ? "article matches"
-                  : "articles match"
-              : `of ${count(searchable)} shown`}
-          </span>
-        </Toolbar>
-
-        {/* What is narrowing the list, said above the list itself.
-          
-              The panel is dismissible and the chips are not: a filtered list
-              with nothing on screen to say so is how somebody reads a short
-              list as the whole catalogue and then reports that half the
-              articles are missing. Every chip drops its own facet; the word at
-              the end drops the lot, search included. */}
-        {chosen.length > 0 && (
-          <div className="mb-3.5 flex flex-wrap items-center gap-[0.4375rem]">
-            {chosen.map((one) => (
-              <button
-                key={one.key}
-                type="button"
-                onClick={one.drop}
-                aria-label={`Stop filtering by ${one.label}`}
-                className="inline-flex h-8 items-center gap-1.5 rounded-full border border-hairline-2 bg-soft-2 pr-2 pl-2.5 text-meta font-medium text-ink transition-colors hover:bg-hairline"
-              >
-                {one.leading}
-                {one.label}
-                <X className="size-3.5 text-line-ico" />
-              </button>
-            ))}
-            <button
-              type="button"
-              onClick={clear}
-              className="px-1 text-meta font-medium text-body transition-colors hover:text-ink"
-            >
-              Clear all
-            </button>
+                It replaces a `<SortMenu>` that was over the table only. That
+                one reads the TanStack columns, which can only order what is in
+                hand; on a catalogue paged sixty at a time, "sort by price"
+                meant "sort the first sixty by price", which is a control that
+                answers a different question from the one it is asked. The
+                headers still sort what is loaded, and now there is something
+                beside them that sorts the whole thing. */}
+            <ChoiceMenu
+              heading="Order"
+              value={sort.value ?? null}
+              options={ORDERS}
+              onChange={(next) => (next ? sort.open(next) : sort.close())}
+            />
+            {/* Only over the table. A grid of photographs has no columns to
+                hide, and a menu that can only disappoint is worse than no
+                menu. */}
+            {view === "table" && <ColumnsMenu table={table} />}
+            <span aria-hidden className="mx-1 h-5 w-px bg-hairline" />
+            <Segmented
+              options={[
+                {
+                  value: "grid",
+                  label: (
+                    <span className="inline-flex items-center gap-1.5">
+                      <LayoutGrid className="size-3.5" />
+                      Grid
+                    </span>
+                  ),
+                },
+                {
+                  value: "table",
+                  label: (
+                    <span className="inline-flex items-center gap-1.5">
+                      <Rows3 className="size-3.5" />
+                      Table
+                    </span>
+                  ),
+                },
+              ]}
+              value={view}
+              onChange={setView}
+            />
+            <ViewPicker model={filters} id="articles" all="All articles" />
           </div>
-        )}
 
-        {queryState(catalogue, {
-          loading: "Reading the article master…",
-          render: () =>
-            rows.length === 0 ? (
-              <EmptyState>
-                {filtered
-                  ? "No article matches that. Widen the filters, or search the whole master."
-                  : "No article has been minted yet. Articles are created by an article setup session in Procurement."}
-              </EmptyState>
-            ) : (
-              <>
-                {view === "grid" ? (
-                  /* Container queries, not viewport ones. This column's
+          {/* The same model as the panel, drawn as one line, for the widths
+              where the panel is not on screen. Searching and filtering are one
+              thought — "kaus, kidswear, size M" is a sentence somebody says in
+              one breath — and this is the control that lets them say it
+              without a column to spare. */}
+          <FilterOmnibox
+            model={{ ...filters, fields: counted }}
+            text={search.value ?? undefined}
+            onText={(next) => (next ? search.open(next) : search.close())}
+            placeholder="Search article, SKU, name, QR or supplier code, or filter"
+            className="mb-3 min-[1440px]:hidden"
+          />
+
+          {queryState(catalogue, {
+            loading: "Reading the article master…",
+            render: () =>
+              rows.length === 0 ? (
+                <EmptyState>
+                  {filtered
+                    ? "No article matches that. Widen the filters, or search the whole master."
+                    : "No article has been minted yet. Articles are created by an article setup session in Procurement."}
+                </EmptyState>
+              ) : (
+                <>
+                  {view === "grid" ? (
+                    /* Container queries, not viewport ones. This column's
                        width is whatever the rail, the sidebar and — from 96rem
                        up — the docked filter panel leave it, so a `md:`
                        breakpoint reading the viewport puts three cards in a
                        space that fits two and truncates every name. It is also
                        what makes opening the panel re-lay the grid rather than
                        squeeze it. */
-                  <div className="grid grid-cols-1 gap-[1.125rem] @sm:grid-cols-2 @2xl:grid-cols-3 @5xl:grid-cols-4">
-                    {rows.map((row) => (
-                      <ArticleCard
-                        key={row.article.article_code}
-                        row={row}
-                        onOpen={() => article.open(row.article.article_code)}
-                      />
-                    ))}
-                  </div>
-                ) : (
-                  <Card className="overflow-hidden">
-                    {/* Sorting is over what has been loaded, not over the
+                    <div className="grid grid-cols-1 gap-[1.125rem] @sm:grid-cols-2 @2xl:grid-cols-3 @5xl:grid-cols-4">
+                      {rows.map((row) => (
+                        <ArticleCard
+                          key={row.article.article_code}
+                          row={row}
+                          onOpen={() => article.open(row.article.article_code)}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <Card className="overflow-hidden">
+                      {/* Sorting is over what has been loaded, not over the
                           whole catalogue: the cursor is keyed on article code,
                           so a sort by price can only order the pages already
                           fetched. That is honest as long as the count above
                           says how many are shown — which is why it does. */}
-                    <DataTable<CatalogueRow>
-                      table={table}
-                      onRowClick={(row) =>
-                        article.open(row.article.article_code)
-                      }
-                      isSelected={(row) =>
-                        row.article.article_code === article.value
-                      }
-                      className="max-h-[calc(100vh-22rem)]"
-                    />
-                  </Card>
-                )}
+                      <DataTable<CatalogueRow>
+                        table={table}
+                        onRowClick={(row) =>
+                          article.open(row.article.article_code)
+                        }
+                        isSelected={(row) =>
+                          row.article.article_code === article.value
+                        }
+                        className="max-h-[calc(100vh-22rem)]"
+                      />
+                    </Card>
+                  )}
 
-                {catalogue.hasNextPage && (
-                  <div className="mt-6 flex justify-center">
-                    <Button
-                      onClick={() => void catalogue.fetchNextPage()}
-                      disabled={catalogue.isFetchingNextPage}
-                    >
-                      {catalogue.isFetchingNextPage ? "Fetching…" : "Show more"}
-                    </Button>
-                  </div>
-                )}
-              </>
-            ),
-        })}
-      </PageContent>
+                  {catalogue.hasNextPage && (
+                    <div className="mt-6 flex justify-center">
+                      <Button
+                        onClick={() => void catalogue.fetchNextPage()}
+                        disabled={catalogue.isFetchingNextPage}
+                      >
+                        {catalogue.isFetchingNextPage
+                          ? "Fetching…"
+                          : "Show more"}
+                      </Button>
+                    </div>
+                  )}
+                </>
+              ),
+          })}
+        </div>
 
-      {/* The facets, in the panel this app opens everything else in.
-      
-          Docked on the right from 96rem up and over the page below that —
-          `<Sheet>` decides which, and `lib/layout.ts` decides where the line
-          is. Mounted whatever the state of the flag, because a sheet that only
-          exists once its button has been pressed is a `?filters=1` link that
-          works for the person who clicked it and nobody else. */}
-      <Sheet
-        open={panel.isOpen}
-        onOpenChange={(open) => {
-          if (!open) panel.close()
-        }}
-        title="Filters"
-        // Pinned to the foot rather than sitting at the end of the stack: the
-        // fullest panel is exactly the one where it would have scrolled out of
-        // sight, and a panel with four facets ticked is when somebody most
-        // wants to drop the lot.
-        footer={
-          chosen.length > 0 ? (
-            <div className="flex items-center justify-between gap-2">
-              <span className="min-w-0 truncate text-meta text-mute">
-                {chosen.length === 1
-                  ? "1 filter is narrowing this list"
-                  : `${chosen.length} filters are narrowing this list`}
-              </span>
-              <Button variant="quiet" onClick={clear}>
-                Clear all
-              </Button>
-            </div>
-          ) : undefined
-        }
-      >
-        <FacetGroup
-          label="Division"
-          values={facets?.divisions}
-          selected={divisions}
-          onToggle={(value) => setDivisions(toggle(divisions, value))}
-          onClear={() => setDivisions([])}
-          labelOf={divisionLabel}
+        {/* The facets, standing beside the catalogue rather than behind a
+            button — the same panel the order book, the supplier book and
+            Sourcing wear, so somebody who has learnt one list has learnt all of
+            them. `<DockedFilters>` carries its own clause editor and field
+            picker, which is where an operator is changed and where somebody
+            chooses which of the four questions this panel asks at all. */}
+        <DockedFilters
+          model={{ ...filters, fields: counted }}
+          kpis={catalogueKpis(searchable, facets)}
+          id="articles"
+          subject="Article"
+          className="hidden min-[1440px]:flex"
         />
-
-        <FacetGroup
-          label="Tag"
-          shape="chip"
-          values={facets?.tags}
-          selected={tags}
-          onToggle={(value) => setTags(toggle(tags, value))}
-          onClear={() => setTags([])}
-          labelOf={tagLabel}
-        />
-
-        {/* Sizes are global — `03` is M on every article in the company — so
-            this is one closed list rather than a set gathered from whatever
-            rows came back. That is the whole reason a size filter can be
-            trusted across the catalogue. */}
-        <FacetGroup
-          label="Size"
-          values={facets?.sizes}
-          selected={sizes}
-          onToggle={(value) => setSizes(toggle(sizes, value))}
-          onClear={() => setSizes([])}
-          labelOf={sizeLabelOf}
-        />
-
-        {/* Chips with the colour on them, not a checkbox list. Colour is the
-            one facet here that is recognised rather than read — "the navy one"
-            is how somebody describes a garment they are holding — and a column
-            of ticked words throws that away. */}
-        <FacetGroup
-          label="Colour"
-          shape="chip"
-          values={facets?.colours}
-          selected={colours}
-          onToggle={(value) => setColours(toggle(colours, value))}
-          onClear={() => setColours([])}
-          labelOf={colourLabel}
-          leadingOf={(value) => (
-            <ColourSwatch hex={colourTerms.get(value)?.hex_code ?? null} />
-          )}
-        />
-      </Sheet>
+      </div>
 
       <ArticleSheet
         articleCode={article.value ?? null}
         open={article.isOpen}
         onClose={article.close}
       />
-    </div>
+    </PageContent>
   )
+}
+
+/// The two orders the master can be read in.
+///
+/// `null` is the order it has always answered in — the catalogue as it was
+/// built up — so the plain URL is the plain catalogue and there is one
+/// spelling of "no order chosen".
+///
+/// "Newest" is `created_at` and not the article code, which matters here: the
+/// codes this server mints do run in order, but the seeded and legacy articles
+/// carry hand-written ones — `ART-TSHIRT` — and every one of them sorts above
+/// `00000001`. Ordering by code would have put the oldest rows in the company
+/// at the top of a list labelled Newest.
+const ORDERS = [
+  { value: null, label: "Oldest first" },
+  { value: "newest", label: "Newest first" },
+]
+
+/// Two figures about the catalogue being browsed, above the controls that
+/// narrow it.
+///
+/// Both are the server's own, counted over everything the SEARCH matches and
+/// deliberately not over the current selection — the same numbers the facet
+/// lists are drawn from, so a tile and the rows under it cannot disagree.
+function catalogueKpis(searchable: number, facets: ArticleFacets | undefined) {
+  if (facets === undefined) return undefined
+  return [
+    { label: "Articles", value: count(searchable) },
+    {
+      label: "Divisions",
+      value: count(facets.divisions.length),
+      note: "Divisions something the search matches is filed under.",
+    },
+  ]
 }
 
 /// One article, as somebody sees it before they know they want it.

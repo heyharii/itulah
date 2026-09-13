@@ -537,6 +537,7 @@ async fn commercial_and_store_sales_are_versioned_atomic_and_retry_safe(pool: Pg
         tax_category: "STANDARD".into(),
     });
     let publication_request = CreateCommercialPublicationRequest {
+        change_type: None,
         campaigns: Vec::new(),
         markdowns: Vec::new(),
         rules: Vec::new(),
@@ -621,6 +622,7 @@ async fn commercial_and_store_sales_are_versioned_atomic_and_retry_safe(pool: Pg
     assert!(mutation.is_err(), "published prices must be immutable");
 
     let sale_request = CreateSaleRequest {
+        customer_id: None,
         site_id: "store-07".into(),
         channel: CommercialChannel::Store,
         actor_id: "cashier-07".into(),
@@ -764,6 +766,7 @@ async fn commercial_and_store_sales_are_versioned_atomic_and_retry_safe(pool: Pg
     let unpaid_sale = infrastructure::create_sale(
         &pool,
         CreateSaleRequest {
+            customer_id: None,
             site_id: "store-07".into(),
             channel: CommercialChannel::Store,
             actor_id: "cashier-07".into(),
@@ -811,6 +814,7 @@ async fn commercial_and_store_sales_are_versioned_atomic_and_retry_safe(pool: Pg
         let created = infrastructure::create_sale(
             &pool,
             CreateSaleRequest {
+                customer_id: None,
                 site_id: "store-07".into(),
                 channel: CommercialChannel::Store,
                 actor_id: "cashier-07".into(),
@@ -1121,8 +1125,18 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
         .iter()
         .find(|item| item["sku_id"] == pick_sku.to_string())
         .unwrap_or_else(|| panic!("pick SKU after"));
-    assert_eq!(pick_after["allotted_qty"], allotment_before_pick - 3);
+    // Picking commits to nobody, so it releases nobody's commitment: the
+    // three shirts are off the rack and in the pick area, and Store 02 is
+    // owed exactly as much as it was a moment ago. This assertion used to
+    // read `allotment_before_pick - 3` — the old model let a picker discharge
+    // a promise by touching the goods, and the shop found out at the door.
+    assert_eq!(pick_after["allotted_qty"], allotment_before_pick);
+    // And the shelf has lost nothing it could still promise. Supply is
+    // measured over the pools the commitment can be served out of — the
+    // warehouse and the picking area together — so carrying goods between
+    // them moves no number at all.
     assert_eq!(pick_after["on_hand_qty"], available_before_pick);
+    assert_eq!(pick_after["shortfall_qty"], 0);
     assert!(
         infrastructure::execute_allotment(
             &pool,
@@ -1413,8 +1427,21 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
         .find(|item| item["sku_id"] == cancel_sku.to_string())
         .unwrap_or_else(|| panic!("shortage SKU"));
     assert_eq!(shortage_sku["allotted_qty"], shortage_available);
-    assert_eq!(shortage_sku["on_hand_qty"], -shortage_available);
-    assert_eq!(shortage_sku["missing_qty"], shortage_available);
+    // A count that finds the goods gone does not erase what the shop was
+    // promised: the promise stands, and the pool now owes more than it holds.
+    // That is a shortfall, and On Hand stops at nought — it used to be shown
+    // as a negative quantity of shirts, which is not a thing a shelf can hold.
+    assert_eq!(shortage_sku["on_hand_qty"], 0);
+    // Every piece the count could not find is a piece the promise now outruns
+    // — the shortfall and the missing are the same goods, counted once as a
+    // physical state and once as a commitment the shelf cannot meet.
+    //
+    // They are not `shortage_available`, and that is the scope rule doing its
+    // work: availability spans every pool the commitment can be packed out of,
+    // so it also counted what was standing in the picking area, and the count
+    // was of the warehouse alone.
+    assert_eq!(shortage_sku["shortfall_qty"], shortage_sku["missing_qty"]);
+    assert!(shortage_sku["missing_qty"].as_i64().unwrap_or_default() > 0);
     assert!(
         sku_place_quantity(&pool, cancel_sku, "dc.warehouse:missing").await > 0,
         "Missing remains physical state and is excluded from On Hand"
@@ -1456,8 +1483,20 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
         .iter()
         .find(|item| item["id"] == "dc.warehouse")
         .unwrap_or_else(|| panic!("DC Warehouse row"));
+    // One commitment, read two ways, and they agree: the pool tree and the
+    // allotting screen both ask the view what still has to leave this shelf.
     assert_eq!(warehouse["allotted"], shortage_after["allotted_qty"]);
-    assert_eq!(warehouse["on_hand"], shortage_after["on_hand_qty"]);
+    // Their On Hand does not agree, and should not. The tree answers per pool
+    // — this shelf, these goods. Allotting answers per site, because a promise
+    // raised against the warehouse can be packed out of the picking area too.
+    // So the warehouse row can only be the smaller of the two, and the gap is
+    // exactly what the pickers are holding.
+    let tree_on_hand = warehouse["on_hand"].as_i64().unwrap_or_default();
+    let allotting_on_hand = shortage_after["on_hand_qty"].as_i64().unwrap_or_default();
+    assert!(
+        tree_on_hand <= allotting_on_hand,
+        "the pool tree cannot offer more than the site can pack: {tree_on_hand} against {allotting_on_hand}"
+    );
     let list = infrastructure::list_allotments(&pool, AllotmentQuery::default())
         .await
         .unwrap_or_else(|e| panic!("Allotment list: {e}"));
@@ -1586,6 +1625,7 @@ async fn a_clearance_on_a_whole_style_clears_every_size_of_it(pool: PgPool) {
     let created = infrastructure::create_commercial_publication(
         &pool,
         CreateCommercialPublicationRequest {
+            change_type: None,
             version: 900,
             name: "Cuci gudang satu style".into(),
             effective_from: Utc::now() - Duration::days(1),
@@ -1840,6 +1880,7 @@ async fn a_budget_spent_in_the_fleet_is_spent_at_the_centre_too(pool: PgPool) {
     let created = infrastructure::create_commercial_publication(
         &pool,
         CreateCommercialPublicationRequest {
+            change_type: None,
             version: 800,
             name: "Kampanye berbudget".into(),
             effective_from: Utc::now() - Duration::days(1),
@@ -1872,6 +1913,7 @@ async fn a_budget_spent_in_the_fleet_is_spent_at_the_centre_too(pool: PgPool) {
                     valid_to: None,
                     budget_minor: Some(50_000),
                     max_uses: None,
+                    site_ids: Vec::new(),
                     image_url: None,
                     headline: None,
                     terms: None,
@@ -1974,6 +2016,7 @@ async fn the_usage_list_reports_the_limit_the_newest_book_declares(pool: PgPool)
             let created = infrastructure::create_commercial_publication(
                 &pool,
                 CreateCommercialPublicationRequest {
+                    change_type: None,
                     version,
                     name: format!("Buku {version}"),
                     effective_from: Utc::now() - Duration::days(1),
@@ -2005,6 +2048,7 @@ async fn the_usage_list_reports_the_limit_the_newest_book_declares(pool: PgPool)
                             valid_to: None,
                             budget_minor: Some(budget),
                             max_uses: None,
+                            site_ids: Vec::new(),
                             image_url: None,
                             headline: None,
                             terms: None,
@@ -2112,6 +2156,7 @@ async fn a_cloud_sale_sells_what_an_older_book_still_prices(pool: PgPool) {
     let created = infrastructure::create_commercial_publication(
         &pool,
         CreateCommercialPublicationRequest {
+            change_type: None,
             version: 820,
             name: "Naikkan satu harga".into(),
             effective_from: Utc::now() - Duration::days(1),
@@ -2160,6 +2205,7 @@ async fn a_cloud_sale_sells_what_an_older_book_still_prices(pool: PgPool) {
     let sale = infrastructure::create_sale(
         &pool,
         CreateSaleRequest {
+            customer_id: None,
             site_id: "store-07".into(),
             channel: CommercialChannel::Store,
             actor_id: "cashier".into(),
@@ -2234,6 +2280,7 @@ async fn an_ended_promotion_does_not_read_as_one_that_never_arrived(pool: PgPool
     let created = infrastructure::create_commercial_publication(
         &pool,
         CreateCommercialPublicationRequest {
+            change_type: None,
             version: 830,
             name: "Kampanye yang sudah lewat".into(),
             effective_from: Utc::now() - Duration::days(30),
@@ -2267,6 +2314,7 @@ async fn an_ended_promotion_does_not_read_as_one_that_never_arrived(pool: PgPool
                     valid_to: Some(Utc::now() - Duration::days(14)),
                     budget_minor: None,
                     max_uses: None,
+                    site_ids: Vec::new(),
                     image_url: None,
                     headline: None,
                     terms: None,
@@ -2341,6 +2389,7 @@ async fn a_book_numbered_below_the_newest_is_refused(pool: PgPool) {
         .unwrap_or_else(|e| panic!("a seeded SKU: {e}"));
 
     let book = |version: i64, key: &'static str| CreateCommercialPublicationRequest {
+        change_type: None,
         version,
         name: format!("Buku {version}"),
         effective_from: Utc::now() - Duration::days(1),

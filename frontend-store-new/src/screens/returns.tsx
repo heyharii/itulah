@@ -69,7 +69,7 @@ function FindSale({ onFound }: { onFound: (saleId: string) => void }) {
             />
           </Field>
           <Button
-            variant="dark"
+            variant="primary"
             size="lg"
             block
             disabled={typed.trim() === ""}
@@ -173,7 +173,12 @@ function ReturnAgainst({
             {print.error !== null && (
               <Banner tone="bad">{print.error.message}</Banner>
             )}
-            <Button variant="dark" size="lg" block onClick={() => go("/sell")}>
+            <Button
+              variant="primary"
+              size="lg"
+              block
+              onClick={() => go("/sell")}
+            >
               Back to the counter
             </Button>
           </div>
@@ -262,7 +267,7 @@ function ReturnAgainst({
                               <Button
                                 key={choice}
                                 variant={
-                                  disposition === choice ? "dark" : "ghost"
+                                  disposition === choice ? "primary" : "ghost"
                                 }
                                 onClick={() =>
                                   setPicked((held) => {
@@ -344,7 +349,7 @@ function ReturnAgainst({
         <ActionBar>
           <div className="flex flex-col gap-2.5">
             <Button
-              variant="dark"
+              variant="primary"
               size="lg"
               block
               disabled={!ready || takeBack.isPending}

@@ -1,0 +1,57 @@
+-- 0177: A sale knows who bought it.
+--
+-- `sale` is the centre's completed-sale model and `sale_return.sale_id` points
+-- at it, so a return is always against a `sale` row. It had no shopper on it.
+-- That is why `loyalty::reverse_for_return` — written, tested, correct — could
+-- not be reached from anywhere: it needs a `customer_id` to debit, and the one
+-- document a return starts from could not name one. The points half of the
+-- scheme only ever went up.
+--
+-- The shopper WAS known: `edge_sale.customer_id` has held it since the member
+-- work, because the till captures the card at the counter. It stopped at the
+-- boundary between the shop's account of the sale and the centre's own record.
+-- This column is where it crosses.
+--
+-- # Nullable, and deliberately not backfilled
+--
+-- There are 21,829 `sale` rows here already. Every one of them was rung up
+-- through a path that never asked who was buying — `create_sale` takes a site,
+-- a channel, an actor and an idempotency key, and that is the whole of it. So
+-- there is no shopper recorded anywhere for those sales, not in another column
+-- and not in another table.
+--
+-- A backfill would therefore have to invent one, and the shapes it could take
+-- are all worse than nothing: joining on same-site-same-minute would attach
+-- strangers' purchases to whoever happened to be in the shop, and defaulting to
+-- a sentinel member would make every anonymous sale look like one enormous
+-- customer whose returns reverse points nobody ever earned.
+--
+-- NULL here means "nobody was recorded", which is the truth, and it is a
+-- DIFFERENT fact from "an anonymous shopper". Code that finds NULL must say so
+-- rather than reverse nought and stay quiet — see `create_sale_return`, which
+-- reports `ANONYMOUS_SALE` in its result instead of silently skipping. Silence
+-- is how a points scheme leaks: the awards land and the reversals do not, and
+-- the first sign is a liability nobody can explain.
+-- # It can only be written while the sale is OPEN
+--
+-- 0003's `sale_finalized_immutable` refuses any UPDATE whose OLD row is
+-- COMPLETED or VOIDED, so this column cannot be stamped onto a sale after the
+-- fact — not by a later correction, and not by the sync lane when the shop's
+-- own account of the sale arrives. `complete_sale` fills it from `edge_sale`
+-- immediately BEFORE the status flip, inside the same transaction, and that
+-- ordering is the whole of the mechanism. Anything written here later has to
+-- reckon with that trigger rather than discover it.
+ALTER TABLE sale ADD COLUMN customer_id TEXT;
+
+-- For "what has this member bought", which is the read this column exists to
+-- serve and the one the Members screens already ask of `edge_sale`.
+--
+-- PARTIAL, matching `ix_edge_sale_customer_time`: the 21,829 rows above are all
+-- NULL and will stay NULL, and an unfiltered index would carry every one of
+-- them to answer a question none of them can be part of. `created_at` rather
+-- than `completed_at` because it is NOT NULL — a nullable trailing key sorts
+-- NULLS FIRST under DESC and would put open baskets in front of the purchases
+-- somebody is looking for.
+CREATE INDEX ix_sale_customer_time
+    ON sale (customer_id, created_at DESC)
+ WHERE customer_id IS NOT NULL;

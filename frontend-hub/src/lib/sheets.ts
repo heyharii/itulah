@@ -1,5 +1,7 @@
 import { getRouteApi, useNavigate, useSearch } from "@tanstack/react-router"
 
+import type { RecordKind } from "@itulah/contract"
+
 /// Every sheet in the app, named once, and held in the URL.
 ///
 /// A sheet is a thing you look at without leaving the list that produced it,
@@ -123,6 +125,27 @@ export const SHEET_PARAMS = {
   /// The second bar, for the two screens that draw two filterable tables at
   /// once. Never used alone.
   f2: clauses,
+  /// Whether the filter PANEL is standing — the controls, not the clauses.
+  ///
+  /// Deliberately a second key beside `f` and not a flag folded into it: `f`
+  /// is what the list is narrowed BY and this is where the controls for
+  /// changing it happen to be, and one parameter meaning both would make
+  /// "open the panel" and "narrow the list" the same navigation. They are not:
+  /// a link to a narrowed list should arrive narrowed with the panel shut, and
+  /// a colleague handed a half-built question should arrive with it open.
+  ///
+  /// A flag, because there is one panel per screen and nothing to identify it
+  /// by. In the URL rather than in a `useState` for the reason everything else
+  /// in this file is: on a monitor the panel is a COLUMN the list has given
+  /// width to, and a reload that silently gave that width back would re-lay
+  /// every table on the screen. See `ui/filter-panel`.
+  filters: flag,
+  /// Whether the FIELD PICKER is standing — which questions the filter panel
+  /// puts, not what the list is narrowed by and not whether the panel is open.
+  /// A third key rather than a mode inside `filters`, because it is a third
+  /// thing: a link to a half-built question should not arrive in the tick list
+  /// of field names.
+  fields: flag,
   // procurement
   order: id,
   supplier: id,
@@ -177,6 +200,17 @@ export const SHEET_PARAMS = {
   "pool-movements": id,
   allotment: id,
   count: id,
+  /// Which reading of the count book is on screen. A fixed set, because it
+  /// reaches the node as `?status=` and the lifecycle has exactly four states
+  /// — plus the empty string, which is "all of them" and is what `close()`
+  /// leaves behind.
+  ///
+  /// Its own key rather than `status`, which nothing else claims but which
+  /// four other screens would want to mean their own lifecycle: two screens
+  /// sharing one parameter means arriving from one with the other's value in
+  /// the URL, and a count book showing nothing because somebody had been
+  /// looking at retired suppliers is a list nobody can explain.
+  "count-status": oneOf(["DRAFT", "ACTIVE", "REVIEW", "CLOSED"] as const),
   movement: id,
   // finance
   entry: id,
@@ -191,11 +225,49 @@ export const SHEET_PARAMS = {
   period: id,
   /// One imported bank statement, and the reconcile session over it.
   statement: id,
+  /// One charge a shop took where no sale was written. In the URL because a
+  /// case is a thing people send each other — "look at this one, store-04 on
+  /// Tuesday" — while somebody is on the phone to the bank about it.
+  charge: id,
   /// One semantic posting key in the account map.
   mapping: id,
   // commercial
   book: id,
   price: id,
+  /// One shop's whole shelf, opened from its column on the pricelist.
+  ///
+  /// UI-001 §4's first drill-down: the matrix answers "is this style priced
+  /// the same everywhere" and this answers the other half — "what is THIS shop
+  /// charging, for everything". Keyed by `site_id` rather than by origin,
+  /// because the column heading is a place and the reader is asking about a
+  /// place; the origin is a machine standing in it.
+  ///
+  /// Its own key rather than a second meaning for `price`, which names one
+  /// CELL — a style at a shop. A link to a shop and a link to a square are two
+  /// different things to send somebody, and one parameter carrying both would
+  /// open whichever sheet happened to read it first.
+  shop: id,
+  /// The two halves of a price history: which product, and where.
+  ///
+  /// Both in the URL because a history is a question about ONE product at ONE
+  /// shop — the endpoint refuses to answer it any other way — and the answer is
+  /// a thing people send each other: "look at what Medan has been charging for
+  /// this shirt since August" is a link, not a sequence of clicks to describe
+  /// over the telephone.
+  ///
+  /// `sku` rather than `article`: the history is per PRODUCT, because two sizes
+  /// of one style can have moved at different times, and a style-level history
+  /// would have to pick one of them or average them. `site` rather than `shop`:
+  /// the shelf sheet already owns `shop`, and arriving at History with a shelf
+  /// still open in the address bar should not silently pick that shop.
+  sku: id,
+  site: id,
+  /// Which member a points ledger is narrowed to.
+  ///
+  /// Its own key rather than `member`, because it is not a sheet: nothing opens
+  /// over the page: the whole list narrows. And in the URL because "why does
+  /// Dian have 4.000 points" is a question somebody hands to somebody else.
+  customer: id,
   /// The composer that pushes a new price to the fleet.
   ///
   /// A flag rather than an id, like `new-order`: the thing it names does not
@@ -210,6 +282,14 @@ export const SHEET_PARAMS = {
   /// over a telephone — so a link to a voucher is a thing that can be typed
   /// from the card in your hand.
   voucher: id,
+  /// One style across every shop, opened from its name on the pricelist.
+  ///
+  /// Shares the `article` key with the master directory deliberately: both
+  /// name the same record by the same code, so arriving at one from a link
+  /// written on the other opens the right style rather than nothing. What each
+  /// screen SHOWS of it differs — the master shows what the garment is, this
+  /// shows what it costs — and that is a property of the screen, not of the
+  /// identifier.
   // members
   /// Which segment the directory is narrowed to. In the URL because a segment
   /// is the unit of work people hand each other: "the lapsing members" is a
@@ -278,6 +358,11 @@ export const SHEET_PARAMS = {
   /// sending. Anything but these two words is dropped.
   view: oneOf(["grid", "list"] as const),
   thread: id,
+  /// Which letter is open. Not a sheet — a letter takes the whole screen,
+  /// because it is a document somebody reads to the end and prints — but it
+  /// belongs in this registry for the reason `report` does: a letter with a
+  /// number on it is the thing colleagues send each other links to.
+  letter: id,
   /// One filed document, with its evidence.
   document: id,
   conversation: id,
@@ -421,7 +506,15 @@ export type SheetKey = keyof typeof SHEET_PARAMS
 /// A key with no entry is a sheet whose subject the server does not name: the
 /// window sheets, the basket, the notification drawer. They get no trail, which
 /// is correct — there is no record for one to belong to.
-const SHEET_SUBJECT: Partial<Record<SheetKey, string>> = {
+/// Which record each sheet is showing.
+///
+/// Typed against `RecordKind`, the server's own vocabulary, rather than
+/// `string`. That is not tidiness: when it was `string`, two of the entries
+/// below were words this server has never had — `user` where the record is
+/// `app_user`, and a promotion whose kind did not exist at all — and nothing
+/// could say so. They filed their history under a word nothing else used, and
+/// the panel on those two sheets could only ever be empty.
+const SHEET_SUBJECT: Partial<Record<SheetKey, RecordKind>> = {
   order: "purchase_order",
   supplier: "supplier",
   item: "supplier_item",
@@ -444,9 +537,10 @@ const SHEET_SUBJECT: Partial<Record<SheetKey, string>> = {
   refund: "return",
   member: "customer",
   thread: "discussion",
+  letter: "letter",
   conversation: "conversation",
   document: "document",
-  user: "user",
+  user: "app_user",
 }
 
 export type SheetSearch = {

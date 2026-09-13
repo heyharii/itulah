@@ -17,6 +17,7 @@
 /// duplicate, and an authorisation check that is part of the post rather than
 /// a decoration on the button.
 
+import { account } from "./chart"
 import { resolve } from "./resolver"
 import type {
   Binding,
@@ -40,6 +41,15 @@ export interface IntentLine {
   readonly dims: Dimensions
   readonly amount: Minor
   readonly memo?: string
+  /// A client account named directly, bypassing the resolver.
+  ///
+  /// Two kinds of caller, deliberately: a posting RULE names a MEANING and must
+  /// never name a code — that is what `account_map` is for. A PERSON writing a
+  /// manual entry, or an opening balance touching two hundred accounts, names
+  /// the account itself, because choosing it is the entry they came to make.
+  /// Production draws the same line: `poster.rs` has `LineAccount::Meaning` and
+  /// `LineAccount::Account` for exactly this.
+  readonly account_code?: string
 }
 
 export interface PostIntent {
@@ -98,7 +108,11 @@ export class Ledger {
   // -- periods ------------------------------------------------------------
 
   openPeriod(book_id: string, period: Month) {
-    this.periods.set(`${book_id}/${period}`, { period, book_id, status: "OPEN" })
+    this.periods.set(`${book_id}/${period}`, {
+      period,
+      book_id,
+      status: "OPEN",
+    })
   }
 
   closePeriod(book_id: string, period: Month, by: string) {
@@ -114,12 +128,19 @@ export class Ledger {
 
   reopenPeriod(book_id: string, period: Month) {
     const p = this.periods.get(`${book_id}/${period}`)
-    if (p) this.periods.set(`${book_id}/${period}`, { period, book_id, status: "OPEN" })
+    if (p)
+      this.periods.set(`${book_id}/${period}`, {
+        period,
+        book_id,
+        status: "OPEN",
+      })
   }
 
   allPeriods(): readonly Period[] {
     return [...this.periods.values()].sort((a, b) =>
-      a.period === b.period ? a.book_id.localeCompare(b.book_id) : a.period.localeCompare(b.period)
+      a.period === b.period
+        ? a.book_id.localeCompare(b.book_id)
+        : a.period.localeCompare(b.period)
     )
   }
 
@@ -160,7 +181,11 @@ export class Ledger {
     }
 
     if (intent.lines.length === 0) {
-      return { ok: false, code: "BAD_PAYLOAD", message: "an entry needs at least one line" }
+      return {
+        ok: false,
+        code: "BAD_PAYLOAD",
+        message: "an entry needs at least one line",
+      }
     }
 
     const period = periodOf(intent.posting_on)
@@ -213,7 +238,28 @@ export class Ledger {
     const lines: JournalLine[] = []
     const faults: string[] = []
     for (const [i, l] of intent.lines.entries()) {
-      const r = resolve(this.bindings, { role: l.role, dims: l.dims, on: intent.posting_on })
+      if (l.account_code) {
+        const named = account(l.account_code)
+        if (!named) {
+          faults.push(`line ${i + 1}: ${l.account_code} is not in the chart`)
+          continue
+        }
+        lines.push({
+          line_no: lines.length + 1,
+          account_code: named.code,
+          account_name: named.name,
+          unit_id: l.dims.unit_id,
+          debit: l.side === "DEBIT" ? l.amount : 0,
+          credit: l.side === "CREDIT" ? l.amount : 0,
+          memo: l.memo,
+        })
+        continue
+      }
+      const r = resolve(this.bindings, {
+        role: l.role,
+        dims: l.dims,
+        on: intent.posting_on,
+      })
       if (!r.ok) {
         faults.push(`line ${i + 1}: ${r.message}`)
         continue
@@ -273,9 +319,19 @@ export class Ledger {
   /// changed, a class was remapped — resolving afresh would post the reversal
   /// somewhere the original never touched, and both accounts would be wrong by
   /// the same amount while the trial balance still balanced.
-  reverse(entry_id: string, posting_on: Day, reason: string, actor: string, actor_role: Role): PostOutcome {
+  reverse(
+    entry_id: string,
+    posting_on: Day,
+    reason: string,
+    actor: string,
+    actor_role: Role
+  ): PostOutcome {
     if (!MAY_POST[actor_role]) {
-      return { ok: false, code: "NOT_AUTHORISED", message: `${actor_role} may not reverse an entry.` }
+      return {
+        ok: false,
+        code: "NOT_AUTHORISED",
+        message: `${actor_role} may not reverse an entry.`,
+      }
     }
     const original = this.entries.find((e) => e.entry_id === entry_id)
     if (!original) {
@@ -290,9 +346,18 @@ export class Ledger {
     }
     const period = periodOf(posting_on)
     const p = this.periods.get(`${original.book_id}/${period}`)
-    if (!p) return { ok: false, code: "PERIOD_MISSING", message: `no period ${period}` }
+    if (!p)
+      return {
+        ok: false,
+        code: "PERIOD_MISSING",
+        message: `no period ${period}`,
+      }
     if (p.status === "CLOSED") {
-      return { ok: false, code: "PERIOD_CLOSED", message: `period ${period} is closed` }
+      return {
+        ok: false,
+        code: "PERIOD_CLOSED",
+        message: `period ${period} is closed`,
+      }
     }
 
     this.counter += 1
@@ -345,11 +410,16 @@ export class Ledger {
   }
 
   entriesFor(source_kind: string, source_id: string): readonly JournalEntry[] {
-    return this.entries.filter((e) => e.source_kind === source_kind && e.source_id === source_id)
+    return this.entries.filter(
+      (e) => e.source_kind === source_kind && e.source_id === source_id
+    )
   }
 
   /// Balance of one account, optionally at one unit, up to and including a day.
-  balance(account_code: string, opts?: { unit_id?: string; upto?: Day }): Minor {
+  balance(
+    account_code: string,
+    opts?: { unit_id?: string; upto?: Day }
+  ): Minor {
     let n = 0
     for (const e of this.entries) {
       if (opts?.upto && e.dates.posting_on > opts.upto) continue
@@ -366,7 +436,10 @@ export class Ledger {
   /// list plus the assertion that the two columns are equal — which is sent
   /// rather than left for a screen to subtract.
   trialBalance(opts?: { book_id?: string; unit_id?: string; upto?: Day }) {
-    const rows = new Map<string, { code: string; name: string; unit: string; debit: Minor; credit: Minor }>()
+    const rows = new Map<
+      string,
+      { code: string; name: string; unit: string; debit: Minor; credit: Minor }
+    >()
     for (const e of this.entries) {
       if (opts?.book_id && e.book_id !== opts.book_id) continue
       if (opts?.upto && e.dates.posting_on > opts.upto) continue
@@ -386,11 +459,18 @@ export class Ledger {
       }
     }
     const list = [...rows.values()].sort((a, b) =>
-      a.code === b.code ? a.unit.localeCompare(b.unit) : a.code.localeCompare(b.code)
+      a.code === b.code
+        ? a.unit.localeCompare(b.unit)
+        : a.code.localeCompare(b.code)
     )
     const total_debit = list.reduce((n, r) => n + r.debit, 0)
     const total_credit = list.reduce((n, r) => n + r.credit, 0)
-    return { rows: list, total_debit, total_credit, balanced: total_debit === total_credit }
+    return {
+      rows: list,
+      total_debit,
+      total_credit,
+      balanced: total_debit === total_credit,
+    }
   }
 
   private now(): string {

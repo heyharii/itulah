@@ -48,4 +48,26 @@ after_matched_quantity: number,
  * What the free item is charged at. Zero unless a token price is
  * wanted on the receipt.
  */
-unit_price: Money, } | { "kind": "EARN_POINTS" } & EarnEffect;
+unit_price: Money, } | { "kind": "BUY_X_GET_Y", 
+/**
+ * Units paid for in each bundle.
+ */
+buy: number, 
+/**
+ * Units rewarded in each bundle. The CHEAPEST eligible units are the
+ * rewarded ones: "get one free" across three different prices is the
+ * cheapest one free, which is what the shop advertised and what it
+ * would have to argue at the counter otherwise.
+ */
+get: number, 
+/**
+ * How much comes off each rewarded unit, in basis points. 10.000 is
+ * D01's own case — the reward free — and 5.000 is "get one half
+ * price", which is the same offer and not a different effect.
+ *
+ * Required rather than defaulted, because nought is a syntactically
+ * perfect bundle that rewards nothing. A book that does not say what
+ * the offer gives has not described an offer, and should be refused
+ * rather than published as one that silently does nothing.
+ */
+reward_bps: number, } | { "kind": "EARN_POINTS" } & EarnEffect;

@@ -53,7 +53,7 @@ export function FinanceOverview() {
 
   const periods = useQuery({
     queryKey: financeKeys.periods(),
-    queryFn: ({ signal }) => listPeriods(signal),
+    queryFn: ({ signal }) => listPeriods(signal).then((page) => page.rows),
   })
   const map = useQuery({
     queryKey: financeKeys.accountMap(null),
@@ -73,11 +73,13 @@ export function FinanceOverview() {
   })
   const unassessed = useQuery({
     queryKey: financeKeys.assets(true, null),
-    queryFn: ({ signal }) => listAssets({ unassessed: true }, signal),
+    queryFn: ({ signal }) =>
+      listAssets({ unassessed: true }, signal).then((page) => page.rows),
   })
   const statements = useQuery({
     queryKey: financeKeys.bankStatements(),
-    queryFn: ({ signal }) => listBankStatements(signal),
+    queryFn: ({ signal }) =>
+      listBankStatements(signal).then((page) => page.rows),
   })
   const cash = useQuery({
     queryKey: financeKeys.balances("10110", null),

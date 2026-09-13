@@ -130,7 +130,7 @@ export function Password() {
             Cancel
           </Button>
           <Button
-            variant="dark"
+            variant="primary"
             size="lg"
             block
             disabled={!ready}

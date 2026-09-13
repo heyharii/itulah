@@ -15,6 +15,7 @@ use pricing_engine::{
     Campaign, CampaignStatus, Caps, CartLine, Coupon, Currency, Markdown, Money, PriceEntry,
     PriceLevel, PricingSnapshot, Rule,
 };
+use serde::Serialize;
 use serde_json::Value;
 use sqlx::{Postgres, Row, Transaction};
 use std::collections::BTreeMap;
@@ -81,7 +82,15 @@ pub async fn load_site_pricing(
     channel: &str,
     at: DateTime<Utc>,
 ) -> Result<SitePricing, AppError> {
-    let mut pricing = load_site_price_book(tx, site_id, channel, at).await?;
+    // The whole book. A basket being priced for real can hold anything the shop
+    // sells, and a snapshot narrowed to a guess is a snapshot that cannot price
+    // the line it guessed wrong about.
+    // Head office's view, deliberately: this serves the simulator and the
+    // centre's own checkout, and both are asking "what has the estate decided",
+    // not "what is one till charging". A till asking the second reads its own
+    // sqlite, which by construction holds only what it activated.
+    let mut pricing =
+        load_site_price_book(tx, site_id, channel, at, None, &PriceBookScope::AsPublished).await?;
     let usage = load_usage(tx).await?;
     pricing.snapshot.rules = load_rules(tx, &usage).await?;
     pricing.snapshot.coupons = load_coupons(tx, &usage).await?;
@@ -131,6 +140,50 @@ fn with_usage(mut caps: Caps, counted: Option<&(i64, i64)>) -> Caps {
     caps
 }
 
+/// What ONE shopper has already had, for the limit that is counted per shopper.
+///
+/// The sibling of [`load_usage`] and deliberately not folded into it: that one
+/// is about a promotion and belongs on the snapshot, which is shared by every
+/// basket priced against it. This one is about a person, so it belongs on the
+/// context — two shoppers under the same book get different answers from the
+/// same rule, and a count baked into a shared snapshot could only ever be one
+/// of them.
+///
+/// **Calling this at all is the claim that matters.** A caller that does not
+/// leaves `customer_history` unset, and the engine then refuses a rule carrying
+/// a per-customer limit rather than reading the silence as nought — because
+/// "nobody counted" and "this shopper has never used it" are the same empty map
+/// and opposite facts, and getting them the wrong way round is a limit that
+/// never bites with nothing on any screen to say so.
+///
+/// An anonymous sale is a no-op: `commercial_usage_customer` records nothing
+/// against nobody, so there is nothing to fetch and no query to run.
+pub async fn load_customer_history(
+    tx: &mut Transaction<'_, Postgres>,
+    context: &mut pricing_engine::PricingContext,
+) -> Result<(), AppError> {
+    let Some(customer_id) = context.customer_id.clone() else {
+        return Ok(());
+    };
+    // `RULE` only. The table also counts `CAMPAIGN` and `COUPON` for one
+    // shopper, and neither is read here: a coupon reserved for somebody already
+    // travels as `Coupon.customer_id`, and nothing declares a campaign-wide
+    // limit per shopper, so loading those two would be carrying counts that
+    // answer no question anybody asked.
+    let history = sqlx::query(
+        "SELECT key, uses FROM commercial_usage_customer
+          WHERE customer_id = $1 AND kind = 'RULE'",
+    )
+    .bind(customer_id.trim())
+    .fetch_all(&mut **tx)
+    .await?
+    .into_iter()
+    .map(|row| (row.get::<String, _>("key"), row.get::<i64, _>("uses")))
+    .collect();
+    context.customer_history = Some(history);
+    Ok(())
+}
+
 /// What a product costs here, without the promotions.
 ///
 /// The half of [`load_site_pricing`] that answers "what is this priced at" —
@@ -143,12 +196,205 @@ fn with_usage(mut caps: Caps, counted: Option<&(i64, i64)>) -> Caps {
 /// against thirty: pricing every style at every shop ran this per shop, so the
 /// promotion tables were being read once per branch to be discarded once per
 /// branch.
+///
+/// `only_skus` narrows the price ENTRIES to a known set of products, and it is
+/// what makes the pricelist affordable. A caller that already knows which
+/// products it is going to ask about — a page of fifty styles, some two hundred
+/// and fifty products — was being handed the shop's entire book: every rule for
+/// every product in the catalogue, four thousand rows, once per branch. Thirteen
+/// branches is fifty thousand rows read and discarded to answer a question about
+/// two hundred and fifty, and measured on the seeded database that one predicate
+/// takes a shop's book from 88 ms and 2.873 rows to 4 ms and 279.
+///
+/// It is a narrowing and never a filter on the ANSWER: `engine::stacks` looks
+/// every product up by its own code and consults nothing else, so a rule for a
+/// product the caller did not ask about could not have changed a single price it
+/// gets back. `None` means the whole book, which is what a till needs and what
+/// every caller got before this existed.
+///
+/// **Markdowns and campaigns are deliberately NOT narrowed.** A markdown can
+/// name an ARTICLE rather than a product, and one that names an article this
+/// page shows would be dropped by a SKU list — the cleared price would silently
+/// go back up on the merchandiser's own screen while every till kept charging
+/// it. They are also small: nine markdowns and six campaigns against four
+/// thousand price rules, so the narrowing would buy nothing and cost that.
+///
+/// One caveat worth knowing: `snapshot.publication_version` is the newest book
+/// any entry came from, so narrowing can report an older one. Nothing on the
+/// pricing path reads it — `PriceCandidate` carries each entry's OWN version,
+/// which is the number a cascade is explained with — but a future caller that
+/// wants "which book is this shop on" should ask the publication table, not a
+/// narrowed snapshot.
+/// Which publications a price book is built from.
+///
+/// Two readings of the same shop, and UI-001 §2 turns on the difference:
+/// "Cell default = harga sebelum promo dari versi **yang aktif di store**,
+/// bukan latest HO publication."
+///
+/// An enum and not an `Option<&[i64]>`, because the two empty cases are
+/// opposite facts and a `None` would collapse them: "this caller does not care
+/// which version" and "this shop has confirmed no version at all" would be the
+/// same value, and the second must produce **no prices** rather than every
+/// price there is. That is §3's last row — *"Tidak ada valid activation
+/// evidence → jangan fallback diam-diam ke latest HO"* — and a silent fallback
+/// is exactly what one nullable slice would give.
+#[derive(Clone, Debug)]
+pub enum PriceBookScope {
+    /// Every published book whose window is open. **Head office's view**: what
+    /// the estate has decided, not what any till is charging.
+    ///
+    /// Right for the simulator and for a shop pricing its own basket — a till
+    /// reads its OWN sqlite, which by construction holds only what it
+    /// activated, so it is already answering the store question.
+    AsPublished,
+    /// Only the versions this shop has reported putting into service.
+    ///
+    /// An empty list is a shop that has confirmed nothing, and it yields an
+    /// empty book. That reads as broken and is not: it is the difference
+    /// between "this shop charges X" and "nobody has ever told us what this
+    /// shop charges", and the second is what the estate actually knows.
+    AsActivated(Vec<i64>),
+}
+
+/// The versions one shop has reported putting into service, whose books are
+/// still in force.
+///
+/// The **set** and not the highest, which is not pedantry: activation is
+/// recorded per (publication, origin) and a shop can hold v15 and v22 having
+/// never applied v20. A ceiling would quietly include v20's prices in a book
+/// the shop does not have, and the centre would report a price no till charges
+/// — the divergence this estate has already lived through once.
+///
+/// Reads the existing evidence and adds no second source of truth: a row here
+/// is the shop's own report, on the shop's own clock.
+pub async fn activated_versions(
+    tx: &mut Transaction<'_, Postgres>,
+    site_id: &str,
+    at: DateTime<Utc>,
+) -> Result<Vec<i64>, AppError> {
+    let rows: Vec<i64> = sqlx::query_scalar(
+        "SELECT DISTINCT a.version
+           FROM commercial_publication_activation a
+           JOIN commercial_publication p ON p.id = a.publication_id
+          WHERE a.site_id = $1
+            AND p.status = 'PUBLISHED'
+            AND p.effective_from <= $2
+            AND (p.effective_to IS NULL OR p.effective_to > $2)
+          ORDER BY a.version",
+    )
+    .bind(site_id)
+    .bind(at)
+    .fetch_all(&mut **tx)
+    .await?;
+    Ok(rows)
+}
+
+/// A book head office has published over the top, which this shop has not
+/// switched to.
+///
+/// UI-001 §3, second row: *"HO punya publication lebih baru, store belum
+/// activate → **Active store price tetap utama**; badge publication
+/// baru/pending dan detail harga versi baru."* So this is surfaced BESIDE the
+/// price and never instead of it. The example in the spec is exact: a shop
+/// still charging Rp459k while head office has published a Rp349k markdown it
+/// has not activated shows **Rp459k · pembaruan pending**, and only becomes
+/// Rp349k once the shop says so.
+///
+/// Reaching a scheduled start date is not activation and neither is delivery.
+/// A book in this answer has been published and is in force as a decision; the
+/// only thing it lacks is a till that has said yes.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PendingPublication {
+    pub version: i64,
+    pub name: String,
+    pub effective_from: DateTime<Utc>,
+    pub published_by: Option<String>,
+    pub published_at: Option<DateTime<Utc>>,
+    /// How many of the products on this page it would reprice. The number that
+    /// says whether the badge is worth looking at: a newer book that touches
+    /// nothing on screen is noise.
+    pub affects_skus: i64,
+}
+
+/// The newest published book this shop has not activated that would reprice
+/// something on this page.
+///
+/// `after` is the newest version the shop HAS activated; `None` means it has
+/// activated nothing, and then every published book is pending — which is the
+/// honest reading of a shop that has never reported anything.
+pub async fn pending_publication(
+    tx: &mut Transaction<'_, Postgres>,
+    site_id: &str,
+    channel: &str,
+    at: DateTime<Utc>,
+    skus: &[String],
+    after: Option<i64>,
+) -> Result<Option<PendingPublication>, AppError> {
+    if skus.is_empty() {
+        return Ok(None);
+    }
+    let row = sqlx::query(
+        "SELECT p.version, p.name, p.effective_from, p.published_by, p.published_at,
+                count(DISTINCT s.sku_code) AS affects
+           FROM commercial_publication p
+           JOIN commercial_price_rule pr ON pr.publication_id = p.id
+           JOIN sku s ON s.id = pr.sku_id
+          WHERE p.status = 'PUBLISHED'
+            AND p.effective_from <= $3
+            AND (p.effective_to IS NULL OR p.effective_to > $3)
+            AND ($5::bigint IS NULL OR p.version > $5)
+            -- Not activated BY THIS SHOP. A book twelve other branches are
+            -- running is still pending here, and saying otherwise would hide
+            -- the one shop that is behind.
+            AND NOT EXISTS (
+                SELECT 1 FROM commercial_publication_activation a
+                 WHERE a.publication_id = p.id AND a.site_id = $1
+            )
+            AND pr.channel = $2
+            AND (pr.site_id IS NULL OR pr.site_id = $1)
+            AND (pr.site_ids IS NULL OR $1 = ANY(pr.site_ids))
+            AND s.sku_code = ANY($4)
+          GROUP BY p.version, p.name, p.effective_from, p.published_by, p.published_at
+          -- Newest first: if a shop is three books behind, the one that matters
+          -- is the one it would jump to.
+          ORDER BY p.version DESC
+          LIMIT 1",
+    )
+    .bind(site_id)
+    .bind(channel)
+    .bind(at)
+    .bind(skus)
+    .bind(after)
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    Ok(row.map(|row| PendingPublication {
+        version: row.get("version"),
+        name: row.get("name"),
+        effective_from: row.get("effective_from"),
+        published_by: row.get("published_by"),
+        published_at: row.get("published_at"),
+        affects_skus: row.get("affects"),
+    }))
+}
+
 pub async fn load_site_price_book(
     tx: &mut Transaction<'_, Postgres>,
     site_id: &str,
     channel: &str,
     at: DateTime<Utc>,
+    only_skus: Option<&[String]>,
+    scope: &PriceBookScope,
 ) -> Result<SitePricing, AppError> {
+    // Narrowing the CANDIDATES, never the ranking. Which of the surviving
+    // entries wins is still `pricing_engine`'s `better()` — newest publication,
+    // then scope, then start date — because a second opinion about that is how
+    // a shelf edge and a till came to disagree once already.
+    let versions: Option<Vec<i64>> = match scope {
+        PriceBookScope::AsPublished => None,
+        PriceBookScope::AsActivated(versions) => Some(versions.clone()),
+    };
     let rows = sqlx::query(
         "SELECT p.version, p.effective_from, p.effective_to,
                 pr.sku_id, s.sku_code, pr.site_id, pr.site_ids, pr.channel,
@@ -164,11 +410,21 @@ pub async fn load_site_price_book(
             AND (p.effective_to IS NULL OR p.effective_to > $3)
             AND pr.channel = $2
             AND (pr.site_id IS NULL OR pr.site_id = $1)
-            AND (pr.site_ids IS NULL OR $1 = ANY(pr.site_ids))",
+            AND (pr.site_ids IS NULL OR $1 = ANY(pr.site_ids))
+            -- NULL is the whole book, and an EMPTY list is not the same thing:
+            -- a caller that asked about no products at all should be given no
+            -- prices, not every price there is.
+            AND ($4::text[] IS NULL OR s.sku_code = ANY($4))
+            -- The same distinction one level up: NULL is head office's view,
+            -- and an empty array is a shop that has confirmed nothing — which
+            -- yields no prices, deliberately.
+            AND ($5::bigint[] IS NULL OR p.version = ANY($5))",
     )
     .bind(site_id)
     .bind(channel)
     .bind(at)
+    .bind(only_skus)
+    .bind(versions.as_deref())
     .fetch_all(&mut **tx)
     .await?;
 
@@ -217,22 +473,44 @@ pub async fn load_site_price_book(
         //
         // So the centre reproduces the shop's model explicitly rather than
         // relying on a comparator that was never given a version to compare.
-        "SELECT DISTINCT ON (m.markdown_id)
-                m.markdown_id, m.sku_code, m.article_code, m.site_id, m.site_ids,
-                m.replacement_unit_price_minor, m.priority, p.version,
-                m.effective_from, m.effective_to, m.campaign_id,
-                m.iso_weekdays, m.from_minute, m.to_minute
-           FROM commercial_markdown m
-           JOIN commercial_publication p ON p.id = m.publication_id
-          WHERE p.status = 'PUBLISHED'
-            AND m.effective_from <= $2
-            AND (m.effective_to IS NULL OR m.effective_to > $2)
-            AND (m.site_id IS NULL OR m.site_id = $1)
-            AND (m.site_ids IS NULL OR $1 = ANY(m.site_ids))
-          ORDER BY m.markdown_id, p.version DESC",
+        //
+        // The pick happens in the inner query and the window and site tests in
+        // the outer one, and that nesting is the whole point rather than a
+        // tidying preference. Filtering beside the pick makes a clearance
+        // impossible to END: a later book restating `md-X` with an
+        // `effective_to` in the past is thrown out by the window test before
+        // DISTINCT ON ever sees it, so the earlier open-ended row survives and
+        // wins, and the centre goes on quoting a cleared price for ever.
+        //
+        // The till does not behave that way. `INSERT OR REPLACE` on
+        // `markdown_id` means the shop holds the newest book's row and its
+        // dates, full stop — so the counter honours the withdrawal the same
+        // afternoon while head office keeps discounting. A shelf label and a
+        // till that disagree about a sale price is the failure this estate has
+        // already lived through once, and the till is the one that is right.
+        "SELECT * FROM (
+           SELECT DISTINCT ON (m.markdown_id)
+                  m.markdown_id, m.sku_code, m.article_code, m.site_id, m.site_ids,
+                  m.replacement_unit_price_minor, m.priority, p.version,
+                  m.effective_from, m.effective_to, m.campaign_id,
+                  m.iso_weekdays, m.from_minute, m.to_minute
+             FROM commercial_markdown m
+             JOIN commercial_publication p ON p.id = m.publication_id
+            WHERE p.status = 'PUBLISHED'
+              -- The same narrowing the prices get, and for the same reason: a
+              -- clearance published to head office is not a clearance a till is
+              -- running until that till says so.
+              AND ($3::bigint[] IS NULL OR p.version = ANY($3))
+            ORDER BY m.markdown_id, p.version DESC
+         ) current
+          WHERE current.effective_from <= $2
+            AND (current.effective_to IS NULL OR current.effective_to > $2)
+            AND (current.site_id IS NULL OR current.site_id = $1)
+            AND (current.site_ids IS NULL OR $1 = ANY(current.site_ids))",
     )
     .bind(site_id)
     .bind(at)
+    .bind(versions.as_deref())
     .fetch_all(&mut **tx)
     .await?
     .into_iter()
@@ -297,6 +575,7 @@ pub async fn load_site_price_book(
             rules: Vec::new(),
             coupons: Vec::new(),
             campaigns,
+            tax_rules: load_tax_rules(tx).await?,
         },
         sku_code_by_id,
         sku_id_by_code,
@@ -442,7 +721,7 @@ async fn load_campaigns(
         // and running at head office.
         "SELECT DISTINCT ON (c.campaign_id)
                 c.campaign_id, c.name, c.status, c.valid_from, c.valid_to,
-                c.budget_minor, c.max_uses
+                c.budget_minor, c.max_uses, c.site_ids
            FROM commercial_campaign c
            JOIN commercial_publication p ON p.id = c.publication_id
           WHERE p.status = 'PUBLISHED'
@@ -459,6 +738,14 @@ async fn load_campaigns(
             status: campaign_status(&row.get::<String, _>("status")),
             valid_from: row.get("valid_from"),
             valid_to: row.get("valid_to"),
+            // Null and `[]` both mean everywhere, and `BTreeSet::default()` is
+            // what the engine reads as everywhere — so a campaign published
+            // before this column existed narrows nothing.
+            site_ids: row
+                .get::<Option<Vec<String>>, _>("site_ids")
+                .unwrap_or_default()
+                .into_iter()
+                .collect(),
             caps: with_usage(
                 Caps {
                     budget: row.get::<Option<i64>, _>("budget_minor").map(Money::new),
@@ -497,6 +784,7 @@ pub struct Merchandise {
 /// Every catalogued product, by the code the engine names it by.
 pub async fn load_merchandise(
     tx: &mut Transaction<'_, Postgres>,
+    only_skus: Option<&[String]>,
 ) -> Result<BTreeMap<String, Merchandise>, AppError> {
     let rows = sqlx::query(
         "SELECT s.sku_code, a.article_code, a.name article_name, a.division_code,
@@ -509,8 +797,13 @@ pub async fn load_merchandise(
            JOIN article a ON a.id = s.article_id
            LEFT JOIN article_tag t ON t.article_id = a.id
           WHERE s.active
+            -- NULL is the whole catalogue; a list is the products the caller
+            -- already knows it is going to ask about. See `only_skus` on
+            -- `load_site_price_book` for why the distinction earns its keep.
+            AND ($1::text[] IS NULL OR s.sku_code = ANY($1))
           GROUP BY s.sku_code, a.article_code, a.name, a.division_code",
     )
+    .bind(only_skus)
     .fetch_all(&mut **tx)
     .await?;
     Ok(rows
@@ -548,4 +841,35 @@ pub fn cart_line(
         line.tags = facts.tags.clone();
     }
     line
+}
+
+/// What each category of goods carries, from the newest published book.
+///
+/// `DISTINCT ON` for the same reason every other loader here uses it: a rate
+/// restated in a later book supersedes the earlier one, and holding both would
+/// have the engine find whichever row the planner happened to return first.
+///
+/// An empty answer is a shop with no tax rules published, and the engine reports
+/// nought tax rather than guessing a rate. That is not a policy decision made
+/// here; it is the absence of one, reported honestly.
+async fn load_tax_rules(
+    tx: &mut Transaction<'_, Postgres>,
+) -> Result<Vec<pricing_engine::TaxRule>, AppError> {
+    Ok(sqlx::query(
+        "SELECT DISTINCT ON (t.tax_category)
+                t.tax_category, t.rate_bps, t.tax_inclusive
+           FROM commercial_tax_rule t
+           JOIN commercial_publication p ON p.id = t.publication_id
+          WHERE p.status = 'PUBLISHED'
+          ORDER BY t.tax_category, p.version DESC",
+    )
+    .fetch_all(&mut **tx)
+    .await?
+    .into_iter()
+    .map(|row| pricing_engine::TaxRule {
+        tax_category: row.get("tax_category"),
+        rate_bps: row.get::<i32, _>("rate_bps").into(),
+        inclusive: row.get("tax_inclusive"),
+    })
+    .collect())
 }

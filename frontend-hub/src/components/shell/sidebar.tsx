@@ -1,51 +1,46 @@
 import { Link, useRouterState } from "@tanstack/react-router"
-import {
-  ChevronRight,
-  HelpCircle,
-  LogOut,
-  PanelLeft,
-  Search,
-  Sparkles,
-  X,
-} from "lucide-react"
+import { HelpCircle, LogOut, X } from "lucide-react"
 
 import { count } from "@/lib/format"
 import {
-  asides,
-  modules,
+  domainForPath,
+  modulesOfDomain,
   moduleForPath,
   shown,
-  visibleItems,
   type AppModule,
   type NavItem,
 } from "@/lib/navigation"
 import { useIdentity, useNodeIdentity, useSignOut } from "@/lib/session"
 import { cn } from "@/lib/utils"
 
-/// The sidebar — the whole of this app's navigation, in one column.
+/// The sidebar — one module's screens, and only ever one module's.
 ///
-/// It used to be two: a 58px rail of coloured tiles for the eleven modules, and
-/// a 248px panel for whatever was inside the one you had picked. Eleven modules is
-/// not enough to earn a switcher of their own, and the arrangement asked people
-/// to learn that the left-hand strip meant "which part of the business" while
-/// the strip beside it meant "which screen". One column says both at once.
+/// The department list moved out to `rail.tsx` on 2026-09-10; that file
+/// carries the argument for the split, including the answer to the case that
+/// removed the rail in the first place. What is left here is the panel: the
+/// screens of whichever module you are in, drawn in the sections the module
+/// declares, at full width with no indent, because there is no longer a parent
+/// row above them to be indented under.
 ///
-/// **The active module is the expanded one, and nothing else expands.** There
-/// is no open/closed state anywhere in this file: which module is open is read
-/// off the URL. That is what keeps the panel short — eleven rows plus one
-/// module's worth of sub-items — and it means a link pasted into chat opens the sidebar
-/// exactly as the person who sent it had it. State would have to be restored,
-/// synchronised with navigation, and would still be wrong in the second tab.
+/// **Which module that is, is read off the URL.** There is no open/closed
+/// state anywhere in this file, and that is what makes a link pasted into chat
+/// open the sidebar exactly as the person who sent it had it. State would have
+/// to be restored, synchronised with navigation, and would still be wrong in
+/// the second tab.
+///
+/// The rows carry their icons again. They lost them when they were sub-items —
+/// a second column of glyphs indented under a glyph was the thing that made the
+/// old two-panel shell hard to read — but a top-level row is not under
+/// anything, and an icon beside a screen name is how a list of six is picked
+/// from at a glance rather than read.
 ///
 /// The three modules that reached their screens by an in-page tab strip do not
 /// any more: those strips were what a module without a sidebar row had to grow,
-/// and they are sub-items now like everyone else's.
+/// and they are ordinary rows now like everyone else's.
 export function Sidebar({
   open,
   variant = "flow",
   onToggle,
-  onOpenPalette,
-  onOpenAssistant,
 }: {
   open: boolean
   /// Whether this is the column in the layout or the drawer over it. One
@@ -55,12 +50,12 @@ export function Sidebar({
   /// desk and not on an iPad. The shell decides which — see `app-shell.tsx`.
   variant?: "flow" | "drawer"
   onToggle: () => void
-  onOpenPalette: () => void
-  onOpenAssistant: () => void
 }) {
   const drawer = variant === "drawer"
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const active = moduleForPath(pathname)
+  const domain = domainForPath(pathname)
+  const owned = domain ? modulesOfDomain(domain) : [active]
   const identity = useIdentity()
   const where = useNodeIdentity()
   const signOut = useSignOut()
@@ -71,18 +66,21 @@ export function Sidebar({
       className={cn(
         "flex shrink-0 flex-col border-r border-hairline bg-soft px-[0.6875rem] py-[0.8125rem]",
         "min-h-0",
-        // Collapsed is a column of icons, not an empty margin. A sidebar that
-        // slides away entirely leaves ⌘B as the only way back to navigation,
-        // and nothing on screen says so.
+        // Collapsed is GONE, not a narrower column. It used to shrink to a
+        // 58px strip of icons, because a sidebar that slid away entirely left
+        // ⌘B as the only way back to navigation with nothing on screen saying
+        // so. The rail answers that now — navigation never leaves — and two
+        // columns of icons side by side would have been one column too many.
         !drawer && "transition-[width] duration-200",
-        !drawer && (open ? "w-[15.5rem]" : "w-[3.625rem]"),
+        !drawer &&
+          (open ? "w-[15.5rem]" : "w-0 overflow-hidden border-r-0 px-0"),
         // A drawer is never the icon strip. It is over the content, so it has
         // no width to save, and it is opened by a thumb — so it takes the
         // labelled width plus a little, and scrolls its own height. `max-w`
         // keeps the veil reachable on the narrowest phone: a drawer with no
         // screen showing beside it is a page, and a page needs a back button
         // rather than a tap-outside.
-        drawer && "h-full w-[17.5rem] max-w-[85vw] overflow-y-auto"
+        drawer && "h-full w-[15.5rem] max-w-[calc(85vw-3.5rem)] overflow-y-auto"
       )}
     >
       <div
@@ -96,85 +94,45 @@ export function Sidebar({
             {where.data?.node_id ?? "cloud"}
           </b>
         )}
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-label={drawer ? "Close navigation" : "Toggle sidebar"}
-          title={drawer ? "Close" : open ? "Collapse  ⌘B" : "Expand  ⌘B"}
-          className={cn(
-            "grid shrink-0 place-items-center rounded-lg text-line-ico transition-colors hover:bg-soft-2 hover:text-text",
-            drawer ? "size-tap" : "size-[1.625rem]"
-          )}
-        >
-          {drawer ? (
+        {/* Only the drawer closes itself. The docked column's switch is on the
+            rail — see `rail.tsx` — because a control that vanishes with the
+            panel it controls is a one-way door. */}
+        {drawer && (
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-label="Close navigation"
+            title="Close"
+            className="grid size-tap shrink-0 place-items-center rounded-lg text-line-ico transition-colors hover:bg-soft-2 hover:text-text"
+          >
             <X className="size-[1.125rem] stroke-[1.7]" />
-          ) : (
-            <PanelLeft className="size-4 stroke-[1.7]" />
-          )}
-        </button>
-      </div>
-
-      {/* Neither of these is a place, so they sit above the modules rather
-          than among them: one opens a search, the other opens a conversation,
-          and both leave you on the screen you were already on. */}
-      <div className="mb-2 flex flex-col gap-px">
-        <Action
-          icon={Search}
-          label="Quick actions"
-          hint="K"
-          shortcut="⌘K"
-          onClick={onOpenPalette}
-          open={open}
-        />
-        <Action
-          icon={Sparkles}
-          label="Ask"
-          hint="J"
-          shortcut="⌘J"
-          onClick={onOpenAssistant}
-          open={open}
-        />
-      </div>
-
-      {/* The asides: talking to each other, and the reports somebody kept.
-          Icons rather than rows, and above the modules rather than among them,
-          because the list below is a map of the business — bought, held, sold,
-          what it cost, who did it — and a chat window is not one of those.
-          Filed among them, "Workplace" read as a department nobody works in. */}
-      <nav
-        aria-label="Workspace"
-        className={cn(
-          "mb-2 flex gap-px border-b border-hairline pb-2",
-          // Five across at 248px, one under another at 58px: the collapsed
-          // column has no width to put them side by side, and shrinking the
-          // hit targets to fit would make the strip the hardest thing in the
-          // sidebar to press.
-          open ? "flex-row justify-between" : "flex-col items-center"
+          </button>
         )}
-      >
-        {asides.map((aside) => (
-          <AsideIcon
-            key={aside.id}
-            module={aside}
-            active={aside.id === active.id}
-          />
-        ))}
-      </nav>
+      </div>
+
+      {/* Quick actions and Ask used to sit here, above the modules. They were
+          removed from the column on the owner's instruction; the ⌘K palette and
+          the assistant are still reachable by their shortcuts, which is where
+          the people who use them were reaching for them anyway. */}
 
       <nav
         aria-label="Navigation"
         className="flex min-h-0 [scrollbar-width:none] flex-col gap-px overflow-y-auto [&::-webkit-scrollbar]:hidden"
       >
-        {modules
-          .filter((module) => !module.hidden)
-          .map((module) => (
-            <ModuleGroup
-              key={module.id}
-              module={module}
-              active={module.id === active.id}
-              open={open}
-            />
-          ))}
+        {/* The drawer says what the rail says: the screens of the DOMAIN, not
+            of one module inside it. Selling holds three modules, and a drawer
+            that showed only the one you happened to be in would hide Store ops
+            and Members from every phone in the company. */}
+        {owned.map((module) => (
+          <div key={module.id} className="flex flex-col gap-px">
+            {owned.length > 1 && (
+              <span className="px-[0.5625rem] pt-4 pb-[0.3125rem] text-section font-semibold tracking-[0.05em] text-mute uppercase">
+                {module.label}
+              </span>
+            )}
+            <ModuleScreens key={module.id} module={module} />
+          </div>
+        ))}
       </nav>
 
       <div className="mt-auto flex flex-col gap-px pt-2.5">
@@ -226,230 +184,79 @@ export function Sidebar({
   )
 }
 
-/// One aside, drawn as its icon.
+/// One module's screens, in the sections the module declares.
 ///
-/// A `<Link>` like any module row — it goes somewhere, and it can be the active
-/// one — but with no label beside it, so the whole strip costs one row's height
-/// instead of five. `title` carries the name, which is the same thing the
-/// collapsed sidebar relies on and for the same reason: a hand-drawn tooltip
-/// cannot escape the box it is painted in.
-function AsideIcon({ module, active }: { module: AppModule; active: boolean }) {
-  const Icon = module.icon
-  return (
-    <Link
-      to={module.home}
-      title={module.label}
-      aria-label={module.label}
-      aria-current={active ? "page" : undefined}
-      className={cn(
-        "grid size-[1.875rem] shrink-0 place-items-center rounded-lg transition-colors hover:bg-soft-2 pointer-coarse:size-tap",
-        active ? "bg-soft-2 text-ink" : "text-line-ico hover:text-text"
-      )}
-    >
-      <Icon className="size-[1.0625rem] stroke-[1.55]" />
-    </Link>
-  )
-}
-
-/// A row that does something rather than going somewhere.
+/// Sections rather than a flat list because the labels are the module's own
+/// grouping of its work — Finance's "Work · Books · Rules" — and that grouping
+/// is the difference between six rows you scan and six rows you read. The
+/// first section carries no label: it sits directly under the workspace chip
+/// and a heading there would name the module a second time.
 ///
-/// A button and not a `<Link>`, and that is the whole distinction being drawn:
-/// nothing here changes the URL, so nothing here can ever be the active row.
-function Action({
-  icon: Icon,
-  label,
-  hint,
-  shortcut,
-  onClick,
-  open,
-}: {
-  icon: typeof Search
-  label: string
-  /// The key, drawn at the right-hand end while there is room for it.
-  hint: string
-  /// The whole chord, for the hover label a collapsed row needs.
-  shortcut: string
-  onClick: () => void
-  open: boolean
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={open ? undefined : `${label}  ${shortcut}`}
-      className={cn(
-        "flex items-center gap-2.5 rounded-lg py-[0.4375rem] text-nav font-medium text-text transition-colors hover:bg-soft-2",
-        // The touch floor, chosen by pointer and not by width: see
-        // `lib/layout.ts`. An iPad in landscape is 1180px, gets the docked
-        // column, and its rows are still pressed with a thumb; a laptop window
-        // of exactly that width is not and keeps the dense ones.
-        "pointer-coarse:min-h-tap",
-        open ? "px-[0.5625rem]" : "justify-center px-0"
-      )}
-    >
-      <Icon className="size-[1.0625rem] shrink-0 stroke-[1.55] text-line-ico" />
-      {open && (
-        <>
-          <span className="min-w-0 flex-1 truncate text-left">{label}</span>
-          <kbd className="shrink-0 text-[0.6875rem] font-medium text-mute">
-            {hint}
-          </kbd>
-        </>
-      )}
-    </button>
-  )
-}
-
-/// One module: its own row, and — when it is the module you are in — the
-/// screens under it.
+/// A LATER section with no label draws a rule instead of a heading. Articles
+/// wanted that on 2026-09-12: its four lists belong under the article rather
+/// than under a word, and every word tried for them — "Vocabulary",
+/// "Reference data", "Master data" — named a category of table rather than
+/// anything the business does. A hairline says "these belong to the row above"
+/// and says nothing else.
 ///
-/// The row navigates rather than merely opening: `home` is a real screen, so a
-/// click that only unfolded a list would be a click that went nowhere. Landing
-/// on the module makes it the active one, which is what expands it, so the
-/// disclosure and the navigation are the same gesture and cannot disagree.
-function ModuleGroup({
-  module,
-  active,
-  open,
-}: {
-  module: AppModule
-  active: boolean
-  open: boolean
-}) {
-  const Icon = module.icon
-  /// More than one, not more than none: a module whose only visible screen is
-  /// its own `home` would unfold into a single sub-item saying what the row
-  /// above it already says. It gets no chevron and does not expand — which is
-  /// also what keeps this honest as screens are added and `hidden` is moved
-  /// about, rather than a fact somebody has to remember to re-check.
-  // Called unconditionally and before anything branches on it, like the count
-  // below: which module is on screen changes, so a hook called only by the
-  // modules that declare one would change the hook order between renders.
-  // `ModuleGroup` draws exactly one module and is keyed by its id, so the pair
-  // of defaults below is stable for the life of the instance.
+/// A module with one visible screen draws that screen and no heading. It is
+/// still drawn: the row is where you are, and an empty panel beside a lit rail
+/// tile reads as a screen that failed to load.
+function ModuleScreens({ module }: { module: AppModule }) {
+  // Called unconditionally and before anything branches on it. Which module is
+  // on screen changes, so a hook called only by the modules that declare one
+  // would change the hook order between renders; `key`ing this component by
+  // module id keeps the default stable for the life of the instance.
   const useAudience = module.useAudience ?? noAudience
   const audience = useAudience()
-  const items = visibleItems(module, audience)
-  const unfolds = items.length > 1
-  const expanded = open && active && unfolds
-  const useCount = module.useCount ?? noCount
-  // Called unconditionally, drawn conditionally: while the module is expanded
-  // its sub-items carry their own counts and the total would say it again.
-  const total = useCount()
-
-  const row = (
-    <Link
-      to={module.home}
-      aria-current={active ? "page" : undefined}
-      // Collapsed, the label is not drawn, so the row needs to be able to say
-      // what it is. `title` rather than the styled tooltip the rail used to
-      // carry: that one lived inside this scroll container and was clipped by
-      // it, and a tooltip cannot escape the box it is painted in.
-      title={open ? undefined : module.label}
-      className={cn(
-        "group flex items-center gap-2.5 rounded-lg py-[0.4375rem] text-nav transition-colors hover:bg-soft-2",
-        "pointer-coarse:min-h-tap",
-        open ? "px-[0.5625rem]" : "justify-center px-0",
-        // The active module is stated by weight and ink, not by a fill: the
-        // fill belongs to the one sub-item you are actually on, and two pills
-        // in a column argue about which is current.
-        active ? "font-semibold text-ink" : "font-medium text-text",
-        !open && active && "bg-soft-2"
-      )}
-    >
-      <span className="relative grid shrink-0 place-items-center">
-        <Icon
-          className={cn(
-            "size-[1.0625rem] stroke-[1.55]",
-            active ? "text-ink" : "text-line-ico"
-          )}
-        />
-        {/* Collapsed, there is no room for the number — but the number's whole
-            job is to be noticed by somebody who has not opened the module, and
-            that is exactly who is looking at a 58px column. So the count
-            becomes a dot: same claim, no width. */}
-        {!open && typeof total === "number" && total > 0 && (
-          <span
-            aria-hidden
-            className={cn(
-              "absolute -top-px -right-px size-[0.375rem] rounded-full ring-2 ring-soft",
-              module.badge === "bad" ? "bg-bad-fg" : "bg-warn-fg"
-            )}
-          />
-        )}
-      </span>
-      {open && (
-        <>
-          <span className="min-w-0 flex-1 truncate">{module.label}</span>
-          {!expanded && <Badge value={total} tint={module.badge} />}
-          {unfolds && module.soon !== true && (
-            <ChevronRight
-              className={cn(
-                "size-3.5 shrink-0 stroke-[1.7] text-line-ico transition-transform duration-150",
-                expanded && "rotate-90"
-              )}
-            />
-          )}
-        </>
-      )}
-    </Link>
-  )
+  const visible = module.sections
+    .map((section) => ({
+      label: section.label,
+      items: section.items.filter(shown(audience)),
+    }))
+    .filter((section) => section.items.length > 0)
 
   return (
-    <div className="flex flex-col gap-px">
-      {row}
-      {expanded && (
-        <div className="mb-1 flex flex-col gap-px">
-          {module.sections.map((section, index) => {
-            // The same rule the row above used to decide whether to unfold at
-            // all — asked once, in `navigation.ts`, rather than re-spelled
-            // here. A group whose every item is head office's disappears
-            // entirely for a shop manager, label and all.
-            const items = section.items.filter(shown(audience))
-            if (items.length === 0) return null
-            return (
-              <div
-                key={section.label ?? index}
-                className="flex flex-col gap-px"
-              >
-                {/* Drawn only inside the expanded module, which is the only
-                    place a second level of labelling is affordable. Finance
-                    and Inventory are ten and eleven screens; the groups are
-                    the difference between a list and a table of contents. */}
-                {section.label && (
-                  <div className="pt-1.5 pb-[0.1875rem] pl-[2.3125rem] text-[0.6875rem] font-semibold tracking-[0.05em] text-mute uppercase">
-                    {section.label}
-                  </div>
-                )}
-                {items.map((item) => (
-                  <SubRow
-                    key={item.path}
-                    item={item}
-                    exact={item.path === module.home}
-                  />
-                ))}
-              </div>
+    <>
+      {visible.map((section, index) => (
+        <div key={section.label ?? index} className="flex flex-col gap-px">
+          {section.label ? (
+            <span className="px-[0.5625rem] pt-4 pb-[0.3125rem] text-section font-normal text-mute">
+              {section.label}
+            </span>
+          ) : (
+            index > 0 && (
+              <hr className="mx-[0.5625rem] mt-[0.6875rem] mb-[0.5625rem] border-0 border-t border-hairline" />
             )
-          })}
+          )}
+          {section.items.map((item) => (
+            <ScreenRow
+              key={item.path}
+              item={item}
+              // Only the module's own landing screen needs an exact match: it
+              // is a prefix of every other path in the module, so a loose
+              // match would light it on all of them.
+              exact={item.path === module.home}
+            />
+          ))}
         </div>
-      )}
-    </div>
+      ))}
+    </>
   )
 }
 
-/// One screen under its module.
+/// One screen, as a row.
 ///
-/// Its own component so that a sub-item which wants a live count gets one hook
-/// call, at the top of a component, unconditionally — the only way a hook may
-/// be called at all. `item.useCount?.()` inside the `.map()` above would be a
-/// hook in a loop body, and would break the first time a section changed
-/// length.
+/// Its own component so that a row which wants a live count gets one hook call,
+/// at the top of a component, unconditionally — the only way a hook may be
+/// called at all. `item.useCount?.()` inside the `.map()` above would be a hook
+/// in a loop body, and would break the first time a section changed length.
 ///
-/// No icon. The indent and the module row above already say where this is, and
-/// a second column of glyphs under a glyph is the thing that made the two-panel
-/// shell hard to read. The icons stay declared: ⌘K draws them, where a result
-/// has no parent row to inherit meaning from.
-function SubRow({ item, exact }: { item: NavItem; exact: boolean }) {
+/// The active row is a FILL, and it is the only fill in the column: the rail
+/// tile says which module, this says which screen, and neither has to compete
+/// with a second highlighted thing above it.
+function ScreenRow({ item, exact }: { item: NavItem; exact: boolean }) {
+  const Icon = item.icon
   const useCount = item.useCount ?? noCount
   const badge = useCount()
 
@@ -457,8 +264,9 @@ function SubRow({ item, exact }: { item: NavItem; exact: boolean }) {
     <Link
       to={item.path}
       activeOptions={{ exact }}
-      className="group flex items-center gap-2.5 rounded-lg py-[0.375rem] pr-[0.5625rem] pl-[2.3125rem] text-nav font-medium text-body transition-colors hover:bg-soft-2 hover:text-ink data-[status=active]:bg-soft-2 data-[status=active]:font-medium data-[status=active]:text-ink pointer-coarse:min-h-tap"
+      className="group flex items-center gap-2.5 rounded-lg px-[0.5625rem] py-[0.4375rem] text-nav font-medium text-text transition-colors hover:bg-soft-2 hover:text-ink data-[status=active]:bg-soft-2 data-[status=active]:font-semibold data-[status=active]:text-ink pointer-coarse:min-h-tap"
     >
+      <Icon className="size-[1.0625rem] shrink-0 stroke-[1.55] text-line-ico group-data-[status=active]:text-ink" />
       <span className="min-w-0 flex-1 truncate">{item.label}</span>
       <Badge value={badge} tint={item.badge} />
     </Link>

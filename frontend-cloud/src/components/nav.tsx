@@ -11,7 +11,7 @@ import { useBasketPieces } from "@/lib/basket"
 import { useBasketSheet, useNotificationSheet } from "@/lib/sheets/system"
 import { conversationsKey, listConversations } from "@/lib/chat"
 import { listPriceBooks, priceBooksKey } from "@/lib/commercial"
-import { pendingPriceAmendments } from "@/lib/purchase-orders"
+import { priceAmendmentPage } from "@/lib/purchase-orders"
 import { useIdentity, useNodeIdentity, useSignOut } from "@/lib/session"
 import { cn } from "@/lib/utils"
 import { useQuery } from "@tanstack/react-query"
@@ -53,10 +53,12 @@ export function Nav() {
   // and a buyer with the screen open should see one appear without reloading.
   const amendments = useQuery({
     queryKey: ["purchase-price-amendments"],
-    queryFn: ({ signal }) => pendingPriceAmendments(signal),
+    queryFn: ({ signal }) => priceAmendmentPage(signal),
     refetchInterval: 60_000,
   })
-  const waiting = amendments.data?.length ?? 0
+  // The server's count, not the page's length. A badge saying how much is
+  // waiting has to mean the pile, and the array only ever holds one page of it.
+  const waiting = amendments.data?.total ?? 0
   // The same key and page the Allotments screen asks for, so opening it does
   // not fetch the list a second time.
   const allotments = useQuery({

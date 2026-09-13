@@ -1309,7 +1309,9 @@ async fn an_administrator_can_promote_somebody_but_never_themselves(pool: PgPool
         None,
     )
     .await
-    .body["items"][0]["id"]
+    // `rows`, not `items`: the account list answers an envelope now — a page,
+    // an exact total and facet counts.
+    .body["rows"][0]["id"]
         .as_str()
         .unwrap_or_else(|| panic!("admin id"))
         .to_string();

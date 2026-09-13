@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.graphics.Color
 import id.itulah.pindai.ui.theme.LocalMotion
+import id.itulah.pindai.ui.theme.Motion
 
 /**
  * A number that rolls rather than blinks.
@@ -49,11 +50,13 @@ fun RollingNumber(
                         fadeIn(tween(0)) togetherWith fadeOut(tween(0))
                     } else {
                         val up = targetState > initialState
-                        (slideInVertically(tween(220)) { h -> if (up) h else -h } +
-                            fadeIn(tween(160)))
+                        (slideInVertically(
+                            tween(Motion.panel, easing = Motion.easeOut),
+                        ) { h -> if (up) h else -h } + fadeIn(tween(Motion.pop)))
                             .togetherWith(
-                                slideOutVertically(tween(220)) { h -> if (up) -h else h } +
-                                    fadeOut(tween(160)),
+                                slideOutVertically(
+                                    tween(Motion.panel, easing = Motion.easeOut),
+                                ) { h -> if (up) -h else h } + fadeOut(tween(Motion.pop)),
                             )
                     }
                 },

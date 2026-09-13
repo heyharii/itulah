@@ -1,27 +1,29 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { ChevronLeft, ChevronRight } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
-import { Day } from "@/components/ui/day"
 import { Button } from "@/components/ui/button"
+import { Day } from "@/components/ui/day"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
-import { Field, Input, Select } from "@/components/ui/field"
+import { Field, Input } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
+import { ButtonGroup, Segmented } from "@/components/ui/segmented"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { day } from "@/lib/format"
+import { cn } from "@/lib/utils"
 import {
-  boundedTo,
   listEmployees,
   listShifts,
   peopleKeys,
   placeRoster,
   planDay,
   rosterKeys,
-  useReach,
 } from "@/lib/queries/people"
 import { queryState } from "@/lib/query-state"
-import type { RosterDayView } from "@itulah/contract"
+import { UnitChoice, useUnit } from "@/screens/people/parts"
+import type { RosterDayView, ShiftView } from "@itulah/contract"
 
 /// Next week, per person.
 ///
@@ -41,24 +43,80 @@ import type { RosterDayView } from "@itulah/contract"
 
 /// The Monday of the week a date falls in. The statutory week is a week, not a
 /// rolling seven days, and the roster is read the same way.
+/// Both of these do their arithmetic in UTC and only ever exchange `YYYY-MM-DD`
+/// with the rest of the app, because a roster date is a **calendar day** and
+/// not an instant. Read a local midnight and print it with `toISOString()` and
+/// Jakarta's +7 turns it into the previous day: the grid drew seven columns
+/// starting on Sunday while its own title said Monday, and asked the server for
+/// a week that was a day behind the week it was showing.
 function mondayOf(date: Date): string {
-  const copy = new Date(date)
-  const back = (copy.getDay() + 6) % 7
-  copy.setDate(copy.getDate() - back)
-  return copy.toISOString().slice(0, 10)
+  const utc = new Date(
+    Date.UTC(date.getFullYear(), date.getMonth(), date.getDate())
+  )
+  const back = (utc.getUTCDay() + 6) % 7
+  utc.setUTCDate(utc.getUTCDate() - back)
+  return utc.toISOString().slice(0, 10)
 }
 
 function addDays(iso: string, days: number): string {
-  const date = new Date(`${iso}T00:00:00`)
-  date.setDate(date.getDate() + days)
+  const date = new Date(`${iso}T00:00:00Z`)
+  date.setUTCDate(date.getUTCDate() + days)
   return date.toISOString().slice(0, 10)
 }
 
+/// What one click on a cell will write.
+///
+/// A shift id, or one of the two plans that name no shift. They share one
+/// control because they are one question — *what is this person doing on
+/// Tuesday* — and splitting them into "plan kind" then "which shift" is what
+/// made the old form four fields long.
+type Brush = { kind: "SHIFT"; shiftId: string } | { kind: "REST" } | { kind: "HOLIDAY" }
+
+function brushKey(brush: Brush): string {
+  return brush.kind === "SHIFT" ? `SHIFT:${brush.shiftId}` : brush.kind
+}
+
+function brushFromKey(key: string, shifts: readonly ShiftView[]): Brush | null {
+  if (key === "REST") return { kind: "REST" }
+  if (key === "HOLIDAY") return { kind: "HOLIDAY" }
+  const id = key.startsWith("SHIFT:") ? key.slice("SHIFT:".length) : null
+  if (id === null) return null
+  return shifts.some((one) => one.id === id) ? { kind: "SHIFT", shiftId: id } : null
+}
+
+/// `Sen 07` — the weekday first, because a week is read by weekday.
+///
+/// `timeZone: "UTC"` for the reason the arithmetic above is in UTC: the string
+/// is a calendar day, and letting the formatter apply Jakarta's +7 to a
+/// midnight would print the day before.
+function column(iso: string): { weekday: string; date: string } {
+  const at = new Date(`${iso}T00:00:00Z`)
+  return {
+    weekday: at.toLocaleDateString("id-ID", {
+      weekday: "short",
+      timeZone: "UTC",
+    }),
+    date: at.toLocaleDateString("id-ID", { day: "2-digit", timeZone: "UTC" }),
+  }
+}
+
+function todayIso(): string {
+  const now = new Date()
+  return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()))
+    .toISOString()
+    .slice(0, 10)
+}
+
 export function Roster() {
-  const reach = useReach()
-  const place = reach.data?.place_id ?? null
-  const bounded = boundedTo(reach.data)
+  const client = useQueryClient()
+  const unit = useUnit()
+  const place = unit.place
   const [from, setFrom] = useState(() => mondayOf(new Date()))
+  const [reason, setReason] = useState("")
+  const [chosen, setChosen] = useState<string | null>(null)
+  const [failed, setFailed] = useState<string | null>(null)
+  const today = todayIso()
+
   const week = useMemo(
     () => Array.from({ length: 7 }, (_, index) => addDays(from, index)),
     [from]
@@ -70,11 +128,35 @@ export function Roster() {
     queryFn: ({ signal }) => placeRoster(place ?? "", from, to, signal),
     enabled: place !== null,
   })
-  const team = useQuery({
-    queryKey: peopleKeys.employees({ status: "ACTIVE", limit: 1000 }),
-    queryFn: ({ signal }) =>
-      listEmployees({ status: "ACTIVE", limit: 1000 }, signal),
+  const shifts = useQuery({
+    queryKey: rosterKeys.shifts(),
+    queryFn: ({ signal }) => listShifts(signal),
   })
+  /// **Bounded to the place the grid is about**, not to the caller.
+  ///
+  /// It used to ask for every active employee, which is right by accident for
+  /// a store manager — the server bounds them to their own posting — and wrong
+  /// for head office, who was served the whole company's names against one
+  /// place's plan. Thirty-three rows of dashes is not a roster.
+  const team = useQuery({
+    queryKey: peopleKeys.employees({
+      status: "ACTIVE",
+      placeId: place ?? undefined,
+      limit: 1000,
+    }),
+    queryFn: ({ signal }) =>
+      listEmployees(
+        { status: "ACTIVE", placeId: place ?? undefined, limit: 1000 },
+        signal
+      ),
+    enabled: place !== null,
+  })
+
+  const live = shifts.data ?? []
+  // The first pattern head office defined, until somebody picks another. A
+  // palette with nothing selected is a grid where the first click does
+  // nothing and says nothing about why.
+  const brush = brushFromKey(chosen ?? "", live) ?? (live[0] ? { kind: "SHIFT" as const, shiftId: live[0].id } : null)
 
   // Keyed by person and date, so a cell is a lookup rather than a scan of the
   // whole week per square.
@@ -86,28 +168,100 @@ export function Roster() {
     return map
   }, [days.data])
 
+  const write = useMutation({
+    mutationFn: (cell: { employeeId: string; onDate: string }) => {
+      if (brush === null) throw new Error("No shift pattern is defined yet.")
+      return planDay(cell.employeeId, {
+        onDate: cell.onDate,
+        plan:
+          brush.kind === "SHIFT"
+            ? "SCHEDULED"
+            : brush.kind === "REST"
+              ? "REST_DAY"
+              : "PUBLIC_HOLIDAY",
+        shiftId: brush.kind === "SHIFT" ? brush.shiftId : undefined,
+        reason: reason.trim(),
+      })
+    },
+    onSuccess: () => {
+      setFailed(null)
+      void client.invalidateQueries({
+        queryKey: rosterKeys.place(place ?? "", from, to),
+      })
+    },
+    onError: (error: Error) => setFailed(error.message),
+  })
+
+  // The server refuses a blank reason, and it is right to: a plan is an
+  // instruction somebody gave. So the reason is asked ONCE for the sitting
+  // rather than once per day, and the grid stays inert until it is given —
+  // which is the honest version of a click that would have been a 400.
+  const ready = reason.trim() !== "" && brush !== null && place !== null
+
   return (
     <PageContent>
       <PageHeader
         crumb="People"
         title="Roster"
         sub={
-          bounded === null
-            ? "Head office reads the plan; the place that works it builds it."
-            : `Next week at ${bounded}. A revision keeps the plan it replaced.`
+          unit.choosing
+            ? "Head office reads any place's plan, and may revise one. The place that works it builds it."
+            : `Next week at ${unit.name ?? "your place"}. A revision keeps the plan it replaced.`
         }
         actions={
-          <Day
-            value={from}
-            onChange={(next) => setFrom(mondayOf(new Date(next)))}
-            className="h-8 w-40"
-          />
+          <>
+            <UnitChoice
+              place={place}
+              places={unit.places}
+              onChange={unit.setPlace}
+            />
+            {/* A week at a time, because that is how a roster is built — and
+                the date picker stays for the jump to a month away. */}
+            <ButtonGroup>
+              <Button
+                variant="ghost"
+                aria-label="Previous week"
+                onClick={() => setFrom(addDays(from, -7))}
+              >
+                <ChevronLeft className="size-4 stroke-[1.7]" />
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => setFrom(mondayOf(new Date()))}
+              >
+                This week
+              </Button>
+              <Button
+                variant="ghost"
+                aria-label="Next week"
+                onClick={() => setFrom(addDays(from, 7))}
+              >
+                <ChevronRight className="size-4 stroke-[1.7]" />
+              </Button>
+            </ButtonGroup>
+            <Day
+              value={from}
+              onChange={(next) => setFrom(mondayOf(new Date(next)))}
+              className="h-8 w-36"
+            />
+          </>
         }
       />
 
-      {place === null && (
+      {place === null && !unit.choosing && (
         <Banner tone="warn" className="mb-4">
           You are not posted anywhere, so there is no week to build.
+        </Banner>
+      )}
+      {failed !== null && (
+        <Banner tone="bad" className="mb-4">
+          {failed}
+        </Banner>
+      )}
+      {place !== null && live.length === 0 && (
+        <Banner tone="warn" className="mb-4">
+          No shift pattern is defined, so there is nothing to put anybody on.
+          Head office defines them under Setup › Shift patterns.
         </Banner>
       )}
 
@@ -117,6 +271,54 @@ export function Roster() {
             {day(from)} — {day(to)}
           </CardTitle>
         </CardHeader>
+
+        {/* The tool, in the same card as the thing it acts on: choose what you
+            are putting people on, say once why, then click the days. Above the
+            grid rather than below it, because it has to be read first. */}
+        {live.length > 0 && (
+          <div className="flex flex-wrap items-end gap-x-4 gap-y-3 border-b border-hairline px-4 pb-3.5">
+            <div className="flex flex-col gap-[0.4375rem]">
+              <span className="text-[0.75rem] font-medium text-text">
+                Put on
+              </span>
+              <Segmented
+                value={brush === null ? "" : brushKey(brush)}
+                onChange={(value) => setChosen(value)}
+                options={[
+                  ...live.map((shift) => ({
+                    value: `SHIFT:${shift.id}`,
+                    label: (
+                      <span className="flex items-baseline gap-1">
+                        {shift.name}
+                        <span className="text-[0.6875rem] text-mute">
+                          {shift.starts_at}–{shift.ends_at}
+                        </span>
+                      </span>
+                    ),
+                  })),
+                  { value: "REST", label: "Rest" },
+                  { value: "HOLIDAY", label: "Public holiday" },
+                ]}
+              />
+            </div>
+            <Field
+              label="Why"
+              hint={
+                ready
+                  ? "Recorded against every day you click."
+                  : "Required — the grid stays locked until it is given."
+              }
+              className="w-60"
+            >
+              <Input
+                value={reason}
+                onChange={(event) => setReason(event.target.value)}
+                placeholder="jadwal minggu ini"
+                className="h-8"
+              />
+            </Field>
+          </div>
+        )}
         {queryState(days, {
           loading: "Reading the plan…",
           render: () =>
@@ -129,17 +331,37 @@ export function Roster() {
                 <table className="w-full min-w-[46rem] border-collapse">
                   <thead>
                     <tr>
-                      <th className="w-40 pb-2 text-left text-eyebrow text-mute uppercase">
+                      <th className="w-44 pb-2 text-left text-cell font-normal text-body">
                         Who
                       </th>
-                      {week.map((date) => (
-                        <th
-                          key={date}
-                          className="pb-2 text-left text-eyebrow text-mute uppercase"
-                        >
-                          {day(date)}
-                        </th>
-                      ))}
+                      {week.map((date) => {
+                        const head = column(date)
+                        const now = date === today
+                        return (
+                          <th
+                            key={date}
+                            aria-current={now ? "date" : undefined}
+                            className={cn(
+                              // Equal and fixed: a chip is wider than a `+`,
+                              // and without this the day somebody filled first
+                              // took the width from the six beside it.
+                              "w-[11.5%] pb-2 text-left text-cell font-normal",
+                              now ? "text-ink" : "text-body"
+                            )}
+                          >
+                            <span className="flex items-baseline gap-1">
+                              {head.weekday}
+                              <span
+                                className={cn(
+                                  now ? "font-medium text-ink" : "text-mute"
+                                )}
+                              >
+                                {head.date}
+                              </span>
+                            </span>
+                          </th>
+                        )
+                      })}
                     </tr>
                   </thead>
                   <tbody>
@@ -148,39 +370,30 @@ export function Roster() {
                         key={person.employee_id}
                         className="border-t border-hairline"
                       >
-                        <td className="py-2 pr-3 text-cell text-ink">
-                          {person.full_name ?? person.employee_code}
+                        <td className="py-1.5 pr-3">
+                          <span className="block truncate text-cell text-ink">
+                            {person.full_name ?? person.employee_code}
+                          </span>
+                          {person.full_name !== null && (
+                            <span className="block truncate text-[0.6875rem] text-mute">
+                              {person.employee_code}
+                            </span>
+                          )}
                         </td>
-                        {week.map((date) => {
-                          const entry = planned.get(
-                            `${person.employee_id}|${date}`
-                          )
-                          return (
-                            <td key={date} className="py-2 pr-3">
-                              {entry === undefined ? (
-                                <span className="text-mute">—</span>
-                              ) : (
-                                <span className="flex items-baseline gap-1.5">
-                                  <span className="text-cell text-ink">
-                                    {entry.plan === "SCHEDULED"
-                                      ? (entry.shift_name ?? entry.shift_id)
-                                      : entry.plan === "REST_DAY"
-                                        ? "Rest"
-                                        : "Holiday"}
-                                  </span>
-                                  {/* A day planned more than once is a
-                                      governance signal, so it is on the cell
-                                      rather than a click away. */}
-                                  {entry.revision_count > 1 && (
-                                    <Pill tone="info">
-                                      ×{entry.revision_count}
-                                    </Pill>
-                                  )}
-                                </span>
-                              )}
-                            </td>
-                          )
-                        })}
+                        {week.map((date) => (
+                          <Cell
+                            key={date}
+                            entry={planned.get(`${person.employee_id}|${date}`)}
+                            ready={ready && !write.isPending}
+                            today={date === today}
+                            onClick={() =>
+                              write.mutate({
+                                employeeId: person.employee_id,
+                                onDate: date,
+                              })
+                            }
+                          />
+                        ))}
                       </tr>
                     ))}
                   </tbody>
@@ -189,135 +402,72 @@ export function Roster() {
             ),
         })}
       </Card>
-
-      {place !== null && <PlanDay place={place} from={from} to={to} />}
     </PageContent>
   )
 }
 
-function PlanDay({
-  place,
-  from,
-  to,
+/// One person's one day: what is planned, and a click that plans it.
+///
+/// A cell that already carries a plan is a **revision** when clicked, and the
+/// plan it replaces is kept — so the count is on the cell rather than a click
+/// away, and the title says which of the two a click is about to do.
+function Cell({
+  entry,
+  ready,
+  today,
+  onClick,
 }: {
-  place: string
-  from: string
-  to: string
+  entry: RosterDayView | undefined
+  ready: boolean
+  today: boolean
+  onClick: () => void
 }) {
-  const client = useQueryClient()
-  const [employeeId, setEmployeeId] = useState("")
-  const [onDate, setOnDate] = useState(from)
-  const [plan, setPlan] = useState<"SCHEDULED" | "REST_DAY" | "PUBLIC_HOLIDAY">(
-    "SCHEDULED"
-  )
-  const [shiftId, setShiftId] = useState("")
-  const [reason, setReason] = useState("")
-  const [failed, setFailed] = useState<string | null>(null)
-
-  const shifts = useQuery({
-    queryKey: rosterKeys.shifts(),
-    queryFn: ({ signal }) => listShifts(signal),
-  })
-  const team = useQuery({
-    queryKey: peopleKeys.employees({ status: "ACTIVE", limit: 1000 }),
-    queryFn: ({ signal }) =>
-      listEmployees({ status: "ACTIVE", limit: 1000 }, signal),
-  })
-
-  const write = useMutation({
-    mutationFn: () =>
-      planDay(employeeId, {
-        onDate,
-        plan,
-        shiftId: shiftId === "" ? undefined : shiftId,
-        reason: reason.trim(),
-      }),
-    onSuccess: () => {
-      setFailed(null)
-      setReason("")
-      void client.invalidateQueries({
-        queryKey: rosterKeys.place(place, from, to),
-      })
-    },
-    onError: (error: Error) => setFailed(error.message),
-  })
-
-  const ready =
-    employeeId !== "" &&
-    onDate !== "" &&
-    reason.trim() !== "" &&
-    (plan !== "SCHEDULED" || shiftId !== "")
+  const label =
+    entry === undefined
+      ? null
+      : entry.plan === "SCHEDULED"
+        ? (entry.shift_name ?? entry.shift_id)
+        : entry.plan === "REST_DAY"
+          ? "Rest"
+          : "Holiday"
 
   return (
-    <Card className="overflow-hidden">
-      <CardHeader>
-        <CardTitle>Plan a day</CardTitle>
-      </CardHeader>
-      <div className="flex flex-col gap-3 px-4 pb-4">
-        {failed !== null && <Banner tone="bad">{failed}</Banner>}
-        {/* Planning a day that is already planned is a revision, and the earlier
-            plan survives. Saying so here is cheaper than a second form. */}
-        <Banner tone="info">
-          Planning a day that already has a plan revises it. The plan it
-          replaces is kept.
-        </Banner>
-
-        <Field label="Who">
-          <Select value={employeeId} onChange={setEmployeeId}>
-            <option value="">Choose…</option>
-            {(team.data ?? []).map((person) => (
-              <option key={person.employee_id} value={person.employee_id}>
-                {person.full_name ?? person.employee_code}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="Date">
-          <Day value={onDate} onChange={setOnDate} />
-        </Field>
-        <Field label="Plan">
-          <Select
-            value={plan}
-            onChange={(next) => {
-              setPlan(next as typeof plan)
-              if (next !== "SCHEDULED") setShiftId("")
-            }}
-          >
-            <option value="SCHEDULED">A shift</option>
-            <option value="REST_DAY">Rest day</option>
-            <option value="PUBLIC_HOLIDAY">Public holiday</option>
-          </Select>
-        </Field>
-        {plan === "SCHEDULED" && (
-          <Field label="Shift">
-            <Select value={shiftId} onChange={setShiftId}>
-              <option value="">Choose…</option>
-              {(shifts.data ?? []).map((shift) => (
-                <option key={shift.id} value={shift.id}>
-                  {shift.name} · {shift.starts_at}–{shift.ends_at}
-                  {shift.crosses_midnight && " (next day)"}
-                </option>
-              ))}
-            </Select>
-          </Field>
+    <td className="py-1 pr-2">
+      <button
+        type="button"
+        disabled={!ready}
+        onClick={onClick}
+        title={
+          ready
+            ? label === null
+              ? "Click to plan this day"
+              : "Click to revise — the plan it replaces is kept"
+            : "Say why first"
+        }
+        className={cn(
+          // An empty cell is a dashed outline, so it reads as a slot waiting
+          // to be filled rather than as a cell with a dash in it. A filled one
+          // is a solid chip. Both are the same height, so a row does not jump
+          // as it is built.
+          "flex min-h-[1.875rem] w-full items-center gap-1.5 rounded-inner border px-2 text-left text-cell transition-colors",
+          label === null
+            ? "border-dashed border-hairline-2 text-mute enabled:hover:border-accent enabled:hover:text-body"
+            : "border-hairline bg-soft-2 text-ink enabled:hover:border-accent",
+          today && label === null && "border-hairline-strong",
+          "disabled:cursor-default"
         )}
-        <Field label="Why" hint="Recorded against the plan, and required.">
-          <Input
-            value={reason}
-            onChange={(event) => setReason(event.target.value)}
-            placeholder="jadwal minggu ini"
-          />
-        </Field>
-        <div>
-          <Button
-            variant="primary"
-            disabled={!ready || write.isPending}
-            onClick={() => write.mutate()}
-          >
-            Plan it
-          </Button>
-        </div>
-      </div>
-    </Card>
+      >
+        {label === null ? (
+          <span aria-hidden>+</span>
+        ) : (
+          <>
+            <span className="truncate">{label}</span>
+            {entry !== undefined && entry.revision_count > 1 && (
+              <Pill tone="info">×{entry.revision_count}</Pill>
+            )}
+          </>
+        )}
+      </button>
+    </td>
   )
 }

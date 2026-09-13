@@ -11,12 +11,14 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Field, Input, Textarea } from "@/components/ui/field"
+import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
 import { Toolbar } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState } from "@/components/ui/states"
+import { Banner, EmptyState, Truncated } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { Tag } from "@/components/ui/tag"
+import { useFilters } from "@/lib/filters"
 import { count, moment } from "@/lib/format"
 import {
   fleetPools,
@@ -25,6 +27,7 @@ import {
   inventoryKeys,
   listObservations,
   observationAnomalies,
+  OBSERVATIONS_LIMIT,
   type Observation,
   type ObservationAnomaly,
 } from "@/lib/queries/inventory"
@@ -48,6 +51,9 @@ const sightings: ColumnDef<TableSetup, Observation>[] = [
     accessorKey: "epc",
     header: "Tag",
     size: 220,
+    // No filter: the toolbar already puts the EPC on the wire, and a second
+    // box asking the same question of the 300 rows that came back would
+    // answer differently from the one above it.
     cell: ({ row }) => (
       <span className="font-mono text-id text-body">{row.original.epc}</span>
     ),
@@ -56,6 +62,11 @@ const sightings: ColumnDef<TableSetup, Observation>[] = [
     accessorKey: "sku_code",
     header: "SKU",
     size: 140,
+    /// `text` rather than `option`, for the emptiness test at the end of its
+    /// operator list: a sighting with no SKU is a tag the catalogue does not
+    /// know, and "SKU is empty" is the only way to ask for exactly those.
+    /// Faceting hundreds of SKU codes would bury that question in a long list.
+    meta: { filter: { kind: "text" } },
     cell: ({ row }) =>
       row.original.sku_code ? (
         <span className="font-mono text-id text-body">
@@ -71,6 +82,17 @@ const sightings: ColumnDef<TableSetup, Observation>[] = [
     accessorKey: "pool_id",
     header: "Seen in",
     size: 200,
+    /// Faceted from the rows themselves, never from the fleet list beside it:
+    /// the cloud spells a place `dc` and an edge node spells the same place
+    /// `dc-01`, so a facet built from one side and matched against the other
+    /// offers a value with a count that selects nothing.
+    ///
+    /// It does not duplicate the pool box in the toolbar, which sends ONE pool
+    /// to the server and is the right control for "show me that shelf". This
+    /// asks the questions that box cannot: several pools at once, or every
+    /// pool except one — over the sweep that came back, which is what the
+    /// banner above the table is there to say.
+    meta: { filter: { kind: "option" } },
     cell: ({ row }) => (
       <AppLink
         to="/inventory/pools"
@@ -85,20 +107,24 @@ const sightings: ColumnDef<TableSetup, Observation>[] = [
     accessorKey: "device_id",
     header: "Reader",
     size: 150,
+    meta: { filter: { kind: "option" } },
     cell: ({ row }) => <Tag>{row.original.device_id}</Tag>,
   },
   {
     accessorKey: "read_count",
     header: "Reads",
     size: 90,
-    meta: { align: "right" },
+    meta: { align: "right", filter: { kind: "number", unit: "reads" } },
     cell: ({ row }) => count(row.original.read_count),
   },
   {
     accessorKey: "best_rssi",
     header: "Best RSSI",
     size: 110,
-    meta: { align: "right" },
+    /// Nullable, and the emptiness test is the useful half: a sighting with no
+    /// signal recorded is a reader that reported a read without one, which is
+    /// a fact about the reader rather than about the tag.
+    meta: { align: "right", filter: { kind: "number", unit: "dBm" } },
     cell: ({ row }) =>
       row.original.best_rssi === null ? (
         <span className="text-mute">—</span>
@@ -111,6 +137,7 @@ const sightings: ColumnDef<TableSetup, Observation>[] = [
     header: "Last seen",
     size: 160,
     // The decision metric on a sighting list: how fresh the evidence is.
+    meta: { filter: { kind: "date" } },
     cell: ({ row }) => moment(row.original.last_seen_at),
   },
 ]
@@ -120,6 +147,8 @@ const mismatches: ColumnDef<TableSetup, ObservationAnomaly>[] = [
     accessorKey: "epc",
     header: "Tag",
     size: 220,
+    // A tag id is looked UP, not narrowed by: somebody holding one has the
+    // EPC box on the sightings tab, which asks the server.
     cell: ({ row }) => (
       <span className="font-mono text-id text-body">{row.original.epc}</span>
     ),
@@ -128,6 +157,11 @@ const mismatches: ColumnDef<TableSetup, ObservationAnomaly>[] = [
     accessorKey: "ledger_pool",
     header: "The books say",
     size: 200,
+    /// The two pool columns are the whole question on this tab — "everything
+    /// the books put in the DC that a reader saw elsewhere" is one clause on
+    /// each. Both facet off these rows, which is the only place the two sides
+    /// are spelled the same way.
+    meta: { filter: { kind: "option" } },
     cell: ({ row }) => (
       <AppLink
         to="/inventory/pools"
@@ -142,6 +176,7 @@ const mismatches: ColumnDef<TableSetup, ObservationAnomaly>[] = [
     accessorKey: "observed_pool",
     header: "The reader saw",
     size: 200,
+    meta: { filter: { kind: "option" } },
     cell: ({ row }) => (
       <AppLink
         to="/inventory/pools"
@@ -156,19 +191,21 @@ const mismatches: ColumnDef<TableSetup, ObservationAnomaly>[] = [
     accessorKey: "quantity",
     header: "Quantity",
     size: 100,
-    meta: { align: "right" },
+    meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
     cell: ({ row }) => count(row.original.quantity),
   },
   {
     accessorKey: "device_id",
     header: "Reader",
     size: 150,
+    meta: { filter: { kind: "option" } },
     cell: ({ row }) => <Tag>{row.original.device_id}</Tag>,
   },
   {
     accessorKey: "last_observed_at",
     header: "Seen",
     size: 160,
+    meta: { filter: { kind: "date" } },
     cell: ({ row }) => moment(row.original.last_observed_at),
   },
 ]
@@ -205,17 +242,26 @@ export function Observations() {
   const readRows = useMemo(() => reads.data ?? [], [reads.data])
   const anomalyRows = useMemo(() => anomalies.data ?? [], [anomalies.data])
 
+  /// Two tables, two parameters. They share two column ids — `epc` and
+  /// `device_id` — so one key would carry a reader picked on the sightings tab
+  /// over to the anomalies tab and narrow a list nobody asked to narrow.
+  const readFilters = useFilters(sightings)
+  const anomalyFilters = useFilters(mismatches, "f2")
+
   const readTable = useTable(
     useMemo(
       () => ({
         features: tableSetup,
         data: readRows,
-        columns: sightings,
+        columns: readFilters.columns,
         getRowId: (row: Observation) => row.observation_id,
-        state: { sorting: sighted },
+        state: {
+          columnFilters: readFilters.columnFilters,
+          sorting: sighted,
+        },
         onSortingChange: setSighted,
       }),
-      [readRows, sighted]
+      [readRows, readFilters.columns, readFilters.columnFilters, sighted]
     )
   )
 
@@ -224,13 +270,21 @@ export function Observations() {
       () => ({
         features: tableSetup,
         data: anomalyRows,
-        columns: mismatches,
+        columns: anomalyFilters.columns,
         getRowId: (row: ObservationAnomaly) =>
           `${row.subject_id}/${row.observed_pool}`,
-        state: { sorting: mismatched },
+        state: {
+          columnFilters: anomalyFilters.columnFilters,
+          sorting: mismatched,
+        },
         onSortingChange: setMismatched,
       }),
-      [anomalyRows, mismatched]
+      [
+        anomalyRows,
+        anomalyFilters.columns,
+        anomalyFilters.columnFilters,
+        mismatched,
+      ]
     )
   )
 
@@ -279,12 +333,22 @@ export function Observations() {
               placeholder="EPC"
               className="h-8 w-64 font-mono"
             />
+            <FilterPanel model={readFilters} table={readTable} />
             <Toolbar.Spacer />
             <Button onClick={() => setSubmitting(true)}>
               <Radar />
               Submit a batch
             </Button>
           </Toolbar>
+
+          {/* Only when the sweep came back exactly as large as the question.
+              A shorter answer proves there was nothing more to send; this
+              length proves nothing either way — and every clause in the panel
+              above is then a question asked of these 300 rows rather than of
+              the readers' whole night. */}
+          {readRows.length >= OBSERVATIONS_LIMIT && (
+            <Truncated limit={OBSERVATIONS_LIMIT} noun="sightings" />
+          )}
 
           <Card className="overflow-hidden">
             {queryState(reads, {
@@ -299,6 +363,7 @@ export function Observations() {
                 ) : (
                   <DataTable<Observation>
                     table={readTable}
+                    empty="No sighting matches the filters in force."
                     className="max-h-[calc(100vh-19rem)]"
                   />
                 ),
@@ -306,22 +371,29 @@ export function Observations() {
           </Card>
         </>
       ) : (
-        <Card className="overflow-hidden">
-          {queryState(anomalies, {
-            loading: "Comparing the books with the readers…",
-            render: () =>
-              anomalyRows.length === 0 ? (
-                <EmptyState>
-                  Every tag was last seen where the ledger says it is.
-                </EmptyState>
-              ) : (
-                <DataTable<ObservationAnomaly>
-                  table={anomalyTable}
-                  className="max-h-[calc(100vh-17rem)]"
-                />
-              ),
-          })}
-        </Card>
+        <>
+          <Toolbar>
+            <FilterPanel model={anomalyFilters} table={anomalyTable} />
+          </Toolbar>
+
+          <Card className="overflow-hidden">
+            {queryState(anomalies, {
+              loading: "Comparing the books with the readers…",
+              render: () =>
+                anomalyRows.length === 0 ? (
+                  <EmptyState>
+                    Every tag was last seen where the ledger says it is.
+                  </EmptyState>
+                ) : (
+                  <DataTable<ObservationAnomaly>
+                    table={anomalyTable}
+                    empty="No disagreement matches the filters in force."
+                    className="max-h-[calc(100vh-17rem)]"
+                  />
+                ),
+            })}
+          </Card>
+        </>
       )}
 
       <BatchSheet open={submitting} onClose={() => setSubmitting(false)} />

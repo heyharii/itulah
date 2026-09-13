@@ -103,7 +103,7 @@ export function LoginForm({
                     type="button"
                     onClick={() => setRevealed((on) => !on)}
                     aria-label={revealed ? "Hide password" : "Show password"}
-                    className="absolute top-1/2 right-1 grid size-11 -translate-y-1/2 place-items-center rounded-full text-line-ico"
+                    className="absolute top-1/2 right-1 grid size-11 -translate-y-1/2 place-items-center rounded-inner text-line-ico"
                   >
                     {revealed ? (
                       <EyeOff className="size-[1.125rem]" />
@@ -124,7 +124,7 @@ export function LoginForm({
         )}
 
         <Button
-          variant="dark"
+          variant="primary"
           size="lg"
           block
           className="mt-6"

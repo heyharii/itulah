@@ -2,8 +2,9 @@ import { cn } from "@/lib/utils"
 
 /// The mobile app-bar: three zones, borderless.
 ///
-/// `[chip] · centered 17/600 title · [chip]` — the chips are ~44px white
-/// squircles with a hairline and a soft shadow. Left is ☰ at the top level and
+/// `[chip] · centered 17/600 title · [chip]` — the chips are 44px white
+/// squares at the control radius, with a hairline and a soft shadow. Left is
+/// ☰ at the top level and
 /// ← when pushed; right is the account or the node at the top level and the
 /// screen's own action on a detail.
 ///

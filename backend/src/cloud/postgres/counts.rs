@@ -1,7 +1,7 @@
 use super::sync::{inventory_dc_owner_tx, issue_command_tx};
 use super::{
-    apply_lines, begin_idempotent, complete_idempotent, insert_group, payload_digest,
-    resolve_subject,
+    apply_lines, begin_idempotent, complete_idempotent, insert_group, payload_digest, rank_facets,
+    resolve_subject, InventoryFacet,
 };
 use crate::cloud::{
     application::{AppError, CommandRequest, CountEntriesRequest, CreateCountRequest},
@@ -16,6 +16,7 @@ use crate::sync::workflow::{
     INVENTORY_OFFICIAL_COUNT_ADJUST_V1, INVENTORY_WORKFLOW_SCHEMA_VERSION,
 };
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::{PgPool, Row};
 use std::{collections::BTreeMap, str::FromStr};
@@ -811,69 +812,323 @@ pub async fn get_count(pool: &PgPool, count_id: Uuid) -> Result<Value, AppError>
     }))
 }
 
-pub async fn list_counts(pool: &PgPool) -> Result<Value, AppError> {
-    let rows = sqlx::query(
-        r#"SELECT count.id,count.site_id,count.pool_id,count.kind,count.status,count.reason,
-                  count.created_by,count.created_at,count.activated_at,count.submitted_at,
-                  count.closed_at,count.activation_target_origin_id,count.edge_result_id,
-                  count.adjustment_id,count.adjustment_command_id,count.edge_adjustment_status,
-                  count.edge_adjustment_completion_id,
-                  CASE WHEN count.activation_target_origin_id IS NULL
-                       THEN (SELECT COALESCE(SUM(expected_quantity),0)::bigint
-                             FROM count_snapshot WHERE count_id=count.id)
-                       ELSE COALESCE(edge_summary.expected,0)::bigint END expected,
-                  CASE WHEN count.activation_target_origin_id IS NULL
-                       THEN (SELECT COALESCE(SUM(found_quantity),0)::bigint
-                             FROM count_entry WHERE count_id=count.id)
-                       ELSE COALESCE(edge_summary.found,0)::bigint END found
-           FROM official_count count
-           LEFT JOIN LATERAL (
-             SELECT SUM((line->>'expected_quantity')::bigint)::bigint expected,
-                    SUM((line->>'found_quantity')::bigint)::bigint found
-             FROM edge_official_count_result result
-             CROSS JOIN LATERAL jsonb_array_elements(result.lines) line
-             WHERE result.count_id=count.id
-           ) edge_summary ON TRUE
-           ORDER BY count.created_at DESC LIMIT 200"#,
-    )
-    .fetch_all(pool)
-    .await?;
-    let items = rows
-        .into_iter()
-        .map(|row| {
-            let edge_owned = row
-                .get::<Option<String>, _>("activation_target_origin_id")
-                .is_some();
-            json!({
-                "id":row.get::<Uuid,_>("id"),
-                "site_id":row.get::<String,_>("site_id"),
-                "pool_id":row.get::<String,_>("pool_id"),
-                "kind":row.get::<String,_>("kind"),
-                "status":row.get::<String,_>("status"),
-                "reason":row.get::<String,_>("reason"),
-                "created_by":row.get::<String,_>("created_by"),
-                "created_at":row.get::<DateTime<Utc>,_>("created_at"),
-                "activated_at":row.get::<Option<DateTime<Utc>>,_>("activated_at"),
-                "submitted_at":row.get::<Option<DateTime<Utc>>,_>("submitted_at"),
-                "closed_at":row.get::<Option<DateTime<Utc>>,_>("closed_at"),
-                "expected":row.get::<i64,_>("expected"),
-                "found":row.get::<i64,_>("found"),
-                "execution_authority":if edge_owned { "EDGE_DC" } else { "CLOUD" },
-                "comparison_authority":if edge_owned { "EDGE_RESULT_FACT" } else { "CLOUD_COUNT_RECORD" },
-                "edge_result_id":row.get::<Option<Uuid>,_>("edge_result_id"),
-                "adjustment_id":row.get::<Option<Uuid>,_>("adjustment_id"),
-                "adjustment_command_id":row.get::<Option<Uuid>,_>("adjustment_command_id"),
-                "edge_adjustment_status":row.get::<Option<String>,_>("edge_adjustment_status"),
-                "edge_adjustment_completion_id":row.get::<Option<Uuid>,_>("edge_adjustment_completion_id")
-            })
-        })
-        .collect::<Vec<_>>();
-    Ok(json!({
-        "active":items.iter().filter(|item| item["status"]=="ACTIVE").cloned().collect::<Vec<_>>(),
-        "needs_review":items.iter().filter(|item| item["status"]=="REVIEW").cloned().collect::<Vec<_>>(),
-        "history":items.iter().filter(|item| item["status"]=="CLOSED").cloned().collect::<Vec<_>>(),
-        "drafts":items.iter().filter(|item| item["status"]=="DRAFT").cloned().collect::<Vec<_>>()
-    }))
+// ── the count list ───────────────────────────────────────────────────────
+//
+// The board this route used to answer with — four arrays, one per status —
+// was a filter the server had already applied and could not be asked to
+// change. It is an envelope now, like every other list here, and the four
+// buckets are a facet: `statuses` says how many drafts and how many are in
+// review, and `status=REVIEW` asks for them.
+
+/// How many counts the list returns when the caller does not say.
+const COUNT_DEFAULT_LIMIT: i64 = 200;
+/// And the most it will return however loudly a caller asks.
+const COUNT_MAX_LIMIT: i64 = 500;
+
+/// What a caller is asking the count list for.
+#[derive(Clone, Debug, Default)]
+pub struct CountScope {
+    /// Free text over the pool id, the reason, and who opened it.
+    pub needle: Option<String>,
+    /// `DRAFT`, `ACTIVE`, `REVIEW` or `CLOSED`. An unknown value narrows to
+    /// nothing rather than being dropped.
+    pub status: Option<String>,
+    /// The CENTRE's site id — `dc`, not an Edge node's `dc-01`. An official
+    /// count is authored here even when an Edge executes it, so the row's
+    /// `site_id` is always the centre's spelling.
+    pub site_id: Option<String>,
+    pub pool_id: Option<String>,
+    pub kind: Option<String>,
+    /// `created_at`, `pool`, `status`, `variance` or `closed_at`. Anything
+    /// unrecognised is the house order — newest first.
+    pub sort: Option<String>,
+    pub desc: bool,
+    pub cursor: Option<String>,
+    pub limit: Option<i64>,
+}
+
+/// One official count, as the board reads it.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct CountRow {
+    pub id: Uuid,
+    pub site_id: String,
+    pub pool_id: String,
+    pub kind: String,
+    pub status: String,
+    pub reason: String,
+    pub created_by: String,
+    pub created_at: DateTime<Utc>,
+    pub activated_at: Option<DateTime<Utc>>,
+    pub submitted_at: Option<DateTime<Utc>>,
+    pub closed_at: Option<DateTime<Utc>>,
+    pub expected: i64,
+    pub found: i64,
+    /// `EDGE_DC` when an Edge node ran it, `CLOUD` when the centre did.
+    pub execution_authority: String,
+    pub comparison_authority: String,
+    pub edge_result_id: Option<Uuid>,
+    pub adjustment_id: Option<Uuid>,
+    pub adjustment_command_id: Option<Uuid>,
+    pub edge_adjustment_status: Option<String>,
+    pub edge_adjustment_completion_id: Option<Uuid>,
+}
+
+/// What the count list can be narrowed by.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct CountFacets {
+    /// The four buckets the board used to be, as numbers somebody can click.
+    pub statuses: Vec<InventoryFacet>,
+    pub sites: Vec<InventoryFacet>,
+    pub pools: Vec<InventoryFacet>,
+    pub kinds: Vec<InventoryFacet>,
+}
+
+/// A page of counts, and the shape of everything it was drawn from.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct CountPage {
+    pub rows: Vec<CountRow>,
+    pub next_cursor: Option<String>,
+    pub total: i64,
+    pub facets: CountFacets,
+}
+
+#[derive(Serialize, Deserialize)]
+struct CountCursor {
+    count_id: Uuid,
+}
+
+/// One count row, defined once — for the page and for the facets.
+///
+/// Binds: `$1` the search pattern or NULL.
+///
+/// `expected` and `found` come from two places depending on who ran the count,
+/// and that branch is the reason this is a constant rather than two queries: a
+/// facet that counted rows one way while the page totalled them another would
+/// agree on every ordinary day and part company on an Edge-executed count.
+const COUNT_ROWS: &str = r#"
+SELECT count.id,count.site_id,count.pool_id,count.kind,count.status,count.reason,
+       count.created_by,count.created_at,count.activated_at,count.submitted_at,
+       count.closed_at,count.activation_target_origin_id,count.edge_result_id,
+       count.adjustment_id,count.adjustment_command_id,count.edge_adjustment_status,
+       count.edge_adjustment_completion_id,
+       pool.label pool_label,
+       CASE WHEN count.activation_target_origin_id IS NULL
+            THEN (SELECT COALESCE(SUM(expected_quantity),0)::bigint
+                  FROM count_snapshot WHERE count_id=count.id)
+            ELSE COALESCE(edge_summary.expected,0)::bigint END expected,
+       CASE WHEN count.activation_target_origin_id IS NULL
+            THEN (SELECT COALESCE(SUM(found_quantity),0)::bigint
+                  FROM count_entry WHERE count_id=count.id)
+            ELSE COALESCE(edge_summary.found,0)::bigint END found,
+       ABS(CASE WHEN count.activation_target_origin_id IS NULL
+                THEN (SELECT COALESCE(SUM(found_quantity),0)::bigint
+                      FROM count_entry WHERE count_id=count.id)
+                     - (SELECT COALESCE(SUM(expected_quantity),0)::bigint
+                        FROM count_snapshot WHERE count_id=count.id)
+                ELSE COALESCE(edge_summary.found,0)-COALESCE(edge_summary.expected,0)
+           END)::bigint variance_key,
+       -- A count still open has no closing moment. The sentinel keeps it out
+       -- of a NULL a keyset cannot compare against, and puts the open ones
+       -- first in ascending order, which is where somebody sorting by "closed"
+       -- would look for them.
+       COALESCE(count.closed_at,TIMESTAMPTZ '-infinity') closed_key
+FROM official_count count
+LEFT JOIN operational_pool pool ON pool.id=count.pool_id
+LEFT JOIN LATERAL (
+  SELECT SUM((line->>'expected_quantity')::bigint)::bigint expected,
+         SUM((line->>'found_quantity')::bigint)::bigint found
+  FROM edge_official_count_result result
+  CROSS JOIN LATERAL jsonb_array_elements(result.lines) line
+  WHERE result.count_id=count.id
+) edge_summary ON TRUE
+WHERE ($1::text IS NULL OR count.pool_id ILIKE $1 OR count.reason ILIKE $1
+       OR count.created_by ILIKE $1 OR pool.label ILIKE $1)
+"#;
+
+/// The count list's filters, spelled once for the page and for the facets.
+const COUNT_FILTERS: &str = "
+     WHERE ($2::text IS NULL OR status=$2)
+       AND ($3::text IS NULL OR site_id=$3)
+       AND ($4::text IS NULL OR pool_id=$4)
+       AND ($5::text IS NULL OR kind=$5)
+";
+
+fn count_row_from(row: &sqlx::postgres::PgRow) -> Result<CountRow, AppError> {
+    let edge_owned = row
+        .try_get::<Option<String>, _>("activation_target_origin_id")?
+        .is_some();
+    Ok(CountRow {
+        id: row.try_get("id")?,
+        site_id: row.try_get("site_id")?,
+        pool_id: row.try_get("pool_id")?,
+        kind: row.try_get("kind")?,
+        status: row.try_get("status")?,
+        reason: row.try_get("reason")?,
+        created_by: row.try_get("created_by")?,
+        created_at: row.try_get("created_at")?,
+        activated_at: row.try_get("activated_at")?,
+        submitted_at: row.try_get("submitted_at")?,
+        closed_at: row.try_get("closed_at")?,
+        expected: row.try_get("expected")?,
+        found: row.try_get("found")?,
+        execution_authority: if edge_owned { "EDGE_DC" } else { "CLOUD" }.into(),
+        comparison_authority: if edge_owned {
+            "EDGE_RESULT_FACT"
+        } else {
+            "CLOUD_COUNT_RECORD"
+        }
+        .into(),
+        edge_result_id: row.try_get("edge_result_id")?,
+        adjustment_id: row.try_get("adjustment_id")?,
+        adjustment_command_id: row.try_get("adjustment_command_id")?,
+        edge_adjustment_status: row.try_get("edge_adjustment_status")?,
+        edge_adjustment_completion_id: row.try_get("edge_adjustment_completion_id")?,
+    })
+}
+
+/// The counts: searched, filtered, sorted and paged by the server.
+pub async fn counts_page(pool: &PgPool, scope: CountScope) -> Result<CountPage, AppError> {
+    let needle = scope
+        .needle
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(|text| format!("%{text}%"));
+    let limit = scope
+        .limit
+        .unwrap_or(COUNT_DEFAULT_LIMIT)
+        .clamp(1, COUNT_MAX_LIMIT);
+    let cursor = scope
+        .cursor
+        .as_deref()
+        .map(super::decode_cursor::<CountCursor>)
+        .transpose()?;
+
+    // Every order ends in the count id, the primary key.
+    let (lead, descending) = match scope.sort.as_deref() {
+        Some("pool") => ("pool_id", scope.desc),
+        Some("status") => ("status", scope.desc),
+        Some("variance") => ("variance_key", scope.desc),
+        Some("closed_at") => ("closed_key", scope.desc),
+        // Newest first, as a board is read.
+        _ => ("created_at", !scope.desc),
+    };
+    let (cols, order) = super::order_by(lead, "id", descending);
+    let seek = if descending { "<" } else { ">" };
+
+    // `NOT MATERIALIZED`: `kept` is referenced twice — as the page and
+    // inside the seek — and two references makes PostgreSQL materialise a
+    // CTE, which is an optimisation fence the `ORDER BY … LIMIT` cannot be
+    // pushed through. Materialised, this reads the whole table and sorts it
+    // to hand back one page; inlined, it seeks the index. See
+    // `postgres::audit::list_audit`, where the difference was measured.
+    let sql = format!(
+        "WITH searched AS NOT MATERIALIZED ({COUNT_ROWS}),
+              kept AS NOT MATERIALIZED (
+             SELECT * FROM searched {COUNT_FILTERS}
+         )
+         SELECT * FROM kept
+          WHERE $6::uuid IS NULL
+             OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE id = $6)
+          ORDER BY {order}
+          LIMIT $7"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(&needle)
+        .bind(&scope.status)
+        .bind(&scope.site_id)
+        .bind(&scope.pool_id)
+        .bind(&scope.kind)
+        .bind(cursor.as_ref().map(|c| c.count_id))
+        .bind(limit)
+        .fetch_all(pool)
+        .await?;
+
+    let next_cursor = match rows.last() {
+        Some(row) if rows.len() as i64 == limit => Some(super::encode_cursor(&CountCursor {
+            count_id: row.try_get("id")?,
+        })?),
+        _ => None,
+    };
+    let out = rows
+        .iter()
+        .map(count_row_from)
+        .collect::<Result<Vec<_>, AppError>>()?;
+
+    let (total, facets) = count_facets(pool, &scope, needle.as_deref()).await?;
+    Ok(CountPage {
+        rows: out,
+        next_cursor,
+        total,
+        facets,
+    })
+}
+
+/// How many counts there are, and how they split.
+async fn count_facets(
+    pool: &PgPool,
+    scope: &CountScope,
+    needle: Option<&str>,
+) -> Result<(i64, CountFacets), AppError> {
+    let sql = format!(
+        "WITH searched AS ({COUNT_ROWS}), kept AS (
+             SELECT * FROM searched {COUNT_FILTERS}
+         )
+         SELECT 'status' AS kind, status AS value, NULL::text AS l, COUNT(*)::bigint AS n
+           FROM searched GROUP BY status
+          UNION ALL
+         SELECT 'site', site_id, NULL::text, COUNT(*)::bigint FROM searched GROUP BY site_id
+          UNION ALL
+         SELECT 'pool', pool_id, pool_label, COUNT(*)::bigint
+           FROM searched GROUP BY pool_id, pool_label
+          UNION ALL
+         SELECT 'kind', kind, NULL::text, COUNT(*)::bigint FROM searched GROUP BY kind
+          UNION ALL
+         SELECT 'all', '', NULL::text, COUNT(*)::bigint FROM kept"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(needle)
+        .bind(&scope.status)
+        .bind(&scope.site_id)
+        .bind(&scope.pool_id)
+        .bind(&scope.kind)
+        .fetch_all(pool)
+        .await?;
+
+    let mut total = 0i64;
+    let mut facets = CountFacets {
+        statuses: Vec::new(),
+        sites: Vec::new(),
+        pools: Vec::new(),
+        kinds: Vec::new(),
+    };
+    for row in &rows {
+        let kind: String = row.try_get("kind")?;
+        let facet = InventoryFacet {
+            value: row.try_get("value")?,
+            label: row.try_get("l")?,
+            count: row.try_get("n")?,
+        };
+        match kind.as_str() {
+            "status" => facets.statuses.push(facet),
+            "site" => facets.sites.push(facet),
+            "pool" => facets.pools.push(facet),
+            "kind" => facets.kinds.push(facet),
+            _ => total = facet.count,
+        }
+    }
+    for list in [
+        &mut facets.statuses,
+        &mut facets.sites,
+        &mut facets.pools,
+        &mut facets.kinds,
+    ] {
+        rank_facets(list);
+    }
+    Ok((total, facets))
 }
 
 fn parse_status(value: &str) -> Result<CountStatus, AppError> {

@@ -1,4 +1,12 @@
-import { Megaphone, Percent, Tags, Ticket } from "lucide-react"
+import {
+  Clock,
+  LayoutDashboard,
+  Megaphone,
+  Percent,
+  Tags,
+  Ticket,
+  Waypoints,
+} from "lucide-react"
 
 import type { AppModule } from "@/lib/navigation"
 
@@ -6,27 +14,48 @@ import type { AppModule } from "@/lib/navigation"
 /// Owned by the module, composed by `lib/navigation.ts` — so adding a screen
 /// here never touches another module's file.
 ///
-/// **Pricelist → Promotions → Campaign → Vouchers**, in the order the work
-/// happens. A price exists before anything can come off it, a promotion is the
-/// thing that comes off, and a campaign is the envelope several promotions are
-/// run and budgeted as one thing inside.
+/// ## The shape, ruled by the owner 2026-09-13
 ///
-/// A coupon is deliberately absent. It is a *gate* on a promotion, not a thing
-/// of its own: a rule carrying a code is shut until somebody presents that
-/// code, which is a column on the Promotions list and a field on its form.
-/// Giving it a sub-item would imply a coupon can exist without a promotion to
-/// unlock, and one cannot.
+/// **Overview · Prices · Changes · History · Promotions · Campaigns ·
+/// Vouchers**, all at ONE level. Commercial V1 writes Prices, Changes and
+/// History as the three workspaces of a thing called Pricing, and the first
+/// draft of this file nested them under a `Pricing` parent. The owner's
+/// correction was flat, and it is the right one for this shell: the rail is
+/// already the module's own column, so a parent row here would be a second
+/// level of navigation inside a panel that exists to BE the level — one more
+/// click to reach the screen somebody opens forty times a day.
 ///
-/// **Margin arrived here 2026-09-03** when the Analytics module was dissolved.
-/// What is left once the tax comes off, and what each garment actually brought
-/// in, is the question a price is set to answer — so it belongs three rows from
-/// the pricelist that sets it, not in a module named after the chart it draws.
+/// The grouping survives as order rather than as depth. Prices, Changes and
+/// History sit together, in that sequence, because they are three tenses of
+/// one question:
+///
+///   * **Prices** — what is a shop actually charging right now?
+///   * **Changes** — what price work is still outstanding?
+///   * **History** — what has already happened to this price?
+///
+/// ## What is deliberately NOT a row here
+///
+/// Markdown, Clearance, Correction and Regular Price Change are **kinds of
+/// change**, not destinations: they are a column and a filter on Changes. A
+/// menu row each would split one queue four ways and hide the fact that a
+/// clearance and an end-of-season markdown are the same rows with different
+/// intent — which is exactly why `ChangeKind` is authored rather than derived.
+///
+/// A coupon is a *gate* on a promotion, not a thing of its own: a rule carrying
+/// a code is shut until somebody presents that code. It is a tab inside a
+/// promotion, a column on the Promotions list, and a field on its form. Giving
+/// it a row would imply a coupon can exist without a promotion to unlock, and
+/// one cannot.
+///
+/// Points belong to the customer, not to pricing — they are a liability the
+/// business owes a member, where everything else here is what something costs.
+/// They live under the member directory and are absent from this file on
+/// purpose.
 ///
 /// A voucher, by contrast, earns its own row precisely because it is *not* one
-/// of the other three. It carries money — it is tender, sitting beside cash and
-/// a card at the counter — where the first three all describe what something
-/// costs. Filing it under pricing is the mistake the system this replaces made,
-/// and it is why a clearance there was booked as a discount.
+/// of the others. It carries money — it is tender, sitting beside cash and a
+/// card at the counter. Filing it under pricing is the mistake the system this
+/// replaces made, and it is why a clearance there was booked as a discount.
 export const commercialNav: AppModule = {
   id: "commercial",
   label: "Commercial",
@@ -35,9 +64,12 @@ export const commercialNav: AppModule = {
   sections: [
     {
       items: [
-        { path: "/commercial", label: "Pricelist", icon: Tags },
+        { path: "/commercial", label: "Overview", icon: LayoutDashboard },
+        { path: "/commercial/prices", label: "Prices", icon: Tags },
+        { path: "/commercial/changes", label: "Changes", icon: Waypoints },
+        { path: "/commercial/history", label: "History", icon: Clock },
         { path: "/commercial/promotions", label: "Promotions", icon: Percent },
-        { path: "/commercial/campaigns", label: "Campaign", icon: Megaphone },
+        { path: "/commercial/campaigns", label: "Campaigns", icon: Megaphone },
         { path: "/commercial/vouchers", label: "Vouchers", icon: Ticket },
       ],
     },

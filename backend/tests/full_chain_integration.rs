@@ -864,7 +864,9 @@ async fn a_shirt_travels_from_a_purchase_order_to_a_customer(pool: PgPool) {
     let centre = cloud::load_site_pricing(&mut tx, STORE_SITE, "STORE", at)
         .await
         .unwrap_or_else(|e| panic!("the centre's price book: {e}"));
-    let merchandise = cloud::load_merchandise(&mut tx)
+    // The whole catalogue: this comparison builds a basket from arbitrary
+    // products, so there is no list of codes to narrow to.
+    let merchandise = cloud::load_merchandise(&mut tx, None)
         .await
         .unwrap_or_else(|e| panic!("what the products are: {e}"));
     tx.commit().await.unwrap_or_else(|e| panic!("commit: {e}"));

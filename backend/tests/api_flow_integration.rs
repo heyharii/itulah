@@ -642,7 +642,7 @@ async fn a_purchase_order_leaves_the_dc_on_a_truck_entirely_over_http(pool: PgPo
 
     // And the order it all started from now reads as fully received.
     let orders = fleet.cloud_get("/api/v1/purchase-orders").await;
-    let po_id = orders["items"][0]["purchase_order_id"]
+    let po_id = orders["rows"][0]["purchase_order_id"]
         .as_str()
         .unwrap_or_else(|| panic!("no order: {orders}"))
         .to_string();

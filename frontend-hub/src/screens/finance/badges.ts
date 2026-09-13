@@ -1,7 +1,10 @@
 import { useQuery } from "@tanstack/react-query"
 
 import {
-  accountMap,
+  checkoutExceptionKeys,
+  listCheckoutExceptions,
+} from "@/lib/queries/checkout-exceptions"
+import {
   financeAttention,
   financeKeys,
   type AccountMapView,
@@ -87,16 +90,22 @@ export function accountMapGaps(view: AccountMapView | undefined): MapGaps {
 
   const sites = view.locations.map((location) => location.site_id)
   const have = new Set(
-    view.mappings.map((row) => `${row.semantic_key} ${row.site_id}`)
+    view.rows.map((row) => `${row.semantic_key} ${row.site_id}`)
   )
 
   const missingByKey = new Map<string, readonly string[]>()
-  let pairs = 0
   for (const doc of view.required_keys) {
-    const missing = sites.filter((site) => !have.has(`${doc.key} ${site}`))
-    missingByKey.set(doc.key, missing)
-    pairs += missing.length
+    missingByKey.set(
+      doc.key,
+      sites.filter((site) => !have.has(`${doc.key} ${site}`))
+    )
   }
+  // The COUNT comes from the server, which computed it over the whole map
+  // rather than over the rows in hand. The per-key lists above still need
+  // every mapping — which is why `accountMap()` asks for the ceiling — but the
+  // one number a badge draws should not depend on this browser having received
+  // all of them.
+  const pairs = view.unmapped_pairs
 
   const required = view.required_keys.length * sites.length
   return { sites, missingByKey, pairs, required, set: required - pairs }
@@ -134,6 +143,28 @@ function useAttention() {
 export function useOverdueBillCount(): number | null {
   const attention = useAttention()
   return attention.data?.overdue_bills ?? null
+}
+
+/// Shoppers owed money because a branch took a charge and wrote no sale.
+///
+/// Its own query rather than a field on `useAttention`, and deliberately: this
+/// count comes from the till fleet by sync, not from the books, and folding it
+/// into the finance attention read would make one endpoint's latency the
+/// sidebar's. The list endpoint already counts across everything that matched,
+/// so this costs one small read and cannot disagree with the screen.
+///
+/// Amber and not red. A row here is somebody waiting for their money, which is
+/// bad — but nothing is stopped by it, and the branch's own books balance. Red
+/// is for a stoppage.
+export function useUnansweredChargeCount(): number | null {
+  const open = useQuery({
+    queryKey: checkoutExceptionKeys.list(null, true),
+    queryFn: ({ signal }) => listCheckoutExceptions(null, true, signal),
+  })
+  const count = open.data?.open_count ?? null
+  // Nought is not a badge. A sidebar that draws a zero teaches people to read
+  // past the number, and then the day it says 3 nobody notices.
+  return count === null || count === 0 ? null : count
 }
 
 /// Meanings with no account behind them, counted per location.

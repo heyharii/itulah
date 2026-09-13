@@ -14,6 +14,8 @@ use super::articles::{idempotency_key, request_digest};
 use super::auth::Principal;
 use crate::cloud::{
     application::{AppError, AppState},
+    domain::RecordKind,
+    http::audit::DeclaredSubject,
     postgres::{
         self as infrastructure, IssueVoucherRequest, RedeemVoucherRequest, VoidVoucherRequest,
         VoucherQuery,
@@ -62,6 +64,7 @@ pub async fn voucher_detail(
 pub async fn issue_voucher(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
+    Extension(acted_on): Extension<DeclaredSubject>,
     headers: HeaderMap,
     Json(request): Json<IssueVoucherRequest>,
 ) -> Result<(StatusCode, Json<infrastructure::VoucherRow>), AppError> {
@@ -73,10 +76,51 @@ pub async fn issue_voucher(
     let voucher =
         infrastructure::issue_voucher(&state.db, request, &principal.username, &key, &digest)
             .await?;
+    // The voucher sheet is keyed by the code a shopper reads out, not by the
+    // row's uuid, so the history has to be filed under the same thing.
+    acted_on.set(RecordKind::Voucher, voucher.code.clone());
     Ok((StatusCode::CREATED, Json(voucher)))
 }
 
 /// Spend some of one against a basket.
+/// Hold an amount against a card while a basket is being paid for.
+///
+/// No `Idempotency-Key`: the hold is keyed by `(voucher, checkout)` in the
+/// database, which is stronger. A header key makes a RETRY safe; this makes the
+/// QUESTION safe — a till asking twice for the same basket, with two different
+/// keys, still gets one hold.
+pub async fn authorize_voucher(
+    State(state): State<AppState>,
+    Path(code): Path<String>,
+    Json(request): Json<infrastructure::AuthorizeVoucherRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    Ok(Json(
+        infrastructure::authorize_voucher(&state.db, &code, request).await?,
+    ))
+}
+
+/// The sale landed: turn the hold into a redemption.
+pub async fn commit_voucher_hold(
+    State(state): State<AppState>,
+    Path(code): Path<String>,
+    Json(request): Json<infrastructure::CommitVoucherRequest>,
+) -> Result<Json<infrastructure::VoucherDetail>, AppError> {
+    Ok(Json(
+        infrastructure::commit_voucher_hold(&state.db, &code, request).await?,
+    ))
+}
+
+/// The checkout died: give the held amount back.
+pub async fn release_voucher_hold(
+    State(state): State<AppState>,
+    Path(code): Path<String>,
+    Json(request): Json<infrastructure::ReleaseVoucherRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    Ok(Json(
+        infrastructure::release_voucher_hold(&state.db, &code, request).await?,
+    ))
+}
+
 pub async fn redeem_voucher(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,

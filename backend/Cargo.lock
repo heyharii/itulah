@@ -1440,6 +1440,7 @@ dependencies = [
  "qrcode",
  "regex",
  "reqwest",
+ "retail-tax",
  "rqrr",
  "rusqlite",
  "rust_decimal",
@@ -2069,6 +2070,7 @@ dependencies = [
  "chrono",
  "hex",
  "proptest",
+ "retail-tax",
  "serde",
  "serde_json",
  "sha2",
@@ -2442,6 +2444,14 @@ dependencies = [
  "wasm-streams",
  "web-sys",
  "webpki-roots 1.0.9",
+]
+
+[[package]]
+name = "retail-tax"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "thiserror",
 ]
 
 [[package]]

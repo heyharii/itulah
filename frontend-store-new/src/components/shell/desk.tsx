@@ -20,7 +20,10 @@ import { cn } from "@/lib/utils"
 /// Below `md` it collapses to a single column, because a shop with a tablet on
 /// the counter is a real shop and a 42% column on a 5-inch screen is not a
 /// layout.
-export function Desk({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+export function Desk({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
       className={cn(
@@ -138,10 +141,12 @@ export function FunctionKey({
           : "border-hairline-2 bg-canvas text-text",
       )}
     >
-      <span className="flex items-baseline gap-1.5 text-[0.875rem] font-medium">
+      <span className="flex items-baseline gap-1.5 text-control font-medium">
         {label}
         {count !== undefined && count > 0 && (
-          <span className="text-metric font-semibold tabular-nums">{count}</span>
+          <span className="text-metric font-semibold tabular-nums">
+            {count}
+          </span>
         )}
       </span>
       {shortcut !== undefined && <Kbd>{shortcut}</Kbd>}

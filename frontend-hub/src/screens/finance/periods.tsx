@@ -9,6 +9,7 @@ import { Select } from "@/components/ui/field"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
+import { FilterPanel } from "@/components/ui/filter-panel"
 import { MiniTable } from "@/components/ui/rows"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
@@ -28,6 +29,7 @@ import {
   runDepreciation,
   trialBalance,
 } from "@/lib/queries/finance"
+import { useFilters } from "@/lib/filters"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
@@ -80,6 +82,7 @@ const columns: ColumnDef<TableSetup, FiscalPeriod>[] = [
     accessorKey: "status",
     header: "Status",
     size: 130,
+    meta: { filter: { kind: "option", format: label } },
     cell: ({ row }) => (
       <Pill tone={toneFor(row.original.status)}>
         {label(row.original.status)}
@@ -90,7 +93,10 @@ const columns: ColumnDef<TableSetup, FiscalPeriod>[] = [
     accessorKey: "entry_count",
     header: "Entries",
     size: 110,
-    meta: { align: "right" },
+    // `is 0` is the question: a month standing open with nothing in it is
+    // either a month nobody has worked yet or one opened by mistake, and both
+    // are worth finding before somebody closes the calendar on them.
+    meta: { align: "right", filter: { kind: "number", unit: "entries" } },
     // A month with none is a month nobody has worked yet, which is a different
     // thing from a month that balanced — so a zero is drawn as a zero.
     cell: ({ row }) => (
@@ -107,6 +113,9 @@ const columns: ColumnDef<TableSetup, FiscalPeriod>[] = [
     accessorKey: "closed_by",
     header: "Closed by",
     size: 160,
+    // A closed set of names, and blank where nobody has sealed it — so "is
+    // empty" answers "every month still standing open" from this column too.
+    meta: { filter: { kind: "option" } },
     cell: ({ row }) => (
       <span className="text-body">{row.original.closed_by ?? "—"}</span>
     ),
@@ -115,6 +124,7 @@ const columns: ColumnDef<TableSetup, FiscalPeriod>[] = [
     accessorKey: "closed_at",
     header: "Closed at",
     size: 180,
+    meta: { filter: { kind: "date" } },
     cell: ({ row }) => moment(row.original.closed_at),
   },
 ]
@@ -132,7 +142,7 @@ export function Periods() {
 
   const periods = useQuery({
     queryKey: financeKeys.periods(),
-    queryFn: ({ signal }) => listPeriods(signal),
+    queryFn: ({ signal }) => listPeriods(signal).then((page) => page.rows),
   })
 
   const rows = useMemo(() => periods.data ?? [], [periods.data])
@@ -149,17 +159,19 @@ export function Periods() {
     },
   })
 
+  const filters = useFilters(columns)
+
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
         data: rows,
-        columns,
+        columns: filters.columns,
         getRowId: (row: FiscalPeriod) => periodId(row),
-        state: { sorting },
+        state: { columnFilters: filters.columnFilters, sorting },
         onSortingChange: setSorting,
       }),
-      [rows, sorting]
+      [rows, filters.columns, filters.columnFilters, sorting]
     )
   )
 
@@ -222,6 +234,11 @@ export function Periods() {
             ))}
           </Select>
         </span>
+        {/* The two selects above are not a filter on this list — they name the
+            month the button opens. So the panel is the only thing here that
+            narrows what is on screen, and it sits beside them rather than
+            among them. */}
+        <FilterPanel model={filters} table={table} />
         <Toolbar.Spacer />
         {/* The effective answer, like every other toolbar in this module: what
             the two selects add up to, and how much calendar there is. The
@@ -261,6 +278,7 @@ export function Periods() {
                 table={table}
                 onRowClick={(row) => period.open(periodId(row))}
                 isSelected={(row) => periodId(row) === period.value}
+                empty="No month matches the filters in force."
                 className="max-h-[calc(100vh-20rem)]"
               />
             ),
@@ -290,7 +308,7 @@ function PeriodSheet({
 
   const periods = useQuery({
     queryKey: financeKeys.periods(),
-    queryFn: ({ signal }) => listPeriods(signal),
+    queryFn: ({ signal }) => listPeriods(signal).then((page) => page.rows),
     enabled: id !== null,
   })
 
@@ -448,7 +466,8 @@ function Checklist({ period }: { period: FiscalPeriod }) {
   })
   const statements = useQuery({
     queryKey: financeKeys.bankStatements(),
-    queryFn: ({ signal }) => listBankStatements(signal),
+    queryFn: ({ signal }) =>
+      listBankStatements(signal).then((page) => page.rows),
   })
   const balance = useQuery({
     queryKey: financeKeys.trialBalance(last, null),

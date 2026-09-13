@@ -30,6 +30,51 @@ use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
+/// A life in months and a rate in basis points, each derived from the other
+/// when only one was given.
+///
+/// `20%` is five years is sixty months: a year is 10,000 basis points, so the
+/// life in years is `10_000 / rate_bps` and in months `120_000 / rate_bps`.
+/// The inverse rounds the same way, so a value that went in one side comes
+/// back out of the other — 2000 → 60 → 2000, 3333 → 36 → 3333.
+///
+/// Zero months is the non-depreciating case — land, and the operating
+/// equipment the client carries at cost — and it has no rate, which is why
+/// both are returned rather than one being computed at every call site.
+fn reconcile_life(
+    months: Option<i32>,
+    rate_bps: Option<i32>,
+) -> Result<(Option<i32>, Option<i32>), AppError> {
+    match (months, rate_bps) {
+        (Some(months), Some(rate)) => {
+            if months == 0 || rate <= 0 {
+                return Err(AppError::Validation(
+                    "a rate and a life of zero cannot both be true: say one of them".into(),
+                ));
+            }
+            if (120_000 / rate - months).abs() > 1 {
+                return Err(AppError::Validation(format!(
+                    "{}% a year is {} months, not {months}: one of the two is a typing mistake",
+                    rate as f64 / 100.0,
+                    120_000 / rate
+                )));
+            }
+            Ok((Some(months), Some(rate)))
+        }
+        (Some(months), None) => {
+            let rate = if months > 0 {
+                Some(120_000 / months)
+            } else {
+                None
+            };
+            Ok((Some(months), rate))
+        }
+        (None, Some(rate)) if rate > 0 => Ok((Some(120_000 / rate), Some(rate))),
+        (None, Some(_)) => Err(AppError::Validation("a rate is a positive number".into())),
+        (None, None) => Ok((None, None)),
+    }
+}
+
 /// An asset as both halves know it: Operations' identity, and the treatment in
 /// force if Finance has decided one.
 #[derive(Clone, Debug, Serialize)]
@@ -130,11 +175,38 @@ pub struct RegisterAssetRequest {
 #[derive(Clone, Debug, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct AssessAssetRequest {
-    /// `CAPITALIZE` or `EXPENSE`.
+    /// `CAPITALIZE`, `EXPENSE`, or `IN_PROGRESS`.
+    ///
+    /// The third is work being paid for on something not yet built — the
+    /// client's `Contract In Progress`, which is 668 of the 1,342 rows in
+    /// their own register. It carries a cost and nothing else, charges
+    /// nothing, and is superseded by a second assessment the day the thing is
+    /// finished. See migration 0213.
     pub decision: String,
     pub capitalized_cost_minor: Option<i64>,
     pub salvage_value_minor: Option<i64>,
     pub useful_life_months: Option<i32>,
+    /// The family this asset belongs in from now on.
+    ///
+    /// Only ever used for one thing: a shop fit-out finishing. Work in
+    /// progress sits under `1031803`, and the day it is done it becomes a
+    /// building, an instalation, or furniture — so the assessment that
+    /// capitalises it also says which. Refused on anything else: an asset that
+    /// could be re-filed at will would let somebody move cost between families
+    /// without a trace, and the client's own `REKLAS CIP` rows show this is
+    /// the one move they actually make.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub category_code: Option<String>,
+    /// The annual rate, in basis points — 20% is `2000`.
+    ///
+    /// Optional, and either this or the life may be given: the two are one
+    /// fact said twice, and this client's register says it this way. When both
+    /// arrive they must agree; when one arrives the other is derived. The
+    /// arithmetic downstream still reads the life.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub rate_bps: Option<i32>,
     pub method: Option<String>,
     /// `DEPRECIATION`, `REPLACEMENT_RESERVE` or `AMORTISATION`.
     ///
@@ -165,7 +237,11 @@ pub struct AssessAssetRequest {
     pub acquired_via_line_ids: Option<Vec<Uuid>>,
 }
 
-const ASSET_COLUMNS: &str = "a.asset_id, a.asset_number, a.name, a.category_code,
+/// The columns every asset read needs, without the acquisition trail.
+///
+/// `a` is the `fixed_asset` alias, `c` the category account, `k` the
+/// assessment in force.
+const ASSET_BASE: &str = "a.asset_id, a.asset_number, a.name, a.category_code,
      c.name AS category_name, a.site_id, a.status, a.serial_number, a.acquired_on,
      a.quantity,
      a.disposed_on, a.disposal_method, a.disposal_proceeds_minor, a.disposal_journal_entry_id,
@@ -174,8 +250,17 @@ const ASSET_COLUMNS: &str = "a.asset_id, a.asset_number, a.name, a.category_code
      COALESCE((SELECT SUM(d.amount_minor) FROM asset_depreciation_entry d
                 WHERE d.asset_id = a.asset_id), 0)::bigint AS accumulated,
      (SELECT MAX(d.period_month) FROM asset_depreciation_entry d
-       WHERE d.asset_id = a.asset_id) AS last_depreciated_month,
-     (SELECT string_agg(si.invoice_number || ' line ' || bl.line_number, ', '
+       WHERE d.asset_id = a.asset_id) AS last_depreciated_month";
+
+/// Every bill line that bought one asset, as one string.
+///
+/// Separate from [`ASSET_BASE`] so the register's page query can add it to the
+/// PAGE rather than to every asset the search matched: a CTE is materialised
+/// before the `LIMIT`, so a two-table aggregate per row would run for the
+/// whole register in order to draw two hundred of it. It is not a sort key and
+/// not a filter, so nothing needs it earlier.
+const ACQUIRED_VIA: &str =
+    "(SELECT string_agg(si.invoice_number || ' line ' || bl.line_number, ', '
                         ORDER BY si.invoice_date, si.invoice_number, bl.line_number)
         FROM supplier_invoice_expense_line bl
         JOIN supplier_invoice si USING (invoice_id)
@@ -220,37 +305,395 @@ fn to_asset(row: &sqlx::postgres::PgRow) -> Result<AssetRow, AppError> {
     })
 }
 
-pub async fn list_assets(
-    pool: &PgPool,
-    site_id: Option<&str>,
-    category: Option<&str>,
-    unassessed_only: bool,
-    limit: i64,
-) -> Result<Vec<AssetRow>, AppError> {
-    let sql = format!(
-        "SELECT {ASSET_COLUMNS}
+// ── the register ─────────────────────────────────────────────────────────
+//
+// Brought up to the shape `money_overview` set in `postgres::statements`: a
+// scope struct in, an envelope out, a keyset cursor, and facet counts drawn
+// from the same row definition as the page. Copied deliberately rather than
+// reinvented — two list endpoints that page differently are two things to
+// learn and two things to get wrong.
+
+/// How many assets the register returns when the caller does not say.
+const DEFAULT_ASSET_LIMIT: i64 = 200;
+/// And the most it will return however loudly a caller asks.
+///
+/// A thousand, not the money list's two hundred, because this register has a
+/// caller that legitimately wants the whole thing in one read — the sidebar's
+/// count of unassessed assets — and clamping it to a page would silently
+/// understate a control gap. `total` is what makes that safe now: a caller
+/// that hits the ceiling can see that it did.
+const MAX_ASSET_LIMIT: i64 = 1000;
+
+/// What a caller is asking the asset register for.
+#[derive(Clone, Debug, Default)]
+pub struct AssetScope {
+    /// Free text, tried against the asset number, its name and its serial.
+    ///
+    /// The serial matters: somebody standing in front of a machine has the
+    /// plate in their hand and nothing else, and before this they had to read
+    /// down the register looking for it.
+    pub needle: Option<String>,
+    /// Locations to keep. Empty means every location — an empty filter and no
+    /// filter are the same request.
+    pub sites: Vec<String>,
+    /// Category account families to keep, as the client's own codes under
+    /// `10215` and `10217`. Plural where `category` was single; a caller
+    /// sending exactly one is unaffected.
+    pub categories: Vec<String>,
+    /// `CAPITALIZE`, `EXPENSE`, or `UNASSESSED` for the ones nobody has
+    /// decided.
+    ///
+    /// `UNASSESSED` is a value of this filter rather than a separate flag
+    /// because that is what it is: "not assessed" is a state an asset is in,
+    /// and the old boolean could only ever ask for it alone. The boolean
+    /// spelling still works — see the handler — because the sidebar sends it.
+    pub decisions: Vec<String>,
+    /// `REGISTERED`, `CAPITALIZED`, `DISPOSED`. The asset's own lifecycle,
+    /// which is not the same question as what Finance decided about it.
+    pub statuses: Vec<String>,
+    /// `number`, `name`, `acquired`, `cost` or `book`. Anything else is the
+    /// house order, by asset number — see [`asset_page`].
+    pub sort: Option<String>,
+    pub desc: bool,
+    pub cursor: Option<String>,
+    /// Absent means [`DEFAULT_ASSET_LIMIT`], not "everything".
+    pub limit: Option<i64>,
+}
+
+/// One value a filter can take, and how many assets would still be there.
+///
+/// `MoneyFacet`'s shape and reasoning. Counted over everything the SEARCH
+/// leaves, deliberately ignoring which filters are currently applied.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct AssetFacet {
+    pub value: String,
+    /// What to draw, when it differs from the value. The client's own category
+    /// name for a category, the site's name for a location; absent for a
+    /// decision and a status, whose words belong to the screen.
+    pub label: Option<String>,
+    pub count: i64,
+}
+
+/// The four things the register can be narrowed by.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct AssetFacets {
+    pub sites: Vec<AssetFacet>,
+    pub categories: Vec<AssetFacet>,
+    /// Includes `UNASSESSED`, which is a real state and the open control gap —
+    /// see [`AssetScope::decisions`]. A zero there is a closed gap and is
+    /// worth drawing; leaving the row out would make "nobody has assessed
+    /// anything" and "everything is assessed" look the same.
+    pub decisions: Vec<AssetFacet>,
+    pub statuses: Vec<AssetFacet>,
+}
+
+/// A page of the register, and the shape of everything it was drawn from.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct AssetPage {
+    pub rows: Vec<AssetRow>,
+    /// Opaque. Pass it back as `cursor` for the next page; absent means this
+    /// was the last one.
+    pub next_cursor: Option<String>,
+    /// Every asset the search and the filters match, not just this page.
+    pub total: i64,
+    /// What the matched assets are carried at, and what is left of it — added
+    /// HERE, over every matched row rather than over the page.
+    ///
+    /// Only the server has every row. A paged list summed in the browser gives
+    /// a figure that grows while somebody reads, and on a finance screen a
+    /// total that changes as you scroll is worse than no total at all.
+    ///
+    /// An unassessed asset contributes nothing to either, because it has no
+    /// cost in the books — that is what unassessed means, and counting it as
+    /// zero is the same number for a different reason.
+    pub total_cost_minor: i64,
+    pub total_book_minor: i64,
+    pub facets: AssetFacets,
+}
+
+/// Where the previous page stopped — as a ROW, not as a position.
+#[derive(Serialize, Deserialize)]
+struct AssetCursor {
+    asset_id: Uuid,
+}
+
+impl AssetCursor {
+    fn encode(&self) -> Result<String, AppError> {
+        Ok(hex::encode(serde_json::to_vec(self)?))
+    }
+
+    fn decode(raw: &str) -> Result<Self, AppError> {
+        let bytes = hex::decode(raw).map_err(|_| {
+            AppError::Validation("cursor is not a cursor this server issued".into())
+        })?;
+        serde_json::from_slice(&bytes)
+            .map_err(|_| AppError::Validation("cursor is not a cursor this server issued".into()))
+    }
+}
+
+/// One register row, defined once.
+///
+/// Used by the page query and by the facet counts, and that is the whole
+/// reason it is a function rather than two queries: the facets are only honest
+/// if they count exactly what the page can show.
+///
+/// Binds: `$1` the search pattern or NULL.
+///
+/// It stops at the SEARCH. The four filters are applied outside it by each
+/// caller, which is what lets one definition answer two different questions
+/// from the same rows — because "Unassessed 9" has to mean "there are nine
+/// unassessed assets", not "nine among the ones you have already narrowed to
+/// unassessed".
+///
+/// `decision_key` and `book_value` are computed here rather than only in
+/// `ORDER BY` and `WHERE` because the keyset has to COMPARE the sort value,
+/// and a sort expression that is not also a column is one a `WHERE` cannot
+/// see. `decision_key` is `COALESCE`d rather than left NULL for the reason
+/// `EmployeeList` gives about `NULLS LAST`: a row comparison against NULL is
+/// NULL rather than true, so one unassessed asset would end paging at whatever
+/// row happened to carry it, silently, with the rest of the register below the
+/// fold.
+fn asset_rows() -> String {
+    format!(
+        "SELECT {ASSET_BASE},
+                COALESCE(k.decision, 'UNASSESSED') AS decision_key,
+                COALESCE(k.capitalized_cost_minor, 0)::bigint AS cost_key,
+                (COALESCE(k.capitalized_cost_minor, 0)
+                 - COALESCE((SELECT SUM(d.amount_minor)
+                               FROM asset_depreciation_entry d
+                              WHERE d.asset_id = a.asset_id), 0))::bigint AS book_key
            FROM fixed_asset a
            JOIN ledger_account c ON c.account_code = a.category_code
            {IN_FORCE}
-          WHERE ($1::text IS NULL OR a.site_id = $1)
-            AND ($2::text IS NULL OR a.category_code = $2)
-            AND (NOT $3 OR k.decision IS NULL)
-          ORDER BY a.asset_number
-          LIMIT $4"
+          WHERE ($1::text IS NULL
+                 OR a.asset_number ILIKE $1
+                 OR a.name ILIKE $1
+                 OR a.serial_number ILIKE $1)"
+    )
+}
+
+/// The filters, spelled once so the page and the counts narrow identically.
+///
+/// Binds from `$2`: sites, categories, decisions, statuses.
+const ASSET_FILTERS: &str = "
+    ($2::text[] IS NULL OR site_id = ANY($2))
+    AND ($3::text[] IS NULL OR category_code = ANY($3))
+    AND ($4::text[] IS NULL OR decision_key = ANY($4))
+    AND ($5::text[] IS NULL OR status = ANY($5))
+";
+
+/// The register, one page at a time, beside how big the whole answer is.
+pub async fn asset_page(pool: &PgPool, scope: AssetScope) -> Result<AssetPage, AppError> {
+    // A blank search is not a search. `Some("")` would compile to `ILIKE '%%'`,
+    // which matches everything and costs a scan to say so.
+    let needle = scope
+        .needle
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(|text| format!("%{text}%"));
+    let sites = (!scope.sites.is_empty()).then(|| scope.sites.clone());
+    let categories = (!scope.categories.is_empty()).then(|| scope.categories.clone());
+    let decisions = (!scope.decisions.is_empty()).then(|| scope.decisions.clone());
+    let statuses = (!scope.statuses.is_empty()).then(|| scope.statuses.clone());
+
+    // The sort, and the tie-break that makes it total. Every order ends in the
+    // asset id, which is the primary key, so no two rows can compare equal —
+    // which is what stops a keyset from repeating or losing the rows that tie.
+    //
+    // TWO spellings of the same thing, and they are not interchangeable:
+    // `ORDER BY` takes directions, a ROW EXPRESSION does not.
+    let (lead, descending): (&str, bool) = match scope.sort.as_deref() {
+        Some("name") => ("name", scope.desc),
+        Some("acquired") => ("acquired_on", scope.desc),
+        Some("cost") => ("cost_key", scope.desc),
+        // What is left of it. The order somebody reads a register in when
+        // deciding what is worth insuring.
+        Some("book") => ("book_key", scope.desc),
+        // The house order, and the one this endpoint has always answered in.
+        // Reversible, unlike most house orders here: an asset number counts
+        // upwards, so "the newest thing we bought" is the same list backwards
+        // and is a thing somebody means.
+        _ => ("asset_number", scope.desc),
+    };
+    let cols = format!("{lead}, asset_id");
+    let dir = if descending { "DESC" } else { "ASC" };
+    let order = format!("{lead} {dir}, asset_id {dir}");
+    let seek = if descending { "<" } else { ">" };
+
+    let cursor = scope
+        .cursor
+        .as_deref()
+        .map(AssetCursor::decode)
+        .transpose()?;
+    let limit = scope
+        .limit
+        .unwrap_or(DEFAULT_ASSET_LIMIT)
+        .clamp(1, MAX_ASSET_LIMIT);
+
+    let rows_sql = asset_rows();
+    // The acquisition trail is joined onto the PAGE and onto nothing else —
+    // see [`ACQUIRED_VIA`]. `a` is the alias it expects, which is why `kept` is
+    // aliased to it here.
+    // `NOT MATERIALIZED`: `kept` is referenced twice — as the page and
+    // inside the seek — and two references makes PostgreSQL materialise a
+    // CTE, which is an optimisation fence the `ORDER BY … LIMIT` cannot be
+    // pushed through. Materialised, this reads the whole table and sorts it
+    // to hand back one page; inlined, it seeks the index. See
+    // `postgres::audit::list_audit`, where the difference was measured.
+    let sql = format!(
+        "WITH searched AS NOT MATERIALIZED ({rows_sql}),
+              kept AS NOT MATERIALIZED (
+             SELECT * FROM searched WHERE {ASSET_FILTERS}
+         )
+         SELECT a.*, {ACQUIRED_VIA} FROM kept a
+          WHERE $6::uuid IS NULL
+             OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE asset_id = $6)
+          ORDER BY {order}
+          LIMIT $7"
     );
     let rows = sqlx::query(&sql)
-        .bind(site_id)
-        .bind(category)
-        .bind(unassessed_only)
-        .bind(limit.clamp(1, 1000))
+        .bind(&needle)
+        .bind(&sites)
+        .bind(&categories)
+        .bind(&decisions)
+        .bind(&statuses)
+        .bind(cursor.as_ref().map(|c| c.asset_id))
+        .bind(limit)
         .fetch_all(pool)
         .await?;
-    rows.iter().map(to_asset).collect()
+
+    // A short page is the last page. A full one may not be — the next request
+    // can come back empty — and that is the honest answer.
+    let next_cursor = match rows.last() {
+        Some(row) if rows.len() as i64 == limit => Some(
+            AssetCursor {
+                asset_id: row.try_get("asset_id")?,
+            }
+            .encode()?,
+        ),
+        _ => None,
+    };
+
+    let out = rows.iter().map(to_asset).collect::<Result<Vec<_>, _>>()?;
+    let (total, total_cost_minor, total_book_minor, facets) =
+        asset_facets(pool, &scope, needle.as_deref()).await?;
+    Ok(AssetPage {
+        rows: out,
+        next_cursor,
+        total,
+        total_cost_minor,
+        total_book_minor,
+        facets,
+    })
+}
+
+/// How many assets there are, what they are carried at, and how they split.
+///
+/// Counted from the SAME rows the page is drawn from.
+///
+/// The two scopes here are deliberate:
+///
+///   per-value counts read the SEARCHED set, ignoring what is filtered, so a
+///     number beside a value answers "how many of these there are" — the
+///     question somebody has while deciding whether to click it.
+///   the total and the money read the FILTERED set, because they describe the
+///     list on screen.
+async fn asset_facets(
+    pool: &PgPool,
+    scope: &AssetScope,
+    needle: Option<&str>,
+) -> Result<(i64, i64, i64, AssetFacets), AppError> {
+    let rows_sql = asset_rows();
+    let sql = format!(
+        "WITH searched AS ({rows_sql}), kept AS (
+             SELECT * FROM searched WHERE {ASSET_FILTERS}
+         )
+         SELECT 'site' AS kind, s.site_id AS value,
+                (SELECT p.name FROM site p WHERE p.id = s.site_id) AS label,
+                COUNT(*)::bigint AS n, 0::bigint AS cost, 0::bigint AS book
+           FROM searched s GROUP BY s.site_id
+          UNION ALL
+         SELECT 'category', s.category_code, MIN(s.category_name),
+                COUNT(*)::bigint, 0::bigint, 0::bigint
+           FROM searched s GROUP BY s.category_code
+          UNION ALL
+         SELECT 'decision', s.decision_key, NULL::text,
+                COUNT(*)::bigint, 0::bigint, 0::bigint
+           FROM searched s GROUP BY s.decision_key
+          UNION ALL
+         SELECT 'status', s.status, NULL::text,
+                COUNT(*)::bigint, 0::bigint, 0::bigint
+           FROM searched s GROUP BY s.status
+          UNION ALL
+         SELECT 'all', '', NULL::text, COUNT(*)::bigint,
+                COALESCE(SUM(cost_key), 0)::bigint,
+                COALESCE(SUM(book_key), 0)::bigint
+           FROM kept"
+    );
+    let sites = (!scope.sites.is_empty()).then(|| scope.sites.clone());
+    let categories = (!scope.categories.is_empty()).then(|| scope.categories.clone());
+    let decisions = (!scope.decisions.is_empty()).then(|| scope.decisions.clone());
+    let statuses = (!scope.statuses.is_empty()).then(|| scope.statuses.clone());
+    let rows = sqlx::query(&sql)
+        .bind(needle)
+        .bind(&sites)
+        .bind(&categories)
+        .bind(&decisions)
+        .bind(&statuses)
+        .fetch_all(pool)
+        .await?;
+
+    let mut total = 0i64;
+    let mut cost = 0i64;
+    let mut book = 0i64;
+    let mut facets = AssetFacets {
+        sites: Vec::new(),
+        categories: Vec::new(),
+        decisions: Vec::new(),
+        statuses: Vec::new(),
+    };
+    for row in &rows {
+        let kind: String = row.try_get("kind")?;
+        let value: String = row.try_get("value")?;
+        let label: Option<String> = row.try_get("label")?;
+        let n: i64 = row.try_get("n")?;
+        let facet = AssetFacet {
+            value,
+            label,
+            count: n,
+        };
+        match kind.as_str() {
+            "site" => facets.sites.push(facet),
+            "category" => facets.categories.push(facet),
+            "decision" => facets.decisions.push(facet),
+            "status" => facets.statuses.push(facet),
+            _ => {
+                total = n;
+                cost = row.try_get("cost")?;
+                book = row.try_get("book")?;
+            }
+        }
+    }
+    // Biggest first, ties on the value so the order is stable between calls —
+    // a list that reshuffles under the cursor is a list nobody can click.
+    for list in [
+        &mut facets.sites,
+        &mut facets.categories,
+        &mut facets.decisions,
+        &mut facets.statuses,
+    ] {
+        list.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.value.cmp(&b.value)));
+    }
+    Ok((total, cost, book, facets))
 }
 
 pub async fn asset(pool: &PgPool, asset_id: Uuid) -> Result<AssetRow, AppError> {
     let sql = format!(
-        "SELECT {ASSET_COLUMNS} FROM fixed_asset a
+        "SELECT {ASSET_BASE}, {ACQUIRED_VIA} FROM fixed_asset a
            JOIN ledger_account c ON c.account_code = a.category_code
            {IN_FORCE} WHERE a.asset_id = $1"
     );
@@ -263,14 +706,20 @@ pub async fn asset(pool: &PgPool, asset_id: Uuid) -> Result<AssetRow, AppError> 
 }
 
 /// The families an asset's COST hangs under in the client's own chart:
-/// `10215 AKTIVA TETAP`, and `10217 INTANGIBLE ASSET` for the software they
-/// amortise.
+/// `10215 AKTIVA TETAP`, `10217 INTANGIBLE ASSET` for the software they
+/// amortise, and `1031803 Contract In Progress` for what is being built.
 ///
 /// Named in Rust, which 0050 forbids for a POSTING RULE and permits here: this
 /// is not choosing an account, it is recognising one. `register_asset` has
 /// checked `10215` since 0070; 0159 widened it, because until then an
 /// intangible could not be registered at all.
-const ASSET_FAMILIES: [&str; 2] = ["10215", "10217"];
+///
+/// `1031803` joined them with 0213, and it is the odd one — it sits under
+/// `103 OTHER ASSETS` rather than under fixed assets, which is where the
+/// client's own chart puts it. That is the point: work in progress is not a
+/// fixed asset yet, and their accountants already say so by filing it
+/// somewhere else. 668 of the 1,342 rows in their register are here.
+const ASSET_FAMILIES: [&str; 3] = ["10215", "10217", "1031803"];
 
 fn is_asset_account(code: &str) -> bool {
     ASSET_FAMILIES.iter().any(|family| code.starts_with(family))
@@ -400,7 +849,8 @@ pub async fn register_asset(
     if !is_asset_account(category) {
         return Err(AppError::Validation(format!(
             "{category} is not an asset category; they are the families under \
-             10215 AKTIVA TETAP and 10217 INTANGIBLE ASSET"
+             10215 AKTIVA TETAP, 10217 INTANGIBLE ASSET, and 1031803 Contract In \
+             Progress for what is still being built"
         )));
     }
     if let Some(quantity) = request.quantity {
@@ -498,6 +948,20 @@ pub async fn assess_asset(
     // asset_capitalization_charge_kind_follows_decision" is not a sentence
     // anybody can act on.
     let capitalising = request.decision.trim() == "CAPITALIZE";
+
+    // The rate and the life, reconciled.
+    //
+    // Their register prints both — "20%" beside "5" — and they are one fact:
+    // a straight line at 20% a year IS a five-year life. So either may be
+    // given. Both, and they have to agree to the month, because a row saying
+    // 20% over eight years is a row nobody can post from: one of the two
+    // numbers is a typing mistake and this code cannot know which.
+    //
+    // Months rather than years, because that is what the arithmetic uses and
+    // because a rate that does not divide a year evenly — 33.33% — lands on 36
+    // months exactly while "3 years" and "3.0003 years" do not.
+    let (useful_life_months, rate_bps) =
+        reconcile_life(request.useful_life_months, request.rate_bps)?;
     let charge_kind = match request.charge_kind.as_deref().map(str::trim) {
         Some(raw) if !raw.is_empty() => {
             if ChargeKind::parse(raw).is_none() {
@@ -523,6 +987,61 @@ pub async fn assess_asset(
         }
         _ => None,
     };
+
+    // Where it is filed now, and what its last assessment said. Both are
+    // needed before anything is written: a re-filing is only legitimate out of
+    // work in progress, and the answer to "is this asset in progress" is the
+    // latest assessment rather than a column.
+    let standing = sqlx::query(
+        "SELECT a.category_code,
+                (SELECT x.decision FROM asset_capitalization x
+                  WHERE x.asset_id = a.asset_id
+                  ORDER BY x.sequence DESC LIMIT 1) AS decision
+           FROM fixed_asset a WHERE a.asset_id = $1",
+    )
+    .bind(asset_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound("asset".into()))?;
+    let was: Option<String> = standing.try_get("decision")?;
+    let filed_under: String = standing.try_get("category_code")?;
+
+    // Finished work has to say what it became. Capitalising something filed
+    // under Contract In Progress and leaving it there would put a building's
+    // depreciation against the work-in-progress account for the rest of its
+    // life — the books would carry a finished shop as work still going on.
+    // Found by trying it: the re-filing was optional, and the omission was
+    // silent.
+    let leaving_progress =
+        was.as_deref() == Some("IN_PROGRESS") && request.decision.trim() == "CAPITALIZE";
+
+    let refiled = match request.category_code.as_deref().map(str::trim) {
+        Some(code) if !code.is_empty() && code != filed_under => {
+            if was.as_deref() != Some("IN_PROGRESS") {
+                return Err(AppError::Validation(
+                    "only work in progress may be re-filed, and only as it is capitalised: \
+                     an asset already in a family stays in it"
+                        .into(),
+                ));
+            }
+            if !is_asset_account(code) || code.starts_with("1031803") {
+                return Err(AppError::Validation(format!(
+                    "{code} is not a family finished work can become; it is one of those \
+                     under 10215 AKTIVA TETAP or 10217 INTANGIBLE ASSET"
+                )));
+            }
+            Some(code.to_owned())
+        }
+        _ => None,
+    };
+
+    if refiled.is_none() && leaving_progress && filed_under.starts_with("1031803") {
+        return Err(AppError::Validation(
+            "finished work has to be filed as what it became: send the family it now \
+             belongs to — a capitalised asset cannot stay under Contract In Progress"
+                .into(),
+        ));
+    }
 
     sqlx::query("SELECT 1 FROM fixed_asset WHERE asset_id = $1")
         .bind(asset_id)
@@ -565,8 +1084,8 @@ pub async fn assess_asset(
         "INSERT INTO asset_capitalization
            (capitalization_id, asset_id, sequence, decision, capitalized_cost_minor,
             salvage_value_minor, useful_life_months, method, charge_kind, in_service_on,
-            reason, assessed_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
+            reason, assessed_by, rate_bps)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
     )
     .bind(Uuid::new_v4())
     .bind(asset_id)
@@ -574,12 +1093,13 @@ pub async fn assess_asset(
     .bind(request.decision.trim())
     .bind(request.capitalized_cost_minor)
     .bind(request.salvage_value_minor)
-    .bind(request.useful_life_months)
+    .bind(useful_life_months)
     .bind(request.method.as_deref())
     .bind(charge_kind)
     .bind(request.in_service_on)
     .bind(request.reason.trim())
     .bind(actor)
+    .bind(rate_bps)
     .execute(&mut *tx)
     .await?;
 
@@ -591,6 +1111,24 @@ pub async fn assess_asset(
         sqlx::query("UPDATE fixed_asset SET acquired_via_line_id = $2 WHERE asset_id = $1")
             .bind(asset_id)
             .bind(line_id)
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    // Finished work becomes what it was built into. In the same transaction as
+    // the assessment that capitalised it, because the two are one act: an
+    // asset re-filed without an assessment would be a cost that moved family
+    // for no stated reason, and an assessment without the re-filing would
+    // depreciate a building against the work-in-progress account.
+    //
+    // What this does NOT do is post the move. In this system nothing has put
+    // the cost into `1031803` — the import brought values, not entries — so
+    // there is no balance to move yet. The day expense bills start landing
+    // against work in progress, the journal belongs here.
+    if let Some(code) = refiled {
+        sqlx::query("UPDATE fixed_asset SET category_code = $2 WHERE asset_id = $1")
+            .bind(asset_id)
+            .bind(code)
             .execute(&mut *tx)
             .await?;
     }

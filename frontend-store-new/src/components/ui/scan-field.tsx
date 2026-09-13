@@ -43,7 +43,7 @@ export function ScanField({
   return (
     <div className={cn("flex items-center gap-2.5", className)}>
       <form
-        className="flex h-12 min-w-0 flex-1 items-center gap-2.5 rounded-full border border-hairline-2 bg-canvas px-4"
+        className="flex h-12 min-w-0 flex-1 items-center gap-2.5 rounded-inner border border-hairline-2 bg-canvas px-4"
         onSubmit={(event) => {
           event.preventDefault()
           const raw = value.trim()

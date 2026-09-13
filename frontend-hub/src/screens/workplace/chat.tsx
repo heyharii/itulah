@@ -15,7 +15,6 @@ import { Segmented } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { Banner, EmptyState, Problem } from "@/components/ui/states"
-import { Tag } from "@/components/ui/tag"
 import { count } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import { queryState } from "@/lib/query-state"
@@ -252,7 +251,7 @@ function StartSheet({
   /// them, so the room would be started onto somebody who cannot sign in.
   const choices = useMemo<Choice[]>(
     () =>
-      (users.data ?? [])
+      (users.data?.rows ?? [])
         .filter((user) => user.active && user.username !== me)
         .map((user) => ({
           value: user.username,
@@ -418,15 +417,15 @@ function RoomRow({
       <Avatar name={name} />
       <span className="min-w-0 flex-1">
         <span className="flex items-baseline gap-2">
-          <span className="min-w-0 flex-1 truncate text-meta font-medium text-ink">
+          <span className="min-w-0 flex-1 truncate text-nav font-medium text-ink">
             {name}
           </span>
           <span className="shrink-0 text-pill text-mute">
             {ago(room.last_activity_at)}
           </span>
         </span>
-        <span className="mt-0.5 flex items-center gap-1.5">
-          <span className="min-w-0 flex-1 truncate text-pill text-body">
+        <span className="mt-[0.1875rem] flex items-center gap-1.5">
+          <span className="min-w-0 flex-1 truncate text-meta text-body">
             {room.preview === null
               ? "Nobody has said anything yet."
               : `${room.preview_author ?? ""}${room.preview_author ? ": " : ""}${room.preview}`}
@@ -544,21 +543,27 @@ function Room({ id, me }: { id: string; me: string | undefined }) {
     <div className="flex min-w-0 flex-1 flex-col">
       {queryState(detail, {
         loading: "Loading the conversation…",
+        // Who you are talking to, and who else is in the room — nothing else.
+        //
+        // Two things stood in this header and neither was a fact about the
+        // conversation: `GROUP`, a database enum set as a mono code beside a
+        // person's name, and "read to 4 of 4", the server's own arithmetic for
+        // the unread count. Read state is already said twice over — by the
+        // badge on the room in the list, and by the New line in the thread —
+        // and a sequence number is not how anybody asks the question. A group
+        // now says it is one in words, where its membership is.
         render: (room) => (
-          <div className="flex shrink-0 items-start gap-2.5 border-b border-hairline px-5 py-3">
+          <div className="flex shrink-0 items-center gap-3 border-b border-hairline px-5 py-3">
             <Avatar name={conversationName(room, me)} size="lg" />
             <div className="min-w-0 flex-1">
               <h2 className="truncate text-card-title font-semibold text-ink">
                 {conversationName(room, me)}
               </h2>
-              <p className="mt-0.5 truncate text-pill text-mute">
-                {room.participants.join(" · ")} · read to{" "}
-                {count(room.last_read_seq)} of {count(room.latest_message_seq)}
+              <p className="mt-[0.1875rem] truncate text-meta text-mute">
+                {room.kind === "GROUP" && "Group · "}
+                {room.participants.join(", ")}
               </p>
             </div>
-            <Tag tone={room.kind === "GROUP" ? "accent" : "neutral"}>
-              {room.kind}
-            </Tag>
           </div>
         ),
       })}
@@ -649,7 +654,7 @@ function Room({ id, me }: { id: string; me: string | undefined }) {
                                 screen is this conversation, so the two cross
                                 into each other rather than dead-ending. */}
                             <AppLink
-                              to="/files"
+                              to="/library"
                               sheet={{ key: "file", value: file.file_id }}
                               className="block truncate text-[0.8125rem] text-ink hover:text-accent"
                             >
@@ -728,7 +733,7 @@ function Message({
               mine && "flex-row-reverse"
             )}
           >
-            <span className="text-pill font-medium text-body">
+            <span className="text-meta font-medium text-body">
               {mine ? "You" : message.author}
             </span>
             <span className="text-pill text-mute tabular-nums">

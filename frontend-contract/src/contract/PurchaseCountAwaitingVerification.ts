@@ -26,6 +26,14 @@ expected_stock_units: number,
  */
 variance: number, 
 /**
+ * What this line can still take before a count becomes excess: ordered
+ * less everything already matched against it. A verifier accepting 105
+ * against an order with 100 outstanding is accepting 100 the company
+ * bought and 5 it did not, and should be able to see that before they
+ * press the button.
+ */
+outstanding_stock_units: number, 
+/**
  * The agreed price per piece, to check the invoice against.
  */
 unit_price_minor: number | null, };

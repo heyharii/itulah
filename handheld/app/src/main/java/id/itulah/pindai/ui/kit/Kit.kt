@@ -1,30 +1,37 @@
 package id.itulah.pindai.ui.kit
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -32,49 +39,146 @@ import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import id.itulah.pindai.ui.theme.*
 import kotlin.math.roundToInt
 
-val CardShape = RoundedCornerShape(12.dp)
-val ControlShape = RoundedCornerShape(8.dp)
+/**
+ * The composites this language builds out of its tokens: card, pill, button,
+ * field, floating bar. Drawn from `prototypes/hub-prototype.html` and from
+ * `frontend-floor`'s kit, which is the same drawing sized for a hand.
+ */
 
-/** A card is a hairline ring, never a shadow. Elevation is for things that float. */
-@Composable
-fun PlanetCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = CardShape,
-        color = Surface.card,
-        border = BorderStroke(1.dp, Ink.border(.04f)),
-    ) { Column(Modifier.padding(Space.lg), content = content) }
-}
-
-@Composable
-fun SectionLabel(text: String, modifier: Modifier = Modifier) {
-    Text(text, style = Type.caption, color = Ink.text(.60f), modifier = modifier)
-}
+val CardShape = RoundedCornerShape(Radius.card)
+val ControlShape = RoundedCornerShape(Radius.inner)
+val SheetShape = RoundedCornerShape(Radius.sheet)
 
 /**
- * Press gives a small spring-scale and a 6% ink tint — the beUI "weighted spring"
- * idea kept to the one place a finger actually lands. Gloved hands on a warehouse
- * floor need the feedback; nothing else on screen moves.
+ * White card, one hairline, 12 dp corners, whisper shadow.
+ *
+ * Cards are lifted by their BORDER, not by shadow — the shadow exists to stop
+ * the white-on-white edge disappearing, not to float anything. On a white page
+ * the hairline is the card; drop it and there is nothing there.
+ *
+ * `onPress` makes the whole card the target, and the feedback is the press wash
+ * this system specifies: a soft grey fill and a scale of 0.99 over 120 ms.
+ * Deliberately quieter than the spring this kit used to have — a card that
+ * flinches is a card that looks broken on the tenth press of a shift.
  */
 @Composable
-private fun Modifier.pressSpring(source: MutableInteractionSource): Modifier {
+fun HubCard(
+    modifier: Modifier = Modifier,
+    onPress: (() -> Unit)? = null,
+    padding: PaddingValues = PaddingValues(Space.lg),
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val source = remember { MutableInteractionSource() }
+    val pressed by source.collectIsPressedAsState()
+    val fill by animateColorAsState(
+        targetValue = if (pressed && onPress != null) Surface.soft2 else Surface.canvas,
+        animationSpec = tween(Motion.press, easing = Motion.easeOut),
+        label = "press-wash",
+    )
+    Column(
+        modifier
+            .fillMaxWidth()
+            .pressScale(source)
+            .shadow(1.dp, CardShape, ambientColor = Surface.shadow, spotColor = Surface.shadow)
+            .background(fill, CardShape)
+            .border(1.dp, Surface.hairline, CardShape)
+            // Material's ripple is not this system's press feedback; the wash
+            // above is, so the indication is switched off rather than restyled.
+            .then(
+                if (onPress == null) Modifier
+                else Modifier.clickable(
+                    interactionSource = source, indication = null, onClick = onPress,
+                ),
+            )
+            .padding(padding),
+        content = content,
+    )
+}
+
+/** The press scale. 0.99, and only while a finger is actually down. */
+@Composable
+private fun Modifier.pressScale(source: MutableInteractionSource): Modifier {
     val pressed by source.collectIsPressedAsState()
     val motion = LocalMotion.current
     val scale by animateFloatAsState(
-        targetValue = if (pressed && motion) 0.97f else 1f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessMediumLow),
-        label = "press",
+        targetValue = if (pressed && motion) 0.99f else 1f,
+        animationSpec = tween(Motion.press, easing = Motion.easeOut),
+        label = "press-scale",
     )
     return this.scale(scale)
 }
 
+/**
+ * The group label above a run of cards. Whitespace separates and one hairline
+ * divides; nothing gets a box around it just for being a group.
+ */
+@Composable
+fun SectionLabel(text: String, modifier: Modifier = Modifier) {
+    Text(text, style = Type.section, color = Ink.mute, modifier = modifier)
+}
+
+/**
+ * The status pill — one grammar for every state in the app.
+ *
+ * OUTLINED, not filled. What reads is the coloured TEXT; the hairline only holds
+ * it, which is why the border is 30% of the label's own colour and not 100%: a
+ * border as strong as its label turns the tag into a BOX, and a box is a
+ * container, while a label is a fact about what it sits beside.
+ *
+ * `ACCENT` means selected — the joined session, the chosen count. `INFO` means
+ * in motion. They never swap.
+ */
+enum class Tone(val fg: Color, val dot: Color) {
+    OK(OkFg, Ok),
+    WARN(WarnFg, Warn),
+    BAD(BadFg, Bad),
+    INFO(InfoFg, Info),
+    ACCENT(Accent, Accent),
+    NEUTRAL(Ink.body, Ink.mute),
+}
+
+@Composable
+fun Pill(tone: Tone, label: String, modifier: Modifier = Modifier, withDot: Boolean = true) {
+    Row(
+        modifier
+            .height(25.dp)
+            .background(Surface.canvas, ControlShape)
+            .border(
+                1.dp,
+                if (tone == Tone.NEUTRAL) Surface.hairline2 else tone.fg.copy(alpha = .30f),
+                ControlShape,
+            )
+            .padding(horizontal = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        if (withDot) Box(Modifier.size(5.dp).background(tone.dot, CircleShape))
+        Text(label, style = Type.pill, color = tone.fg)
+    }
+}
+
+/**
+ * The one filled call to action, and there is at most one per screen.
+ *
+ * `big` is the action a screen exists for — pull the trigger, finish the sweep —
+ * at 56 dp, hit without being looked at. Everything else clears the 44 dp touch
+ * floor; there is deliberately no small size, because a small size would get
+ * used for looking tidier in a card.
+ *
+ * Disabled is drawn GREY rather than dimmed. Fading the old black CTA worked by
+ * accident — black at 45% is grey — but fading this blue gives a pale lavender
+ * bar that reads perfectly well as a light blue button, and the button it
+ * happens to is the 56 dp one at the foot of a sweep.
+ */
 @Composable
 fun PrimaryButton(
     text: String,
@@ -82,92 +186,198 @@ fun PrimaryButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     loading: Boolean = false,
+    big: Boolean = false,
 ) {
     val source = remember { MutableInteractionSource() }
     Button(
         onClick = onClick,
-        modifier = modifier.fillMaxWidth().heightIn(min = 48.dp).pressSpring(source),
+        modifier = modifier
+            .heightIn(min = if (big) Tap.action else Tap.floor)
+            .pressScale(source),
         enabled = enabled && !loading,
         shape = ControlShape,
         interactionSource = source,
-        colors = ButtonDefaults.buttonColors(containerColor = Blue, contentColor = Color.White,
-            disabledContainerColor = Ink.fill(.08f), disabledContentColor = Ink.text(.36f)),
+        contentPadding = PaddingValues(horizontal = if (big) Space.xxl else Space.lg),
+        elevation = null,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = Cta, contentColor = CtaFg,
+            disabledContainerColor = Surface.soft2, disabledContentColor = Ink.mute,
+        ),
     ) {
         if (loading) {
-            CircularProgressIndicator(Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+            CircularProgressIndicator(Modifier.size(18.dp), color = CtaFg, strokeWidth = 2.dp)
             Spacer(Modifier.width(Space.sm))
         }
-        Text(text, style = Type.emphasis)
+        Text(text, style = if (big) Type.action else Type.control)
     }
 }
 
+/** The quiet one: a hairline, a white ground, and the whisper shadow. */
 @Composable
 fun QuietButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    big: Boolean = false,
 ) {
     val source = remember { MutableInteractionSource() }
     OutlinedButton(
         onClick = onClick,
-        modifier = modifier.fillMaxWidth().heightIn(min = 48.dp).pressSpring(source),
+        modifier = modifier
+            .heightIn(min = if (big) Tap.action else Tap.floor)
+            .pressScale(source),
         enabled = enabled,
         shape = ControlShape,
         interactionSource = source,
-        border = BorderStroke(1.dp, Ink.border(.08f)),
-        colors = ButtonDefaults.outlinedButtonColors(contentColor = Ink.text(),
-            disabledContentColor = Ink.text(.36f)),
-    ) { Text(text, style = Type.emphasis) }
+        contentPadding = PaddingValues(horizontal = if (big) Space.xxl else Space.lg),
+        border = BorderStroke(
+            1.dp, if (enabled) Surface.hairline2 else Color.Transparent,
+        ),
+        colors = ButtonDefaults.outlinedButtonColors(
+            containerColor = Surface.canvas, contentColor = Ink.text,
+            disabledContainerColor = Surface.soft2, disabledContentColor = Ink.mute,
+        ),
+    ) { Text(text, style = if (big) Type.action else Type.control) }
 }
 
-/** Status is a quiet dot and a word. Filled badges shout; data should not. */
+/**
+ * The frosted icon chip: a 44 dp white square with a hairline and a soft shadow,
+ * carrying one pale line icon. The app bar's left and right zones are made of
+ * it, and its target is set by the bar's height rather than by what is in it.
+ */
 @Composable
-fun StatusDot(color: Color, label: String) {
-    Row(verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
-        Box(Modifier.size(8.dp).clip(RoundedCornerShape(4.dp)).background(color))
-        Text(label, style = Type.caption, color = Ink.text(.74f))
+fun Chip(onClick: () -> Unit, modifier: Modifier = Modifier, glyph: @Composable () -> Unit) {
+    val source = remember { MutableInteractionSource() }
+    Box(
+        modifier
+            .size(Tap.floor)
+            .pressScale(source)
+            .shadow(1.dp, ControlShape, ambientColor = Surface.shadow, spotColor = Surface.shadow)
+            .background(Surface.canvas, ControlShape)
+            .border(1.dp, Surface.hairline2, ControlShape)
+            .clickable(interactionSource = source, indication = null, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) { glyph() }
+}
+
+/**
+ * A labelled input, and the one place a field's chrome is described.
+ *
+ * Not a Material text field. Material draws a floating label, its own outline
+ * and its own focus behaviour, and the three together are the most recognisable
+ * way a screen stops being Cloud Hub — so the field is drawn here: a `soft-2`
+ * fill, no border until it is focused, and the accent for the focus itself.
+ * 48 dp, because a field on this surface is aimed at with a gloved thumb.
+ */
+@Composable
+fun HubField(
+    value: String,
+    onChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    label: String? = null,
+    placeholder: String? = null,
+    secret: Boolean = false,
+    hint: String? = null,
+) {
+    val source = remember { MutableInteractionSource() }
+    val focused by source.collectIsFocusedAsState()
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        label?.let { Text(it, style = Type.meta.copy(fontWeight = FontWeight.Medium),
+            color = Ink.text) }
+        BasicTextField(
+            value = value,
+            onValueChange = onChange,
+            singleLine = true,
+            interactionSource = source,
+            textStyle = Type.action.copy(color = Ink.ink),
+            cursorBrush = SolidColor(Accent),
+            visualTransformation =
+                if (secret) PasswordVisualTransformation() else VisualTransformation.None,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(Tap.field)
+                .background(Surface.soft2, ControlShape)
+                .border(1.dp, if (focused) Accent else Color.Transparent, ControlShape),
+        ) { field ->
+            Box(
+                Modifier.fillMaxSize().padding(horizontal = Space.lg),
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                if (value.isEmpty() && placeholder != null) {
+                    Text(placeholder, style = Type.action, color = Ink.mute)
+                }
+                field()
+            }
+        }
+        hint?.let { Text(it, style = Type.meta, color = Ink.mute) }
     }
 }
 
-/** One key/value line. Value carries the ink; the label steps back. */
+/**
+ * The bar that floats above the tab squircles, carrying what a screen is about
+ * and the one thing to do about it.
+ *
+ * A sheet-radius white card with a hairline and the float shadow — not a docked
+ * bar with a rule above it. Nothing in this system is separated by a line where
+ * whitespace and a shadow will do.
+ */
+@Composable
+fun FloatingBar(modifier: Modifier = Modifier, content: @Composable RowScope.() -> Unit) {
+    Row(
+        modifier
+            .fillMaxWidth()
+            .shadow(12.dp, SheetShape, ambientColor = Surface.shadow, spotColor = Surface.shadow)
+            .background(Surface.canvas, SheetShape)
+            .border(1.dp, Surface.hairline, SheetShape)
+            .padding(horizontal = 14.dp, vertical = Space.md),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Space.md),
+        content = content,
+    )
+}
+
+/**
+ * One key → value line: the reading unit of a summary. Nothing renders it yet —
+ * it is here because a summary drawn without it invents its own grammar.
+ */
 @Composable
 fun KeyValue(label: String, value: String?, mono: Boolean = false) {
-    Row(Modifier.fillMaxWidth().padding(vertical = Space.xs),
+    Row(Modifier.fillMaxWidth().padding(vertical = Space.sm),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically) {
-        Text(label, style = Type.body, color = Ink.text(.74f))
+        Text(label, style = Type.cell, color = Ink.mute)
         Text(
             value ?: "—",
-            style = if (mono) Type.mono else Type.bodyNum,
-            color = if (value == null) Ink.text(.36f) else Ink.text(),
+            style = if (mono) Type.id else Type.cell.copy(fontWeight = FontWeight.Medium),
+            color = if (value == null) Ink.faint else Ink.ink,
             maxLines = 1, overflow = TextOverflow.Ellipsis,
         )
     }
 }
 
 /**
- * A row that arrives rather than appears. Staggered by index so a sweep that
- * finds twenty tags reads as a sequence, not a flash — but the stagger is capped,
- * because the two-hundredth tag must not wait two seconds to be seen.
+ * A row that arrives rather than appears, staggered by index and capped so the
+ * two-hundredth tag does not wait. Nothing renders it yet: the tag list stopped
+ * using it because a recycled row replays the entrance on every scroll.
  */
 @Composable
 fun StaggeredRow(index: Int, content: @Composable () -> Unit) {
     val motion = LocalMotion.current
     var shown by remember { mutableStateOf(!motion) }
     LaunchedEffect(Unit) { shown = true }
+    val delay = index.coerceAtMost(8) * 24
     AnimatedVisibility(
         visible = shown,
-        enter = fadeIn(tween(180, delayMillis = (index.coerceAtMost(8)) * 24)) +
-            slideInVertically(tween(180, delayMillis = (index.coerceAtMost(8)) * 24)) { it / 3 },
+        enter = fadeIn(tween(Motion.page, delayMillis = delay, easing = Motion.easeOut)) +
+            slideInVertically(
+                tween(Motion.page, delayMillis = delay, easing = Motion.easeOut),
+            ) { it / 3 },
     ) { content() }
 }
 
 private val FaderHeight = 56.dp
 private val FaderThumb = 34.dp
-private val FaderShape = RoundedCornerShape(16.dp)
-private val FaderThumbShape = RoundedCornerShape(11.dp)
 
 /**
  * A fader thick enough to move with a glove on.
@@ -232,8 +442,8 @@ fun Fader(
             .fillMaxWidth()
             .height(FaderHeight)
             .onSizeChanged { widthPx = it.width }
-            .clip(FaderShape)
-            .background(Ink.fill(.06f))
+            .clip(CardShape)
+            .background(Surface.soft2)
             .semantics {
                 stateDescription = value.toString()
                 // `steps` counts the stops BETWEEN the ends, so a 5..30 dBm
@@ -264,10 +474,10 @@ fun Fader(
                 onDragStopped = { dragging = false; onCommit() },
             ),
     ) {
-        // Ink, not blue. A 296x56 dp slab of #2563EB is by a wide margin the
-        // loudest thing in this app, and the app has already decided against
-        // it: the selected tab travels as Ink.fill(.08f), and blue appears as a
-        // dot beside a word, never as a field. The level is data; data is quiet.
+        // A hairline grey, not the accent. A 296x56 dp slab of #2563EB is by a
+        // wide margin the loudest thing in this app, and blue here means
+        // SELECTED — the joined session, the live tab. The level is data, and
+        // data in this system is quiet.
         //
         // The fill ends under the thumb's far edge, so at the bottom of the
         // range it is a nub rather than nothing — a bar with no fill at all
@@ -276,7 +486,7 @@ fun Fader(
             Modifier
                 .width(with(LocalDensity.current) { (shown * travel + thumbPx).toDp() })
                 .fillMaxHeight()
-                .background(Ink.fill(.14f)),
+                .background(Surface.hairline2),
         )
         Box(
             Modifier
@@ -284,17 +494,17 @@ fun Fader(
                 .padding(vertical = 4.dp)
                 .width(FaderThumb)
                 .fillMaxHeight()
-                .clip(FaderThumbShape)
-                .background(Surface.floating)
-                .border(1.dp, Ink.border(.20f), FaderThumbShape),
+                .shadow(1.dp, ControlShape, ambientColor = Surface.shadow,
+                    spotColor = Surface.shadow)
+                .background(Surface.canvas, ControlShape)
+                .border(1.dp, Surface.hairlineStrong, ControlShape),
             contentAlignment = Alignment.Center,
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
                 repeat(2) {
                     Box(
                         Modifier.width(2.dp).height(16.dp)
-                            .clip(RoundedCornerShape(1.dp))
-                            .background(Ink.border(.20f)),
+                            .background(Surface.hairlineStrong, RoundedCornerShape(1.dp)),
                     )
                 }
             }

@@ -1,0 +1,17 @@
+-- 0166: A line remembers what it earned.
+--
+-- `edge_sale.points_earned` held one figure for the whole receipt, which is
+-- enough to credit an account and not enough to debit one. A shopper returning
+-- one of two items has the points for THAT item taken back, and with only a
+-- basket total the only way to find them is to divide — by a share the engine
+-- did not use, or by re-running today's scheme against yesterday's goods.
+--
+-- Both are wrong in the same direction: they can take back more points than the
+-- purchase ever gave. The engine already allocates the award across the lines
+-- that earned it (decision D02, largest fractional remainder over each line's
+-- share of the basis); this is where that allocation stops being thrown away.
+--
+-- Nullable for the sales already here, whose award was never split. Null is
+-- "not recorded" — a partial return of one of those has to be handled by a
+-- person rather than by arithmetic over a figure nobody stored.
+ALTER TABLE edge_sale_line ADD COLUMN points_earned BIGINT;

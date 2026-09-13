@@ -765,7 +765,10 @@ async fn a_term_that_predates_the_mark_is_retire_only(pool: PgPool) {
         None,
     )
     .await;
-    assert_eq!(usage["can_delete"], false, "so it may not be deleted: {usage}");
+    assert_eq!(
+        usage["can_delete"], false,
+        "so it may not be deleted: {usage}"
+    );
 
     let (status, refused) = call(
         &pool,

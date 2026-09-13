@@ -1,0 +1,148 @@
+{
+  "schema_version": 1,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Alur Finance yang Dituju",
+    "quality_profile": "showcase",
+    "legend": {
+      "mode": "hidden"
+    }
+  },
+  "lanes": [
+    {
+      "id": "bisnis",
+      "label": "Operasional"
+    },
+    {
+      "id": "finance",
+      "label": "Finance"
+    },
+    {
+      "id": "treasury",
+      "label": "Kas & Bank"
+    },
+    {
+      "id": "accounting",
+      "label": "Akuntansi"
+    }
+  ],
+  "mainPath": [
+    "kejadian",
+    "bukti",
+    "periksa",
+    "catat",
+    "dana",
+    "cocok",
+    "tutup"
+  ],
+  "nodes": [
+    {
+      "id": "kejadian",
+      "lane": "bisnis",
+      "col": 0,
+      "type": "external",
+      "label": "Bisnis",
+      "sublabel": "jual · beli · terima"
+    },
+    {
+      "id": "bukti",
+      "lane": "bisnis",
+      "col": 1,
+      "type": "frontend",
+      "label": "Dokumen",
+      "sublabel": "POS · invoice · bukti"
+    },
+    {
+      "id": "periksa",
+      "lane": "finance",
+      "col": 1,
+      "type": "security",
+      "label": "Verifikasi",
+      "sublabel": "unit · nilai · bukti"
+    },
+    {
+      "id": "catat",
+      "lane": "finance",
+      "col": 3,
+      "type": "database",
+      "label": "Pengakuan",
+      "sublabel": "hutang · piutang"
+    },
+    {
+      "id": "dana",
+      "lane": "treasury",
+      "col": 3,
+      "type": "backend",
+      "label": "Dana",
+      "sublabel": "otorisasi · realisasi"
+    },
+    {
+      "id": "cocok",
+      "lane": "treasury",
+      "col": 5,
+      "type": "security",
+      "label": "Rekonsiliasi",
+      "sublabel": "bank · buku"
+    },
+    {
+      "id": "tutup",
+      "lane": "accounting",
+      "col": 5,
+      "type": "backend",
+      "label": "Tutup buku",
+      "sublabel": "penyesuaian · final"
+    }
+  ],
+  "edges": [
+    {
+      "from": "kejadian",
+      "to": "bukti"
+    },
+    {
+      "from": "bukti",
+      "to": "periksa"
+    },
+    {
+      "from": "periksa",
+      "to": "catat"
+    },
+    {
+      "from": "catat",
+      "to": "dana"
+    },
+    {
+      "from": "dana",
+      "to": "cocok"
+    },
+    {
+      "from": "cocok",
+      "to": "tutup"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Pencatatan mengikuti kejadian",
+      "items": [
+        "Hutang dan piutang dapat dicatat sebelum uang berpindah.",
+        "Setiap kejadian yang relevan membentuk jurnal dari pemetaan COA."
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Setiap transaksi punya status",
+      "items": [
+        "Dokumen, posting, pembayaran dan rekonsiliasi dipisahkan.",
+        "Selisih masuk antrean penanganan dengan pemilik yang jelas."
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Laporan tersedia sepanjang periode",
+      "items": [
+        "Tutup buku memfinalkan periode; bukan awal tersedianya laporan.",
+        "Akrual dan penyusutan tidak memerlukan perpindahan dana."
+      ]
+    }
+  ]
+}

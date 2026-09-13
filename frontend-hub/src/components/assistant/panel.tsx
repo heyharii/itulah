@@ -106,10 +106,9 @@ function Opening() {
   return (
     <div className="pt-2">
       <p className="text-meta leading-relaxed text-body">
-        Ask about anything this node holds — stock, prices, takings, the
-        ledger, suppliers, people, and whatever else is in the database.
-        Answers are drawn from live reads, the reads are shown, and nothing
-        here writes.
+        Ask about anything this node holds — stock, prices, takings, the ledger,
+        suppliers, people, and whatever else is in the database. Answers are
+        drawn from live reads, the reads are shown, and nothing here writes.
       </p>
       <div className="mt-3.5 flex flex-wrap gap-1.5">
         {data?.tools.map((tool) => (

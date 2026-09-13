@@ -584,7 +584,8 @@ export function AccountPicker({
 
   const results = useQuery({
     queryKey: financeKeys.accountSearch(trimmed, false),
-    queryFn: ({ signal }) => searchAccounts(trimmed, { limit: 50 }, signal),
+    queryFn: ({ signal }) =>
+      searchAccounts(trimmed, { limit: 50 }, signal).then((page) => page.rows),
     enabled: ready,
     // The chart is imported once and then sits for months.
     staleTime: 60_000,

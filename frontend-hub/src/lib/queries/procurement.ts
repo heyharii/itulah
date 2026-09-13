@@ -4,15 +4,18 @@ import type {
   BasketLine,
   CatalogPurchaseOrderRequest,
   CatalogueVocabulary,
+  CreateSupplierBankAccountRequest,
   CreateSupplierItemRequest,
   CreateSupplierRequest,
   PaymentTermsBook,
   PurchaseDestination,
   SourcingPage,
   Supplier,
+  SupplierBankAccount,
   SupplierItem,
   SupplierList,
   SupplierStatus,
+  UpdateSupplierBankAccountRequest,
   UpdateSupplierRequest,
 } from "@itulah/contract"
 
@@ -289,6 +292,12 @@ export interface SetupSession {
   readonly receipt_line_id: string
   readonly article_code: string
   readonly supplier_article_code: string | null
+  /// Who sent the delivery this session was opened against, by CODE — `SUP02`.
+  /// Read off the receipt rather than stored on the session: who sent the
+  /// goods is a fact about the delivery, not about what head office decided.
+  /// Absent on a server that has not been restarted since it started sending
+  /// it, which is why the record draws the row only when it is there.
+  readonly supplier_code?: string | null
   readonly article_name: string
   readonly division_code: string
   readonly tags: readonly string[]
@@ -411,6 +420,21 @@ export interface SourcingScope {
   readonly limit?: number
   /// From a previous page's `next_cursor`.
   readonly cursor?: string
+  /// Which book: `MERCHANDISE`, `EXPENSE` or `AFFILIATE`.
+  ///
+  /// The two menus each name theirs — Buying shows merchandise, Finance shows
+  /// the parties that send bills — and a screen that named neither would show
+  /// PLN in the middle of the garment factories. See migration 0212.
+  readonly category?: SupplierCategory
+}
+
+export type SupplierCategory = "MERCHANDISE" | "EXPENSE" | "AFFILIATE"
+
+/// What each book is called where a person reads it.
+export const SUPPLIER_CATEGORY_LABEL: Readonly<Record<string, string>> = {
+  MERCHANDISE: "Merchandise",
+  EXPENSE: "Expense",
+  AFFILIATE: "Affiliate",
 }
 
 // ---------------------------------------------------------------------------
@@ -448,6 +472,10 @@ export const procurementKeys = {
   /// A supplier's own catalogue, under the supplier it belongs to.
   supplierCatalogue: (id: string) =>
     ["procurement", "suppliers", id, "items"] as const,
+  /// Where that supplier's money lands. Under the supplier too, so retiring an
+  /// account invalidates with the record it belongs to.
+  supplierBankAccounts: (id: string) =>
+    ["procurement", "suppliers", id, "bank-accounts"] as const,
   supplierItems: () => ["procurement", "supplier-items"] as const,
   supplierItem: (id: string) => ["procurement", "supplier-items", id] as const,
   /// The sourcing search. The scope is part of the key because a different
@@ -745,6 +773,12 @@ export interface SupplierScope {
   readonly limit?: number
   /// From a previous page's `next_cursor`.
   readonly cursor?: string
+  /// Which book: `MERCHANDISE`, `EXPENSE` or `AFFILIATE`.
+  ///
+  /// The two menus each name theirs — Buying shows merchandise, Finance shows
+  /// the parties that send bills — and a screen that named neither would show
+  /// PLN in the middle of the garment factories. See migration 0212.
+  readonly category?: SupplierCategory
 }
 
 /// The scope as the route it addresses.
@@ -759,6 +793,7 @@ function supplierBookUrl(scope: SupplierScope): string {
   if (scope.desc === true) params.set("dir", "desc")
   if (scope.limit !== undefined) params.set("limit", String(scope.limit))
   if (scope.cursor !== undefined) params.set("cursor", scope.cursor)
+  if (scope.category !== undefined) params.set("category", scope.category)
   const query = params.toString()
   return query === "" ? "/api/v1/suppliers" : `/api/v1/suppliers?${query}`
 }
@@ -841,6 +876,63 @@ export function setSupplierStatus(
   return node.post<Supplier>(
     `/api/v1/suppliers/${id}/${verb}`,
     {},
+    { signal, headers: guarded(idempotencyKey, version) }
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Where a supplier's money lands
+//
+// A bilyet giro is an order to move money INTO a named account, so the paper
+// cannot be filled in without these three facts. They hang off the supplier
+// because that is the only screen anybody asks the question on.
+
+/// One supplier's accounts, default first.
+///
+/// Live ones only unless asked. A form choosing where to send a giro wants the
+/// accounts that still work; the screen that retired one has to be able to find
+/// it again.
+export function supplierBankAccounts(
+  supplierId: string,
+  includeRetired = false,
+  signal?: AbortSignal
+) {
+  const query = includeRetired ? "?include_retired=true" : ""
+  return node.get<SupplierBankAccount[]>(
+    `/api/v1/suppliers/${supplierId}/bank-accounts${query}`,
+    { signal }
+  )
+}
+
+export function createSupplierBankAccount(
+  supplierId: string,
+  request: CreateSupplierBankAccountRequest,
+  idempotencyKey: string,
+  signal?: AbortSignal
+) {
+  return node.post<SupplierBankAccount>(
+    `/api/v1/suppliers/${supplierId}/bank-accounts`,
+    request,
+    { signal, headers: guarded(idempotencyKey) }
+  )
+}
+
+/// Correct an account, make it the default, retire it or bring it back.
+///
+/// The account's own `version` is the `If-Match`, exactly as on the supplier:
+/// two buyers looking at the same stale row cannot both write.
+export function updateSupplierBankAccount(
+  supplierId: string,
+  accountId: string,
+  request: UpdateSupplierBankAccountRequest,
+  version: number,
+  idempotencyKey: string,
+  signal?: AbortSignal
+) {
+  return node.request<SupplierBankAccount>(
+    "PATCH",
+    `/api/v1/suppliers/${supplierId}/bank-accounts/${accountId}`,
+    request,
     { signal, headers: guarded(idempotencyKey, version) }
   )
 }
@@ -967,6 +1059,7 @@ export function searchSupplierItems(
     params.set("price_max", String(scope.priceMax))
   if (scope.limit !== undefined) params.set("limit", String(scope.limit))
   if (scope.cursor !== undefined) params.set("cursor", scope.cursor)
+  if (scope.category !== undefined) params.set("category", scope.category)
   const query = params.toString()
   return node.get<SourcingPage>(
     `/api/v1/supplier-items${query === "" ? "" : `?${query}`}`,

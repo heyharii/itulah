@@ -7,6 +7,7 @@
 //! who can move or destroy stock and approve exceptions, and the person who
 //! administers the node itself.
 
+use super::record::RecordKind;
 use serde::{Deserialize, Serialize};
 use std::{fmt, str::FromStr};
 use thiserror::Error;
@@ -72,9 +73,49 @@ pub fn required_role(method: &str, path: &str) -> Role {
         "/api/v1/sync/dead-letters",
         "/api/v1/sync/origins",
         "/api/v1/sync/commands",
+        // Both lanes of the sync plus the request-log failure counts and the
+        // open exposures: the operator's view, not a till's. Its siblings
+        // `/sync/fleet` and `/sync/status` stay Cashier.
+        "/api/v1/sync/health",
     ];
     if admin_prefixes.iter().any(|p| path.starts_with(p)) {
         return Role::Admin;
+    }
+    // The generic record surface, before everything else, because it is the
+    // one family of routes whose answer is not a property of the path.
+    //
+    // `/api/v1/records/{kind}/{id}/…` serves fifty-seven kinds through one
+    // shape, so a single role here would be one answer for all of them — and
+    // the only role that would not lock somebody out is the lowest, which
+    // would put a payroll run's comments in front of a cashier. Instead the
+    // kind names itself in the path, and the gate is the gate on the read that
+    // already serves that record.
+    //
+    // The READ gate, for writes as well. Leaving a note on a bill is not
+    // posting a bill and filing it under "chase this" is not paying it: a
+    // person who may see a record may say something about it. Making every
+    // comment a Supervisor act would mean the people who most need to leave a
+    // note are the ones who cannot.
+    //
+    // An unreadable kind gets ADMIN rather than a guess. It is also what the
+    // route catalogue sees when it asks about the pattern rather than a
+    // request, which is why that column prints `PerRecord` for these and not a
+    // role that would be wrong for fifty-six of them.
+    if let Some(rest) = path.strip_prefix("/api/v1/records/") {
+        let kind = rest.split('/').next().unwrap_or_default();
+        return match RecordKind::parse(kind) {
+            // Never recursive: no `read_path` is under `/api/v1/records/`, and
+            // `every_read_path_is_answerable` holds it that way.
+            Some(kind) => required_role("GET", kind.read_path()),
+            None => Role::Admin,
+        };
+    }
+    // A comment is edited by its own id, so the record is not in the path and
+    // this cannot delegate. Any signed-in operator may reach it, and the
+    // statement that changes the row carries the real rule: `author = $2`, so
+    // the only comment anybody can edit or remove is their own.
+    if path.starts_with("/api/v1/comments/") {
+        return Role::Cashier;
     }
     // Finance, before the blanket GET rule below.
     //
@@ -94,6 +135,29 @@ pub fn required_role(method: &str, path: &str) -> Role {
             return Role::Supervisor;
         }
         return Role::Admin;
+    }
+    // Purchasing, before the blanket GET rule below, and for the same reason
+    // finance sits above it.
+    //
+    // That rule makes every read a CASHIER read, which is right for stock and
+    // sales and wrong here: what a supplier charges, what an order is worth,
+    // the terms a buyer negotiated and the price queries a warehouse has
+    // raised are commercial information, and holding a till token is not a
+    // reason to see any of it. A cashier who could read the order book could
+    // read every supplier price the company has agreed.
+    //
+    // The whole surface is SUPERVISOR, reads included; the acts that commit
+    // money — raising an order, closing a line short, answering a price query
+    // — were already SUPERVISOR by the fall-through at the bottom. Nothing a
+    // DC needs to receive goods is here: the warehouse works against its own
+    // node, whose checker list deliberately carries neither quantities nor
+    // prices.
+    if path.starts_with("/api/v1/purchase-")
+        || path.starts_with("/api/v1/suppliers")
+        || path.starts_with("/api/v1/supplier-items")
+        || path.starts_with("/api/v1/sourcing-basket")
+    {
+        return Role::Supervisor;
     }
     if method.eq_ignore_ascii_case("GET") {
         return Role::Cashier;
@@ -171,6 +235,71 @@ pub enum AuthError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The delegation must terminate, and it terminates because no read path
+    /// is itself on the records surface. If one ever were, every request to it
+    /// would recurse until the stack ran out — which is a crash, not a 500.
+    #[test]
+    fn every_read_path_is_answerable_without_recursion() {
+        for kind in RecordKind::ALL {
+            let path = kind.read_path();
+            assert!(
+                !path.starts_with("/api/v1/records/") && !path.starts_with("/api/v1/comments/"),
+                "{kind} delegates its permission to {path}, which delegates back"
+            );
+            // And the delegate answers, rather than falling through to a rule
+            // that happens to be the same for everything.
+            let _ = required_role("GET", path);
+        }
+    }
+
+    /// The point of delegating: a bill's comments are gated like a bill, and a
+    /// count's like a count. One route, fifty-seven answers.
+    #[test]
+    fn the_records_surface_borrows_the_gate_of_the_record_it_names() {
+        assert_eq!(
+            required_role("GET", "/api/v1/records/bill/abc/info"),
+            Role::Supervisor,
+            "a till operator has no business reading what the company owes"
+        );
+        assert_eq!(
+            required_role("GET", "/api/v1/records/purchase_order/abc/info"),
+            Role::Supervisor,
+        );
+        assert_eq!(
+            required_role("GET", "/api/v1/records/sale/abc/info"),
+            Role::Cashier,
+        );
+        // Writing on a record is gated like reading it: the cashier who served
+        // the sale may say what happened.
+        assert_eq!(
+            required_role("POST", "/api/v1/records/sale/abc/comments"),
+            Role::Cashier,
+        );
+        assert_eq!(
+            required_role("PUT", "/api/v1/records/bill/abc/tags/CHASE"),
+            Role::Supervisor,
+        );
+        // A word that is not a record is not a way in.
+        assert_eq!(
+            required_role("GET", "/api/v1/records/general/abc/info"),
+            Role::Admin,
+        );
+    }
+
+    /// Without this arm the fall-through makes deleting your own comment a
+    /// Supervisor act, and a cashier cannot take back their own sentence.
+    #[test]
+    fn a_comment_is_edited_by_whoever_wrote_it() {
+        assert_eq!(
+            required_role("PATCH", "/api/v1/comments/abc"),
+            Role::Cashier
+        );
+        assert_eq!(
+            required_role("DELETE", "/api/v1/comments/abc"),
+            Role::Cashier
+        );
+    }
 
     #[test]
     fn roles_form_a_strict_ladder() {
@@ -255,6 +384,22 @@ mod tests {
     #[test]
     fn a_cashier_may_enrol_a_card_and_activate_it_but_not_write_a_segment() {
         assert_eq!(required_role("POST", "/api/v1/members"), Role::Cashier);
+        // Commercial information is not a cashier read. The order book carries
+        // every price the company has agreed with every supplier, and the till
+        // has no business in it.
+        assert_eq!(
+            required_role("GET", "/api/v1/purchase-orders"),
+            Role::Supervisor
+        );
+        assert_eq!(
+            required_role("GET", "/api/v1/purchase-price-amendments"),
+            Role::Supervisor
+        );
+        assert_eq!(required_role("GET", "/api/v1/suppliers"), Role::Supervisor);
+        assert_eq!(
+            required_role("GET", "/api/v1/supplier-items"),
+            Role::Supervisor
+        );
         assert_eq!(
             required_role("POST", "/api/v1/members/M-000123/pairing-code"),
             Role::Cashier

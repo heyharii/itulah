@@ -539,13 +539,13 @@ export function FilterOmnibox({
                 clause is on screen the chip IS the label, and drawing both
                 says "Supplier" twice in a row for one filter. */}
             {drafting && editing && (
-                <span className="flex shrink-0 items-center gap-1.5 pl-2.5 text-meta">
-                  <span className="font-medium text-ink">
-                    {editing.field.label}
-                  </span>
-                  <Keycap>{operatorSymbol(editing.operator)}</Keycap>
+              <span className="flex shrink-0 items-center gap-1.5 pl-2.5 text-meta">
+                <span className="font-medium text-ink">
+                  {editing.field.label}
                 </span>
-              )}
+                <Keycap>{operatorSymbol(editing.operator)}</Keycap>
+              </span>
+            )}
 
             <Combobox.Input
               ref={input}

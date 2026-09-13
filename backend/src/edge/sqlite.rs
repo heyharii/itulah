@@ -2,19 +2,21 @@
 
 use crate::edge::pricing;
 use crate::edge::{
-    derive_allotment_status, validate_command, AdvanceKoliRequest, CatalogIdentity, CommandResult,
-    CreateKoliShipmentRequest, CreatePicklistRequest, EdgeError, EdgeInventory,
-    EdgeOfficialCountDetail, EdgeOfficialCountLine, EdgeOfficialCountSummary, EdgeRole,
-    FulfillmentProgressResult, GoodsReceiptView, IntakeRequest, InventoryState, InvoiceDocument,
-    InvoiceDocumentView, MoveRequest, MovementCause, MovementCommand, MovementGroupId, MovementId,
-    MovementLine, MovementView, NodeContext, OfficialCountEntriesRequest,
-    OfficialCountSubmitRequest, OfficialCountSubmitResult, OpenGoodsReceiptRequest,
-    OperationalPool, PackKoliRequest, PackRequest, PickRequest, PickResult, PicklistRefusal,
-    PicklistResult, Place, PoolBalance, PurchaseCountAwaitingVerification, PurchaseCountRequest,
-    PurchaseCountResult, PurchaseVerifyDecision, PurchaseVerifyRequest, PurchaseVerifyResult,
-    PurchaseWorkLine, ReceiveBatchRequest, ReceiveRequest, RecordInvoiceRequest, SaleRequest,
-    SaleResult, SegregationPolicy, SiteId, SiteKind, StoreInvoiceDocumentRequest, SubjectId,
-    SystemPlace, TaggingConfirmRequest, TaggingConfirmResult, TaggingWorkJob, TaggingWorkLine,
+    derive_allotment_status, validate_command, AdvanceKoliRequest, BeginCheckoutRequest,
+    CatalogIdentity, CheckoutResult, CheckoutTenderState, CommandResult, CreateKoliShipmentRequest,
+    CreatePicklistRequest, EdgeError, EdgeInventory, EdgeOfficialCountDetail,
+    EdgeOfficialCountLine, EdgeOfficialCountSummary, EdgeRole, FulfillmentProgressResult,
+    GoodsReceiptView, IntakeRequest, InventoryState, InvoiceDocument, InvoiceDocumentView,
+    MoveRequest, MovementCause, MovementCommand, MovementGroupId, MovementId, MovementLine,
+    MovementView, NodeContext, OfficialCountEntriesRequest, OfficialCountSubmitRequest,
+    OfficialCountSubmitResult, OpenGoodsReceiptRequest, OperationalPool, PackKoliRequest,
+    PackRequest, PickRequest, PickResult, PicklistRefusal, PicklistResult, Place, PoolBalance,
+    PurchaseCountAwaitingVerification, PurchaseCountRequest, PurchaseCountResult,
+    PurchaseVerifyDecision, PurchaseVerifyRequest, PurchaseVerifyResult, PurchaseWorkLine,
+    ReceiveBatchRequest, ReceiveRequest, RecordInvoiceRequest, RejectDeliveryRequest,
+    ResolveCheckoutRequest, SaleRequest, SaleResult, SiteId, SiteKind, StoreInvoiceDocumentRequest,
+    SubjectId, SystemPlace, TaggingConfirmRequest, TaggingConfirmResult, TaggingWorkJob,
+    TaggingWorkLine, TenderOutcomeRequest, UnresolvedCheckout,
 };
 use crate::sync::workflow::{
     FulfillmentProgressPayload, FulfillmentStage, OfficialCountResultLine,
@@ -239,9 +241,62 @@ pub(crate) const MARKDOWN_CAMPAIGN_SCHEMA: &str = include_str!(concat!(
     "/migrations/sqlite/0026_a_campaign_may_hold_markdowns.sql"
 ));
 
+/// The shops a campaign runs in, which bind on every rule inside it the same
+/// way its window already does. See the migration.
+pub(crate) const CAMPAIGN_SITES_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0030_a_campaign_names_the_shops_it_runs_in.sql"
+));
+
+/// What of a sale is goods and what is tax. See the migration: a report that
+/// called the paid total "sales" was counting PPN as revenue.
+pub(crate) const SALE_TAX_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0031_a_receipt_says_what_is_sales_and_what_is_tax.sql"
+));
+
+/// What each line earned, so a return of one line knows what to take back.
+pub(crate) const LINE_POINTS_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0032_a_line_remembers_what_it_earned.sql"
+));
+
+/// The attempt, written before the money is asked for. See the migration: the
+/// sale is atomic and the card terminal is not, and the gap between them is
+/// where a shopper gets charged for a sale that does not exist.
+pub(crate) const CHECKOUT_ATTEMPT_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0033_a_till_writes_down_the_attempt_before_it_asks_for_money.sql"
+));
+
+/// Fees that are on the bill and are not merchandise. See the migration: a
+/// delivery charge folded into the goods total makes Net Sales, points, refunds
+/// and tax all wrong at once, in a way nobody can find afterwards.
+pub(crate) const SALE_CHARGE_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0034_a_fee_is_on_the_bill_and_is_not_sales.sql"
+));
+
+/// Room for a carton that is opened again, and for demand that comes back
+/// because Inventory settled a loss. See the migration: a reversal is its own
+/// fact, never a decrement, and a loss returns the demand to this bench.
+pub(crate) const ALLOTMENT_REVERSAL_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0035_a_carton_can_be_opened_and_a_promise_given_up.sql"
+));
+
 /// The supplier's invoice as a page rather than a number. See the migration:
 /// the centre's file vault is reachable only through the conversation a file
 /// was posted in, and a DC has to take a delivery with that line down.
+/// What the bay writes down when it accepts — the price that applied and the
+/// split between what the order could take and what it could not — and the
+/// lorry that was turned away. Rebuilds `goods_receipt`, because SQLite cannot
+/// alter a CHECK and a delivery may now be REJECTED.
+const RECEIPT_ECONOMICS_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0036_a_delivery_can_be_refused_and_a_receipt_knows_its_price.sql"
+));
+
 const INVOICE_DOCUMENT_SCHEMA: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/migrations/sqlite/0029_the_verifier_keeps_the_invoice.sql"
@@ -265,13 +320,22 @@ pub(crate) const PRINT_ITEM_COLOUR_SIZE_SCHEMA: &str = include_str!(concat!(
     "/migrations/sqlite/0020_print_item_colour_and_size.sql"
 ));
 
+/// The petty cash float and what it buys. See the migration: a shop's only
+/// spending pot, and the reason none of it can reach the drawer.
+pub(crate) const PETTY_CASH_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0038_a_shop_spends_petty_cash_never_the_drawer.sql"
+));
+
+pub(crate) const FINGERPRINT_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0039_a_finger_opens_a_till_and_authorises_a_void.sql"
+));
+
 #[derive(Clone)]
 pub struct SqliteEdge {
     connection: Arc<Mutex<Connection>>,
     node: NodeContext,
-    /// Whether one person may both count and approve a delivery. Read once at
-    /// open so a site's decision cannot change mid-transaction.
-    segregation: SegregationPolicy,
 }
 
 #[derive(Clone)]
@@ -726,6 +790,88 @@ impl SqliteEdge {
                 .execute_batch(MARKDOWN_CAMPAIGN_SCHEMA)
                 .map_err(db)?;
         }
+        let a_campaign_names_its_shops: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('commercial_campaign')
+                  WHERE name='site_ids_json'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        if a_campaign_names_its_shops == 0 {
+            connection
+                .execute_batch(CAMPAIGN_SITES_SCHEMA)
+                .map_err(db)?;
+        }
+        let a_sale_separates_tax: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('sale_line')
+                  WHERE name='net_ex_tax_minor'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        if a_sale_separates_tax == 0 {
+            connection.execute_batch(SALE_TAX_SCHEMA).map_err(db)?;
+        }
+        let a_line_remembers_its_points: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('sale_line')
+                  WHERE name='points_earned'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        if a_line_remembers_its_points == 0 {
+            connection.execute_batch(LINE_POINTS_SCHEMA).map_err(db)?;
+        }
+        // Guarded on the TABLE rather than on a column, because this migration
+        // adds tables rather than widening one. `pragma_table_info` on a table
+        // that does not exist returns no rows, which reads the same as a table
+        // with no such column — so the count is of the schema entry itself.
+        let an_attempt_is_written_down: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                  WHERE type='table' AND name='checkout'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        if an_attempt_is_written_down == 0 {
+            connection
+                .execute_batch(CHECKOUT_ATTEMPT_SCHEMA)
+                .map_err(db)?;
+        }
+        // Guarded on the COLUMN and not the table, because this migration does
+        // both: a database that has `sale_charge` but not the three columns on
+        // `sale` would be half-applied, and the column is the half that arrives
+        // last.
+        let a_bill_can_carry_a_fee: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('sale')
+                  WHERE name='charge_total_minor'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        if a_bill_can_carry_a_fee == 0 {
+            connection.execute_batch(SALE_CHARGE_SCHEMA).map_err(db)?;
+        }
+        // Guarded on the last column the migration adds, so a run that died
+        // half way through it is applied again rather than skipped.
+        let a_carton_can_be_opened: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('dc_allotment_work_line')
+                  WHERE name='closed_short_quantity'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        if a_carton_can_be_opened == 0 {
+            connection
+                .execute_batch(ALLOTMENT_REVERSAL_SCHEMA)
+                .map_err(db)?;
+        }
         let a_reel_states_its_offset: i64 = connection
             .query_row(
                 "SELECT COUNT(*) FROM pragma_table_info('print_session') WHERE name='label_offset_mm'",
@@ -763,11 +909,33 @@ impl SqliteEdge {
                 )
                 .map_err(db)?;
         }
+        // Asks whether an acceptance can say how much of it the order could
+        // take. Its absence is the only way to tell a database that predates
+        // the split from one that has had it, and the same migration is what
+        // lets a delivery be refused.
+        let an_acceptance_knows_what_matched: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('receiving_count')
+                  WHERE name='matched_quantity'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        if an_acceptance_knows_what_matched == 0 {
+            connection
+                .execute_batch(RECEIPT_ECONOMICS_SCHEMA)
+                .map_err(db)?;
+        }
         // Idempotent on its own — every statement in it is `IF NOT EXISTS` —
-        // so it needs no probe of its own the way the rebuilds above do.
+        // so it needs no probe of its own the way the rebuild above does.
         connection
             .execute_batch(RULE_ELIGIBILITY_SCHEMA)
             .map_err(db)?;
+        // The same: two tables and two indexes, all `IF NOT EXISTS`, nothing
+        // rebuilt and no CHECK altered. It creates rather than changes, which
+        // is what lets it run on every open without a probe.
+        connection.execute_batch(PETTY_CASH_SCHEMA).map_err(db)?;
+        connection.execute_batch(FINGERPRINT_SCHEMA).map_err(db)?;
         let existing: Option<(String, String, String)> = connection
             .query_row(
                 "SELECT node_id,role,site_id FROM node_metadata WHERE singleton=1",
@@ -810,7 +978,6 @@ impl SqliteEdge {
         Ok(Self {
             connection: Arc::new(Mutex::new(connection)),
             node,
-            segregation: SegregationPolicy::from_env(),
         })
     }
 
@@ -974,6 +1141,80 @@ impl SqliteEdge {
             .ok_or_else(|| EdgeError::Persistence("edge transfer capture is disabled".into()))
     }
 
+    /// Send the shop's spending up the same log everything else travels on.
+    ///
+    /// **The centre has nowhere to receive this.** There is no arm for
+    /// `store.expense.recorded` in `cloud/postgres/sync.rs` and no
+    /// `store_expense` table in this tree's Postgres — both live on the
+    /// unmerged `feat/finance-control` branch. The fact is uploaded, logged at
+    /// the centre as an unknown type, and kept in the receipt log for the
+    /// applier that does not exist yet. See `petty::FACT_STORE_EXPENSE_RECORDED`
+    /// for why capturing into that gap is better than not capturing.
+    ///
+    /// Unlike a movement or a sale, this returns no sequence and refuses
+    /// nothing when capture is switched off. A node with enqueueing disabled is
+    /// a node running without the centre, and refusing to let a shop write down
+    /// the forty thousand rupiah it just spent on an ojek — because a tunnel is
+    /// down — would be the edge forgetting what it is for.
+    fn capture_store_expense(
+        tx: &Transaction<'_>,
+        node: &NodeContext,
+        expense: &crate::edge::petty::StoreExpenseView,
+    ) -> Result<(), EdgeError> {
+        crate::edge::sync::enqueue_fact(
+            tx,
+            Uuid::parse_str(&expense.id)
+                .map_err(|error| EdgeError::Persistence(format!("expense id: {error}")))?,
+            crate::edge::petty::FACT_STORE_EXPENSE_RECORDED,
+            &serde_json::json!({
+                "expense_id": expense.id,
+                "site_id": node.site_id.to_string(),
+                "source": "PETTY_CASH",
+                "category": expense.category,
+                "currency": "IDR",
+                "amount_minor": expense.amount_minor,
+                "payee": expense.payee,
+                "reason": expense.reason,
+                "claimed_by": expense.claimed_by,
+                "approved_by": expense.approved_by,
+                "approved_role": expense.approved_role,
+                "spent_at": expense.spent_at,
+            }),
+        )
+        .map_err(db)?;
+        Ok(())
+    }
+
+    /// The float head office handed over, sent up beside what it paid for.
+    ///
+    /// Unapplied at the centre for the same reason and in the same way as
+    /// `capture_store_expense` above.
+    fn capture_petty_cash_top_up(
+        tx: &Transaction<'_>,
+        node: &NodeContext,
+        top_up: &crate::edge::petty::PettyCashTopUpView,
+    ) -> Result<(), EdgeError> {
+        crate::edge::sync::enqueue_fact(
+            tx,
+            Uuid::parse_str(&top_up.id)
+                .map_err(|error| EdgeError::Persistence(format!("top-up id: {error}")))?,
+            crate::edge::petty::FACT_PETTY_CASH_TOPPED_UP,
+            &serde_json::json!({
+                "top_up_id": top_up.id,
+                "site_id": node.site_id.to_string(),
+                "currency": "IDR",
+                "amount_minor": top_up.amount_minor,
+                "reference": top_up.reference,
+                "note": top_up.note,
+                "received_by": top_up.received_by,
+                "approved_by": top_up.approved_by,
+                "received_at": top_up.received_at,
+            }),
+        )
+        .map_err(db)?;
+        Ok(())
+    }
+
     fn require_dc(&self, reason: &str) -> Result<(), EdgeError> {
         if self.node.role == EdgeRole::Dc {
             Ok(())
@@ -1115,6 +1356,136 @@ impl SqliteEdge {
             other => db(other),
         })?;
         Ok(subject)
+    }
+
+    /// One checkout and its tenders, by the key the sale will also use.
+    ///
+    /// Takes a `Connection` rather than a `Transaction` so the same reader
+    /// serves both the transactional writers and the read-only recovery list.
+    /// `Transaction` derefs to `Connection`, so a caller inside a transaction
+    /// passes `&tx` and sees its own uncommitted writes — which is what lets a
+    /// writer read back exactly the row it just wrote.
+    fn checkout_by_key(
+        connection: &Connection,
+        idempotency_key: &str,
+    ) -> Result<Option<CheckoutResult>, EdgeError> {
+        let head = connection
+            .query_row(
+                "SELECT id,idempotency_key,status,total_minor,sale_id
+                   FROM checkout WHERE idempotency_key=?1",
+                [idempotency_key],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, i64>(3)?,
+                        row.get::<_, Option<String>>(4)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(db)?;
+        let Some((checkout_id, key, status, total_minor, sale_id)) = head else {
+            return Ok(None);
+        };
+        let tenders = Self::checkout_tenders(connection, &checkout_id)?;
+        Ok(Some(CheckoutResult {
+            checkout_id,
+            idempotency_key: key,
+            status,
+            total_minor,
+            sale_id,
+            tenders,
+        }))
+    }
+
+    /// When the attempt started. Not on [`CheckoutResult`] because no screen
+    /// asks for it — only the escalation to the centre does, and carrying a
+    /// field for one caller makes every other caller read past it.
+    fn checkout_opened_at(
+        connection: &Connection,
+        checkout_id: &str,
+    ) -> Result<DateTime<Utc>, EdgeError> {
+        let text: String = connection
+            .query_row(
+                "SELECT opened_at FROM checkout WHERE id=?1",
+                [checkout_id],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        DateTime::parse_from_rfc3339(&text)
+            .map(|stamp| stamp.with_timezone(&Utc))
+            .map_err(|error| {
+                EdgeError::Persistence(format!("checkout opened_at is not a timestamp: {error}"))
+            })
+    }
+
+    fn checkout_tenders(
+        connection: &Connection,
+        checkout_id: &str,
+    ) -> Result<Vec<CheckoutTenderState>, EdgeError> {
+        let mut statement = connection
+            .prepare(
+                "SELECT tender_seq,method,amount_minor,status,attempt_count,
+                        external_reference,last_error
+                   FROM checkout_tender WHERE checkout_id=?1 ORDER BY tender_seq",
+            )
+            .map_err(db)?;
+        let rows = statement
+            .query_map([checkout_id], |row| {
+                Ok(CheckoutTenderState {
+                    tender_seq: row.get(0)?,
+                    method: row.get(1)?,
+                    amount_minor: row.get(2)?,
+                    status: row.get(3)?,
+                    attempt_count: row.get(4)?,
+                    external_reference: row.get(5)?,
+                    last_error: row.get(6)?,
+                })
+            })
+            .map_err(db)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(db)?;
+        Ok(rows)
+    }
+
+    /// Point a checkout at the sale it became, in the sale's own transaction.
+    ///
+    /// Called from `complete_sale`, and doing nothing when there is no checkout
+    /// is deliberate rather than lenient: every till already deployed writes
+    /// sales without declaring one first, and refusing those would stop the
+    /// shops to fix a gap that only ever costs money when a terminal is
+    /// involved. A checkout that IS there is completed here and nowhere else,
+    /// so the sale and its attempt can never disagree.
+    fn complete_checkout_for(
+        tx: &Transaction<'_>,
+        idempotency_key: &str,
+        sale_id: Uuid,
+        at: DateTime<Utc>,
+    ) -> Result<(), EdgeError> {
+        let Some(checkout) = Self::checkout_by_key(tx, idempotency_key)? else {
+            return Ok(());
+        };
+        let from = crate::checkout::CheckoutState::parse(&checkout.status).ok_or_else(|| {
+            EdgeError::Persistence(format!(
+                "this build does not know the stored status {}",
+                checkout.status
+            ))
+        })?;
+        let states = checkout
+            .tenders
+            .iter()
+            .filter_map(|tender| crate::checkout::TenderState::parse(&tender.status))
+            .collect::<Vec<_>>();
+        crate::checkout::advance(from, crate::checkout::CheckoutState::Completed, &states)
+            .map_err(|error| EdgeError::Conflict(error.to_string()))?;
+        tx.execute(
+            "UPDATE checkout SET status='COMPLETED', sale_id=?2, resolved_at=?3 WHERE id=?1",
+            params![checkout.checkout_id, sale_id.to_string(), time_text(at)],
+        )
+        .map_err(db)?;
+        Ok(())
     }
 
     fn subject_by_epc(tx: &Transaction<'_>, epc: &str) -> Result<SubjectRow, EdgeError> {
@@ -1436,10 +1807,10 @@ impl SqliteEdge {
         updated_at: &str,
     ) -> Result<(), EdgeError> {
         for allotment_id in allotment_ids {
-            let (accepted, picked, dispatched, cancelled): (i64, i64, i64, i64) = tx
+            let (accepted, packed, dispatched, cancelled): (i64, i64, i64, i64) = tx
                 .query_row(
                     "SELECT COALESCE(SUM(accepted_quantity),0),
-                            COALESCE(SUM(picked_quantity),0),
+                            COALESCE(SUM(packed_quantity),0),
                             COALESCE(SUM(dispatched_quantity),0),
                             COALESCE(SUM(cancelled_quantity),0)
                      FROM dc_allotment_work_line WHERE allotment_id=?1",
@@ -1447,7 +1818,7 @@ impl SqliteEdge {
                     |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
                 )
                 .map_err(db)?;
-            let status = derive_allotment_status(accepted, picked, dispatched, cancelled, false)
+            let status = derive_allotment_status(accepted, packed, dispatched, cancelled, false)
                 .map_err(|error| EdgeError::Persistence(error.to_string()))?;
             let updated = tx
                 .execute(
@@ -2289,12 +2660,17 @@ impl SqliteEdge {
                     )
                     .map_err(db)?;
                 let allotted = if node.role == EdgeRole::Dc {
-                    let planned: i64 = connection
+                    let to_pack: i64 = connection
                         .query_row(
-                            // What is still RESERVED in this pool. Pick is a
-                            // quantity-only fulfillment fact and releases that
-                            // reservation; exact EPC movement begins at Pack.
-                            "SELECT COALESCE(SUM(line.accepted_quantity-line.picked_quantity-line.cancelled_quantity),0)
+                            // What this pool still has to put into cartons.
+                            //
+                            // The comment here said a pick "releases that
+                            // reservation", and the SQL under it subtracted
+                            // `picked_quantity` to prove it. Neither was true:
+                            // a pick on this node writes an inventory fact and
+                            // never names an allotment. A piece is bound to a
+                            // shop at Pack, so Pack is what discharges it.
+                            "SELECT COALESCE(SUM(line.accepted_quantity-line.packed_quantity-line.cancelled_quantity),0)
                              FROM dc_allotment_work_line line
                              JOIN dc_allotment_work work ON work.allotment_id=line.allotment_id
                              WHERE line.source_pool_id=?1
@@ -2303,21 +2679,29 @@ impl SqliteEdge {
                             |row| row.get(0),
                         )
                         .map_err(db)?;
-                    if planned < 0 || planned > normal {
+                    if to_pack < 0 {
                         return Err(EdgeError::Persistence(format!(
-                            "pool {pool_id} reservation {planned} is outside physical normal quantity {normal}"
+                            "pool {pool_id} owes a negative quantity {to_pack}"
                         )));
                     }
-                    Some(planned)
+                    Some(to_pack)
                 } else {
                     None
                 };
+                // A promise may outrun the shelf, and saying so is not the
+                // same as failing. This used to be an error that took the
+                // whole pool list with it — and once picking stopped
+                // discharging a commitment it would have fired every time a
+                // picker carried goods out of the warehouse, which is the
+                // ordinary case and not a fault at all.
+                let to_pack = allotted.unwrap_or_default();
                 Ok(PoolBalance {
                     pool_id,
                     site_id: node.site_id.clone(),
                     stock: normal + missing,
                     allotted,
-                    on_hand: normal - allotted.unwrap_or_default(),
+                    on_hand: (normal - to_pack).max(0),
+                    shortfall: (to_pack - normal).max(0),
                     missing,
                 })
             })
@@ -2334,6 +2718,14 @@ impl SqliteEdge {
 struct PricedLine {
     /// What this unit was actually charged, after markdown and promotions.
     charged_minor: i64,
+    /// What of `charged_minor` is goods and what is tax. `None` for a sale
+    /// priced with no book in force — there is no rate to split by, and a
+    /// nought would claim the line was all goods rather than unknown.
+    net_ex_tax_minor: Option<i64>,
+    tax_minor: Option<i64>,
+    /// What this unit earned. `None` with no book in force: an award nobody
+    /// computed is not an award of nought.
+    points_earned: Option<i64>,
     /// What it would have been before a clearance replaced the price, when a
     /// book was in force to say so.
     base_minor: Option<i64>,
@@ -2916,10 +3308,10 @@ impl EdgeInventory for SqliteEdge {
         let updated_at = time_text(occurred_at);
         let touched_allotments: BTreeSet<Uuid> = BTreeSet::new();
         for allotment_id in touched_allotments {
-            let (accepted, picked, dispatched, cancelled): (i64, i64, i64, i64) = tx
+            let (accepted, packed, dispatched, cancelled): (i64, i64, i64, i64) = tx
                 .query_row(
                     "SELECT COALESCE(SUM(accepted_quantity),0),
-                            COALESCE(SUM(picked_quantity),0),
+                            COALESCE(SUM(packed_quantity),0),
                             COALESCE(SUM(dispatched_quantity),0),
                             COALESCE(SUM(cancelled_quantity),0)
                      FROM dc_allotment_work_line WHERE allotment_id=?1",
@@ -2927,7 +3319,7 @@ impl EdgeInventory for SqliteEdge {
                     |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
                 )
                 .map_err(db)?;
-            let status = derive_allotment_status(accepted, picked, dispatched, cancelled, false)
+            let status = derive_allotment_status(accepted, packed, dispatched, cancelled, false)
                 .map_err(|error| EdgeError::Persistence(error.to_string()))?;
             tx.execute(
                 "UPDATE dc_allotment_work SET fulfillment_status=?2,updated_at=?3
@@ -3936,6 +4328,342 @@ impl EdgeInventory for SqliteEdge {
         Ok(response)
     }
 
+    fn begin_checkout(&self, request: BeginCheckoutRequest) -> Result<CheckoutResult, EdgeError> {
+        if self.node.role != EdgeRole::Store {
+            return Err(EdgeError::Forbidden(
+                "checkouts only happen on Store Edge".into(),
+            ));
+        }
+        if request.tenders.is_empty() {
+            return Err(EdgeError::Validation(
+                "a checkout declares the tenders it is about to take".into(),
+            ));
+        }
+        // Checked here rather than on completion, because the point of this row
+        // is to exist BEFORE the money is asked for: a basket whose tenders do
+        // not add up should be refused while the shopper's card is still in
+        // their hand, not after the terminal has taken it.
+        crate::tender::validate_tenders(request.total_minor, &request.tenders)
+            .map_err(|error| EdgeError::Validation(error.to_string()))?;
+
+        let now = Utc::now();
+        let mut connection = self.lock()?;
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db)?;
+
+        // A retry finds the row it already made. Not merely convenient: the
+        // till that lost this response is the one whose next move is to drive a
+        // terminal, and handing it a SECOND checkout for the same basket is how
+        // one shopper is charged twice.
+        if let Some(existing) = Self::checkout_by_key(&tx, &request.idempotency_key)? {
+            // Same key, different basket. Returning the old checkout would let
+            // a till believe it had declared the basket on screen while the row
+            // on disk describes another one — so the crash it is about to
+            // survive would be reconciled against the wrong amount. The estate
+            // already refuses this for commands (`load_idempotent` compares the
+            // request); the same rule, checked on the one field that matters
+            // here.
+            if existing.total_minor != request.total_minor {
+                return Err(EdgeError::Conflict(format!(
+                    "{} already declares a checkout for {} and this one is for {}",
+                    request.idempotency_key, existing.total_minor, request.total_minor
+                )));
+            }
+            tx.commit().map_err(db)?;
+            return Ok(existing);
+        }
+
+        let checkout_id = Uuid::new_v4();
+        let shift_id = crate::edge::till::any_open_shift(&tx)?;
+        tx.execute(
+            "INSERT INTO checkout
+                 (id,idempotency_key,status,actor_id,shift_id,total_minor,
+                  pricing_trace_id,opened_at,finalizing_at)
+             VALUES(?1,?2,'FINALIZING',?3,?4,?5,?6,?7,?7)",
+            params![
+                checkout_id.to_string(),
+                request.idempotency_key,
+                request.actor_id,
+                shift_id,
+                request.total_minor,
+                request.pricing_trace_id,
+                time_text(now),
+            ],
+        )
+        .map_err(db)?;
+        for (seq, tender) in request.tenders.iter().enumerate() {
+            tx.execute(
+                "INSERT INTO checkout_tender
+                     (checkout_id,tender_seq,method,amount_minor,reference,
+                      status,attempt_count,updated_at)
+                 VALUES(?1,?2,?3,?4,?5,'PENDING',0,?6)",
+                params![
+                    checkout_id.to_string(),
+                    i64::try_from(seq).unwrap_or(i64::MAX),
+                    tender.method.as_str(),
+                    tender.amount_minor,
+                    tender.reference,
+                    time_text(now),
+                ],
+            )
+            .map_err(db)?;
+        }
+        let result = Self::checkout_by_key(&tx, &request.idempotency_key)?.ok_or_else(|| {
+            EdgeError::Persistence("the checkout just written could not be read back".into())
+        })?;
+        // Committed here, on its own, and that is the whole design: what
+        // follows this line is a conversation with a card terminal that may not
+        // come back.
+        tx.commit().map_err(db)?;
+        Ok(result)
+    }
+
+    fn record_tender_outcome(
+        &self,
+        request: TenderOutcomeRequest,
+    ) -> Result<CheckoutResult, EdgeError> {
+        // Refused rather than stored. An unrecognised status is not a harmless
+        // unknown: `is_unresolved` would not match it, so the tender would drop
+        // silently out of every "can this complete?" test and a sale would be
+        // written over a payment nobody had confirmed.
+        let status = crate::checkout::TenderState::parse(&request.status).ok_or_else(|| {
+            EdgeError::Validation(format!("no tender status called {}", request.status))
+        })?;
+        let now = Utc::now();
+        let mut connection = self.lock()?;
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db)?;
+        let checkout = Self::checkout_by_key(&tx, &request.idempotency_key)?.ok_or_else(|| {
+            EdgeError::NotFound(format!("no checkout for {}", request.idempotency_key))
+        })?;
+        if crate::checkout::CheckoutState::parse(&checkout.status)
+            .is_some_and(crate::checkout::CheckoutState::is_settled)
+        {
+            return Err(EdgeError::Conflict(format!(
+                "this checkout already finished as {}",
+                checkout.status
+            )));
+        }
+        // `attempt_count + 1` on the row rather than a new row. A declined card
+        // retried three times is one tender attempted three times; three rows
+        // would be three charges in every report that sums them.
+        let touched = tx
+            .execute(
+                "UPDATE checkout_tender
+                    SET status=?3, external_reference=COALESCE(?4,external_reference),
+                        last_error=?5, attempt_count=attempt_count+1, updated_at=?6
+                  WHERE checkout_id=?1 AND tender_seq=?2",
+                params![
+                    checkout.checkout_id,
+                    request.tender_seq,
+                    status.as_str(),
+                    request.external_reference,
+                    request.last_error,
+                    time_text(now),
+                ],
+            )
+            .map_err(db)?;
+        if touched == 0 {
+            return Err(EdgeError::NotFound(format!(
+                "this checkout has no tender at position {}",
+                request.tender_seq
+            )));
+        }
+        let result = Self::checkout_by_key(&tx, &request.idempotency_key)?
+            .ok_or_else(|| EdgeError::Persistence("the checkout could not be read back".into()))?;
+        tx.commit().map_err(db)?;
+        Ok(result)
+    }
+
+    fn unresolved_checkouts(&self) -> Result<Vec<UnresolvedCheckout>, EdgeError> {
+        let connection = self.lock()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT id, idempotency_key, status, actor_id, total_minor,
+                        opened_at, finalizing_at
+                   FROM checkout
+                  WHERE status='FINALIZING'
+                  ORDER BY opened_at",
+            )
+            .map_err(db)?;
+        let heads = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, Option<String>>(6)?,
+                ))
+            })
+            .map_err(db)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(db)?;
+
+        let mut out = Vec::with_capacity(heads.len());
+        for (id, key, status, actor_id, total_minor, opened_at, finalizing_at) in heads {
+            let tenders = Self::checkout_tenders(&connection, &id)?;
+            // The classification is the pure module's, not a second opinion
+            // written here. A recovery screen and a test that disagree about
+            // what "nothing taken" means is the bug this avoids.
+            let shape = crate::checkout::recovery(
+                &tenders
+                    .iter()
+                    .filter_map(|tender| {
+                        crate::checkout::TenderState::parse(&tender.status)
+                            .map(|state| (state, tender.amount_minor))
+                    })
+                    .collect::<Vec<_>>(),
+            );
+            let (recovery, money_held_minor) = match shape {
+                crate::checkout::Recovery::NothingTaken => ("NOTHING_TAKEN".to_string(), 0),
+                crate::checkout::Recovery::AskTheAcquirer { .. } => {
+                    ("ASK_THE_ACQUIRER".to_string(), 0)
+                }
+                crate::checkout::Recovery::MoneyHeldWithoutSale { minor } => {
+                    ("MONEY_HELD_WITHOUT_SALE".to_string(), minor)
+                }
+            };
+            out.push(UnresolvedCheckout {
+                checkout_id: id,
+                idempotency_key: key,
+                status,
+                actor_id,
+                total_minor,
+                opened_at,
+                finalizing_at,
+                recovery,
+                money_held_minor,
+                tenders,
+            });
+        }
+        Ok(out)
+    }
+
+    fn resolve_checkout(
+        &self,
+        request: ResolveCheckoutRequest,
+    ) -> Result<CheckoutResult, EdgeError> {
+        let target = crate::checkout::CheckoutState::parse(&request.status).ok_or_else(|| {
+            EdgeError::Validation(format!("no checkout status called {}", request.status))
+        })?;
+        // Completing is not a resolution a person performs: a checkout becomes
+        // COMPLETED only in the same transaction as the sale it became, so
+        // offering it here would be offering a COMPLETED checkout with no sale
+        // — which the table's own CHECK refuses anyway, less legibly.
+        if !matches!(
+            target,
+            crate::checkout::CheckoutState::Voided | crate::checkout::CheckoutState::Failed
+        ) {
+            return Err(EdgeError::Validation(
+                "a checkout is resolved as VOIDED or FAILED; COMPLETED comes with the sale".into(),
+            ));
+        }
+        let now = Utc::now();
+        let mut connection = self.lock()?;
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db)?;
+        let checkout = Self::checkout_by_key(&tx, &request.idempotency_key)?.ok_or_else(|| {
+            EdgeError::NotFound(format!("no checkout for {}", request.idempotency_key))
+        })?;
+        let from = crate::checkout::CheckoutState::parse(&checkout.status).ok_or_else(|| {
+            EdgeError::Persistence(format!(
+                "this build does not know the stored status {}",
+                checkout.status
+            ))
+        })?;
+        let states = checkout
+            .tenders
+            .iter()
+            .filter_map(|tender| crate::checkout::TenderState::parse(&tender.status))
+            .collect::<Vec<_>>();
+        crate::checkout::advance(from, target, &states)
+            .map_err(|error| EdgeError::Conflict(error.to_string()))?;
+        // The one refusal the state machine cannot make on its own, because it
+        // is about the money rather than the shape: voiding while an acquirer
+        // still owes an answer abandons a payment that may land a minute later,
+        // and nobody goes back to look at a checkout marked VOIDED.
+        if states
+            .iter()
+            .any(|state| crate::checkout::TenderState::is_unresolved(*state))
+        {
+            return Err(EdgeError::Conflict(
+                "a tender is still unanswered; ask the acquirer before closing this checkout"
+                    .into(),
+            ));
+        }
+        tx.execute(
+            "UPDATE checkout
+                SET status=?2, resolved_at=?3, last_error=COALESCE(?4,last_error)
+              WHERE id=?1",
+            params![
+                checkout.checkout_id,
+                target.as_str(),
+                time_text(now),
+                request.last_error,
+            ],
+        )
+        .map_err(db)?;
+        let result = Self::checkout_by_key(&tx, &request.idempotency_key)?
+            .ok_or_else(|| EdgeError::Persistence("the checkout could not be read back".into()))?;
+
+        // Money settled, no sale, and a person has already looked and closed
+        // it. That is the one outcome the shop cannot fix by itself: somebody
+        // is owed a refund, and nobody at the centre would otherwise know —
+        // the shop's Z report balances, because the money genuinely is there.
+        //
+        // Enqueued in this transaction so the escalation cannot survive a
+        // rolled-back resolution, nor be lost by one that committed.
+        let held = result
+            .tenders
+            .iter()
+            .filter(|tender| {
+                crate::checkout::TenderState::parse(&tender.status)
+                    .is_some_and(crate::checkout::TenderState::is_money_in_hand)
+            })
+            .fold(0_i64, |sum, tender| sum.saturating_add(tender.amount_minor));
+        if held > 0 {
+            let checkout_uuid = Uuid::parse_str(&result.checkout_id).map_err(|error| {
+                EdgeError::Persistence(format!("checkout id is not a uuid: {error}"))
+            })?;
+            let opened_at = Self::checkout_opened_at(&tx, &result.checkout_id)?;
+            crate::edge::sync::enqueue_fact(
+                &tx,
+                checkout_uuid,
+                crate::cloud::domain::FACT_CHECKOUT_UNRESOLVED,
+                &crate::cloud::domain::CheckoutUnresolvedPayload {
+                    checkout_id: checkout_uuid,
+                    actor_id: request.actor_id.clone(),
+                    total_minor: result.total_minor,
+                    money_held_minor: held,
+                    opened_at,
+                    resolved_at: now,
+                    last_error: request.last_error.clone(),
+                    tenders: result
+                        .tenders
+                        .iter()
+                        .map(|tender| crate::cloud::domain::CheckoutUnresolvedTender {
+                            tender_seq: tender.tender_seq,
+                            method: tender.method.clone(),
+                            amount_minor: tender.amount_minor,
+                            status: tender.status.clone(),
+                            external_reference: tender.external_reference.clone(),
+                            last_error: tender.last_error.clone(),
+                        })
+                        .collect(),
+                },
+            )
+            .map_err(db)?;
+        }
+        tx.commit().map_err(db)?;
+        Ok(result)
+    }
+
     fn complete_sale(&self, request: SaleRequest) -> Result<SaleResult, EdgeError> {
         if self.node.role != EdgeRole::Store {
             return Err(EdgeError::Forbidden(
@@ -4002,6 +4730,7 @@ impl EdgeInventory for SqliteEdge {
             &sku_codes,
             &request.coupon_codes,
             request.customer_id.as_deref(),
+            &request.charges,
         )?;
         // A promotion acts on a line, not on a unit, so what a line comes to is
         // not always a whole number of unit prices. The line total is what is
@@ -4025,6 +4754,9 @@ impl EdgeInventory for SqliteEdge {
                 .iter()
                 .map(|line| PricedLine {
                     charged_minor: line.line_total_minor,
+                    net_ex_tax_minor: Some(line.net_ex_tax_minor),
+                    tax_minor: Some(line.tax_minor),
+                    points_earned: Some(line.points_earned),
                     base_minor: Some(line.base_unit_price_minor),
                     markdown_id: line.markdown_id.clone(),
                     price_source: line.price_source.clone(),
@@ -4035,6 +4767,10 @@ impl EdgeInventory for SqliteEdge {
                 .iter()
                 .map(|subject| PricedLine {
                     charged_minor: subject.unit_price_minor,
+                    // No book, so no rate — not nought tax, unknown tax.
+                    net_ex_tax_minor: None,
+                    tax_minor: None,
+                    points_earned: None,
                     markdown_id: None,
                     // No book, so no list price was ever quoted — the intake
                     // price is not one, it is what the shop paid.
@@ -4055,11 +4791,43 @@ impl EdgeInventory for SqliteEdge {
                     .ok_or_else(|| EdgeError::Validation("sale total overflow".into()))
             })?,
         };
+        // The fees, which the shopper owes as well as the goods.
+        //
+        // Taken from the quote rather than from the request: the request says
+        // what to charge, the engine says what that comes to once taxed, and
+        // the second is the number the drawer is measured against. Re-adding
+        // the request's own figures here would be a second opinion about the
+        // same bill.
+        let charge_total_minor = quoted
+            .as_ref()
+            .map(|quote| quote.charge_total_minor)
+            .unwrap_or(0);
+        // Priced with no book in force, a fee is still owed — there is no rate
+        // to split it by, which is a tax question and not a "does the shopper
+        // pay" question.
+        let unpriced_charges: i64 = if quoted.is_some() {
+            0
+        } else {
+            request
+                .charges
+                .iter()
+                .try_fold(0_i64, |sum, charge| sum.checked_add(charge.amount_minor))
+                .ok_or_else(|| EdgeError::Validation("charge total overflow".into()))?
+        };
+        let charge_total_minor = charge_total_minor
+            .checked_add(unpriced_charges)
+            .ok_or_else(|| EdgeError::Validation("charge total overflow".into()))?;
+        // What the shopper actually owes. Validating tenders against the goods
+        // alone would let a basket settle while the delivery went uncollected —
+        // and the drawer would balance, because nobody asked for it.
+        let amount_due_minor = total_minor
+            .checked_add(charge_total_minor)
+            .ok_or_else(|| EdgeError::Validation("sale total overflow".into()))?;
         // Every tender, checked together: only cash may exceed the total,
         // because only cash can produce change. A card charged for more than
         // the basket is not generosity, it is a mistake nobody notices until a
         // statement arrives.
-        let payment = crate::tender::validate_tenders(total_minor, &request.tenders)
+        let payment = crate::tender::validate_tenders(amount_due_minor, &request.tenders)
             .map_err(|error| EdgeError::Validation(error.to_string()))?;
         let from = Place::Operational {
             pool: OperationalPool::StoreFloor {
@@ -4096,11 +4864,14 @@ impl EdgeInventory for SqliteEdge {
             // node that can be asked "why was I charged this" with the customer
             // still at the counter — and offline, which is when it matters —
             // was the node that had thrown the answer away.
-            "INSERT INTO sale(id,idempotency_key,status,total_minor,paid_minor,change_minor,movement_group_id,actor_id,completed_at,pricing_trace_id,shift_id) VALUES(?1,?2,'COMPLETED',?3,?4,?5,?6,?7,?8,?9,?10)",
+            "INSERT INTO sale(id,idempotency_key,status,total_minor,paid_minor,change_minor,movement_group_id,actor_id,completed_at,pricing_trace_id,shift_id,net_ex_tax_minor,tax_total_minor,charge_total_minor,charge_net_ex_tax_minor,charge_tax_minor) VALUES(?1,?2,'COMPLETED',?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",
             params![
                 sale_id.to_string(),
                 request.idempotency_key,
-                payment.total_minor,
+                // The goods, held apart from the fees in the three columns
+                // below. `paid - change` comes to `total + charges`, not to
+                // `total` — which is the whole point of keeping them apart.
+                total_minor,
                 payment.paid_minor,
                 payment.change_minor,
                 movement.movement_group_id.to_string(),
@@ -4112,10 +4883,55 @@ impl EdgeInventory for SqliteEdge {
                 // because nobody pressed "open shift" is a queue, and the
                 // shop's problem is then the paperwork rather than the
                 // customer. The Z report counts what it can attribute.
-                shift_id
+                shift_id,
+                // What of the takings is sales and what is held for the state.
+                // `None` when the basket was priced with no book in force —
+                // there is no rate to split by, and nought would claim it was
+                // all goods.
+                quoted.as_ref().map(|quote| {
+                    quote.lines.iter().map(|line| line.net_ex_tax_minor).sum::<i64>()
+                }),
+                quoted.as_ref().map(|quote| {
+                    quote.lines.iter().map(|line| line.tax_minor).sum::<i64>()
+                }),
+                // The fees, held apart from the goods on the sale row itself so
+                // a Z report and a Net Sales figure can be read off it without
+                // a join. `None` when there were none — which is not nought
+                // fees taken, it is a bill nobody put one on.
+                if request.charges.is_empty() { None } else { Some(charge_total_minor) },
+                quoted.as_ref().filter(|_| !request.charges.is_empty()).map(|quote| {
+                    quote.charges.iter().map(|charge| charge.net_ex_tax_minor).sum::<i64>()
+                }),
+                quoted.as_ref().filter(|_| !request.charges.is_empty()).map(|quote| {
+                    quote.charges.iter().map(|charge| charge.tax_minor).sum::<i64>()
+                })
             ],
         )
         .map_err(db)?;
+        // One row per fee, in the order they were put on the bill — which is
+        // the order the receipt prints them, and the order a reprint has to
+        // reproduce. `charge_seq` keys them, so a retried sale rewrites the
+        // same rows rather than billing a second delivery.
+        for (seq, charge) in request.charges.iter().enumerate() {
+            let priced = quoted.as_ref().and_then(|quote| quote.charges.get(seq));
+            tx.execute(
+                "INSERT INTO sale_charge
+                     (sale_id,charge_seq,code,description,amount_minor,
+                      net_ex_tax_minor,tax_minor,tax_category)
+                 VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
+                params![
+                    sale_id.to_string(),
+                    i64::try_from(seq).unwrap_or(i64::MAX),
+                    charge.code,
+                    charge.description,
+                    charge.amount_minor,
+                    priced.map(|one| one.net_ex_tax_minor),
+                    priced.map(|one| one.tax_minor),
+                    charge.tax_category,
+                ],
+            )
+            .map_err(db)?;
+        }
         // Keyed by position, so a retry of this whole sale writes the same rows
         // rather than a second copy of each payment.
         for (seq, tender) in request.tenders.iter().enumerate() {
@@ -4136,6 +4952,9 @@ impl EdgeInventory for SqliteEdge {
             let PricedLine {
                 charged_minor,
                 base_minor,
+                net_ex_tax_minor,
+                tax_minor,
+                points_earned,
                 price_source,
                 publication_version,
                 ..
@@ -4147,8 +4966,9 @@ impl EdgeInventory for SqliteEdge {
                 // what the markdown was worth.
                 "INSERT INTO sale_line
                      (sale_id,subject_id,epc,sku_code,unit_price_minor,quantity,
-                      price_source,publication_version,base_unit_price_minor)
-                 VALUES(?1,?2,?3,?4,?5,1,?6,?7,?8)",
+                      price_source,publication_version,base_unit_price_minor,
+                      net_ex_tax_minor,tax_minor,points_earned)
+                 VALUES(?1,?2,?3,?4,?5,1,?6,?7,?8,?9,?10,?11)",
                 params![
                     sale_id.to_string(),
                     subject.id.to_string(),
@@ -4157,11 +4977,19 @@ impl EdgeInventory for SqliteEdge {
                     charged_minor,
                     price_source,
                     publication_version,
-                    base_minor
+                    base_minor,
+                    net_ex_tax_minor,
+                    tax_minor,
+                    points_earned
                 ],
             )
             .map_err(db)?;
         }
+        // The attempt and the sale finish together or not at all. Outside this
+        // transaction there is an instant where one is true and the other is
+        // not, and that instant is exactly the failure the checkout row exists
+        // to survive.
+        Self::complete_checkout_for(&tx, &request.idempotency_key, sale_id, occurred_at)?;
         // The money leaves with the sale, in the same transaction.
         //
         // The stock side travels separately and in aggregate, as a pool
@@ -4183,6 +5011,12 @@ impl EdgeInventory for SqliteEdge {
                 "total_minor": payment.total_minor,
                 "paid_minor": payment.paid_minor,
                 "change_minor": payment.change_minor,
+                "net_ex_tax_minor": quoted.as_ref().map(|quote| {
+                    quote.lines.iter().map(|line| line.net_ex_tax_minor).sum::<i64>()
+                }),
+                "tax_total_minor": quoted.as_ref().map(|quote| {
+                    quote.lines.iter().map(|line| line.tax_minor).sum::<i64>()
+                }),
                 // What was charged, not what the unit cost at intake. The
                 // centre re-sums these against the total and refuses a sale
                 // that does not reconcile, so sending the intake price here
@@ -4208,6 +5042,11 @@ impl EdgeInventory for SqliteEdge {
                                 })
                                 .unwrap_or(subject.unit_price_minor),
                             "line_total_minor": line.charged_minor,
+                            // Null, not nought, when no book priced this: the
+                            // split is unknown rather than all-goods.
+                            "net_ex_tax_minor": line.net_ex_tax_minor,
+                            "tax_minor": line.tax_minor,
+                            "points_earned": line.points_earned,
                             // What it cost before a clearance replaced the
                             // price. The centre keeps `price_source` and so can
                             // say a markdown applied; without this it cannot say
@@ -4284,7 +5123,12 @@ impl EdgeInventory for SqliteEdge {
         .map_err(db)?;
         let response = SaleResult {
             sale_id,
-            total_minor: payment.total_minor,
+            // The goods. `payment.total_minor` is what the tender was measured
+            // against, which now has the fees in it — reporting that here would
+            // put a courier inside every "sale total" the estate has.
+            total_minor,
+            charge_total_minor,
+            amount_due_minor,
             paid_minor: payment.paid_minor,
             change_minor: payment.change_minor,
             movement_group_id: movement.movement_group_id,
@@ -4377,6 +5221,7 @@ impl EdgeInventory for SqliteEdge {
             &sku_codes,
             &request.coupon_codes,
             request.customer_id.as_deref(),
+            &request.charges,
         )?;
         Ok(match quoted {
             Some(quote) => serde_json::to_value(quote)
@@ -4638,6 +5483,13 @@ impl EdgeInventory for SqliteEdge {
         self.open_goods_receipts_impl()
     }
 
+    fn reject_delivery(
+        &self,
+        request: RejectDeliveryRequest,
+    ) -> Result<GoodsReceiptView, EdgeError> {
+        self.reject_delivery_impl(request)
+    }
+
     fn record_receipt_invoice(
         &self,
         request: RecordInvoiceRequest,
@@ -4836,6 +5688,90 @@ impl EdgeInventory for SqliteEdge {
     fn shift_report(&self, shift_id: &str) -> Result<crate::edge::till::ShiftReport, EdgeError> {
         let connection = self.lock()?;
         crate::edge::till::report(&connection, shift_id)
+    }
+
+    // ── The shop's small money ──────────────────────────────────────────
+
+    fn record_expense(
+        &self,
+        request: crate::edge::petty::RecordExpenseRequest,
+    ) -> Result<crate::edge::petty::ExpenseRecorded, EdgeError> {
+        self.require_store("a store expense")?;
+        Self::validate_command_identity(&request.idempotency_key, &request.actor_id)?;
+        let request_json = Self::encode_idempotent_request(&request)?;
+        let mut connection = self.lock()?;
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db)?;
+        if let Some(response) = Self::load_idempotent(
+            &tx,
+            &request.idempotency_key,
+            "STORE_EXPENSE",
+            &request_json,
+        )? {
+            tx.commit().map_err(db)?;
+            return Ok(response);
+        }
+        let recorded = crate::edge::petty::record_expense(&tx, &request)?;
+        // The centre hears about it in the same transaction as the row, or not
+        // at all. See `capture_store_expense` for what the centre can do with
+        // it today, which is nothing.
+        Self::capture_store_expense(&tx, &self.node, &recorded.expense)?;
+        Self::save_idempotent(
+            &tx,
+            &request.idempotency_key,
+            "STORE_EXPENSE",
+            &request_json,
+            &recorded,
+        )?;
+        tx.commit().map_err(db)?;
+        Ok(recorded)
+    }
+
+    fn record_petty_cash_top_up(
+        &self,
+        request: crate::edge::petty::PettyCashTopUpRequest,
+    ) -> Result<crate::edge::petty::PettyCashTopUpRecorded, EdgeError> {
+        self.require_store("a petty cash top-up")?;
+        Self::validate_command_identity(&request.idempotency_key, &request.actor_id)?;
+        let request_json = Self::encode_idempotent_request(&request)?;
+        let mut connection = self.lock()?;
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db)?;
+        if let Some(response) = Self::load_idempotent(
+            &tx,
+            &request.idempotency_key,
+            "PETTY_CASH_TOP_UP",
+            &request_json,
+        )? {
+            tx.commit().map_err(db)?;
+            return Ok(response);
+        }
+        let recorded = crate::edge::petty::record_top_up(&tx, &request)?;
+        Self::capture_petty_cash_top_up(&tx, &self.node, &recorded.top_up)?;
+        Self::save_idempotent(
+            &tx,
+            &request.idempotency_key,
+            "PETTY_CASH_TOP_UP",
+            &request_json,
+            &recorded,
+        )?;
+        tx.commit().map_err(db)?;
+        Ok(recorded)
+    }
+
+    fn petty_cash_position(&self) -> Result<crate::edge::petty::PettyCashPosition, EdgeError> {
+        let connection = self.lock()?;
+        crate::edge::petty::position(&connection)
+    }
+
+    fn expense_window(
+        &self,
+        query: crate::edge::petty::ExpenseWindowQuery,
+    ) -> Result<crate::edge::petty::ExpenseWindow, EdgeError> {
+        let connection = self.lock()?;
+        crate::edge::petty::window(&connection, &query)
     }
 
     fn void_sale(
@@ -5252,11 +6188,13 @@ mod tests {
             .complete_sale(SaleRequest {
                 coupon_codes: Vec::new(),
                 customer_id: None,
+                charges: Vec::new(),
                 epcs: vec!["EPC-OFFLINE-001".into()],
                 tenders: vec![crate::tender::SaleTender {
                     method: crate::tender::PaymentMethod::Cash,
                     amount_minor: 200_000,
                     reference: None,
+                    voucher_authorization_id: None,
                 }],
                 actor_id: "cashier-07".into(),
                 idempotency_key: "store-sale-001".into(),
@@ -5315,11 +6253,13 @@ mod tests {
             .complete_sale(SaleRequest {
                 coupon_codes: Vec::new(),
                 customer_id: None,
+                charges: Vec::new(),
                 epcs: vec!["EPC-TILL-001".into()],
                 tenders: vec![crate::tender::SaleTender {
                     method: crate::tender::PaymentMethod::Cash,
                     amount_minor: 200_000,
                     reference: None,
+                    voucher_authorization_id: None,
                 }],
                 actor_id: "siti".into(),
                 idempotency_key: format!("{key}-sale"),
@@ -5429,11 +6369,13 @@ mod tests {
             .complete_sale(SaleRequest {
                 coupon_codes: Vec::new(),
                 customer_id: None,
+                charges: Vec::new(),
                 epcs: vec!["EPC-TILL-002".into()],
                 tenders: vec![crate::tender::SaleTender {
                     method: crate::tender::PaymentMethod::Cash,
                     amount_minor: 200_000,
                     reference: None,
+                    voucher_authorization_id: None,
                 }],
                 actor_id: "siti".into(),
                 idempotency_key: "expected-sale-2".into(),
@@ -5487,11 +6429,13 @@ mod tests {
             .complete_sale(SaleRequest {
                 coupon_codes: Vec::new(),
                 customer_id: None,
+                charges: Vec::new(),
                 epcs: vec!["EPC-CARD-001".into()],
                 tenders: vec![crate::tender::SaleTender {
                     method: crate::tender::PaymentMethod::Card,
                     amount_minor: 150_000,
                     reference: Some("BCA-approval".into()),
+                    voucher_authorization_id: None,
                 }],
                 actor_id: "siti".into(),
                 idempotency_key: "card-sale".into(),
@@ -5504,6 +6448,74 @@ mod tests {
         assert_eq!(report.non_cash_minor, 150_000);
         assert_eq!(report.cash_sales_minor, 0);
         assert_eq!(report.expected_cash_minor, 100_000);
+    }
+
+    /// The hole, closed.
+    ///
+    /// This till used to accept `Voucher` with any string at all in
+    /// `reference` — no balance read, no code checked, nobody asked. Two shops
+    /// could settle two different baskets against one card and neither would
+    /// know until the sales synced, by which point both were sold.
+    ///
+    /// Idempotency never covered it: idempotency stops the SAME request being
+    /// processed twice, and this was two different requests spending one
+    /// balance.
+    #[test]
+    fn a_voucher_the_centre_has_not_authorised_cannot_settle_a_basket() {
+        let store = SqliteEdge::open_in_memory(node(EdgeRole::Store, "store-07"))
+            .unwrap_or_else(|error| panic!("store: {error}"));
+        store
+            .open_shift(crate::edge::till::OpenShiftRequest {
+                terminal_id: "TILL-1".into(),
+                opening_float_minor: 100_000,
+                actor_id: "siti".into(),
+                idempotency_key: "unauth-shift".into(),
+            })
+            .unwrap_or_else(|error| panic!("shift: {error}"));
+        store
+            .receive_store(ReceiveRequest {
+                epc: "EPC-UNAUTH-001".into(),
+                sku_code: "SKU-001".into(),
+                unit_price_minor: 150_000,
+                source_dc_id: None,
+                shipment_reference: None,
+                actor_id: "store-receiver".into(),
+                idempotency_key: "unauth-receive".into(),
+            })
+            .unwrap_or_else(|error| panic!("receive: {error}"));
+        move_epc(
+            &store,
+            "EPC-UNAUTH-001",
+            "store-07.warehouse:on_hand",
+            "store-07.floor:on_hand",
+            "unauth-floor",
+        );
+
+        let refused = store.complete_sale(SaleRequest {
+            coupon_codes: Vec::new(),
+            customer_id: None,
+            charges: Vec::new(),
+            epcs: vec!["EPC-UNAUTH-001".into()],
+            tenders: vec![crate::tender::SaleTender {
+                method: crate::tender::PaymentMethod::Voucher,
+                amount_minor: 150_000,
+                reference: Some("GIFT-9999".into()),
+                voucher_authorization_id: None,
+            }],
+            actor_id: "siti".into(),
+            idempotency_key: "unauth-sale".into(),
+        });
+        assert!(
+            refused.is_err(),
+            "a till must not take stored value on its own word"
+        );
+
+        // And the refusal rolls the basket back whole: nothing was taken.
+        let after = store
+            .active_shift(None)
+            .unwrap_or_else(|error| panic!("active: {error}"))
+            .unwrap_or_else(|| panic!("a shift is open"));
+        assert_eq!(after.non_cash_minor, 0);
     }
 
     /// The fifth tender — and the migration that sat on disk with nothing
@@ -5549,11 +6561,15 @@ mod tests {
             .complete_sale(SaleRequest {
                 coupon_codes: Vec::new(),
                 customer_id: None,
+                charges: Vec::new(),
                 epcs: vec!["EPC-VOUCHER-001".into()],
                 tenders: vec![crate::tender::SaleTender {
                     method: crate::tender::PaymentMethod::Voucher,
                     amount_minor: 150_000,
                     reference: Some("GIFT-0001".into()),
+                    // The centre's word. Without it this basket is refused —
+                    // see the test below, which is the hole this closed.
+                    voucher_authorization_id: Some("auth-0001".into()),
                 }],
                 actor_id: "siti".into(),
                 idempotency_key: "voucher-sale".into(),
@@ -6404,13 +7420,24 @@ impl SqliteEdge {
                 // NOT ordered_quantity. This is the checker's view, and a
                 // count taken while looking at the number it is meant to
                 // produce is not evidence of anything.
+                // Only what this bay still owes a delivery against. The list
+                // used to carry every line ever activated, finished or not,
+                // so a clerk scrolled past months of settled work to find
+                // today's lorry — and a line closed short still invited a
+                // count. `matched_quantity` and not `counted_quantity`:
+                // quantity that arrived beyond the order never reduced what
+                // the order was still waiting for.
                 "SELECT l.po_line_id, o.po_number, o.supplier_id, o.supplier_name,
                         l.line_number, l.article_code, l.article_name, l.image_url,
-                        COALESCE((SELECT SUM(c.counted_quantity) FROM receiving_count c
-                                  WHERE c.po_line_id = l.po_line_id AND c.status='ACCEPTED'), 0)
+                        COALESCE((SELECT SUM(c.matched_quantity) FROM receiving_count c
+                                  WHERE c.po_line_id = l.po_line_id AND c.status='ACCEPTED'), 0),
+                        o.activated_at
                  FROM purchase_order_line l
                  JOIN purchase_order o ON o.purchase_order_id = l.purchase_order_id
-                 ORDER BY o.po_number, l.line_number",
+                 WHERE l.ordered_quantity >
+                       COALESCE((SELECT SUM(c.matched_quantity) FROM receiving_count c
+                                 WHERE c.po_line_id = l.po_line_id AND c.status='ACCEPTED'), 0)
+                 ORDER BY o.activated_at DESC, o.po_number, l.line_number",
             )
             .map_err(db)?;
         let rows = statement
@@ -6426,6 +7453,7 @@ impl SqliteEdge {
                     image_url: row.get(7)?,
                     expected_stock_units: None,
                     received_stock_units: row.get(8)?,
+                    activated_at: parse_time_row(row.get::<_, String>(9)?)?,
                 })
             })
             .map_err(db)?;
@@ -6444,7 +7472,9 @@ impl SqliteEdge {
                 "SELECT c.count_id, c.po_line_id, o.po_number, o.supplier_id,
                         l.article_code, l.article_name, c.counted_quantity, c.counted_by,
                         c.counted_at, l.ordered_quantity,
-                        l.unit_price_minor, c.status, c.receipt_id
+                        l.unit_price_minor, c.status, c.receipt_id,
+                        COALESCE((SELECT SUM(a.matched_quantity) FROM receiving_count a
+                                  WHERE a.po_line_id = c.po_line_id AND a.status='ACCEPTED'), 0)
                  FROM receiving_count c
                  JOIN purchase_order_line l ON l.po_line_id = c.po_line_id
                  JOIN purchase_order o ON o.purchase_order_id = l.purchase_order_id
@@ -6456,6 +7486,7 @@ impl SqliteEdge {
             .query_map([], |row| {
                 let ordered: i64 = row.get(9)?;
                 let counted: i64 = row.get(6)?;
+                let already_matched: i64 = row.get(13)?;
                 // Both sides are pieces, so there is nothing to convert.
                 let expected = ordered;
                 Ok(PurchaseCountAwaitingVerification {
@@ -6471,6 +7502,7 @@ impl SqliteEdge {
                     counted_at: parse_time_row(row.get::<_, String>(8)?)?,
                     expected_stock_units: expected,
                     variance: counted - expected,
+                    outstanding_stock_units: (ordered - already_matched).max(0),
                     unit_price_minor: row.get(10)?,
                 })
             })
@@ -6513,45 +7545,55 @@ impl SqliteEdge {
             tx.commit().map_err(db)?;
             return Ok(response);
         }
-        let known: i64 = tx
+        let ordered_from: Option<String> = tx
             .query_row(
-                "SELECT COUNT(*) FROM purchase_order_line WHERE po_line_id = ?1",
+                "SELECT o.supplier_id
+                   FROM purchase_order_line l
+                   JOIN purchase_order o ON o.purchase_order_id = l.purchase_order_id
+                  WHERE l.po_line_id = ?1",
                 params![request.po_line_id.to_string()],
-                |row| row.get(0),
-            )
-            .map_err(db)?;
-        if known == 0 {
-            return Err(EdgeError::NotFound(format!(
-                "this DC holds no purchase order line {}; it cannot count against one it was never given",
-                request.po_line_id
-            )));
-        }
-        // A count belongs to a delivery, and a closed delivery has been
-        // settled — counting into it afterwards would change a document
-        // somebody has already acted on.
-        let receipt_status: Option<String> = tx
-            .query_row(
-                "SELECT status FROM goods_receipt WHERE receipt_id = ?1",
-                params![request.receipt_id.to_string()],
                 |row| row.get(0),
             )
             .optional()
             .map_err(db)?;
-        match receipt_status.as_deref() {
-            Some("OPEN") => {}
-            Some(other) => {
-                return Err(EdgeError::Conflict(format!(
-                    "delivery {} is {}; open a new one for goods arriving now",
-                    request.receipt_id,
-                    other.to_lowercase()
-                )))
-            }
-            None => {
-                return Err(EdgeError::NotFound(format!(
-                    "no delivery {}: open the document when the lorry arrives, then count into it",
-                    request.receipt_id
-                )))
-            }
+        let Some(ordered_from) = ordered_from else {
+            return Err(EdgeError::NotFound(format!(
+                "this DC holds no purchase order line {}; it cannot count against one it was never given",
+                request.po_line_id
+            )));
+        };
+        // A count belongs to a delivery, and a delivery that is finished or
+        // refused has been settled — counting into it afterwards would change
+        // a document somebody has already acted on.
+        let delivery: Option<(String, String)> = tx
+            .query_row(
+                "SELECT status, supplier_id FROM goods_receipt WHERE receipt_id = ?1",
+                params![request.receipt_id.to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(db)?;
+        let Some((status, delivered_by)) = delivery else {
+            return Err(EdgeError::NotFound(format!(
+                "no delivery {}: open the document when the lorry arrives, then count into it",
+                request.receipt_id
+            )));
+        };
+        if status != "OPEN" {
+            return Err(EdgeError::Conflict(format!(
+                "delivery {} is {}; open a new one for goods arriving now",
+                request.receipt_id,
+                status.to_lowercase()
+            )));
+        }
+        // One supplier's lorry cannot answer another supplier's order. Left to
+        // the screen, this is the mistake a busy bay makes at seven in the
+        // morning and nobody finds until the wrong company is invoiced.
+        if delivered_by.trim() != ordered_from.trim() {
+            return Err(EdgeError::Validation(format!(
+                "this delivery came from {delivered_by} and that order is with {ordered_from}; \
+                 a supplier's goods cannot be received against another supplier's order"
+            )));
         }
         let count_id = Uuid::new_v4();
         let counted_at = Utc::now();
@@ -6694,6 +7736,26 @@ impl SqliteEdge {
             return Ok(response);
         }
 
+        // A delivery can only come from a supplier this DC is expecting goods
+        // from. The supplier used to be free text, which meant the string on
+        // the delivery and the string on the order agreed only by luck — and
+        // every check downstream that compares them is worthless if either
+        // side can be typed.
+        let expected_from: i64 = tx
+            .query_row(
+                "SELECT COUNT(*) FROM purchase_order WHERE supplier_id = ?1",
+                params![request.supplier_id.trim()],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        if expected_from == 0 {
+            return Err(EdgeError::Validation(format!(
+                "this DC holds no purchase order with supplier {}; a delivery is opened against \
+                 an order somebody raised, not against a name typed at the bay",
+                request.supplier_id.trim()
+            )));
+        }
+
         // Gapless per site. The number goes on a document a supplier will
         // quote back at you, so a hole in the sequence is a question somebody
         // has to answer.
@@ -6766,6 +7828,125 @@ impl SqliteEdge {
             out.push(Self::receipt_view(&tx, receipt_id)?);
         }
         Ok(out)
+    }
+
+    /// Turn a whole delivery away.
+    ///
+    /// The lorry came and went back: wet cartons, the wrong supplier's goods,
+    /// a load nobody ordered. The arrival still happened, and it is the only
+    /// evidence that will ever say this supplier sent damaged goods three
+    /// times — so the document stays, with the reason on it, rather than being
+    /// deleted as if the morning had not occurred.
+    ///
+    /// Only while nothing has been accepted. Goods that are already on the
+    /// shelf cannot be un-arrived, and a delivery that is part accepted is a
+    /// delivery with a shortfall, which is a different document and a
+    /// different conversation.
+    fn reject_delivery_impl(
+        &self,
+        request: RejectDeliveryRequest,
+    ) -> Result<GoodsReceiptView, EdgeError> {
+        if self.node.role != EdgeRole::Dc {
+            return Err(EdgeError::Forbidden(
+                "supplier deliveries are received at a DC".into(),
+            ));
+        }
+        if request.reason.trim().is_empty() {
+            return Err(EdgeError::Validation(
+                "refusing a delivery must say why it went back".into(),
+            ));
+        }
+        Self::validate_command_identity(&request.idempotency_key, &request.actor_id)?;
+        let request_json = Self::encode_idempotent_request(&request)?;
+        let mut connection = self.lock()?;
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db)?;
+        if let Some(response) = Self::load_idempotent(
+            &tx,
+            &request.idempotency_key,
+            "GOODS_RECEIPT_REJECT",
+            &request_json,
+        )? {
+            tx.commit().map_err(db)?;
+            return Ok(response);
+        }
+
+        let held: Option<(String, String)> = tx
+            .query_row(
+                "SELECT status, supplier_id FROM goods_receipt WHERE receipt_id = ?1",
+                params![request.receipt_id.to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(db)?;
+        let Some((status, supplier_id)) = held else {
+            return Err(EdgeError::NotFound(format!(
+                "no delivery {}",
+                request.receipt_id
+            )));
+        };
+        if status != "OPEN" {
+            return Err(EdgeError::Conflict(format!(
+                "delivery {} is already {}",
+                request.receipt_id,
+                status.to_lowercase()
+            )));
+        }
+        let accepted: i64 = tx
+            .query_row(
+                "SELECT COUNT(*) FROM receiving_count
+                  WHERE receipt_id = ?1 AND status = 'ACCEPTED'",
+                params![request.receipt_id.to_string()],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        if accepted > 0 {
+            return Err(EdgeError::Conflict(format!(
+                "delivery {} already has accepted goods on it; those are in the warehouse and \
+                 cannot be un-arrived",
+                request.receipt_id
+            )));
+        }
+
+        let decided_at = Utc::now();
+        tx.execute(
+            "UPDATE goods_receipt
+                SET status='REJECTED', rejected_reason=?2, closed_by=?3, closed_at=?4
+              WHERE receipt_id=?1",
+            params![
+                request.receipt_id.to_string(),
+                request.reason.trim(),
+                request.actor_id,
+                time_text(decided_at)
+            ],
+        )
+        .map_err(db)?;
+
+        // The centre hears about this one the same way it hears about an
+        // acceptance: as a fact. Without it a refused delivery would exist
+        // only on the node that refused it, and supplier performance is a
+        // question asked at head office.
+        crate::edge::sync::record_rejected_delivery(
+            &tx,
+            request.receipt_id,
+            &supplier_id,
+            request.reason.trim(),
+            &request.actor_id,
+            decided_at,
+        )
+        .map_err(|error| EdgeError::Persistence(error.to_string()))?;
+
+        let view = Self::receipt_view(&tx, request.receipt_id)?;
+        Self::save_idempotent(
+            &tx,
+            &request.idempotency_key,
+            "GOODS_RECEIPT_REJECT",
+            &request_json,
+            &view,
+        )?;
+        tx.commit().map_err(db)?;
+        Ok(view)
     }
 
     /// Record the supplier's invoice against a delivery.
@@ -7322,15 +8503,13 @@ impl SqliteEdge {
             return Ok(response);
         }
 
-        let (po_line_id, counted_by, counted_quantity, status, article_code): (
-            String,
-            String,
-            i64,
-            String,
-            String,
-        ) = tx
+        #[allow(clippy::type_complexity)]
+        let row: Option<(String, String, i64, String, String, i64, Option<i64>, i64)> = tx
             .query_row(
-                "SELECT c.po_line_id, c.counted_by, c.counted_quantity, c.status, l.article_code
+                "SELECT c.po_line_id, c.counted_by, c.counted_quantity, c.status, l.article_code,
+                        l.ordered_quantity, l.unit_price_minor,
+                        COALESCE((SELECT SUM(a.matched_quantity) FROM receiving_count a
+                                  WHERE a.po_line_id = c.po_line_id AND a.status='ACCEPTED'), 0)
                  FROM receiving_count c
                  JOIN purchase_order_line l ON l.po_line_id = c.po_line_id
                  WHERE c.count_id = ?1",
@@ -7342,12 +8521,30 @@ impl SqliteEdge {
                         row.get(2)?,
                         row.get(3)?,
                         row.get(4)?,
+                        row.get(5)?,
+                        row.get(6)?,
+                        row.get(7)?,
                     ))
                 },
             )
             .optional()
-            .map_err(db)?
-            .ok_or_else(|| EdgeError::NotFound(format!("no count {}", request.count_id)))?;
+            .map_err(db)?;
+        let Some((
+            po_line_id,
+            counted_by,
+            counted_quantity,
+            status,
+            article_code,
+            ordered_quantity,
+            agreed_unit_price_minor,
+            already_matched,
+        )) = row
+        else {
+            return Err(EdgeError::NotFound(format!(
+                "no count {}",
+                request.count_id
+            )));
+        };
         if status != "AWAITING_VERIFICATION" {
             return Err(EdgeError::Conflict(format!(
                 "count {} was already {}",
@@ -7355,9 +8552,11 @@ impl SqliteEdge {
                 status.to_lowercase().replace('_', " ")
             )));
         }
-        if self.segregation.requires_two_people()
-            && counted_by.trim() == request.verifier_actor_id.trim()
-        {
+        // Two pairs of hands, with no way to ask for one. This used to be a
+        // policy a site could relax; the database CHECK behind it never was,
+        // so relaxing it produced a persistence error rather than a delivery.
+        // A rule that cannot be turned off should not pretend it can.
+        if counted_by.trim() == request.verifier_actor_id.trim() {
             return Err(EdgeError::Forbidden(format!(
                 "{counted_by} counted this delivery and cannot also approve it; verification needs a second person"
             )));
@@ -7386,6 +8585,9 @@ impl SqliteEdge {
                 counted_by,
                 verified_by: request.verifier_actor_id.clone(),
                 accepted_quantity: None,
+                matched_quantity: None,
+                excess_quantity: None,
+                agreed_unit_price_minor: None,
                 movement_group_id: None,
                 price_amendment_request_id: None,
                 decided_at,
@@ -7400,6 +8602,15 @@ impl SqliteEdge {
             tx.commit().map_err(db)?;
             return Ok(response);
         }
+
+        // Accepted. Two numbers come out of one: what the order still had room
+        // for, and what it did not. The checker's count is not touched by
+        // this — 105 pieces arrived and 105 pieces go into the warehouse —
+        // but only the matched part is quantity the company agreed to buy,
+        // and only the matched part is worth anything to Finance.
+        let outstanding = (ordered_quantity - already_matched).max(0);
+        let matched_quantity = counted_quantity.min(outstanding);
+        let excess_quantity = counted_quantity - matched_quantity;
 
         // Accepted. The goods come into existence as a quantity of an article
         // — the only thing anyone yet knows about them.
@@ -7451,14 +8662,22 @@ impl SqliteEdge {
         tx.execute(
             "UPDATE receiving_count
              SET status='ACCEPTED', verified_by=?2, verified_at=?3, movement_group_id=?4,
-                 receipt_line_id=?5
+                 receipt_line_id=?5, matched_quantity=?6, excess_quantity=?7,
+                 agreed_unit_price_minor=?8
              WHERE count_id=?1",
             params![
                 request.count_id.to_string(),
                 request.verifier_actor_id,
                 time_text(decided_at),
                 movement.movement_group_id.to_string(),
-                receipt_line_id.to_string()
+                receipt_line_id.to_string(),
+                matched_quantity,
+                excess_quantity,
+                // The price as it stands right now. Written onto the
+                // acceptance rather than read back from the order later,
+                // because approving an amendment next month must not restate
+                // what this delivery was worth.
+                agreed_unit_price_minor
             ],
         )
         .map_err(db)?;
@@ -7541,6 +8760,9 @@ impl SqliteEdge {
             po_line_id,
             movement.movement_group_id,
             counted_quantity,
+            matched_quantity,
+            excess_quantity,
+            agreed_unit_price_minor,
             &counted_by,
             &request.verifier_actor_id,
             decided_at,
@@ -7554,6 +8776,9 @@ impl SqliteEdge {
             counted_by,
             verified_by: request.verifier_actor_id.clone(),
             accepted_quantity: Some(counted_quantity),
+            matched_quantity: Some(matched_quantity),
+            excess_quantity: Some(excess_quantity),
+            agreed_unit_price_minor,
             movement_group_id: Some(movement.movement_group_id),
             price_amendment_request_id,
             decided_at,
@@ -7567,5 +8792,796 @@ impl SqliteEdge {
         )?;
         tx.commit().map_err(db)?;
         Ok(response)
+    }
+}
+
+#[cfg(test)]
+mod checkout_tests {
+    use super::*;
+    use crate::edge::SiteId;
+    use crate::tender::{PaymentMethod, SaleTender};
+
+    fn store() -> SqliteEdge {
+        SqliteEdge::open_in_memory(
+            NodeContext::new(
+                "store-07-edge".to_string(),
+                EdgeRole::Store,
+                SiteId::new("store-07").unwrap_or_else(|error| panic!("site: {error}")),
+            )
+            .unwrap_or_else(|error| panic!("node: {error}")),
+        )
+        .unwrap_or_else(|error| panic!("store: {error}"))
+    }
+
+    fn card(amount_minor: i64, reference: &str) -> SaleTender {
+        SaleTender {
+            method: PaymentMethod::Card,
+            amount_minor,
+            reference: Some(reference.to_string()),
+            voucher_authorization_id: None,
+        }
+    }
+
+    fn begin(edge: &SqliteEdge, key: &str, total: i64, tenders: Vec<SaleTender>) -> CheckoutResult {
+        edge.begin_checkout(BeginCheckoutRequest {
+            idempotency_key: key.into(),
+            actor_id: "cashier".into(),
+            total_minor: total,
+            tenders,
+            pricing_trace_id: Some("trace-1".into()),
+        })
+        .unwrap_or_else(|error| panic!("begin {key}: {error}"))
+    }
+
+    #[test]
+    fn the_attempt_is_on_disk_before_the_terminal_is_asked_for_anything() {
+        // The whole point. After this call returns, the process may die and the
+        // shop still knows a card was about to be charged Rp500.000 and under
+        // which reference — which is the difference between a reconcilable
+        // charge and the customer's word against the shop's.
+        let edge = store();
+        let checkout = begin(&edge, "sale-1", 500_000, vec![card(500_000, "TERM-A-0001")]);
+
+        assert_eq!(checkout.status, "FINALIZING");
+        assert_eq!(checkout.sale_id, None);
+        assert_eq!(checkout.tenders.len(), 1);
+        assert_eq!(checkout.tenders[0].status, "PENDING");
+        assert_eq!(checkout.tenders[0].amount_minor, 500_000);
+    }
+
+    #[test]
+    fn a_retried_declaration_returns_the_same_attempt_rather_than_opening_a_second() {
+        // The till lost the response and asked again. Handing it a second
+        // checkout for the same basket is how one shopper is charged twice —
+        // the second attempt would drive the terminal a second time.
+        let edge = store();
+        let first = begin(&edge, "sale-1", 500_000, vec![card(500_000, "TERM-A-0001")]);
+        let again = begin(&edge, "sale-1", 500_000, vec![card(500_000, "TERM-A-0001")]);
+        assert_eq!(first.checkout_id, again.checkout_id);
+    }
+
+    #[test]
+    fn the_same_key_for_a_different_basket_is_refused_not_quietly_answered() {
+        // Handing back the old checkout would have the till believe it declared
+        // the basket on screen while the row on disk describes another — so the
+        // crash it is about to survive gets reconciled against the wrong
+        // amount.
+        let edge = store();
+        begin(&edge, "sale-1", 500_000, vec![card(500_000, "TERM-A-0001")]);
+        let refused = edge.begin_checkout(BeginCheckoutRequest {
+            idempotency_key: "sale-1".into(),
+            actor_id: "cashier".into(),
+            total_minor: 750_000,
+            tenders: vec![card(750_000, "TERM-A-0002")],
+            pricing_trace_id: None,
+        });
+        assert!(
+            matches!(refused, Err(EdgeError::Conflict(_))),
+            "{refused:?}"
+        );
+    }
+
+    #[test]
+    fn a_crash_leaves_a_row_that_names_the_money_and_the_reference_to_chase() {
+        // The recovery a shop actually performs: the card settled, the sale was
+        // never written. Without this row the shop has nothing at all.
+        let edge = store();
+        begin(&edge, "sale-1", 500_000, vec![card(500_000, "TERM-A-0001")]);
+        edge.record_tender_outcome(TenderOutcomeRequest {
+            idempotency_key: "sale-1".into(),
+            tender_seq: 0,
+            status: "SUCCEEDED".into(),
+            external_reference: Some("ACQ-99887".into()),
+            last_error: None,
+        })
+        .unwrap_or_else(|error| panic!("outcome: {error}"));
+
+        let unresolved = edge
+            .unresolved_checkouts()
+            .unwrap_or_else(|error| panic!("unresolved: {error}"));
+        assert_eq!(unresolved.len(), 1);
+        assert_eq!(unresolved[0].recovery, "MONEY_HELD_WITHOUT_SALE");
+        assert_eq!(unresolved[0].money_held_minor, 500_000);
+        assert_eq!(
+            unresolved[0].tenders[0].external_reference.as_deref(),
+            Some("ACQ-99887")
+        );
+    }
+
+    #[test]
+    fn a_checkout_holding_money_cannot_be_quietly_voided_while_the_bank_still_owes_an_answer() {
+        // Voiding now abandons a payment that may land a minute later, and
+        // nobody goes back to look at a checkout marked VOIDED.
+        let edge = store();
+        begin(&edge, "sale-1", 500_000, vec![card(500_000, "TERM-A-0001")]);
+        edge.record_tender_outcome(TenderOutcomeRequest {
+            idempotency_key: "sale-1".into(),
+            tender_seq: 0,
+            status: "PROCESSING".into(),
+            external_reference: Some("ACQ-99887".into()),
+            last_error: None,
+        })
+        .unwrap_or_else(|error| panic!("outcome: {error}"));
+
+        let refused = edge.resolve_checkout(ResolveCheckoutRequest {
+            idempotency_key: "sale-1".into(),
+            status: "VOIDED".into(),
+            actor_id: "manager".into(),
+            last_error: None,
+        });
+        let Err(EdgeError::Conflict(message)) = refused else {
+            panic!("a checkout with a card in flight must not close: {refused:?}");
+        };
+        assert!(
+            message.contains("still unanswered"),
+            "the refusal has to say what to do about it: {message}"
+        );
+    }
+
+    #[test]
+    fn a_declined_card_closes_the_checkout_and_the_reason_survives() {
+        let edge = store();
+        begin(&edge, "sale-1", 500_000, vec![card(500_000, "TERM-A-0001")]);
+        edge.record_tender_outcome(TenderOutcomeRequest {
+            idempotency_key: "sale-1".into(),
+            tender_seq: 0,
+            status: "FAILED".into(),
+            external_reference: None,
+            last_error: Some("declined: insufficient funds".into()),
+        })
+        .unwrap_or_else(|error| panic!("outcome: {error}"));
+
+        let closed = edge
+            .resolve_checkout(ResolveCheckoutRequest {
+                idempotency_key: "sale-1".into(),
+                status: "FAILED".into(),
+                actor_id: "cashier".into(),
+                last_error: Some("declined: insufficient funds".into()),
+            })
+            .unwrap_or_else(|error| panic!("resolve: {error}"));
+        assert_eq!(closed.status, "FAILED");
+        assert_eq!(
+            closed.tenders[0].last_error.as_deref(),
+            Some("declined: insufficient funds")
+        );
+        // And it is out of the queue somebody has to work.
+        assert!(edge
+            .unresolved_checkouts()
+            .unwrap_or_else(|error| panic!("unresolved: {error}"))
+            .is_empty());
+    }
+
+    #[test]
+    fn a_retried_card_is_one_tender_attempted_twice_not_two_charges() {
+        // Three rows here would be three charges in every report that sums
+        // them, and retrying a declined card is ordinary.
+        let edge = store();
+        begin(&edge, "sale-1", 500_000, vec![card(500_000, "TERM-A-0001")]);
+        for status in ["FAILED", "FAILED", "SUCCEEDED"] {
+            edge.record_tender_outcome(TenderOutcomeRequest {
+                idempotency_key: "sale-1".into(),
+                tender_seq: 0,
+                status: status.into(),
+                external_reference: None,
+                last_error: None,
+            })
+            .unwrap_or_else(|error| panic!("outcome {status}: {error}"));
+        }
+        let unresolved = edge
+            .unresolved_checkouts()
+            .unwrap_or_else(|error| panic!("unresolved: {error}"));
+        assert_eq!(unresolved[0].tenders.len(), 1, "one tender, not three");
+        assert_eq!(unresolved[0].tenders[0].attempt_count, 3);
+        assert_eq!(unresolved[0].money_held_minor, 500_000);
+    }
+
+    #[test]
+    fn a_status_this_build_does_not_know_is_refused_rather_than_stored() {
+        // An unrecognised status would not match `is_unresolved`, so the tender
+        // would drop silently out of every "can this complete?" test and a sale
+        // would be written over a payment nobody confirmed.
+        let edge = store();
+        begin(&edge, "sale-1", 500_000, vec![card(500_000, "TERM-A-0001")]);
+        let refused = edge.record_tender_outcome(TenderOutcomeRequest {
+            idempotency_key: "sale-1".into(),
+            tender_seq: 0,
+            status: "SETTLED".into(),
+            external_reference: None,
+            last_error: None,
+        });
+        assert!(
+            matches!(refused, Err(EdgeError::Validation(_))),
+            "{refused:?}"
+        );
+    }
+
+    #[test]
+    fn a_basket_whose_tenders_do_not_add_up_is_refused_while_the_card_is_still_in_the_hand() {
+        // Checked at declaration rather than at completion, which is the only
+        // moment the shopper can be told without a reversal.
+        let edge = store();
+        let refused = edge.begin_checkout(BeginCheckoutRequest {
+            idempotency_key: "sale-1".into(),
+            actor_id: "cashier".into(),
+            total_minor: 500_000,
+            // Only cash may exceed the total, because only cash makes change.
+            tenders: vec![card(600_000, "TERM-A-0001")],
+            pricing_trace_id: None,
+        });
+        assert!(
+            matches!(refused, Err(EdgeError::Validation(_))),
+            "{refused:?}"
+        );
+    }
+
+    #[test]
+    fn a_finished_checkout_refuses_a_late_answer_from_the_terminal() {
+        let edge = store();
+        begin(&edge, "sale-1", 500_000, vec![card(500_000, "TERM-A-0001")]);
+        edge.record_tender_outcome(TenderOutcomeRequest {
+            idempotency_key: "sale-1".into(),
+            tender_seq: 0,
+            status: "FAILED".into(),
+            external_reference: None,
+            last_error: None,
+        })
+        .unwrap_or_else(|error| panic!("outcome: {error}"));
+        edge.resolve_checkout(ResolveCheckoutRequest {
+            idempotency_key: "sale-1".into(),
+            status: "FAILED".into(),
+            actor_id: "cashier".into(),
+            last_error: None,
+        })
+        .unwrap_or_else(|error| panic!("resolve: {error}"));
+
+        let late = edge.record_tender_outcome(TenderOutcomeRequest {
+            idempotency_key: "sale-1".into(),
+            tender_seq: 0,
+            status: "SUCCEEDED".into(),
+            external_reference: Some("ACQ-LATE".into()),
+            last_error: None,
+        });
+        // Refused, and the refusal says which end state it reached — a late
+        // SUCCEEDED on a closed checkout is money the shop is holding, and it
+        // needs a person, not a silent overwrite of the resolution.
+        let Err(EdgeError::Conflict(message)) = late else {
+            panic!("a settled checkout must not accept a late answer: {late:?}");
+        };
+        assert!(message.contains("FAILED"), "{message}");
+    }
+}
+
+#[cfg(test)]
+mod charge_tests {
+    //! A fee on the bill, at a real till.
+    //!
+    //! The engine already refuses to let a promotion, a threshold or an earn
+    //! rule reach a charge — `pricing-engine/src/tests.rs` locks that. What is
+    //! locked here is the half the engine cannot: that the drawer is measured
+    //! against what the shopper actually owes, and that the fee survives on
+    //! disk so a receipt can be reprinted and a Z report can balance offline.
+
+    use super::*;
+    use crate::edge::{MoveRequest, ReceiveRequest, SaleRequest, SiteId};
+    use crate::tender::{PaymentMethod, SaleTender};
+
+    /// A shop with one garment on the floor, priced by its intake and nothing
+    /// else — no price book, which is the offline case and the one where a fee
+    /// still has to be collected.
+    fn shop_with_one_shirt(key: &str) -> SqliteEdge {
+        let store = SqliteEdge::open_in_memory(
+            NodeContext::new(
+                "store-07-edge".to_string(),
+                EdgeRole::Store,
+                SiteId::new("store-07").unwrap_or_else(|error| panic!("site: {error}")),
+            )
+            .unwrap_or_else(|error| panic!("node: {error}")),
+        )
+        .unwrap_or_else(|error| panic!("store: {error}"));
+        store
+            .receive_store(ReceiveRequest {
+                epc: "EPC-FEE-001".into(),
+                sku_code: "SKU-FEE".into(),
+                unit_price_minor: 150_000,
+                source_dc_id: Some(
+                    SiteId::new("dc-01").unwrap_or_else(|error| panic!("source DC: {error}")),
+                ),
+                shipment_reference: None,
+                actor_id: "store-receiver".into(),
+                idempotency_key: format!("{key}-receive"),
+            })
+            .unwrap_or_else(|error| panic!("receive: {error}"));
+        store
+            .move_stock(MoveRequest {
+                epc: "EPC-FEE-001".into(),
+                quantity: 1,
+                from: "store-07.warehouse:on_hand".into(),
+                to: "store-07.floor:on_hand".into(),
+                cause: MovementCause::NormalMove,
+                reason: "to the floor".into(),
+                actor_id: "staff".into(),
+                idempotency_key: format!("{key}-floor"),
+                reference_type: None,
+                reference_id: None,
+            })
+            .unwrap_or_else(|error| panic!("move: {error}"));
+        store
+    }
+
+    fn delivery(amount_minor: i64) -> pricing_engine::Charge {
+        pricing_engine::Charge {
+            code: "DELIVERY".into(),
+            description: "Kirim ke alamat".into(),
+            amount_minor,
+            tax_category: "STANDARD".into(),
+        }
+    }
+
+    #[test]
+    fn a_till_will_not_settle_a_basket_while_the_delivery_is_unpaid() {
+        // The expensive one. Measuring the drawer against the goods alone lets
+        // the shopper walk with the shirt and the fee uncollected — and the
+        // till balances, because it never asked for it.
+        let store = shop_with_one_shirt("short");
+        let refused = store.complete_sale(SaleRequest {
+            coupon_codes: Vec::new(),
+            customer_id: None,
+            charges: vec![delivery(20_000)],
+            epcs: vec!["EPC-FEE-001".into()],
+            tenders: vec![SaleTender {
+                method: PaymentMethod::Card,
+                // The shirt, and nothing for the courier.
+                amount_minor: 150_000,
+                reference: Some("TERM-0001".into()),
+                voucher_authorization_id: None,
+            }],
+            actor_id: "cashier".into(),
+            idempotency_key: "fee-sale-short".into(),
+        });
+        assert!(
+            matches!(refused, Err(EdgeError::Validation(_))),
+            "a card for the goods alone must not settle a bill with a fee on it: {refused:?}"
+        );
+    }
+
+    #[test]
+    fn a_fee_is_owed_and_is_kept_apart_from_the_goods_on_disk() {
+        // Kept apart, not folded in: a merged total makes Net Sales, points,
+        // refunds and tax all wrong at once, and none of them recoverable
+        // afterwards because the rupiah are no longer distinguishable.
+        let store = shop_with_one_shirt("kept");
+        let sale = store
+            .complete_sale(SaleRequest {
+                coupon_codes: Vec::new(),
+                customer_id: None,
+                charges: vec![delivery(20_000)],
+                epcs: vec!["EPC-FEE-001".into()],
+                tenders: vec![SaleTender {
+                    method: PaymentMethod::Cash,
+                    amount_minor: 200_000,
+                    reference: None,
+                    voucher_authorization_id: None,
+                }],
+                actor_id: "cashier".into(),
+                idempotency_key: "fee-sale-1".into(),
+            })
+            .unwrap_or_else(|error| panic!("sale: {error}"));
+
+        // `total_minor` is the GOODS and has not moved. Change is measured from
+        // what was owed: 200.000 tendered against 150.000 + 20.000.
+        assert_eq!(sale.total_minor, 150_000, "the goods, unchanged");
+        assert_eq!(
+            sale.change_minor, 30_000,
+            "change is owed on the whole bill"
+        );
+
+        let connection = store.lock().unwrap_or_else(|error| panic!("lock: {error}"));
+        let (code, amount, category): (String, i64, String) = connection
+            .query_row(
+                "SELECT code, amount_minor, tax_category FROM sale_charge
+                  WHERE sale_id=?1 AND charge_seq=0",
+                [sale.sale_id.to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap_or_else(|error| panic!("read the fee back: {error}"));
+        assert_eq!(
+            (code.as_str(), amount, category.as_str()),
+            ("DELIVERY", 20_000, "STANDARD")
+        );
+
+        let on_the_sale: Option<i64> = connection
+            .query_row(
+                "SELECT charge_total_minor FROM sale WHERE id=?1",
+                [sale.sale_id.to_string()],
+                |row| row.get(0),
+            )
+            .unwrap_or_else(|error| panic!("read the sale back: {error}"));
+        assert_eq!(on_the_sale, Some(20_000), "readable without a join");
+    }
+
+    #[test]
+    fn a_sale_with_no_fee_records_none_rather_than_nought() {
+        // Nought fees taken and no fee offered are different facts. A shop that
+        // has never charged delivery reporting a column of zeros looks like a
+        // shop whose delivery nobody wants.
+        let store = shop_with_one_shirt("none");
+        let sale = store
+            .complete_sale(SaleRequest {
+                coupon_codes: Vec::new(),
+                customer_id: None,
+                charges: Vec::new(),
+                epcs: vec!["EPC-FEE-001".into()],
+                tenders: vec![SaleTender {
+                    method: PaymentMethod::Cash,
+                    amount_minor: 150_000,
+                    reference: None,
+                    voucher_authorization_id: None,
+                }],
+                actor_id: "cashier".into(),
+                idempotency_key: "fee-sale-none".into(),
+            })
+            .unwrap_or_else(|error| panic!("sale: {error}"));
+
+        let connection = store.lock().unwrap_or_else(|error| panic!("lock: {error}"));
+        let on_the_sale: Option<i64> = connection
+            .query_row(
+                "SELECT charge_total_minor FROM sale WHERE id=?1",
+                [sale.sale_id.to_string()],
+                |row| row.get(0),
+            )
+            .unwrap_or_else(|error| panic!("read the sale back: {error}"));
+        assert_eq!(on_the_sale, None);
+        let fees: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sale_charge WHERE sale_id=?1",
+                [sale.sale_id.to_string()],
+                |row| row.get(0),
+            )
+            .unwrap_or_else(|error| panic!("count: {error}"));
+        assert_eq!(fees, 0);
+    }
+}
+
+#[cfg(test)]
+mod petty_tests {
+    //! The shop's small money, at a real shop.
+    //!
+    //! Every test here is one line of the owner's own cash policy (2026-09-07)
+    //! written as an assertion rather than as a paragraph somebody reads once:
+    //! a manager signs up to five hundred thousand rupiah and head office above
+    //! it, the approver is never the claimant, the tin is what was handed over
+    //! less what was spent, and a retry is not a second payment.
+    //!
+    //! A module of its own beside `checkout_tests` and `charge_tests`, rather
+    //! than more rows in the big `tests` block, because these open a fresh
+    //! database each — which is also what makes them the thing that RUNS
+    //! migration 0038. A migration is a string until a node opens a database,
+    //! so a test that never opens one would pass over a syntax error in the
+    //! SQL; this one did, once, and the node then refused to start at all.
+
+    use super::*;
+    use crate::edge::SiteId;
+
+    fn store() -> SqliteEdge {
+        SqliteEdge::open_in_memory(
+            NodeContext::new(
+                "store-07-edge".to_string(),
+                EdgeRole::Store,
+                SiteId::new("store-07").unwrap_or_else(|error| panic!("site: {error}")),
+            )
+            .unwrap_or_else(|error| panic!("node: {error}")),
+        )
+        .unwrap_or_else(|error| panic!("store: {error}"))
+    }
+
+    /// Somebody who can approve, at the rung they hold.
+    ///
+    /// `verify_supervisor` checks against `edge_user` rather than trusting the
+    /// caller, and the RUNG is the whole subject of the first test below — so
+    /// this seeder takes the role rather than assuming one.
+    fn seed_user(edge: &SqliteEdge, username: &str, password: &str, role: &str) {
+        let connection = edge
+            .connection
+            .lock()
+            .unwrap_or_else(|error| panic!("connection: {error}"));
+        let hash = crate::security::hash_password(password, 8)
+            .unwrap_or_else(|error| panic!("hash: {error}"));
+        connection
+            .execute(
+                "INSERT INTO edge_user(id,username,display_name,password_hash,role,active,
+                                       auth_version,source,created_at,updated_at)
+                 VALUES(?1,?2,?2,?3,?4,1,1,'LOCAL',?5,?5)",
+                params![Uuid::new_v4().to_string(), username, hash, role, now_text()],
+            )
+            .unwrap_or_else(|error| panic!("seed {role}: {error}"));
+    }
+
+    fn supervisor(username: &str, password: &str) -> crate::edge::till::Supervisor {
+        crate::edge::till::Supervisor {
+            username: username.into(),
+            password: password.into(),
+        }
+    }
+
+    /// A shop with a manager, a head office account, and a float in the tin.
+    fn shop_with_petty_cash(key: &str, float_minor: i64) -> SqliteEdge {
+        let store = store();
+        seed_user(&store, "siti", "supervisor-1", "SUPERVISOR");
+        seed_user(&store, "pusat", "headoffice-1", "ADMIN");
+        store
+            .record_petty_cash_top_up(crate::edge::petty::PettyCashTopUpRequest {
+                amount_minor: float_minor,
+                reference: Some("TRF-0001".into()),
+                note: None,
+                actor_id: "budi".into(),
+                supervisor: supervisor("siti", "supervisor-1"),
+                idempotency_key: format!("{key}-float"),
+            })
+            .unwrap_or_else(|error| panic!("float: {error}"));
+        store
+    }
+
+    fn expense(
+        key: &str,
+        amount_minor: i64,
+        claimant: &str,
+        approver: &str,
+        password: &str,
+    ) -> crate::edge::petty::RecordExpenseRequest {
+        crate::edge::petty::RecordExpenseRequest {
+            category: "expense_stationery".into(),
+            amount_minor,
+            payee: "Toko ATK Jaya".into(),
+            reason: "Kertas struk".into(),
+            actor_id: claimant.into(),
+            supervisor: supervisor(approver, password),
+            idempotency_key: key.into(),
+        }
+    }
+
+    /// The owner's line, in the domain rather than in a screen. A store manager
+    /// may sign for five hundred thousand rupiah of petty cash and not a rupiah
+    /// more; above it, head office does.
+    #[test]
+    fn a_store_manager_cannot_approve_above_the_limit() {
+        let store = shop_with_petty_cash("limit", 5_000_000);
+        let refused = store
+            .record_expense(expense(
+                "limit-over",
+                500_001,
+                "budi",
+                "siti",
+                "supervisor-1",
+            ))
+            .expect_err("a supervisor may not approve above the limit");
+        assert!(
+            matches!(refused, EdgeError::Forbidden(ref why) if why.contains("head office")),
+            "refused with {refused:?}"
+        );
+
+        // The same rupiah, signed by head office, goes through: the limit is
+        // about the rung, not about the amount being forbidden.
+        store
+            .record_expense(expense(
+                "limit-ho",
+                500_001,
+                "budi",
+                "pusat",
+                "headoffice-1",
+            ))
+            .unwrap_or_else(|error| panic!("head office approval: {error}"));
+
+        // And exactly at the line, the manager may. An off-by-one here is a
+        // shop that cannot buy the five-hundred-thousand-rupiah thing it is
+        // allowed to buy.
+        store
+            .record_expense(expense("limit-at", 500_000, "budi", "siti", "supervisor-1"))
+            .unwrap_or_else(|error| panic!("at the limit: {error}"));
+    }
+
+    /// The one control that survives a manager being the only person in the
+    /// building. No override, at any amount: an override is the only feature of
+    /// this control that ever gets used.
+    #[test]
+    fn the_approver_is_never_the_claimant() {
+        let store = shop_with_petty_cash("maker", 5_000_000);
+        let refused = store
+            .record_expense(expense(
+                "maker-self",
+                40_000,
+                "siti",
+                "siti",
+                "supervisor-1",
+            ))
+            .expect_err("nobody approves their own spending");
+        assert!(
+            matches!(refused, EdgeError::Forbidden(_)),
+            "refused with {refused:?}"
+        );
+        // And the credentials were right all along: the refusal is about who,
+        // not about whether the password was correct.
+        store
+            .record_expense(expense(
+                "maker-other",
+                40_000,
+                "budi",
+                "siti",
+                "supervisor-1",
+            ))
+            .unwrap_or_else(|error| panic!("somebody else signs: {error}"));
+    }
+
+    /// The tin is what was handed over, less what was spent out of it.
+    /// Computed on every read rather than kept in a column: a balance beside
+    /// the movements that make it is a second source for one number.
+    #[test]
+    fn the_balance_is_the_float_less_what_was_spent() {
+        let store = shop_with_petty_cash("balance", 1_000_000);
+        store
+            .record_expense(expense("balance-1", 40_000, "budi", "siti", "supervisor-1"))
+            .unwrap_or_else(|error| panic!("first: {error}"));
+        let after = store
+            .record_expense(expense(
+                "balance-2",
+                125_000,
+                "budi",
+                "siti",
+                "supervisor-1",
+            ))
+            .unwrap_or_else(|error| panic!("second: {error}"));
+
+        assert_eq!(after.position.float_in_minor, 1_000_000);
+        assert_eq!(after.position.spent_minor, 165_000);
+        assert_eq!(after.position.balance_minor, 835_000);
+        assert_eq!(after.position.expense_count, 2);
+
+        // And a shop cannot spend what it is not holding. The refusal names the
+        // balance, because the fix is to record the top-up head office already
+        // made — not to let the float go negative and call it petty cash.
+        let refused = store
+            .record_expense(expense(
+                "balance-3",
+                900_000,
+                "budi",
+                "siti",
+                "supervisor-1",
+            ))
+            .expect_err("the tin does not hold it");
+        assert!(
+            matches!(refused, EdgeError::Conflict(ref why) if why.contains("Rp 835.000")),
+            "refused with {refused:?}"
+        );
+    }
+
+    /// A retry is not a second payment. The till is offline half the time by
+    /// design, and an expense sent twice because the first answer never came
+    /// back is a float that reports itself short by exactly one receipt.
+    #[test]
+    fn one_idempotency_key_spends_the_money_once() {
+        let store = shop_with_petty_cash("replay", 1_000_000);
+        let first = store
+            .record_expense(expense("replay-1", 75_000, "budi", "siti", "supervisor-1"))
+            .unwrap_or_else(|error| panic!("first: {error}"));
+        let again = store
+            .record_expense(expense("replay-1", 75_000, "budi", "siti", "supervisor-1"))
+            .unwrap_or_else(|error| panic!("replay: {error}"));
+
+        assert_eq!(first.expense.id, again.expense.id);
+        assert_eq!(again.position.spent_minor, 75_000);
+        assert_eq!(again.position.expense_count, 1);
+        assert_eq!(again.position.balance_minor, 925_000);
+    }
+
+    /// A cost has to land somewhere in the client's chart, and a receipt
+    /// nobody can audit is not a receipt. Four refusals, one at a time.
+    #[test]
+    fn a_cost_lands_in_a_category_the_chart_knows() {
+        let store = shop_with_petty_cash("category", 1_000_000);
+        let mut request = expense("category-1", 40_000, "budi", "siti", "supervisor-1");
+        request.category = "expense_entertainment".into();
+        assert!(matches!(
+            store.record_expense(request),
+            Err(EdgeError::Validation(_))
+        ));
+
+        let mut nothing = expense("category-2", 0, "budi", "siti", "supervisor-1");
+        assert!(matches!(
+            store.record_expense(nothing.clone()),
+            Err(EdgeError::Validation(_))
+        ));
+        nothing.amount_minor = 40_000;
+        nothing.payee = "   ".into();
+        assert!(matches!(
+            store.record_expense(nothing.clone()),
+            Err(EdgeError::Validation(_))
+        ));
+        nothing.payee = "Warung Bu Tini".into();
+        nothing.reason = String::new();
+        assert!(matches!(
+            store.record_expense(nothing),
+            Err(EdgeError::Validation(_))
+        ));
+    }
+
+    /// The span reads the shop's own book, and the totals cover the whole span
+    /// whether or not every row is listed.
+    #[test]
+    fn the_book_reads_back_over_a_span() {
+        let store = shop_with_petty_cash("window", 2_000_000);
+        for (index, amount) in [40_000_i64, 125_000, 60_000].iter().enumerate() {
+            store
+                .record_expense(expense(
+                    &format!("window-{index}"),
+                    *amount,
+                    "budi",
+                    "siti",
+                    "supervisor-1",
+                ))
+                .unwrap_or_else(|error| panic!("expense {index}: {error}"));
+        }
+        let today = chrono::Utc::now().date_naive();
+        let book = store
+            .expense_window(crate::edge::petty::ExpenseWindowQuery {
+                // Yesterday to tomorrow, so this does not fail at midnight in
+                // whichever timezone it happens to be run in.
+                from: today - chrono::Duration::days(1),
+                to: today + chrono::Duration::days(1),
+                utc_offset_minutes: Some(420),
+                limit: Some(2),
+            })
+            .unwrap_or_else(|error| panic!("window: {error}"));
+
+        assert_eq!(book.count, 3);
+        assert_eq!(book.spent_minor, 225_000);
+        assert_eq!(book.expenses.len(), 2);
+        assert!(book.truncated);
+        assert_eq!(book.top_ups.len(), 1);
+        // The tin is a lifetime figure and the window is a span, so it is asked
+        // for separately — which is exactly the seam the two have on the wire.
+        let tin = store
+            .petty_cash_position()
+            .unwrap_or_else(|error| panic!("position: {error}"));
+        assert_eq!(tin.balance_minor, 1_775_000);
+    }
+
+    /// A DC has no tin, no counter and no neighbourhood dues. Naming the
+    /// operation in the refusal matters: "not available on DC Edge" sends
+    /// somebody to the wrong config file.
+    #[test]
+    fn a_dc_has_no_petty_cash() {
+        let dc = SqliteEdge::open_in_memory(
+            NodeContext::new(
+                "dc-01-edge".to_string(),
+                EdgeRole::Dc,
+                SiteId::new("dc-01").unwrap_or_else(|error| panic!("site: {error}")),
+            )
+            .unwrap_or_else(|error| panic!("node: {error}")),
+        )
+        .unwrap_or_else(|error| panic!("dc: {error}"));
+        seed_user(&dc, "siti", "supervisor-1", "SUPERVISOR");
+        assert!(matches!(
+            dc.record_expense(expense("dc-1", 40_000, "budi", "siti", "supervisor-1")),
+            Err(EdgeError::Forbidden(_))
+        ));
     }
 }

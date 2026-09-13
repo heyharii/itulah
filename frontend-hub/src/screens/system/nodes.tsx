@@ -11,12 +11,15 @@ import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { ExceptionQueue, type Exception } from "@/components/ui/exception-queue"
 import { Checkbox, Field, Input, Select } from "@/components/ui/field"
+import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { MiniTable, TotalsLadder } from "@/components/ui/rows"
+import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
+import { useFilters } from "@/lib/filters"
 import { count, day, moment } from "@/lib/format"
 import {
   fleetStatus,
@@ -88,12 +91,17 @@ const columns: ColumnDef<TableSetup, NodeRow>[] = [
     accessorKey: "site_id",
     header: "Site",
     size: 130,
+    // A node without a site is the centre itself, so `is empty` separates the
+    // fleet from the hub it reports to — which is the first thing somebody
+    // reading a register of fifteen wants apart.
+    meta: { filter: { kind: "option", label: "Site" } },
     cell: ({ row }) => row.original.site_id ?? "—",
   },
   {
     accessorKey: "node_role",
     header: "Role",
     size: 100,
+    meta: { filter: { kind: "option", label: "Role" } },
     cell: ({ row }) =>
       row.original.node_role ? (
         <Tag>{row.original.node_role}</Tag>
@@ -139,6 +147,11 @@ const columns: ColumnDef<TableSetup, NodeRow>[] = [
     accessorFn: (row) => state(row).text,
     header: "State",
     size: 130,
+    // The four words `state()` can say, asked as a question. Blocked is the
+    // one the queue above already shouts about; the useful clause here is the
+    // opposite one — "is not Current", the nodes worth a second look on a
+    // morning when nothing has failed outright.
+    meta: { filter: { kind: "option", label: "State" } },
     cell: ({ row }) => {
       const shown = state(row.original)
       return <Pill tone={shown.tone}>{shown.text}</Pill>
@@ -185,18 +198,24 @@ export function Nodes() {
     })
   }, [origins.data, fleet.data])
 
+  const filters = useFilters(columns)
+
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
         data: rows,
-        columns,
+        columns: filters.columns,
         getRowId: (row: NodeRow) => row.origin_id,
-        state: { globalFilter: query, sorting },
+        state: {
+          columnFilters: filters.columnFilters,
+          globalFilter: query,
+          sorting,
+        },
         onSortingChange: setSorting,
         onGlobalFilterChange: setQuery,
       }),
-      [rows, query, sorting]
+      [rows, filters.columns, filters.columnFilters, query, sorting]
     )
   )
 
@@ -279,6 +298,14 @@ export function Nodes() {
           empty="Every registered node is keeping up with the command lane."
         />
       )}
+
+      {/* Below the exception queue, because the two answer different
+          questions: the queue is the fleet telling you who to ring, and these
+          clauses are you asking the register something it does not volunteer —
+          every store node, every node with no site, everything not current. */}
+      <Toolbar>
+        <FilterPanel model={filters} table={table} />
+      </Toolbar>
 
       <Card className="overflow-hidden">
         {queryState(origins, {

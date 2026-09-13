@@ -8,12 +8,12 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Field, Input } from "@/components/ui/field"
-import { FilterBar } from "@/components/ui/filter-bar"
+import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState } from "@/components/ui/states"
+import { Banner, EmptyState, Truncated } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilters } from "@/lib/filters"
 import { count, label, money, moment, toneFor } from "@/lib/format"
@@ -85,7 +85,7 @@ const columns: ColumnDef<TableSetup, SaleRow>[] = [
     size: 130,
     meta: {
       align: "right",
-      filter: { kind: "number", scale: 100, unit: "Rp" },
+      filter: { kind: "number", unit: "Rp" },
     },
     cell: ({ row }) => money(row.original.total_minor),
   },
@@ -95,7 +95,7 @@ const columns: ColumnDef<TableSetup, SaleRow>[] = [
     size: 130,
     meta: {
       align: "right",
-      filter: { kind: "number", scale: 100, unit: "Rp" },
+      filter: { kind: "number", unit: "Rp" },
     },
     cell: ({ row }) => money(row.original.paid_minor),
   },
@@ -106,7 +106,7 @@ const columns: ColumnDef<TableSetup, SaleRow>[] = [
     size: 130,
     meta: {
       align: "right",
-      filter: { kind: "number", scale: 100, unit: "Rp" },
+      filter: { kind: "number", unit: "Rp" },
     },
     // The decision metric, and the reason this list sorts by it. A completed
     // sale is square by definition, so a number here is always a basket sitting
@@ -134,6 +134,16 @@ const SLICES: readonly { value: StatusSlice; label: string }[] = [
   { value: "VOIDED", label: "Voided" },
 ]
 
+/// What this screen asks the till register for.
+///
+/// `GET /sales` answers `{items, limit}` and **no total**, so unlike the ledger
+/// screens this one cannot say how many sales exist — only whether it received
+/// exactly as many as it asked for. That is the weaker signal `<Truncated>` was
+/// written for: a shorter answer proves there was nothing more, a full one
+/// proves nothing either way, and saying so is the most this endpoint allows.
+/// The real fix is a `total` on the wire.
+const SALES_CAP = 500
+
 export function Sales() {
   const [query, setQuery] = useState("")
   // A slice of one dataset, so a segment rather than a sub-tab — and it is a
@@ -157,7 +167,7 @@ export function Sales() {
         {
           status: slice === "any" ? undefined : slice,
           siteId: store.value,
-          limit: 500,
+          limit: SALES_CAP,
         },
         signal
       ),
@@ -217,8 +227,13 @@ export function Sales() {
             </Button>
           </>
         )}
-        <FilterBar model={filters} table={table} />
+        <FilterPanel model={filters} table={table} />
       </Toolbar>
+
+      {/* Only when the register answered with exactly as many sales as were
+          asked for. A till log that shows 500 of twenty thousand and says
+          nothing reads as a quiet week. */}
+      {rows.length >= SALES_CAP && <Truncated limit={SALES_CAP} noun="sales" />}
 
       <Card className="overflow-hidden">
         {queryState(sales, {

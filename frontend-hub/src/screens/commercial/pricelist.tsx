@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query"
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 import { ChevronRight } from "lucide-react"
 import { useCallback, useMemo, useState } from "react"
 
@@ -25,8 +25,11 @@ import {
   isMarkedDown,
   listPriceBooks,
   priceBookDetail,
+  priceHistory,
+  priceHistoryKeys,
   resolveOffer,
   shelfPrices,
+  type PricelistShop,
   type ArticlePricePoint,
   type ArticlePriceRow,
   type ArticlePriceRule,
@@ -211,6 +214,12 @@ export function Pricelist() {
   /// cannot be sent.
   const search = useSheet("q")
   const cell = useSheet("price")
+  /// One style across every shop. Its own key rather than a second meaning for
+  /// `price`, which names a SQUARE: a link to a style and a link to one shop's
+  /// price for it are two different things to send somebody.
+  const style = useSheet("article")
+  /// One shop's whole shelf, opened from its column heading.
+  const shop = useSheet("shop")
 
   /// What this screen can be narrowed by, and how.
   ///
@@ -290,15 +299,45 @@ export function Pricelist() {
     [filters.filters, needle]
   )
 
-  const prices = useQuery({
+  /// Paged, and deliberately NOT with a `limit` of its own.
+  ///
+  /// This screen used to ask for 200 styles in one request and print "Showing
+  /// 200 of 506 — search or filter to reach the rest". The other 306 were
+  /// unreachable: there was no second page, only a suggestion that the reader
+  /// narrow until the answer fitted.
+  ///
+  /// The endpoint pages now, and its default was tuned to **20** for a reason
+  /// worth not overriding here: its cost is fixed per REQUEST, not per row —
+  /// each shop's price book used to be fetched whole to price the handful of
+  /// styles on the page. At 20 it answers in about 96 ms; at 200 it was 685.
+  /// Naming a `limit` here would quietly undo that tuning, so this asks for the
+  /// server's own default and follows the cursor instead.
+  const prices = useInfiniteQuery({
     queryKey: commercialKeys.articlePrices(CHANNEL, null, scope),
-    queryFn: ({ signal }) =>
-      articlePrices({ channel: CHANNEL, limit: 200, ...scope }, signal),
+    queryFn: ({ pageParam, signal }) =>
+      articlePrices({ channel: CHANNEL, cursor: pageParam, ...scope }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
     // The previous answer stays on screen while the next is fetched. Without
     // it every keystroke empties the grid to a loading line and the screen
     // flashes its way through a word.
     placeholderData: (previous) => previous,
   })
+
+  /// Every page so far, drawn as one answer.
+  ///
+  /// `shops`, `facets`, `as_of` and `total` come from the FIRST page: every
+  /// page reports the same ones, and taking the first is what stops the shop
+  /// columns and the counts from flickering as later pages land. Only `rows`
+  /// accumulates.
+  const page = useMemo(() => {
+    const first = prices.data?.pages[0]
+    if (first === undefined) return undefined
+    return {
+      ...first,
+      rows: prices.data?.pages.flatMap((one: ArticlePrices) => one.rows) ?? [],
+    }
+  }, [prices.data])
 
   /// The books, for two things this screen has to say: which publication a
   /// price came out of, and whether a price is about to change.
@@ -322,8 +361,8 @@ export function Pricelist() {
   /// the server's answer at that instant, so a book is only "upcoming" relative
   /// to the moment the grid was drawn for.
   const upcomingFrom = useMemo(() => {
-    if (prices.data === undefined) return null
-    const drawnAt = new Date(prices.data.as_of).getTime()
+    if (page === undefined) return null
+    const drawnAt = new Date(page.as_of).getTime()
     const future = (books.data ?? [])
       .filter(
         (book) =>
@@ -333,16 +372,31 @@ export function Pricelist() {
       .map((book) => book.effective_from)
       .sort()
     return future[0] ?? null
-  }, [books.data, prices.data])
+  }, [books.data, page])
 
   /// The same question asked again at the moment that book starts. A second
   /// call rather than a second opinion: the diff between the two answers is the
   /// engine's, not this screen's.
+  /// The same question at the moment the next book starts — narrowed the same
+  /// way, so the two answers are about the same styles.
+  ///
+  /// `scope` is passed deliberately: without it this asked the whole range
+  /// while the grid showed a filtered slice, so the comparison was between two
+  /// different sets and a style could be marked against a rule for an article
+  /// nobody was looking at.
+  ///
+  /// It is capped rather than paged, and the consequence is stated rather than
+  /// hidden: `later` below is a LOOKUP, so a style past the cap simply carries
+  /// no "falling to" marker. That is an absence, not a wrong number — the grid
+  /// never invents a future price it did not fetch. Raising the cap costs a
+  /// whole second request at this endpoint's fixed per-request price, which is
+  /// why it is not simply set to the total.
+  const UPCOMING_CAP = 200
   const upcoming = useQuery({
-    queryKey: commercialKeys.articlePrices(CHANNEL, upcomingFrom),
+    queryKey: commercialKeys.articlePrices(CHANNEL, upcomingFrom, scope),
     queryFn: ({ signal }) =>
       articlePrices(
-        { channel: CHANNEL, at: upcomingFrom!, limit: 200 },
+        { channel: CHANNEL, at: upcomingFrom!, limit: UPCOMING_CAP, ...scope },
         signal
       ),
     enabled: upcomingFrom !== null,
@@ -366,7 +420,7 @@ export function Pricelist() {
   /// server matched them, and a browser-side pass over the SAME words would
   /// be a second definition of "matches" — one that could only ever disagree,
   /// and that could not see the SKU codes the server searched.
-  const items = prices.data?.items ?? []
+  const items = page?.rows ?? []
 
   const open = readCellKey(cell.value)
 
@@ -454,7 +508,7 @@ export function Pricelist() {
       new Map((terms ?? []).map((term) => [term.code, term.label]))
     const divisionNames = names(divisions.data?.terms)
     const tagNames = names(tags.data?.terms)
-    const facets = prices.data?.facets
+    const facets = page?.facets
     return fields.map((field) => {
       if (field.column === "division")
         return {
@@ -476,7 +530,7 @@ export function Pricelist() {
         }
       return field
     })
-  }, [fields, prices.data?.facets, divisions.data, tags.data])
+  }, [fields, page?.facets, divisions.data, tags.data])
 
   /// Sale prices, keyed the way the grid is.
   ///
@@ -502,7 +556,7 @@ export function Pricelist() {
   /// against the shops the price actually reaches.
   const pricedCells = useMemo(() => {
     const cells = new Set<string>()
-    const everywhere = (prices.data?.shops ?? []).map((shop) => shop.site_id)
+    const everywhere = (page?.shops ?? []).map((shop) => shop.site_id)
     for (const price of priced) {
       const sites =
         price.siteId !== null
@@ -513,14 +567,14 @@ export function Pricelist() {
       for (const site of sites) cells.add(cellKey(price.articleCode, site))
     }
     return cells
-  }, [priced, prices.data?.shops])
+  }, [priced, page?.shops])
 
   return (
     <PageContent fill>
       <PageHeader
         crumb="Commercial"
-        title="Pricelist"
-        sub="What every article costs at every shop. Row one is what the till charges; open a style to see what that price beat."
+        title="Prices"
+        sub="What each shop is charging. Open a style to see what that price beat."
         actions={
           // Reachable without a cell, because the commonest reason to open it
           // is a style whose price is being decided rather than read — and a
@@ -534,26 +588,21 @@ export function Pricelist() {
 
       {queryState(prices, {
         loading: "Pricing the range across every shop…",
-        render: (page) => (
-          <>
-            {page.shops.length === 0 && (
-              <Banner tone="warn" className="mb-4">
-                No shop origin is registered at the centre, so this grid has no
-                columns and nothing below can be compared. Register a STORE node
-                first — a published book with no fleet reaches no till.
-              </Banner>
-            )}
+        // The folded page above, not the raw `{pages, pageParams}` an infinite
+        // query hands back. Everything below reads one answer, as it did when
+        // there was only ever one.
+        render: () =>
+          page === undefined ? null : (
+            <>
+              {page.shops.length === 0 && (
+                <Banner tone="warn" className="mb-4">
+                  No shop origin is registered at the centre, so this grid has
+                  no columns and nothing below can be compared. Register a STORE
+                  node first — a published book with no fleet reaches no till.
+                </Banner>
+              )}
 
-            {page.article_count < page.total_article_count && (
-              // Never let a capped list read as a complete one.
-              <Banner tone="info" className="mb-4">
-                Showing {count(page.article_count)} of{" "}
-                {count(page.total_article_count)} articles that match. Search or
-                filter to reach the rest.
-              </Banner>
-            )}
-
-            {/* One box for both questions, sitting on top of what it narrows.
+              {/* One box for both questions, sitting on top of what it narrows.
                 Search used to be a 12rem input in the page header's top-right
                 corner — as far from the grid as the layout allowed, and small
                 enough to read as a minor control, when it is the only way
@@ -561,132 +610,175 @@ export function Pricelist() {
                 one thought: "kemeja, menswear, under 200.000" is a sentence
                 somebody says in one breath, and splitting it across two
                 controls in two corners makes them say it twice. */}
-            <FilterOmnibox
-              model={{ ...filters, fields: counted }}
-              text={typed === "" ? undefined : typed}
-              onText={(next) => (next ? search.open(next) : search.close())}
-              placeholder="Search an article, code or SKU — or filter by division, tag or price"
-              className="mb-4"
-            />
+              <FilterOmnibox
+                model={{ ...filters, fields: counted }}
+                text={typed === "" ? undefined : typed}
+                onText={(next) => (next ? search.open(next) : search.close())}
+                placeholder="Search an article, code or SKU — or filter by division, tag or price"
+                className="mb-4"
+              />
 
-            {upcomingFrom !== null && (
-              <Banner tone="info" className="mb-4">
-                A book starts on {day(upcomingFrom)}. Any rung whose own price
-                changes then carries a caret — the grid shows today, because
-                today is what the tills are charging.
-              </Banner>
-            )}
+              {receipt.length > 0 &&
+                (() => {
+                  // The books are reported together but judged separately: one of
+                  // three reaching nobody is the case this banner exists for, and
+                  // summing the deliveries would hide it behind the two that
+                  // worked.
+                  const named = (one: PublishReceipt) =>
+                    bookNames.get(one.version) ?? `Book v${one.version}`
+                  const nowhere = receipt.filter(
+                    (one) => one.delivered_to.length === 0
+                  )
+                  const shops = [
+                    ...new Set(receipt.flatMap((one) => one.delivered_to)),
+                  ]
+                  return (
+                    <Banner
+                      tone={nowhere.length === 0 ? "ok" : "warn"}
+                      className="mb-4"
+                      onDismiss={() => setReceipt([])}
+                    >
+                      {nowhere.length === receipt.length ? (
+                        // The important case, and the reason the receipt is a
+                        // banner rather than a toast: published and reaching
+                        // nobody looks exactly like success everywhere else on
+                        // this screen.
+                        <>
+                          {receipt.map(named).join(", ")}{" "}
+                          {receipt.length === 1 ? "was" : "were"} published, and
+                          queued for nobody. No shop origin is registered, so no
+                          till will ever see these prices.
+                        </>
+                      ) : (
+                        <>
+                          {receipt.map(named).join(", ")}{" "}
+                          {receipt.length === 1 ? "was" : "were"} published and
+                          queued for {count(shops.length)} shop
+                          {shops.length === 1 ? "" : "s"} ({shops.join(", ")}).
+                          Each one starts charging when it takes the message,
+                          which is a separate moment — open a cell to see who
+                          has.
+                          {nowhere.length > 0 && (
+                            <>
+                              {" "}
+                              {nowhere.map(named).join(" and ")} reached nobody.
+                            </>
+                          )}
+                        </>
+                      )}
+                    </Banner>
+                  )
+                })()}
 
-            {receipt.length > 0 &&
-              (() => {
-                // The books are reported together but judged separately: one of
-                // three reaching nobody is the case this banner exists for, and
-                // summing the deliveries would hide it behind the two that
-                // worked.
-                const named = (one: PublishReceipt) =>
-                  bookNames.get(one.version) ?? `Book v${one.version}`
-                const nowhere = receipt.filter(
-                  (one) => one.delivered_to.length === 0
-                )
-                const shops = [
-                  ...new Set(receipt.flatMap((one) => one.delivered_to)),
-                ]
-                return (
-                  <Banner
-                    tone={nowhere.length === 0 ? "ok" : "warn"}
-                    className="mb-4"
-                    onDismiss={() => setReceipt([])}
-                  >
-                    {nowhere.length === receipt.length ? (
-                      // The important case, and the reason the receipt is a
-                      // banner rather than a toast: published and reaching
-                      // nobody looks exactly like success everywhere else on
-                      // this screen.
-                      <>
-                        {receipt.map(named).join(", ")}{" "}
-                        {receipt.length === 1 ? "was" : "were"} published, and
-                        queued for nobody. No shop origin is registered, so no
-                        till will ever see these prices.
-                      </>
-                    ) : (
-                      <>
-                        {receipt.map(named).join(", ")}{" "}
-                        {receipt.length === 1 ? "was" : "were"} published and
-                        queued for {count(shops.length)} shop
-                        {shops.length === 1 ? "" : "s"} ({shops.join(", ")}).
-                        Each one starts charging when it takes the message,
-                        which is a separate moment — open a cell to see who has.
-                        {nowhere.length > 0 && (
-                          <>
-                            {" "}
-                            {nowhere.map(named).join(" and ")} reached nobody.
-                          </>
-                        )}
-                      </>
-                    )}
-                  </Banner>
-                )
-              })()}
+              <EditBar
+                selected={selection.length}
+                markdowns={sales.length}
+                prices={priced.length}
+                onSetPrice={() => {
+                  // One sheet at a time: the editor and the drill-down are both
+                  // the same floating panel, and two of them are a stack nobody
+                  // asked for.
+                  cell.close()
+                  setPricing(true)
+                }}
+                onNewPrice={() => {
+                  cell.close()
+                  openComposer(seedFrom(selection, null))
+                }}
+                onClearSelection={() => setSelection([])}
+                onDiscard={() => setPending([])}
+                onPublish={() => {
+                  cell.close()
+                  setPublishing(true)
+                }}
+              />
 
-            <EditBar
-              selected={selection.length}
-              markdowns={sales.length}
-              prices={priced.length}
-              onSetPrice={() => {
-                // One sheet at a time: the editor and the drill-down are both
-                // the same floating panel, and two of them are a stack nobody
-                // asked for.
-                cell.close()
-                setPricing(true)
-              }}
-              onNewPrice={() => {
-                cell.close()
-                openComposer(seedFrom(selection, null))
-              }}
-              onClearSelection={() => setSelection([])}
-              onDiscard={() => setPending([])}
-              onPublish={() => {
-                cell.close()
-                setPublishing(true)
-              }}
-            />
-
-            <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
-              {items.length === 0 ? (
-                needle === "" ? (
-                  <EmptyState>
-                    No published book prices anything for the shops. A product
-                    with no price is absent rather than free.
-                  </EmptyState>
+              <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                {items.length === 0 ? (
+                  needle === "" ? (
+                    <EmptyState>
+                      No published book prices anything for the shops. A product
+                      with no price is absent rather than free.
+                    </EmptyState>
+                  ) : (
+                    <EmptyState>
+                      No article matches “{search.value}”. The search runs over
+                      the {count(page.rows.length)} articles loaded, not the
+                      whole catalogue.
+                    </EmptyState>
+                  )
                 ) : (
-                  <EmptyState>
-                    No article matches “{search.value}”. The search runs over
-                    the {count(page.article_count)} articles loaded, not the
-                    whole catalogue.
-                  </EmptyState>
-                )
-              ) : (
-                <PriceGrid
-                  page={page}
-                  items={items}
-                  bookNames={bookNames}
-                  upcoming={upcoming.data ?? null}
-                  openCell={cell.value}
-                  onOpenCell={(articleCode, siteId) =>
-                    cell.open(cellKey(articleCode, siteId))
-                  }
-                  selection={selection}
-                  pending={pendingByCell}
-                  pricedCells={pricedCells}
-                  onToggleSelected={toggleSelected}
-                  expanded={expanded}
-                  onToggleExpanded={toggleExpanded}
-                />
-              )}
-            </Card>
-          </>
-        ),
+                  <PriceGrid
+                    page={page}
+                    items={items}
+                    bookNames={bookNames}
+                    upcoming={upcoming.data ?? null}
+                    openCell={cell.value}
+                    onOpenCell={(articleCode, siteId) =>
+                      cell.open(cellKey(articleCode, siteId))
+                    }
+                    onOpenArticle={(articleCode) => style.open(articleCode)}
+                    onOpenShop={(siteId) => shop.open(siteId)}
+                    selection={selection}
+                    pending={pendingByCell}
+                    pricedCells={pricedCells}
+                    onToggleSelected={toggleSelected}
+                    expanded={expanded}
+                    onToggleExpanded={toggleExpanded}
+                  />
+                )}
+
+                {/* The way through the rest of the catalogue, under the grid
+                    it pages rather than in a banner over it. A partial list
+                    still must not read as a complete one, but that is a footer
+                    job: the reader meets it when they reach the end of what
+                    was loaded, which is the moment the question arises. */}
+                {prices.hasNextPage && (
+                  <div className="shrink-0 border-t border-hairline-2 px-3.5 py-2 text-right">
+                    <button
+                      type="button"
+                      onClick={() => void prices.fetchNextPage()}
+                      disabled={prices.isFetchingNextPage}
+                      className="text-cell text-mute underline underline-offset-2 disabled:opacity-60"
+                    >
+                      {prices.isFetchingNextPage ? "Fetching…" : "Show more"}
+                    </button>
+                  </div>
+                )}
+              </Card>
+            </>
+          ),
       })}
+
+      <StoreSheet
+        siteId={shop.value ?? null}
+        label={
+          (page?.shops ?? []).find((one) => one.site_id === shop.value)
+            ?.label ?? null
+        }
+        channel={CHANNEL}
+        at={null}
+        onClose={shop.close}
+      />
+
+      <ArticleSheet
+        row={
+          style.value === undefined
+            ? null
+            : ((page?.rows ?? []).find(
+                (one) => one.article_code === style.value
+              ) ?? null)
+        }
+        shops={page?.shops ?? []}
+        bookNames={bookNames}
+        onClose={style.close}
+        onOpenCell={(siteId) => {
+          // One sheet at a time. Going from the style to one of its squares is
+          // going DEEPER, not opening a second panel beside the first.
+          style.close()
+          cell.open(cellKey(style.value as string, siteId))
+        }}
+      />
 
       <CellSheet
         cell={open}
@@ -696,7 +788,7 @@ export function Pricelist() {
         row={
           open === null
             ? null
-            : ((prices.data?.items ?? []).find(
+            : ((page?.rows ?? []).find(
                 (one) => one.article_code === open.articleCode
               ) ?? null)
         }
@@ -749,7 +841,7 @@ export function Pricelist() {
         }
         open={composer.isOpen}
         seed={seed}
-        shops={prices.data?.shops ?? []}
+        shops={page?.shops ?? []}
         onAdd={(rows) => {
           // Keyed by the server's own uniqueness, so authoring a second price
           // for one product at one level replaces the first rather than
@@ -847,6 +939,8 @@ function PriceGrid({
   upcoming,
   openCell,
   onOpenCell,
+  onOpenArticle,
+  onOpenShop,
   selection,
   pending,
   pricedCells,
@@ -860,6 +954,10 @@ function PriceGrid({
   upcoming: ArticlePrices | null
   openCell: string | undefined
   onOpenCell: (articleCode: string, siteId: string) => void
+  /// Open one style across every shop.
+  onOpenArticle: (articleCode: string) => void
+  /// Open one shop's whole shelf.
+  onOpenShop: (siteId: string) => void
   selection: readonly CellRef[]
   pending: ReadonlyMap<string, PendingMarkdown>
   /// Cells a pending base price reaches. A marker only — the figures live in
@@ -883,7 +981,7 @@ function PriceGrid({
   /// a scan of every article for every column drawn.
   const later = useMemo(() => {
     const map = new Map<string, ArticlePriceRule>()
-    for (const row of upcoming?.items ?? []) {
+    for (const row of upcoming?.rows ?? []) {
       for (const shop of row.shops) {
         for (const rule of shop.stack) {
           // Keyed by rung as well as by cell. Comparing this rung against the
@@ -924,7 +1022,7 @@ function PriceGrid({
           <tr>
             <th
               scope="col"
-              className="sticky top-0 left-0 z-30 border-r border-b border-hairline-2 bg-canvas px-3.5 py-2.5 text-left text-eyebrow font-semibold text-mute uppercase"
+              className="sticky top-0 left-0 z-30 border-r border-b border-hairline-2 bg-canvas px-3.5 py-2.5 text-left text-cell font-normal text-body"
             >
               Article
             </th>
@@ -933,12 +1031,43 @@ function PriceGrid({
                 key={shop.site_id}
                 scope="col"
                 className={
-                  "sticky top-0 z-20 truncate border-b border-hairline-2 bg-canvas px-3.5 py-2.5 text-right text-eyebrow font-semibold text-mute uppercase " +
+                  "sticky top-0 z-20 truncate border-b border-hairline-2 bg-canvas px-3.5 py-2.5 text-right text-cell font-normal text-body " +
                   (index === page.shops.length - 1 ? "" : "border-r")
                 }
-                title={shop.label ?? shop.site_id}
+                title={activationTitle(shop)}
               >
-                {shop.label ?? shop.site_id}
+                {/* The heading is the way into the shop — §4's "klik Store
+                    header". A `<th>` is not a control, so the name inside it
+                    is: a whole heading that navigated would also swallow the
+                    click that starts a column selection. */}
+                <button
+                  type="button"
+                  onClick={() => onOpenShop(shop.site_id)}
+                  className="rounded-inner text-right underline-offset-2 hover:underline focus:bg-soft focus-visible:outline-none"
+                >
+                  {shop.label ?? shop.site_id}
+                </button>
+                {/* The evidence behind the column, on the column — UI-001 §3.
+                    A heading that says only the shop's name invites the reader
+                    to assume the prices under it are what that till is
+                    charging, and for a shop that has confirmed nothing that is
+                    exactly the claim the estate cannot make.
+                    
+                    The version NUMBER is gone from here and the STATE is not.
+                    A reader of this grid is asking which prices are live, not
+                    which ordinal the book carries — "v21" over twelve columns
+                    is twelve pieces of bookkeeping for one fact, and the two
+                    that matter are a shop that has confirmed nothing and a
+                    shop head office has published past. The number itself is
+                    still a click away, in the column tooltip and in the cell. */}
+                {(shop.active_version === null ||
+                  shop.pending_publication !== null) && (
+                  <span className="block text-[0.65625rem] font-normal text-mute">
+                    {shop.active_version === null
+                      ? "belum terkonfirmasi"
+                      : "pembaruan pending"}
+                  </span>
+                )}
               </th>
             ))}
           </tr>
@@ -978,6 +1107,7 @@ function PriceGrid({
                       beneath={full - 1}
                       open={open}
                       onToggle={() => onToggleExpanded(row.article_code)}
+                      onOpen={() => onOpenArticle(row.article_code)}
                     />
                   </th>
                 )}
@@ -1103,6 +1233,7 @@ function ArticleCell({
   beneath,
   open,
   onToggle,
+  onOpen,
 }: {
   row: ArticlePriceRow
   /// Rows that would appear if this opened. Zero means the fleet agrees and
@@ -1110,9 +1241,26 @@ function ArticleCell({
   beneath: number
   open: boolean
   onToggle: () => void
+  /// Open the style across every shop — UI-001 §4's "klik Article".
+  onOpen: () => void
 }) {
-  const inside = (
-    <span className="flex items-start gap-2.5 overflow-hidden">
+  // Two controls, not one. The chevron asks "what did these prices beat" and
+  // the name asks "what does this style cost everywhere" — they were one
+  // button, and making the name open the cross-shop view while the chevron
+  // still expands the rungs is the only way both questions have a target.
+  // A whole cell that did both would have to pick one, and §4 names the name.
+  const name = (
+    <button
+      type="button"
+      onClick={onOpen}
+      title={`Compare ${row.article_name ?? row.article_code} across every shop`}
+      // The app-wide focus ring is suppressed on both of these. They are two
+      // of a thousand identical controls and the ring draws a heavy accent box
+      // around a whole table cell, which reads as a selected record rather
+      // than as a cursor. Keyboard users keep the hover tint, which these
+      // also take on focus.
+      className="flex min-w-0 items-start gap-2.5 overflow-hidden rounded-inner text-left focus:bg-soft focus-visible:outline-none"
+    >
       {/* A style with no picture is a box, not a broken image: the catalogue
           is filled in over months and a missing photograph is not a fault
           worth drawing as one. */}
@@ -1126,50 +1274,48 @@ function ArticleCell({
         )}
       </span>
       <span className="min-w-0 leading-tight">
-        <span className="block truncate font-medium text-ink">
+        <span className="block truncate font-medium text-ink group-hover/row:underline group-hover/row:underline-offset-2">
           {row.article_name ?? "—"}
         </span>
         <span className="block truncate font-mono text-id text-mute">
           {row.article_code} · {count(row.sku_count)} SKU
         </span>
       </span>
-    </span>
+    </button>
   )
 
-  if (beneath <= 0) {
-    // The chevron's slot is held open anyway. Without it the styles that have
-    // nothing to expand sit a few pixels left of the ones that do, and a
-    // column of names that does not line up reads as a rendering fault.
-    return (
-      <span className="flex items-start gap-1.5 px-3.5 py-2.5">
-        <span aria-hidden className="size-4 shrink-0" />
-        {inside}
-      </span>
-    )
-  }
-
   return (
-    <button
-      type="button"
-      onClick={onToggle}
-      aria-expanded={open}
-      title={
-        open
-          ? "Hide what these prices beat"
-          : `Show the ${count(beneath)} ${beneath === 1 ? "price" : "prices"} these beat`
-      }
-      className="flex w-full items-start gap-1.5 px-3.5 py-2.5 text-left transition-colors hover:bg-soft"
-    >
-      <ChevronRight
-        aria-hidden
-        data-motion="travel"
-        className={
-          "mt-0.5 size-4 shrink-0 text-line-ico transition-transform duration-[var(--t-pop)] " +
-          (open ? "rotate-90" : "")
-        }
-      />
-      {inside}
-    </button>
+    <span className="flex items-start gap-1.5 px-3.5 py-2.5">
+      {beneath <= 0 ? (
+        // The chevron's slot is held open anyway. Without it the styles that
+        // have nothing to expand sit a few pixels left of the ones that do,
+        // and a column of names that does not line up reads as a rendering
+        // fault.
+        <span aria-hidden className="size-4 shrink-0" />
+      ) : (
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={open}
+          title={
+            open
+              ? "Hide what these prices beat"
+              : `Show the ${count(beneath)} ${beneath === 1 ? "price" : "prices"} these beat`
+          }
+          className="shrink-0 rounded-inner focus:bg-soft focus-visible:outline-none"
+        >
+          <ChevronRight
+            aria-hidden
+            data-motion="travel"
+            className={
+              "mt-0.5 size-4 text-line-ico transition-transform duration-[var(--t-pop)] " +
+              (open ? "rotate-90" : "")
+            }
+          />
+        </button>
+      )}
+      {name}
+    </span>
   )
 }
 
@@ -1603,6 +1749,15 @@ function CellSheet({
             </div>
           )}
 
+          {lines.length > 0 && cell !== null && (
+            <PriceHistorySection
+              skuCode={lines[0].sku_code}
+              siteId={cell.siteId}
+              channel={channel}
+              productCount={lines.length}
+            />
+          )}
+
           {top !== undefined && top.points.length > 1 && (
             <div>
               <SubHead aside={`${count(top.points.length)} different prices`}>
@@ -1803,5 +1958,509 @@ function ProductLine({ line, scope }: { line: ShelfPrice; scope: PriceScope }) {
         </div>
       )}
     </div>
+  )
+}
+
+/// Every price this shop has charged for one product, oldest first.
+///
+/// # Why one product and not the style
+///
+/// A history is a question about a thing with a price, and a style does not
+/// have one — it has as many as it has sizes and colourways, which may have
+/// moved on different days for different reasons. Showing the first product and
+/// naming it is honest; averaging them would invent a price that was never on a
+/// shelf edge.
+///
+/// # Why the book and the person are on every row
+///
+/// "The price went up on the third" is a fact somebody already has — they are
+/// looking at this screen because of it. "Ramadan Pricing v21, published by
+/// Andi on the second" is the answer, and it is the difference between a chart
+/// and something a person can act on.
+function PriceHistorySection({
+  skuCode,
+  siteId,
+  channel,
+  productCount,
+}: {
+  skuCode: string
+  siteId: string
+  channel: CommercialChannel
+  productCount: number
+}) {
+  const history = useQuery({
+    queryKey: priceHistoryKeys.of(skuCode, siteId, channel),
+    queryFn: ({ signal }) => priceHistory(skuCode, siteId, channel, signal),
+  })
+
+  const periods = history.data?.periods ?? []
+
+  return (
+    <div>
+      <SubHead
+        aside={
+          productCount > 1 ? `${skuCode}, 1 of ${count(productCount)}` : skuCode
+        }
+      >
+        How it got here
+      </SubHead>
+      {queryState(history, {
+        loading: "Replaying the price books…",
+        render: (data) =>
+          data.never_priced || periods.length === 0 ? (
+            <Quiet>No book has ever named this product at this shop.</Quiet>
+          ) : periods.length === 1 ? (
+            <Quiet>
+              This price has not moved since it was set. One book has ever had
+              an opinion about it.
+            </Quiet>
+          ) : (
+            <MiniTable
+              head={[
+                "From",
+                { label: "Set by", align: "left" },
+                "Change",
+                "Price",
+              ]}
+            >
+              {periods.map((period) => (
+                <MiniRow key={`${period.from}-${period.publication_version}`}>
+                  <MiniCell>
+                    <span className="text-ink">{day(period.from)}</span>
+                    <span className="block text-[0.65625rem] text-mute">
+                      {period.until === null
+                        ? "still in force"
+                        : `until ${day(period.until)}`}
+                    </span>
+                  </MiniCell>
+                  <MiniCell>
+                    <span className="text-ink">
+                      {describeSource(period.source)}
+                    </span>
+                    <span className="block text-[0.65625rem] text-mute">
+                      {period.publication_name ??
+                        `v${period.publication_version}`}
+                      {period.published_by !== null &&
+                        ` · ${period.published_by}`}
+                    </span>
+                  </MiniCell>
+                  <MiniCell align="right" className="tabular-nums">
+                    {/* The first period has nothing to have moved from, and
+                        drawing it as a rise from nought would report a price
+                        being set as a price going up. */}
+                    {period.change_minor === null ? (
+                      <span className="text-mute">—</span>
+                    ) : (
+                      <span
+                        className={
+                          period.change_minor < 0 ? "text-ok" : "text-warn"
+                        }
+                      >
+                        {period.change_minor > 0 ? "+" : ""}
+                        {money(period.change_minor)}
+                      </span>
+                    )}
+                  </MiniCell>
+                  <MiniCell align="right" className="text-ink tabular-nums">
+                    {money(period.unit_price_minor)}
+                  </MiniCell>
+                </MiniRow>
+              ))}
+            </MiniTable>
+          ),
+      })}
+    </div>
+  )
+}
+
+/// What the column heading says when somebody hovers it.
+///
+/// Three different facts and they must not blur: which version this shop is
+/// running, when it said so, and what head office has published over the top.
+/// UI-001 §3 turns on keeping them apart — "Reaching scheduled start saja tidak
+/// membuktikan POS sudah memakai publication."
+function activationTitle(shop: PricelistShop): string {
+  const who = shop.label ?? shop.site_id
+  const active =
+    shop.active_version === null
+      ? "no book confirmed active — prices are not available for this shop"
+      : `running v${shop.active_version}`
+  const pending =
+    shop.pending_publication === null
+      ? ""
+      : ` · head office has published v${shop.pending_publication.version} "${shop.pending_publication.name}", not yet activated here`
+  return `${who}: ${active}${pending}`
+}
+
+// ---------------------------------------------------------------------------
+
+/// One style, priced at every shop — UI-001 §4's second drill-down.
+///
+/// **No fetch.** Every figure here is already on the row the grid drew: the
+/// matrix asked for the whole cascade at every shop and this reads the same
+/// answer down a column instead of across a row. Asking the server again would
+/// be a second opinion about a question already answered, and two opinions
+/// about one price is the failure this module exists to end.
+///
+/// ## Regular and Markdown are read off the stack, never recomputed
+///
+/// The stack arrives in the engine's own order — rank 0 is what the till
+/// charges. **Regular** is the best-ranked candidate that is not a markdown;
+/// **Markdown** is the markdown rung when there is one. So a shop with a
+/// clearance shows both and the difference between them is visible, and a shop
+/// without one shows the same number in the price column and nothing beside it.
+/// Deriving "regular" by undoing a percentage would be inventing a figure no
+/// book contains.
+///
+/// A shop absent from `shops` is not priced here, and says so. It is NOT shown
+/// as zero and not filled in from the company price — §3's last row again.
+function ArticleSheet({
+  row,
+  shops,
+  bookNames,
+  onClose,
+  onOpenCell,
+}: {
+  row: ArticlePriceRow | null
+  /// Every column of the matrix, so a shop that prices nothing still gets a
+  /// line. Reading only `row.shops` would draw a table of the shops that
+  /// happen to charge something, and "nobody in Medan sells this" is the
+  /// answer somebody opened this to find.
+  shops: readonly PricelistShop[]
+  bookNames: ReadonlyMap<number, string>
+  onClose: () => void
+  onOpenCell: (siteId: string) => void
+}) {
+  const lines = useMemo(() => {
+    if (row === null) return []
+    return shops.map((column) => {
+      const shop = row.shops.find((one) => one.site_id === column.site_id)
+      const charged = shop === undefined ? undefined : winner(shop)
+      const markdown = shop?.stack.find((rule) => rule.source === "MARKDOWN")
+      const regular = shop?.stack.find((rule) => rule.source !== "MARKDOWN")
+      return { column, charged, markdown, regular }
+    })
+  }, [row, shops])
+
+  // What the estate actually charges, over the shops that charge anything. The
+  // question the whole sheet exists for is "is this one price or several", and
+  // a reader should not have to scan thirteen rows to answer it.
+  const charged = lines
+    .map((line) => line.charged)
+    .filter((rule): rule is ArticlePriceRule => rule !== undefined)
+  const low = Math.min(...charged.map((rule) => rule.min_unit_price_minor))
+  const high = Math.max(...charged.map((rule) => rule.max_unit_price_minor))
+
+  return (
+    <Sheet
+      open={row !== null}
+      onOpenChange={(next) => !next && onClose()}
+      id={row?.article_code}
+      title={row?.article_name ?? "Article"}
+      // Read across, not down: Regular, Markdown and what the till charges
+      // only mean anything beside each other, and a rail made the reader
+      // compare three numbers a line apart.
+      width="table"
+      badge={
+        row === null ? undefined : (
+          <span className="flex flex-wrap items-center gap-1.5">
+            {charged.length === 0 ? (
+              <Pill tone="warn">Priced nowhere</Pill>
+            ) : low === high ? (
+              <Pill tone="ok">One price · {money(low)}</Pill>
+            ) : (
+              <Pill tone="warn">
+                {money(low)} – {money(high)}
+              </Pill>
+            )}
+            <span className="text-[0.71875rem] text-mute">
+              {count(row.sku_count)} SKU
+            </span>
+          </span>
+        )
+      }
+    >
+      {row === null ? null : (
+        <div className="flex flex-col gap-5">
+          {/* The headline answer, in words, above the table that evidences it.
+              A row of thirteen numbers does not say whether they agree — that
+              is arithmetic the reader should not have to do standing up. */}
+          <p className="text-meta leading-relaxed text-mute">
+            {charged.length === 0
+              ? "No shop is charging anything for this style."
+              : low === high
+                ? `One price everywhere it is sold — ${money(low)}.`
+                : `Shops do not agree: ${money(low)} to ${money(high)}.`}
+          </p>
+
+          <div>
+            <SubHead
+              aside={`${count(charged.length)} of ${count(shops.length)}`}
+            >
+              Store prices
+            </SubHead>
+            <MiniTable
+              head={[
+                "Store",
+                { label: "Regular", align: "right" },
+                { label: "Markdown", align: "right" },
+                { label: "Harga sebelum promo", align: "right" },
+              ]}
+            >
+              {lines.map(({ column, charged: top, markdown, regular }) => (
+                <MiniRow key={column.site_id}>
+                  <MiniCell>
+                    {/* The shop's name is the way through to that square's
+                        explanation. `MiniRow` is a plain `<tr>` and is not
+                        clickable, which is right — a whole row that navigates
+                        gives a reader no target to aim at and no way to select
+                        the figures in it. */}
+                    <button
+                      type="button"
+                      onClick={() => onOpenCell(column.site_id)}
+                      className="text-left text-ink underline-offset-2 hover:underline"
+                    >
+                      {column.label ?? column.site_id}
+                    </button>
+                    {column.active_version === null && (
+                      <span className="block text-[0.6875rem] text-mute">
+                        belum terkonfirmasi
+                      </span>
+                    )}
+                  </MiniCell>
+                  <MiniCell align="right">
+                    {regular === undefined ? (
+                      <span className="text-faint">—</span>
+                    ) : (
+                      <span className="text-body tabular-nums">
+                        {amounts(regular)}
+                      </span>
+                    )}
+                  </MiniCell>
+                  <MiniCell align="right">
+                    {markdown === undefined ? (
+                      <span className="text-faint">—</span>
+                    ) : (
+                      <span className="text-bad tabular-nums">
+                        {amounts(markdown)}
+                      </span>
+                    )}
+                  </MiniCell>
+                  <MiniCell align="right">
+                    {top === undefined ? (
+                      <span className="text-faint">—</span>
+                    ) : (
+                      <span className="flex flex-col items-end leading-tight">
+                        <span className="font-medium text-ink tabular-nums">
+                          {amounts(top)}
+                        </span>
+                        <span className="text-[0.6875rem] text-mute">
+                          {bookNames.get(top.publication_version) ??
+                            describeSource(top.source)}
+                        </span>
+                      </span>
+                    )}
+                  </MiniCell>
+                </MiniRow>
+              ))}
+            </MiniTable>
+          </div>
+
+          {/* The qualification the grid's own column headings carry, kept
+              here so a drill-down never asserts a shop's price without it —
+              but as one line, not a paragraph. */}
+          <p className="text-[0.71875rem] text-mute">
+            What each shop has put into service, not what head office has
+            published.
+          </p>
+        </div>
+      )}
+    </Sheet>
+  )
+}
+
+// ---------------------------------------------------------------------------
+
+/// One shop's whole shelf — UI-001 §4's first drill-down.
+///
+/// **This one does fetch**, and it is the only drill-down that has to. The
+/// matrix holds a page of styles; this question is about a SHOP, and answering
+/// it from the loaded page would report "Toko Medan prices twenty styles"
+/// because twenty is how many the grid happened to have. `/commercial/offers`
+/// is the same read the shop's own till makes, which is why the answer here and
+/// the answer at the counter cannot drift.
+///
+/// ## Grouped back into styles, because the column heading is a style column
+///
+/// The endpoint answers in products; §4 asks for `Article | Regular | Markdown
+/// | Harga sebelum promo`. So the SKUs are folded per article and each figure
+/// becomes a range when the sizes disagree — never a representative SKU, which
+/// §4 forbids by name.
+///
+/// **Promotions is absent from the columns**, and that is a gap rather than a
+/// decision: a promotion is a statement about a basket, `/commercial/offers`
+/// carries none, and inventing a column that is empty on every row would say
+/// this shop runs no offers when what is true is that this read cannot see
+/// them. The cell explanation next door does show them.
+function StoreSheet({
+  siteId,
+  label,
+  channel,
+  at,
+  onClose,
+}: {
+  siteId: string | null
+  label: string | null
+  channel: CommercialChannel
+  at: string | null
+  onClose: () => void
+}) {
+  const scope: PriceScope = useMemo(
+    () => ({ siteId: siteId ?? "", channel, at: at ?? undefined }),
+    [siteId, channel, at]
+  )
+
+  const shelf = useQuery({
+    queryKey: commercialKeys.prices(scope),
+    queryFn: ({ signal }) => shelfPrices(scope, signal),
+    enabled: siteId !== null,
+  })
+
+  const styles = useMemo(() => {
+    const by = new Map<
+      string,
+      {
+        code: string
+        name: string
+        charged: number[]
+        regular: number[]
+        markdowns: number
+        skus: number
+      }
+    >()
+    for (const item of shelf.data?.items ?? []) {
+      const held = by.get(item.article_code) ?? {
+        code: item.article_code,
+        name: item.article_name,
+        charged: [],
+        regular: [],
+        markdowns: 0,
+        skus: 0,
+      }
+      held.charged.push(item.unit_price_minor)
+      held.regular.push(item.base_unit_price_minor)
+      if (item.markdown_id !== null) held.markdowns += 1
+      held.skus += 1
+      by.set(item.article_code, held)
+    }
+    return [...by.values()].sort((a, b) => a.code.localeCompare(b.code))
+  }, [shelf.data])
+
+  /// A set of amounts as one figure, or as the range it actually is.
+  ///
+  /// Never a representative SKU — §2: "tidak memilih representative SKU
+  /// sebagai harga Article". Two sizes at different prices is a fact about the
+  /// style, and picking one of them to print is how a shelf edge comes to
+  /// disagree with the till for half the sizes on the rail.
+  const span = (amounts: readonly number[]): string => {
+    if (amounts.length === 0) return "—"
+    const low = Math.min(...amounts)
+    const high = Math.max(...amounts)
+    return low === high ? money(low) : `${money(low)} – ${money(high)}`
+  }
+
+  const markedDown = styles.filter((style) => style.markdowns > 0).length
+
+  return (
+    <Sheet
+      open={siteId !== null}
+      onOpenChange={(next) => !next && onClose()}
+      id={siteId ?? undefined}
+      title={label ?? siteId ?? "Shop"}
+      // Five hundred styles by four columns. This is a table with a sheet
+      // around it.
+      width="table"
+      badge={
+        shelf.data === undefined ? undefined : (
+          <span className="flex flex-wrap items-center gap-1.5">
+            <Pill tone="neutral">{count(styles.length)} styles</Pill>
+            {markedDown > 0 && (
+              <Pill tone="warn">{count(markedDown)} marked down</Pill>
+            )}
+          </span>
+        )
+      }
+    >
+      {queryState(shelf, {
+        loading: "Reading what this shop is charging…",
+        render: (data) =>
+          data.items.length === 0 ? (
+            <EmptyState>
+              This shop is charging nothing. No book it has put into service
+              prices anything — which is not the same as its prices being zero,
+              and not something head office&apos;s own book can stand in for.
+            </EmptyState>
+          ) : (
+            <div className="flex flex-col gap-5">
+              <p className="text-meta text-mute">
+                {count(data.item_count)} products across {count(styles.length)}{" "}
+                styles, read the way this till reads them.
+              </p>
+
+              <div>
+                <SubHead aside={`${count(styles.length)} styles`}>
+                  On the shelf
+                </SubHead>
+                <MiniTable
+                  head={[
+                    "Article",
+                    { label: "Regular", align: "right" },
+                    { label: "Markdown", align: "right" },
+                    { label: "Harga sebelum promo", align: "right" },
+                  ]}
+                >
+                  {styles.map((style) => (
+                    <MiniRow key={style.code}>
+                      <MiniCell>
+                        <span className="block truncate text-ink">
+                          {style.name}
+                        </span>
+                        <span className="block truncate font-mono text-[0.6875rem] text-mute">
+                          {style.code} · {count(style.skus)} SKU
+                        </span>
+                      </MiniCell>
+                      <MiniCell align="right">
+                        <span className="text-body tabular-nums">
+                          {span(style.regular)}
+                        </span>
+                      </MiniCell>
+                      <MiniCell align="right">
+                        {/* The markdown column says how many PRODUCTS are cut,
+                            not an amount: a style where two sizes are cleared
+                            and four are not has no single markdown price, and
+                            printing the cut one would claim the rail is on
+                            sale. The amount is in the charged column, which is
+                            where the till's number belongs. */}
+                        {style.markdowns === 0 ? (
+                          <span className="text-faint">—</span>
+                        ) : (
+                          <span className="text-bad tabular-nums">
+                            {count(style.markdowns)} of {count(style.skus)}
+                          </span>
+                        )}
+                      </MiniCell>
+                      <MiniCell align="right">
+                        <span className="font-medium text-ink tabular-nums">
+                          {span(style.charged)}
+                        </span>
+                      </MiniCell>
+                    </MiniRow>
+                  ))}
+                </MiniTable>
+              </div>
+            </div>
+          ),
+      })}
+    </Sheet>
   )
 }

@@ -2,6 +2,7 @@ import { useForm } from "@tanstack/react-form"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
+import { Search } from "lucide-react"
 import { useCallback, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -9,10 +10,15 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Field, Input } from "@/components/ui/field"
-import { FilterPanel } from "@/components/ui/filter-panel"
+import { FilterOmnibox } from "@/components/ui/filter-omnibox"
+import {
+  ColumnsMenu,
+  DockedFilters,
+  SortMenu,
+  ViewPicker,
+} from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
-import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
@@ -245,13 +251,35 @@ function columnsOf(vocabulary: Vocabulary): ColumnDef<TableSetup, TermRow>[] {
     },
     {
       id: "status",
-      accessorFn: (row) => (row.active ? 1 : 0),
+      accessorFn: (row) => (row.active ? "ACTIVE" : "RETIRED"),
       header: "Status",
       size: 110,
-      // **No filter.** The segment above the table already asks this, and asks
-      // it of the rows before the table sees them; a chip saying the same thing
-      // could stand against the segment's answer and leave two controls both
-      // claiming to be why the list is empty.
+      // Filtered here, and nowhere else. It was a three-way segment above the
+      // table — All · Active · Retired — which narrowed the rows BEFORE the
+      // table saw them, so the column could not carry a chip without two
+      // controls both claiming to be why the list was empty. The panel beside
+      // the table took the segment's job on 2026-09-13: one place to say which
+      // part of the vocabulary you are looking at, in the URL like every other
+      // clause, and the segment is gone rather than left to disagree with it.
+      //
+      // The value is the WORD and not `1`/`0`, because a filter's values ride
+      // in the address bar and `status is 1` is not a thing anybody can read.
+      meta: {
+        filter: {
+          kind: "option",
+          label: "Status",
+          single: true,
+          operators: ["isAnyOf"],
+          // Declared rather than gathered off the rows: a vocabulary with
+          // nothing retired must still offer Retired, because its emptiness is
+          // the answer somebody is looking for.
+          options: [
+            { value: "ACTIVE", label: "Active" },
+            { value: "RETIRED", label: "Retired" },
+          ],
+          format: (value) => (value === "ACTIVE" ? "Active" : "Retired"),
+        },
+      },
       //
       // Active and Retired, not Offered and Retired. "Offered" made the reader
       // guess who it was offered to — sold? in the POS? pickable on an article?
@@ -275,11 +303,8 @@ function capitalise(word: string): string {
   return word.charAt(0).toUpperCase() + word.slice(1)
 }
 
-type Shown = "ALL" | "ACTIVE" | "RETIRED"
-
 function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
   const [query, setQuery] = useState("")
-  const [shown, setShown] = useState<Shown>("ALL")
   const [sorting, setSorting] = useState<SortingState>([])
   const [editing, setEditing] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
@@ -297,13 +322,10 @@ function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
     [terms.data]
   )
 
-  const rows = useMemo(
-    () =>
-      shown === "ALL"
-        ? all
-        : all.filter((row) => row.active === (shown === "ACTIVE")),
-    [all, shown]
-  )
+  // Every term reaches the table. What narrows it is the panel beside it, and
+  // only that — a second sieve in front of the table is how a status segment
+  // and a status chip end up giving two different answers.
+  const rows = all
 
   const columns = useMemo(() => columnsOf(vocabulary), [vocabulary])
   const filters = useFilters(columns)
@@ -341,71 +363,123 @@ function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
         title={vocabulary.title}
         sub={vocabulary.sub}
         actions={
-          <>
-            <Input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search"
-              className="h-8 w-48"
-            />
-            <Button
-              onClick={() => {
-                setEditing(null)
-                setCreating(true)
-              }}
-            >
-              New {vocabulary.one}
-            </Button>
-          </>
+          <Button
+            onClick={() => {
+              setEditing(null)
+              setCreating(true)
+            }}
+          >
+            New {vocabulary.one}
+          </Button>
         }
       />
 
-      <Toolbar>
-        <Segmented
-          options={[
-            { value: "ALL", label: "All" },
-            { value: "ACTIVE", label: "Active" },
-            { value: "RETIRED", label: "Retired" },
-          ]}
-          value={shown}
-          onChange={setShown}
-        />
-        <FilterPanel model={filters} table={table} />
-        <Toolbar.Spacer />
-        <span className="text-[0.75rem] text-mute tabular-nums">
-          {count(all.length)} {vocabulary.title.toLowerCase()} ·{" "}
-          {count(retired)} retired
-        </span>
-      </Toolbar>
+      {/* Two columns from 1440 up: the list, and the panel that narrows it —
+          the shape Sourcing and the order book already wear, brought here on
+          2026-09-13 so the four lists an article is described with are read
+          with the same chrome as the article itself. Below that width the
+          panel is the omnibox above the table, which is the same model drawn
+          as a line. */}
+      <div className="grid min-w-0 items-start gap-5 min-[1440px]:grid-cols-[minmax(0,1fr)_16rem]">
+        <div className="flex min-w-0 flex-col">
+          {/* One line, the width of the table, carrying everything that
+              acts on it — the same line the order book wears, in the same
+              order: what narrows it at the left, what orders and shapes it in
+              the middle, which view it is at the right.
 
-      <Card className="overflow-hidden">
-        {queryState(terms, {
-          loading: "Reading the vocabulary…",
-          render: () =>
-            all.length === 0 ? (
-              <EmptyState
-                action={
-                  <Button variant="primary" onClick={() => setCreating(true)}>
-                    New {vocabulary.one}
-                  </Button>
-                }
-              >
-                {vocabulary.empty}
-              </EmptyState>
-            ) : (
-              <DataTable<TermRow>
-                table={table}
-                onRowClick={(row) => {
-                  setCreating(false)
-                  setEditing(row.term.code)
-                }}
-                isSelected={(row) => row.term.code === editing}
-                empty="Nothing matches that search."
-                className="max-h-[calc(100vh-17rem)]"
+              It was a full-width box above a second row until 2026-09-13. Two
+              rows of chrome over one short list is one row too many, and the
+              owner said so. */}
+          <div className="mb-3 flex flex-wrap items-center gap-1.5">
+            {/* The plain box, where the panel beside it is carrying the
+                filters. Below 1440 the panel is gone and the omnibox below
+                takes both jobs, so only one of the two is ever on screen. */}
+            <span className="relative mr-auto hidden min-[1440px]:block">
+              <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-line-ico" />
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder={`Search ${vocabulary.title.toLowerCase()}`}
+                aria-label={`Search ${vocabulary.title.toLowerCase()}`}
+                className="h-[2.125rem] w-56 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.8125rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent"
               />
-            ),
-        })}
-      </Card>
+            </span>
+            <span className="mr-auto text-[0.84375rem] text-body min-[1440px]:mr-0">
+              <b className="font-medium text-ink">{count(all.length)}</b>{" "}
+              {vocabulary.title.toLowerCase()} · {count(retired)} retired
+            </span>
+            <SortMenu
+              table={table}
+              sorting={sorting}
+              onSort={(id, desc) => setSorting([{ id, desc }])}
+            />
+            <ColumnsMenu table={table} />
+            <span aria-hidden className="mx-1 h-5 w-px bg-hairline" />
+            <ViewPicker
+              model={filters}
+              id={`vocabulary-${vocabulary.kind}`}
+              all={`All ${vocabulary.title.toLowerCase()}`}
+            />
+          </div>
+
+          {/* The same model as the panel, drawn as one line, for the widths
+              where the panel is not on screen. */}
+          <FilterOmnibox
+            model={filters}
+            text={query === "" ? undefined : query}
+            onText={(next) => setQuery(next ?? "")}
+            placeholder={`Search ${vocabulary.title.toLowerCase()}, or filter`}
+            className="mb-3 min-[1440px]:hidden"
+          />
+
+          <Card className="overflow-hidden">
+            {queryState(terms, {
+              loading: "Reading the vocabulary…",
+              render: () =>
+                all.length === 0 ? (
+                  <EmptyState
+                    action={
+                      <Button
+                        variant="primary"
+                        onClick={() => setCreating(true)}
+                      >
+                        New {vocabulary.one}
+                      </Button>
+                    }
+                  >
+                    {vocabulary.empty}
+                  </EmptyState>
+                ) : (
+                  <DataTable<TermRow>
+                    table={table}
+                    onRowClick={(row) => {
+                      setCreating(false)
+                      setEditing(row.term.code)
+                    }}
+                    isSelected={(row) => row.term.code === editing}
+                    empty="Nothing matches that search."
+                    className="max-h-[calc(100vh-17rem)]"
+                  />
+                ),
+            })}
+          </Card>
+        </div>
+
+        <DockedFilters
+          model={filters}
+          id={`vocabulary-${vocabulary.kind}`}
+          subject={capitalise(vocabulary.one)}
+          kpis={[
+            { label: capitalise(vocabulary.title), value: count(all.length) },
+            {
+              label: "Retired",
+              value: count(retired),
+              note: "Terms no longer offered when an article is described.",
+            },
+          ]}
+          className="hidden min-[1440px]:flex"
+        />
+      </div>
 
       <TermSheet
         vocabulary={vocabulary}

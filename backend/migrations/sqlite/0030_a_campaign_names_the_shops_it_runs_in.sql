@@ -1,0 +1,14 @@
+-- 0030: A campaign names the shops it runs in.
+--
+-- The centre can now say "Lebaran runs in all thirteen" and "the student offer
+-- inside it runs in six", and both have to bind at the till — a rule inside a
+-- campaign applies where BOTH lists allow. That is not a new idea here: the
+-- campaign's WINDOW already binds beside the rule's own, and the engine
+-- intersects them (`pricing-engine/src/engine.rs`). The shops travel the same
+-- way so there is one composition rule to understand rather than two.
+--
+-- JSON text rather than a table, matching `commercial_price_rule.site_ids_json`
+-- and `commercial_markdown.site_ids_json` beside it. NULL and `[]` both mean
+-- everywhere, which is what every campaign already in a till reads as — no book
+-- in force changes meaning when this column appears.
+ALTER TABLE commercial_campaign ADD COLUMN site_ids_json TEXT;

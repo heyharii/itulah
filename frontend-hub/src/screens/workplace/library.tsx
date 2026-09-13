@@ -1,8 +1,8 @@
 import { useQuery } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { FileWarning, LayoutGrid, Rows3, Upload } from "lucide-react"
-import { useMemo, useRef, useState } from "react"
+import { FileWarning, LayoutGrid, Rows3, Search, Upload } from "lucide-react"
+import { useMemo, useRef, useState, useSyncExternalStore } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
@@ -10,11 +10,10 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { ExceptionQueue, type Exception } from "@/components/ui/exception-queue"
-import { Input } from "@/components/ui/field"
-import { FilterBar } from "@/components/ui/filter-bar"
+import { FilterPanel } from "@/components/ui/filter-panel"
+import { DockedFilters } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
-import { Toolbar } from "@/components/ui/segmented"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilters } from "@/lib/filters"
@@ -42,8 +41,12 @@ import {
 import { PlaceSheet, VaultSheet } from "@/screens/workplace/vault-sheets"
 import { VaultTile } from "@/screens/workplace/vault-tile"
 
-/// Files — the vault, in the shape midday's is, over both of the drawers we
+/// Library — the vault, in the shape midday's is, over both of the drawers we
 /// had.
+///
+/// Called Files until 2026-09-13, and renamed on the owner's word. The screen
+/// did not change with the name: "files" is what the rows ARE, and the module
+/// is the room they are kept in.
 ///
 /// There were two screens until 2026-09-04. Documents read the `document` table
 /// — whose migration opens by saying it is "modelled on midday's Vault" — and
@@ -228,7 +231,7 @@ const columns: ColumnDef<TableSetup, VaultRow>[] = [
   },
 ]
 
-export function Files() {
+export function Library() {
   // Both keys stay in the URL. `?document=` was the Documents screen's and is
   // in people's history and in links they have sent each other; a merge that
   // broke them would be a worse answer than the screen they wanted.
@@ -266,6 +269,7 @@ export function Files() {
   }, [documents.data, attachments.data])
 
   const filters = useFilters(columns)
+  const docked = useDockedFilters()
 
   const table = useTable(
     useMemo(
@@ -358,25 +362,31 @@ export function Files() {
     <UploadZone onFiles={setPicked}>
       <PageContent>
         <PageHeader
-          title="Files"
+          title="Library"
           sub="Everything filed, and everything attached in a room you can read. One drawer."
-          actions={
-            <>
-              <Input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search"
-                className="h-8 w-48"
-              />
-              <ViewSwitch grid={grid} onChange={view.open} />
-              <PickButton onFiles={setPicked} />
-            </>
-          }
         />
 
-        <Toolbar>
-          <FilterBar model={filters} table={table} />
-        </Toolbar>
+        {/* One line over the list, carrying everything that acts on it: what
+            narrows it at the left, and what changes its shape or adds to it at
+            the right. The same line Purchase orders draws, in the same order —
+            the owner asked for this screen's filters to stand where that
+            screen's do, and half an answer would have been the panel in the
+            right place under a search box still stranded in the page header. */}
+        <div className="mb-3 flex flex-wrap items-center gap-1.5">
+          <span className="relative mr-auto">
+            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-line-ico" />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search the library"
+              aria-label="Search the library"
+              className="h-[2.125rem] w-56 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.8125rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent"
+            />
+          </span>
+          {!docked && <FilterPanel model={filters} table={table} />}
+          <ViewSwitch grid={grid} onChange={view.open} />
+          <PickButton onFiles={setPicked} />
+        </div>
 
         {problem !== null && (
           <Banner tone="bad" className="mb-4">
@@ -391,77 +401,109 @@ export function Files() {
           />
         )}
 
-        {queryState(drawer, {
-          loading: "Opening the drawer…",
-          render: () =>
-            rows.length === 0 ? (
-              <Card>
-                <EmptyState>
-                  Nothing has been filed, and nothing has been attached in a
-                  room you can read. Drop a file anywhere on this page to start
-                  one off.
-                </EmptyState>
-              </Card>
-            ) : shown.length === 0 ? (
-              <Card>
-                <EmptyState>
-                  Nothing in the drawer matches that.{" "}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setQuery("")
-                      filters.clear()
-                    }}
-                    className="text-accent underline-offset-2 hover:underline"
-                  >
-                    Clear the search
-                  </button>
-                </EmptyState>
-              </Card>
-            ) : grid ? (
-              <div className={GRID}>
-                {shown.map((row) => (
-                  <VaultTile
-                    key={row.key}
-                    row={row}
-                    onOpen={() =>
-                      row.source === "FILED"
-                        ? filed.open(row.id)
-                        : attached.open(row.id)
-                    }
-                    onTag={(tag) =>
-                      filters.commit({
-                        column: "tags",
-                        operator: "includesAnyOf",
-                        values: [tag],
-                      })
-                    }
-                  />
-                ))}
-              </div>
-            ) : (
-              <Card className="overflow-hidden">
-                <DataTable<VaultRow>
-                  table={table}
-                  onRowClick={(row) =>
-                    row.source === "FILED"
-                      ? filed.open(row.id)
-                      : attached.open(row.id)
-                  }
-                  isSelected={(row) =>
-                    row.id === filed.value || row.id === attached.value
-                  }
-                  empty="Nothing in the drawer matches that."
-                  className="max-h-[calc(100vh-16rem)]"
-                />
-              </Card>
-            ),
-        })}
+        <div className="grid min-w-0 items-start gap-5 min-[1440px]:grid-cols-[minmax(0,1fr)_16rem]">
+          <div className="flex min-w-0 flex-col">
+            {queryState(drawer, {
+              loading: "Opening the drawer…",
+              render: () =>
+                rows.length === 0 ? (
+                  <Card>
+                    <EmptyState>
+                      Nothing has been filed, and nothing has been attached in a
+                      room you can read. Drop a file anywhere on this page to
+                      start one off.
+                    </EmptyState>
+                  </Card>
+                ) : shown.length === 0 ? (
+                  <Card>
+                    <EmptyState>
+                      Nothing in the drawer matches that.{" "}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setQuery("")
+                          filters.clear()
+                        }}
+                        className="text-accent underline-offset-2 hover:underline"
+                      >
+                        Clear the search
+                      </button>
+                    </EmptyState>
+                  </Card>
+                ) : grid ? (
+                  <div className={GRID}>
+                    {shown.map((row) => (
+                      <VaultTile
+                        key={row.key}
+                        row={row}
+                        onOpen={() =>
+                          row.source === "FILED"
+                            ? filed.open(row.id)
+                            : attached.open(row.id)
+                        }
+                        onTag={(tag) =>
+                          filters.commit({
+                            column: "tags",
+                            operator: "includesAnyOf",
+                            values: [tag],
+                          })
+                        }
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <Card className="overflow-hidden">
+                    <DataTable<VaultRow>
+                      table={table}
+                      onRowClick={(row) =>
+                        row.source === "FILED"
+                          ? filed.open(row.id)
+                          : attached.open(row.id)
+                      }
+                      isSelected={(row) =>
+                        row.id === filed.value || row.id === attached.value
+                      }
+                      empty="Nothing in the drawer matches that."
+                      className="max-h-[calc(100vh-16rem)]"
+                    />
+                  </Card>
+                ),
+            })}
+          </div>
+
+          {docked && (
+            <DockedFilters model={filters} id="library" subject="File" />
+          )}
+        </div>
 
         <VaultSheet row={open} onClose={closeSheet} />
         <PlaceSheet files={picked} onClose={() => setPicked([])} />
       </PageContent>
     </UploadZone>
+  )
+}
+
+/// Whether there is room for the filter column beside the list.
+///
+/// 1440px, which is the width `<DockedFilters>` was measured at on Purchase
+/// orders — the screen this one now stands beside — rather than one of
+/// `lib/layout.ts`'s tiers: the panel's width is a fact about the panel and
+/// the table it leaves room for, not about what the shell can afford.
+///
+/// Asked in JavaScript rather than written as `min-[1440px]:hidden`, and that
+/// is not a style preference. The docked panel and the `<FilterPanel>` button
+/// are two doors onto the same `?filters=` sheet; hiding one with CSS leaves
+/// it mounted, and opening the filters would open two sheets stacked on each
+/// other. One of them exists at a time, so only one can answer.
+function useDockedFilters(): boolean {
+  return useSyncExternalStore(
+    (changed) => {
+      const query = window.matchMedia("(width >= 1440px)")
+      query.addEventListener("change", changed)
+      return () => query.removeEventListener("change", changed)
+    },
+    () => window.matchMedia("(width >= 1440px)").matches,
+    () => false
   )
 }
 

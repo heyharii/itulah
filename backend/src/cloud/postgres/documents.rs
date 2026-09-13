@@ -345,7 +345,11 @@ pub async fn file_document(
         .execute(&mut *tx)
         .await
         .map_err(|error| match &error {
-            sqlx::Error::Database(db) if db.code().as_deref() == Some("23514") => {
+            // 23503, not 23514: since 0190 the five spellings this column
+            // accepted are a foreign key into the shared vocabulary rather
+            // than a CHECK of its own, and a check-violation arm would have
+            // stopped catching it without ever failing a test.
+            sqlx::Error::Database(db) if db.code().as_deref() == Some("23503") => {
                 AppError::Validation(format!(
                     "{:?} is not something a document can be filed against",
                     link.subject_kind

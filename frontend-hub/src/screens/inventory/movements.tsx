@@ -1,29 +1,41 @@
-import { useQuery } from "@tanstack/react-query"
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
+import { Search } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
+import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
-import { Input } from "@/components/ui/field"
-import { FilterBar } from "@/components/ui/filter-bar"
+import {
+  ColumnsMenu,
+  DockedFilters,
+  SortMenu,
+  ViewPicker,
+} from "@/components/ui/list-chrome"
+import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
-import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
-import { useFilters } from "@/lib/filters"
-import { count, moment } from "@/lib/format"
+import { useFilterState, type FilterField } from "@/lib/filters"
+import { usePanelDock } from "@/lib/layout"
+import { count, label as humanise, moment } from "@/lib/format"
 import {
   fleetPools,
   inventoryKeys,
-  listMovements,
+  movementScopeFromFilters,
+  movementsPage,
+  MOVEMENTS_LIMIT,
   type Movement,
+  type MovementScope,
 } from "@/lib/queries/inventory"
 import { queryState } from "@/lib/query-state"
+import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
-import { Choice } from "@/screens/inventory/parts"
+import { cn } from "@/lib/utils"
+import { useDebounced } from "@/lib/use-debounced"
 import { placements } from "@/screens/inventory/shared"
 
 /// The ledger itself — every posting that moved a piece, in the order it
@@ -37,9 +49,6 @@ import { placements } from "@/screens/inventory/shared"
 /// answer "what happened at all", which is the question somebody has when the
 /// number is wrong and they do not yet know which shelf to blame.
 ///
-/// The endpoint has existed since the ledger was written. Nothing had ever
-/// called it.
-///
 /// # What a movement is
 ///
 /// Double-entry, and both halves are on the row. `from` and `to` are *places*
@@ -50,124 +59,253 @@ import { placements } from "@/screens/inventory/shared"
 /// "where did it go" as a pair of independent columns is what makes a ledger
 /// look like a list of edits.
 ///
-/// **Cause is the load-bearing column.** Most causes are workflow-owned — a
+/// **Action is the load-bearing column.** Most causes are workflow-owned — a
 /// SALE posts from a till, a PICK from a picklist — and only `NORMAL_MOVE` and
 /// `RETURN_TO_DC` may be posted by hand. A movement claiming SALE that nobody
 /// sold is the failure the server refuses at the boundary, and reading the
-/// cause is how anybody would notice one that got through.
+/// action is how anybody would notice one that got through.
+///
+/// # The question goes to the server
+///
+/// This screen used to ask for the newest 300 postings and then sift, search
+/// and sort them in the browser, with a banner over the table admitting that
+/// the figures below it were not totals. Both are gone. The search, the pool,
+/// the action, who posted it and the order are all parameters
+/// `GET /inventory/movements` already answered — nothing here was added to the
+/// endpoint — and what does not fit on one page is fetched by walking
+/// `next_cursor` rather than described in a paragraph.
 
-/// A place id, split into the shelf and the state it sits in.
+/// A place id, read as the four facts it is made of.
 ///
-/// `store-02.warehouse:on_hand` is one place, but it is two facts, and the
-/// second one is the interesting half: a movement between the two halves of
-/// the same pool is a piece going missing or being found, which reads as a
-/// no-op if the suffix is dropped.
+/// `store-02.warehouse:on_hand` is one string and four facts, and every one of
+/// them is worth drawing separately: the SITE says whose building it is, the
+/// SHELF says where in it, the STATE is the interesting half (a movement
+/// between the two halves of one pool is a piece going missing or being
+/// found, which reads as a no-op if the suffix is dropped), and whether the
+/// place is inside the pool grammar at all says whether the stock is moving
+/// or leaving.
+interface Place {
+  /// The pool this place belongs to, for the link — the id without the state.
+  readonly poolId: string | null
+  /// "DC", "Store 07". Null on a place outside the pool grammar.
+  readonly site: string | null
+  /// "Warehouse", "Picked / Store 08", "Opening", "Lost".
+  readonly shelf: string
+  /// Drawn only when it is not `on_hand`, which is every posting anybody has
+  /// to think about.
+  readonly state: string | null
+  /// `system/lost`, `external/disposal` — outside the pool grammar entirely.
+  /// Stock crossing that line is leaving the company rather than moving
+  /// inside it, and the chip says so.
+  readonly outside: boolean
+}
+
+/// Pool ids as the names on the pool master, so a route reads in the words the
+/// rest of the app uses.
 ///
-/// A fragment rather than an element, because the caller wraps each half in
-/// its own truncating block. That is load-bearing: a virtualised row is a flex
-/// container, a flex item defaults to `min-width: auto`, and an unbreakable
-/// 30-character pool id therefore overrides the column's declared basis and
-/// drags every column to its right out of line. `overflow: hidden` is what
-/// takes the cell's min-content contribution back to nought.
-function Place({ id }: { id: string }) {
+/// The ledger writes place ids and nothing else: `dc.outbound.picked.store-08`
+/// is what the row carries, and it is the same shelf the Pools screen calls
+/// "Picked / Store 08" at the site it calls "DC". Printing the id was printing
+/// our own primary key at somebody who has to read a hundred rows of it.
+///
+/// Falls back to the id's own segments for a pool the fleet read does not know
+/// — a shelf retired since the posting was made still has to draw.
+function readPlace(
+  id: string,
+  pools: Map<string, { site: string; shelf: string }>
+): Place {
   const cut = id.lastIndexOf(":")
   if (cut === -1) {
-    // `system/lost`, `external/supplier` — outside the pool grammar entirely,
-    // and worth looking different, because stock crossing that line is leaving
-    // the company rather than moving inside it.
-    return <span className="text-mute">{id}</span>
+    // `system/opening`, `system/lost`, `external/disposal`.
+    const tail = id.slice(id.lastIndexOf("/") + 1)
+    return {
+      poolId: null,
+      site: null,
+      shelf: humanise(tail),
+      state: null,
+      outside: true,
+    }
   }
-  return (
+  const poolId = id.slice(0, cut)
+  const state = id.slice(cut + 1)
+  const known = pools.get(poolId)
+  const parts = poolId.split(".")
+  return {
+    poolId,
+    site: known?.site ?? humanise(parts[0]),
+    shelf:
+      known?.shelf ??
+      (parts.length > 1 ? humanise(parts.slice(1).join(" / ")) : poolId),
+    state: state === "on_hand" ? null : humanise(state).toLowerCase(),
+    outside: false,
+  }
+}
+
+const CHIP =
+  "inline-flex min-w-0 max-w-full items-baseline gap-1 rounded-full border px-2 py-px text-[0.6875rem] leading-[1.35rem]"
+
+/// One end of the route, as a chip.
+///
+/// A chip rather than a line of mono, at the owner's word (2026-09-13): two
+/// full place ids came to 475px of unbreakable text, which is wider than the
+/// card has to give, and the id was the wrong thing to be reading anyway. The
+/// site is the quiet half and the shelf is the loud one, because a reader
+/// scanning this column is looking for WHICH SHELF and already knows the
+/// building.
+///
+/// A place inside the pool grammar opens that pool; a place outside it —
+/// Opening, Lost, Disposal — is drawn dashed and grey and links nowhere,
+/// because there is no shelf on the other side of it.
+function PlaceChip({ id, place }: { id: string; place: Place }) {
+  const body = (
     <>
-      <AppLink
-        to="/inventory/pools"
-        sheet={{ key: "pool", value: id.slice(0, cut) }}
-        className="text-body hover:text-ink hover:underline"
-      >
-        {id.slice(0, cut)}
-      </AppLink>
-      <span className="text-mute">:{id.slice(cut + 1)}</span>
+      {place.site !== null && (
+        <span className="shrink-0 text-mute">{place.site} ·</span>
+      )}
+      <span className="min-w-0 truncate text-text">{place.shelf}</span>
+      {place.state !== null && (
+        <span className="shrink-0 text-warn-fg">{place.state}</span>
+      )}
     </>
+  )
+
+  if (place.outside || place.poolId === null) {
+    return (
+      <span
+        title={id}
+        className={cn(CHIP, "border-dashed border-hairline-2 text-mute")}
+      >
+        {body}
+      </span>
+    )
+  }
+
+  return (
+    <AppLink
+      to="/inventory/pools"
+      sheet={{ key: "pool", value: place.poolId }}
+      title={id}
+      className={cn(
+        CHIP,
+        "border-hairline-2 bg-soft-2 transition-colors hover:border-hairline-strong hover:bg-soft"
+      )}
+    >
+      {body}
+    </AppLink>
   )
 }
 
-const columns: ColumnDef<TableSetup, Movement>[] = [
+/// Which column means which of the four orders the endpoint names.
+///
+/// A column that is not in here cannot be sorted — `enableSorting: false` says
+/// so on the column itself, so neither the header nor the Sort menu offers it.
+/// The alternative is worse than a missing menu item: the table would sort the
+/// PAGE it is holding, and a ledger sorted one screenful at a time is a list
+/// that lies about which posting came first.
+const SORTS: Record<string, string> = {
+  occurred_at: "occurred_at",
+  cause: "cause",
+  quantity: "quantity",
+}
+
+/// The columns, over the pool names they draw with.
+///
+/// A factory rather than a constant, like `poolColumns` next door and for the
+/// same reason: the route cell needs the pool master to turn a place id into
+/// the name the rest of the app calls that shelf, and a module-level constant
+/// has no way to be handed one.
+const movementColumns = (
+  pools: Map<string, { site: string; shelf: string }>
+): ColumnDef<TableSetup, Movement>[] => [
   {
     accessorKey: "occurred_at",
-    header: "When",
-    size: 150,
-    meta: { filter: { kind: "date" }, card: "meta" },
+    header: "Date",
+    size: 116,
+    meta: { card: "meta" },
     cell: ({ row }) => moment(row.original.occurred_at),
   },
   {
     accessorKey: "cause",
-    header: "Cause",
-    size: 150,
-    meta: { filter: { kind: "text" }, card: "status" },
-    cell: ({ row }) => <Tag>{row.original.cause}</Tag>,
+    header: "Action",
+    size: 156,
+    meta: { card: "status" },
+    cell: ({ row }) => <Tag>{humanise(row.original.cause)}</Tag>,
   },
   {
     id: "route",
     accessorFn: (row) => `${row.from} → ${row.to}`,
     header: "Route",
-    size: 380,
-    meta: { filter: { kind: "text" }, card: "title" },
-    /// Stacked rather than laid out on one line, and that is a table-layout
-    /// decision as much as a reading one: a pool id is 30-odd characters of
-    /// mono that will not wrap, so side by side the widest route in view sets
-    /// the column and every row after it inherits the ragged edge — the
-    /// columns to its right stop lining up at all. Two lines fit the declared
-    /// width, and the pair reads as what it is: out of here, into there.
+    size: 296,
+    // The server has no order for a route, and neither has this: alphabetising
+    // place ids groups the shelves whose names happen to share a prefix.
+    enableSorting: false,
+    meta: { card: "title" },
+    /// One line and one arrow, at the owner's word (2026-09-13). It was two
+    /// stacked lines of raw place id with an arrow on the second, which cost
+    /// every row twice the height to say what a single arrow says: out of
+    /// here, into there.
+    ///
+    /// The two chips shrink and the arrow does not, so a long shelf name
+    /// truncates inside its own chip rather than pushing the columns to its
+    /// right out of line. The full place id is on the title of each, because a
+    /// truncated one is exactly the thing somebody leans in to read.
     cell: ({ row }) => (
-      <span className="block overflow-hidden font-mono text-[0.65625rem] leading-snug">
-        <span className="block truncate">
-          <Place id={row.original.from} />
-        </span>
-        <span className="block truncate">
-          <span className="text-line-ico">→ </span>
-          <Place id={row.original.to} />
-        </span>
+      <span className="flex min-w-0 items-center gap-1.5 overflow-hidden">
+        <PlaceChip
+          id={row.original.from}
+          place={readPlace(row.original.from, pools)}
+        />
+        <span className="shrink-0 text-line-ico">→</span>
+        <PlaceChip
+          id={row.original.to}
+          place={readPlace(row.original.to, pools)}
+        />
       </span>
     ),
   },
   {
     accessorKey: "sku_code",
     header: "SKU",
-    size: 130,
-    meta: { mono: true, filter: { kind: "text" }, card: "id" },
+    size: 104,
+    enableSorting: false,
+    meta: { mono: true, card: "id" },
     cell: ({ row }) =>
       row.original.sku_code ?? <span className="text-mute">—</span>,
   },
   {
     accessorKey: "epc",
     header: "Tag",
-    size: 200,
-    meta: { mono: true, priority: 3, filter: { kind: "text" }, card: "hide" },
+    size: 118,
+    enableSorting: false,
+    meta: { mono: true, priority: 3, card: "hide" },
     cell: ({ row }) => row.original.epc ?? <span className="text-mute">—</span>,
   },
   {
     accessorKey: "quantity",
     header: "Qty",
-    size: 80,
-    meta: {
-      align: "right",
-      filter: { kind: "number", unit: "pcs" },
-      card: "metric",
-    },
+    size: 66,
+    meta: { align: "right", card: "metric" },
     cell: ({ row }) => count(row.original.quantity),
   },
   {
     accessorKey: "actor_id",
     header: "Posted by",
-    size: 160,
-    meta: { priority: 2, filter: { kind: "text" }, card: "meta" },
+    size: 130,
+    enableSorting: false,
+    meta: { priority: 2, card: "meta" },
     cell: ({ row }) => row.original.actor_id,
   },
 ]
 
 export function Movements() {
-  const [pool, setPool] = useState("")
-  const [query, setQuery] = useState("")
+  /// What was typed, in the URL like every other narrowing in the app: a
+  /// filtered ledger is a thing people send each other.
+  const search = useSheet("q")
+  /// Whether the filter panel has room to stand beside the list. Below it the
+  /// same model is a sheet behind a Filter button, and the panel unmounts.
+  const docked = usePanelDock()
+  // Newest first, which is the order the ledger is read in and the one the
+  // server returns before anybody asks.
   const [sorting, setSorting] = useState<SortingState>([
     { id: "occurred_at", desc: true },
   ])
@@ -177,32 +315,26 @@ export function Movements() {
     queryFn: ({ signal }) => fleetPools(signal),
   })
 
-  const ledger = useQuery({
-    queryKey: inventoryKeys.movements(pool),
-    queryFn: ({ signal }) => listMovements(pool, 300, signal),
-  })
+  /// Every pool the fleet knows, by id, as the two words a route chip draws
+  /// with. Every pool and not only the placements: a rollup cannot be counted
+  /// into or allotted out of, but the ledger posts through one — half the
+  /// outbound corrections in this log leave `dc.outbound.picked` — so leaving
+  /// them out would put the raw id back on the busiest rows.
+  ///
+  /// `site_name` where the master has one ("DC", "Store 07"), and the site id
+  /// where it does not.
+  const poolNames = useMemo(() => {
+    const names = new Map<string, { site: string; shelf: string }>()
+    for (const item of fleet.data?.items ?? []) {
+      names.set(item.id, {
+        site: item.site_name ?? item.site_id,
+        shelf: item.label,
+      })
+    }
+    return names
+  }, [fleet.data])
 
-  const rows = useMemo(() => ledger.data ?? [], [ledger.data])
-  const filters = useFilters(columns)
-
-  const table = useTable(
-    useMemo(
-      () => ({
-        features: tableSetup,
-        data: rows,
-        columns: filters.columns,
-        getRowId: (row: Movement) => row.movement_id,
-        state: {
-          columnFilters: filters.columnFilters,
-          globalFilter: query,
-          sorting,
-        },
-        onGlobalFilterChange: setQuery,
-        onSortingChange: setSorting,
-      }),
-      [rows, filters.columns, filters.columnFilters, query, sorting]
-    )
-  )
+  const columns = useMemo(() => movementColumns(poolNames), [poolNames])
 
   /// Every shelf, not only the writable ones: this is a read, and a pool the
   /// centre may not post to still has a history worth looking at.
@@ -210,9 +342,140 @@ export function Movements() {
     () =>
       placements(fleet.data?.items ?? []).map((item) => ({
         value: item.id,
-        label: `${item.site_id} · ${item.label}`,
+        label: `${item.site_name ?? item.site_id} · ${item.label}`,
       })),
     [fleet.data]
+  )
+
+  /// The columns this list can be narrowed by, and the only ones: each maps to
+  /// a parameter the endpoint answers, and the operators are cut to what it
+  /// can honour. An operator the request cannot carry is a chip that silently
+  /// narrows nothing.
+  ///
+  /// **There is no date range here, and its absence is the endpoint's.**
+  /// `MovementQuery` takes a pool, a cause, an actor, free text, an order and a
+  /// cursor — no `occurred_at` bounds — and it refuses unknown parameters
+  /// outright, so a Date chip would 400 the read rather than narrow it. The
+  /// ledger is walked newest first instead.
+  const fields = useMemo<FilterField[]>(
+    () => [
+      {
+        column: "pool_id",
+        label: "Pool",
+        spec: {
+          kind: "option",
+          single: true,
+          operators: ["isAnyOf"],
+          // Matched against EITHER side of the posting, so a transfer between
+          // two pools appears once in each rather than twice in one.
+          options: poolOptions,
+          format: (id) =>
+            poolOptions.find((one) => one.value === id)?.label ?? id,
+        },
+      },
+      {
+        column: "cause",
+        label: "Action",
+        spec: {
+          kind: "option",
+          single: true,
+          operators: ["isAnyOf"],
+          // The sentence, not the code: somebody looking for corrections wants
+          // "Placement correction", not `PLACEMENT_CORRECTION`.
+          format: humanise,
+        },
+      },
+      {
+        column: "actor_id",
+        label: "Posted by",
+        spec: { kind: "option", single: true, operators: ["isAnyOf"] },
+      },
+    ],
+    [poolOptions]
+  )
+
+  const filters = useFilterState(fields)
+
+  /// What was typed, plus the chips, plus the order, as the one request that
+  /// answers all three.
+  ///
+  /// Debounced, because every keystroke is a round trip to a query over the
+  /// whole company's ledger.
+  const needle = useDebounced((search.value ?? "").trim(), 400)
+  const scope = useMemo<MovementScope>(() => {
+    const by = sorting[0]
+    const sort = by === undefined ? undefined : SORTS[by.id]
+    return {
+      ...movementScopeFromFilters(filters.filters),
+      ...(needle === "" ? {} : { q: needle }),
+      sort,
+      /// **`dir` is inverted on the default sort, and that is the server's
+      /// doing.** `movements_page` reads `occurred_at` as `!desc`, because the
+      /// house order for a ledger is newest first — so asking for `dir=desc`
+      /// there walks UP from the beginning of the log. Measured against the
+      /// running node, not read off the doc comment above that function, which
+      /// says the opposite of what the code does.
+      desc: sort === "occurred_at" ? by?.desc !== true : by?.desc === true,
+      limit: MOVEMENTS_LIMIT,
+    }
+  }, [filters.filters, needle, sorting])
+
+  /// Whether anything is narrowing the log, which is a different question from
+  /// whether it is empty: "nothing has been posted" and "nothing matches what
+  /// you asked" have different fixes.
+  const narrowed = needle !== "" || filters.filters.length > 0
+
+  const ledger = useInfiniteQuery({
+    queryKey: inventoryKeys.movements(scope),
+    queryFn: ({ pageParam, signal }) =>
+      movementsPage({ ...scope, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    // The previous answer stays on screen while the next is fetched. Without
+    // it every keystroke empties the table to a loading line.
+    placeholderData: (previous) => previous,
+  })
+
+  const rows = useMemo(
+    () => ledger.data?.pages.flatMap((page) => page.rows) ?? [],
+    [ledger.data]
+  )
+  const head = ledger.data?.pages[0]
+
+  /// The same fields, carrying the server's own tally.
+  ///
+  /// Built here and not above because the counts come from the answer and the
+  /// question is built from the fields — declaring them together would be a
+  /// circle. Without it the picker would ask the TABLE how many rows hold each
+  /// value, and this table holds only what the same filters already let
+  /// through, so every option nobody had ticked would print a 0 beside it.
+  const counted = useMemo<FilterField[]>(() => {
+    const facets = head?.facets
+    if (!facets) return fields
+    return fields.map((field) =>
+      field.column === "cause"
+        ? { ...field, spec: { ...field.spec, counted: facets.causes } }
+        : field.column === "actor_id"
+          ? { ...field, spec: { ...field.spec, counted: facets.actors } }
+          : field
+    )
+  }, [fields, head])
+
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: rows,
+        columns,
+        getRowId: (row: Movement) => row.movement_id,
+        state: { sorting },
+        // The rows arrive in the order the request asked for. Sorting them
+        // again here would sort the pages in hand and call it the ledger.
+        manualSorting: true,
+        onSortingChange: setSorting,
+      }),
+      [rows, columns, sorting]
+    )
   )
 
   return (
@@ -220,45 +483,138 @@ export function Movements() {
       <PageHeader
         crumb="Inventory"
         title="Movements"
-        sub="Every posting that moved a piece. Double-entry: a route, a cause, and who posted it."
+        sub="Every posting that moved a piece. Double-entry: a route, an action, and who posted it."
       />
 
-      <Toolbar>
-        <Choice
-          value={pool}
-          onChange={setPool}
-          options={poolOptions}
-          placeholder="Every pool"
-          className="max-w-72"
-        />
-        <Input
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search"
-          className="h-8 w-48"
-        />
-        <FilterBar model={filters} table={table} />
-        <Toolbar.Spacer />
-      </Toolbar>
-
-      <Card className="overflow-hidden">
-        {queryState(ledger, {
-          loading: "Reading the ledger…",
-          render: () =>
-            rows.length === 0 ? (
-              <EmptyState>
-                {pool === ""
-                  ? "Nothing has been posted to this ledger yet."
-                  : "Nothing has moved in or out of this pool."}
-              </EmptyState>
-            ) : (
-              <DataTable<Movement>
-                table={table}
-                className="max-h-[calc(100vh-17rem)]"
+      {/* The panel docks where there is room for it — narrower than 1440 it is
+          the Filter button in the omnibox, which is the same model drawn as a
+          sheet. */}
+      <div className="grid min-w-0 items-start gap-5 min-[1440px]:grid-cols-[minmax(0,1fr)_16rem]">
+        <div className="flex min-w-0 flex-col">
+          {/* One line the width of the table, carrying everything that acts on
+              it: what narrows it at the left, what orders and shapes it at the
+              right. The page header above keeps the title and nothing else. */}
+          <div className="mb-3 flex flex-wrap items-center gap-1.5">
+            <span className="relative mr-auto">
+              <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-line-ico" />
+              <input
+                value={search.value ?? ""}
+                onChange={(event) =>
+                  event.target.value
+                    ? search.open(event.target.value)
+                    : search.close()
+                }
+                placeholder="Search tag, SKU, place"
+                aria-label="Search movements"
+                className="h-[2.125rem] w-64 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.8125rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent"
               />
-            ),
-        })}
-      </Card>
+            </span>
+            {/* The same model as the panel, as the chips over the table and
+                a Filter button beside them — for every width the panel cannot
+                dock at. Rendered only there: the panel unmounts below the dock
+                width rather than hiding, because both of these carry a sheet
+                on the same `?filters=` key. */}
+            {!docked && (
+              <FilterPanel
+                model={{ ...filters, fields: counted }}
+                className="mr-auto"
+              />
+            )}
+            <SortMenu
+              table={table}
+              sorting={sorting}
+              onSort={(id, desc) => setSorting([{ id, desc }])}
+            />
+            <ColumnsMenu table={table} />
+            <span aria-hidden className="mx-1 h-5 w-px bg-hairline" />
+            <ViewPicker model={filters} id="movements" all="The whole ledger" />
+          </div>
+
+          <Card className="overflow-hidden">
+            {queryState(ledger, {
+              loading: "Reading the ledger…",
+              render: () =>
+                rows.length === 0 ? (
+                  <EmptyState>
+                    {narrowed
+                      ? "No movement matches what you asked for."
+                      : "Nothing has been posted to this ledger yet."}
+                  </EmptyState>
+                ) : (
+                  <DataTable<Movement>
+                    table={table}
+                    /// Always, rather than above the usual 150 rows.
+                    ///
+                    /// It is what makes the declared column widths real: the
+                    /// plain path is a `table-layout: auto` table, where a
+                    /// `size` is a suggestion and the widest place id in view
+                    /// decides the route column — 475px of it, which is wider
+                    /// than the card has to give and is why two columns were
+                    /// being dropped to pay for it. Virtualised, every cell is
+                    /// `flex: 0 0 <size>px` and the truncation inside it
+                    /// happens. Without this the first page would be laid out
+                    /// one way and the second, once Show more crosses 150
+                    /// rows, another.
+                    virtualizeAbove={0}
+                    className="max-h-[calc(100vh-14rem)]"
+                  />
+                ),
+            })}
+          </Card>
+
+          {ledger.hasNextPage && (
+            <div className="mt-4 flex justify-center">
+              <Button
+                onClick={() => void ledger.fetchNextPage()}
+                disabled={ledger.isFetchingNextPage}
+              >
+                {ledger.isFetchingNextPage ? "Fetching…" : "Show more"}
+              </Button>
+            </div>
+          )}
+        </div>
+
+        <DockedFilters
+          model={{ ...filters, fields: counted }}
+          kpis={ledgerKpis(head?.total, rows.length)}
+          id="movements"
+          subject="Movement"
+          className="hidden min-[1440px]:flex"
+        />
+      </div>
     </PageContent>
   )
+}
+
+/// Two figures about the log as it currently stands, where a banner used to be.
+///
+/// The banner said, over the table, that the three hundred rows below it were
+/// not the whole ledger and that its figures were not totals. It was right and
+/// it was furniture: a paragraph nobody dismissed, re-read on every visit, in
+/// the place a heading belongs.
+///
+/// These say the same thing in the panel, as numbers rather than as a warning.
+/// **Postings** is the server's own count over everything the search and the
+/// chips match, so it is true whatever is loaded; **Loaded** is how much of it
+/// has been fetched, and Show more is directly under the table that grows it.
+/// A caller that passed `count=0` gets no total, which is an em dash and never
+/// a nought — this screen does not pass it, but the absence is drawn honestly
+/// if it ever arrives.
+function ledgerKpis(total: number | null | undefined, loaded: number) {
+  if (total === undefined) return undefined
+  return [
+    {
+      label: "Postings",
+      value: total === null ? "—" : count(total),
+      note:
+        total === null
+          ? "This read was answered without a count."
+          : "Every posting the search and the filters match.",
+    },
+    {
+      label: "Loaded",
+      value: count(loaded),
+      note: "Fetched so far. Show more walks the rest of the log.",
+    },
+  ]
 }

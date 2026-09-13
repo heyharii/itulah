@@ -11,20 +11,66 @@
 //! needs a clock — a plan is written before anybody works it, and a month is
 //! signed off by a person rather than by a sensor.
 //!
-//! What is deliberately still not here: punches, corrections and kiosks. Those
-//! need a source of clock-ins, which is an unanswered product question — the
-//! till, an RFID reader, or a kiosk. `frontend-hub/PEOPLE-BRIEF.md` states the
-//! three options and their costs. Everything here is written so that the answer
-//! arrives to a system that already knows what it would mean: the close records
-//! that the punch checks were *not assessed* rather than that they passed.
+//! The **punch half** is here now too, and it is what the two halves above
+//! were written to receive. The owner answered the open question on 2026-09-13:
+//! a fingerprint punch station per unit, ZKTeco readers, templates held
+//! centrally, punches taken at the edge and synced up. So:
+//!
+//! * [`terminal`] is the authority — a registered, active station is the only
+//!   thing that can attest an identification, and an attestation is the only
+//!   thing that can produce a [`Punch`];
+//! * [`punch`] is the append-only log of what the devices observed;
+//! * [`day`] derives what a day *means* from `(plan, punches, policy,
+//!   approvals, correction)` — and stores none of it;
+//! * [`correction`] is the append-only overlay, which never edits a punch;
+//! * [`enrolment`] binds a fingerprint to an employment record and keeps the
+//!   sealed template out of every route that is not the terminal sync.
+//!
+//! What is still deliberately absent: the Tauri shell, and the physical
+//! ZKFinger adapter. The device boundary stays behind the local HTTP and
+//! event-cursor contract the donor's `hardware-agent` exposes, so the shell is
+//! a separate port rather than a dependency of any of this.
+//!
+//! # The one rule that runs through all of it
+//!
+//! **A day with no punch is not a day of absence, and "not assessed" is not
+//! zero.** The close's readiness carried `None` for the punch-derived counts
+//! while there was no punch source; now it carries numbers, and the old events
+//! stay honest about having been taken without one. A day nobody planned and
+//! nobody worked derives to nothing at all rather than to an absence.
 
+mod correction;
+mod day;
+mod enrolment;
 mod error;
+mod ids;
 mod period;
 mod policy;
+mod punch;
 mod roster;
+mod terminal;
 mod time;
 
+pub use correction::{
+    Correction, CorrectionChain, CorrectionEffect, CorrectionState, CorrectionWire,
+};
+pub use day::{
+    evaluate_day, AttendanceOutcome, DayApprovals, DayEvaluation, DayMeasures, LeaveApproval,
+    OutcomeSet, OvertimeAgreement,
+};
+pub use enrolment::{EnrolmentKind, EnrolmentRecord, SealedTemplate, TEMPLATE_NONCE_LEN};
 pub use error::AttendanceError;
+pub use ids::{
+    CorrectionId, Finger, LeaveRef, OvertimeRef, PunchId, TemplateFormat, TerminalId,
+    MAX_ATTENDANCE_ID_LEN,
+};
+pub use punch::{
+    ClockQuality, PersistedPunch, Punch, PunchContext, PunchDirection, PunchLog, PunchTime,
+};
+pub use terminal::{
+    AttendanceTerminal, AttendanceTerminalWire, IdentificationMethod, TerminalAttestation,
+    TerminalEvent, TerminalStatus,
+};
 pub use period::{
     AttendancePeriod, AttendancePeriodWire, CloseReadiness, PeriodEvent, PeriodEventKind,
     PeriodStatus,

@@ -155,6 +155,7 @@ fn cash(amount_minor: i64) -> Vec<SaleTender> {
         method: PaymentMethod::Cash,
         amount_minor,
         reference: None,
+        voucher_authorization_id: None,
     }]
 }
 
@@ -168,6 +169,7 @@ async fn a_trading_day_reaches_the_centre_and_reconciles(pool: PgPool) {
     stock(&edge, "EPC70000002", "GULA-1KG", 15_000);
     stock(&edge, "EPC70000003", "MINYAK-2L", 35_000);
     edge.complete_sale(SaleRequest {
+        charges: Vec::new(),
         coupon_codes: Vec::new(),
         customer_id: None,
         idempotency_key: "sale-1".into(),

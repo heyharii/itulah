@@ -207,7 +207,7 @@ function Actions({ row }: { row: VaultRow }) {
   const copy = () => {
     // An app link, never a bucket link. See the note at the top of this file.
     const key = row.source === "FILED" ? "document" : "file"
-    const link = `${window.location.origin}/files?${key}=${encodeURIComponent(row.id)}`
+    const link = `${window.location.origin}/library?${key}=${encodeURIComponent(row.id)}`
     void navigator.clipboard?.writeText(link).then(() => {
       setCopied(true)
       window.setTimeout(() => setCopied(false), 3000)

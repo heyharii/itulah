@@ -2,12 +2,11 @@ import { node } from "@/lib/api"
 
 /// The operational pools the centre knows about, with their balances.
 ///
-/// Hand-written for the same reason as the purchase-order reads:
-/// `GET /api/v1/inventory/pools` is assembled with `json!()` in
-/// `cloud/postgres/queries.rs` rather than serialised from a struct, so ts-rs
-/// has nothing to generate and nothing here is checked against the server at
-/// build time. Transcribed from that literal — if a field moves, this is where
-/// it goes stale.
+/// Kept hand-written here, but no longer because it has to be: the route now
+/// serialises `PoolRow` and `@itulah/contract` exports it. This app has not
+/// been moved onto the generated types, so this interface stays as the
+/// transcription it was — the generated `PoolRow` is the authority, and a
+/// field that moves there is what makes this go stale.
 export interface Pool {
   /// The canonical pool id, e.g. `dc.warehouse`, `dc.reject.store-01`,
   /// `store-01.floor`. The server parses this string back into a place, so it
@@ -43,10 +42,26 @@ export interface Pool {
   readonly exposure: number
 }
 
+/// The rows alone, for the screens that hold the whole list and work on it
+/// locally.
+///
+/// `GET /inventory/pools` answers with an envelope now — `rows`, a keyset
+/// `next_cursor`, a `total` over everything that matched, and facet counts —
+/// in the shape `GET /finance/money` established. One place unwraps it, which
+/// is the only reason the route's answer could change shape without touching
+/// the screens that read it. A screen that wants the total or the facets asks
+/// for `PoolPage` itself; a screen that pages MUST, because the rows alone
+/// cannot say whether there are more.
+///
+/// `limit=500` is the server's own maximum, asked for explicitly because this
+/// screen holds the whole set and filters it locally: the fleet has a hundred
+/// and twelve pools, and the default page of two hundred would already cover
+/// them, but the day somebody opens the fortieth shop is not the day a pool
+/// picker should quietly stop listing shelves.
 export function listPools(signal?: AbortSignal): Promise<Pool[]> {
   return node
-    .get<{ items: Pool[] }>("/api/v1/inventory/pools", { signal })
-    .then((body) => body.items)
+    .get<{ rows: Pool[] }>("/api/v1/inventory/pools?limit=500", { signal })
+    .then((body) => body.rows)
 }
 
 /// The sites that hold stock, derived from the pools rather than asked for

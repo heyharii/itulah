@@ -83,7 +83,12 @@ export function Queue() {
 
       {unsent > 0 && (
         <ActionBar>
-          <Button variant="dark" size="lg" block onClick={() => void flush()}>
+          <Button
+            variant="primary"
+            size="lg"
+            block
+            onClick={() => void flush()}
+          >
             <RotateCw />
             Try to send now
           </Button>

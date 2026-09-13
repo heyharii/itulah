@@ -7,12 +7,19 @@ import {
 import { ArrowLeft, Plus, ShoppingBasket, Store } from "lucide-react"
 import { useCallback, useMemo, useState } from "react"
 
+import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/field"
 import { Pill } from "@/components/ui/pill"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { FilterOmnibox } from "@/components/ui/filter-omnibox"
+import {
+  ChoiceMenu,
+  DockedFilters,
+  ViewPicker,
+} from "@/components/ui/list-chrome"
+import { PageHeader } from "@/components/ui/page-header"
 import { Tag } from "@/components/ui/tag"
 import { colourKeys, listColours, type ColourTerm } from "@/lib/queries/colours"
 import { useFilterState, type FilterField } from "@/lib/filters"
@@ -30,7 +37,6 @@ import {
 } from "@/lib/queries/procurement"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
-import { cn } from "@/lib/utils"
 import { BasketSheet } from "@/screens/procurement/basket"
 import { ItemDetail } from "@/screens/procurement/item-detail"
 import { ItemFormSheet } from "@/screens/procurement/item-form"
@@ -42,6 +48,7 @@ import type {
   FacetCount,
   PurchaseHistory,
   SourcedItem,
+  SourcingPage,
   Supplier,
 } from "@itulah/contract"
 
@@ -393,28 +400,32 @@ export function Sourcing() {
   const filtered = needle !== "" || filters.filters.length > 0
 
   return (
-    <div className="flex h-full min-h-0">
-      <div className="@container min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-[77.5rem] px-[1.875rem] pt-6 pb-14">
-          {standing ? (
-            <ShopHead
-              supplier={standing}
-              offering={offering}
-              onBack={() => shop.close()}
-            />
-          ) : (
-            <div className="mb-4">
-              <div className="mb-[0.3125rem] text-[0.75rem] font-medium text-mute">
-                Procurement
-              </div>
-              <h1 className="text-hero font-semibold text-ink">Sourcing</h1>
-              <p className="mt-[0.1875rem] text-[0.8125rem] text-body">
-                Every supplier's catalogue in one place. Open a supplier to see
-                only what they sell.
-              </p>
-            </div>
-          )}
+    <PageContent>
+      {standing ? (
+        <ShopHead
+          supplier={standing}
+          offering={offering}
+          onBack={() => shop.close()}
+        />
+      ) : (
+        <PageHeader
+          title="Sourcing"
+          sub="Every supplier's catalogue in one place. Open a supplier to see only what they sell."
+        />
+      )}
 
+      {/* The order book's shape: what is on the glass at the left, what
+          narrows it docked at the right where there is room for it. A catalogue
+          is browsed rather than queried, so the panel matters MORE here than on
+          a table — the facets are how a buyer discovers that the thing they
+          are looking for is filed under a division they had not thought of.
+          Below 1440 it is the same model, reachable from the omnibox. */}
+      <div className="grid min-w-0 items-start gap-5 min-[1440px]:grid-cols-[minmax(0,1fr)_16rem]">
+        {/* `@container` on the column the cards are laid out in, not on the
+            page: this column's width is whatever the sidebar and the panel
+            leave it, and a `md:` breakpoint reading the VIEWPORT would put four
+            cards in the space for three. */}
+        <div className="@container flex min-w-0 flex-col">
           {/* One box for both questions. Searching and filtering were two
               controls in two corners — a pill across the top and a 212px rail
               down the left — and they are one thought: "kaus, kidswear, not
@@ -431,11 +442,16 @@ export function Sourcing() {
                 ? `Search in ${standing.name}`
                 : "Search every supplier's catalogue, or filter"
             }
-            className="mb-4"
+            className="mb-3"
           />
 
-          <div className="mb-[1.125rem] flex items-center justify-between gap-3">
-            <span className="text-[0.84375rem] text-body">
+          {/* One line the width of the grid, carrying everything that acts on
+              it — the same line the order book and the supplier book wear, and
+              in the same order: what is on screen at the left, how it is
+              ordered and saved in the middle, what creates and what collects at
+              the right. */}
+          <div className="mb-[1.125rem] flex flex-wrap items-center gap-1.5">
+            <span className="mr-auto text-[0.84375rem] text-body">
               <b className="font-medium text-ink">{count(rows.length)}</b>{" "}
               {filtered || standing
                 ? catalogue.hasNextPage
@@ -445,38 +461,21 @@ export function Sourcing() {
                     : "items match"
                 : `of ${count(searchable)} shown`}
             </span>
-            <div className="ml-auto flex items-center gap-1">
-              {/* In the app's own language. These four read Indonesian while
-                  the heading above them, the filter bar beside them and every
-                  other control on the screen read English — one screen
-                  speaking two languages is a screen somebody stopped halfway
-                  through. */}
-              <span className="mr-1 text-[0.71875rem] text-mute">Sort</span>
-              {(
-                [
-                  [undefined, "Best match"],
-                  ["newest", "Newest"],
-                  ["price_low", "Price low"],
-                  ["price_high", "Price high"],
-                ] as const
-              ).map(([value, labelText]) => (
-                <button
-                  key={labelText}
-                  type="button"
-                  onClick={() =>
-                    value === undefined ? sort.close() : sort.open(value)
-                  }
-                  className={cn(
-                    "h-8 rounded-full px-3 text-[0.78125rem] font-medium transition-colors",
-                    (sort.value ?? undefined) === value
-                      ? "bg-ink text-white"
-                      : "text-body hover:bg-soft-2 hover:text-ink"
-                  )}
-                >
-                  {labelText}
-                </button>
-              ))}
-            </div>
+            {/* Four pills in a row became one menu, because the row was this
+                screen's own invention: every other list in the module names
+                its order from a menu with the same trigger, and four buttons
+                sitting open said that choosing an order is four times as
+                important here as it is next door. */}
+            <ChoiceMenu
+              heading="Sort by"
+              value={sort.value ?? null}
+              options={SORTS}
+              onChange={(next) =>
+                next === null ? sort.close() : sort.open(next)
+              }
+            />
+            <span aria-hidden className="mx-1 h-5 w-px bg-hairline" />
+            <ViewPicker model={filters} id="sourcing" all="Everything" />
             <Button onClick={() => adding.open(true)}>
               <Plus />
               Add item
@@ -545,6 +544,14 @@ export function Sourcing() {
               ),
           })}
         </div>
+
+        <DockedFilters
+          model={{ ...filters, fields: counted }}
+          kpis={catalogueKpis(searchable, facets)}
+          id="sourcing"
+          subject="Supplier item"
+          className="hidden min-[1440px]:flex"
+        />
       </div>
 
       <ItemSheet
@@ -562,8 +569,40 @@ export function Sourcing() {
         onClose={cart.close}
         onReopen={() => cart.open(true)}
       />
-    </div>
+    </PageContent>
   )
+}
+
+/// The four orders this catalogue can be read in.
+///
+/// `null` is relevance: the absence of a sort rather than a value, so the plain
+/// URL is the plain catalogue and there is one spelling of "no order chosen".
+const SORTS = [
+  { value: null, label: "Best match" },
+  { value: "newest", label: "Newest" },
+  { value: "price_low", label: "Price low" },
+  { value: "price_high", label: "Price high" },
+]
+
+/// Two figures about the catalogue being browsed, above the controls that
+/// narrow it.
+///
+/// Both are the server's own, counted over everything the SEARCH matches and
+/// deliberately not over the current selection — the same numbers the facet
+/// lists are drawn from, so a tile and the rows under it cannot disagree.
+function catalogueKpis(
+  searchable: number,
+  facets: SourcingPage["facets"] | undefined
+) {
+  if (facets === undefined) return undefined
+  return [
+    { label: "Items", value: count(searchable) },
+    {
+      label: "Suppliers",
+      value: count(facets.suppliers.length),
+      note: "Suppliers offering something the search matches.",
+    },
+  ]
 }
 
 /// One product, as a buyer sees it before they know they want it.

@@ -52,7 +52,9 @@
 //!   posted payments only, and `allocated_minor` is what tells a screen why a
 //!   bill with an outstanding balance still will not take another allocation.
 
+use super::payables::PayableFacet;
 use super::poster::{post, PostingIntent, PostingLine};
+use super::{decode_cursor, encode_cursor};
 use crate::cloud::application::AppError;
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
@@ -126,7 +128,7 @@ pub struct AllocateToBill {
 pub struct RecordPaymentRequest {
     pub site_id: String,
     pub payment_date: NaiveDate,
-    /// `TRANSFER`, `CASH`, `CHEQUE`, `GIRO` or `OTHER`.
+    /// `TRANSFER`, `CASH`, `GIRO` or `OTHER`.
     pub method: String,
     /// One of `bank_giro`, `bank_savings`, `cash`, `petty_cash`.
     pub account_key: String,
@@ -140,6 +142,86 @@ pub struct RecordPaymentRequest {
     pub reference: Option<String>,
     pub note: Option<String>,
     pub allocations: Vec<AllocateToBill>,
+}
+
+// ---------------------------------------------------------------------------
+// The payment register: searched, filtered, sorted and paged
+// ---------------------------------------------------------------------------
+//
+// The same envelope the bill list answers in, which is the one `money_overview`
+// established. Three lists, one shape, one hook in the browser — see the note
+// above `PayableFacet` in `payables`.
+
+/// The two things a payment register is narrowed by that are worth counting.
+///
+/// Method as well as status, because they answer different questions and both
+/// get asked: status is "what still has to be booked", method is "what left by
+/// giro this month". Neither list runs past six values, which is what makes
+/// them facets rather than search boxes — `supplier` is a filter here too and
+/// is deliberately not counted.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PaymentFacets {
+    pub statuses: Vec<PayableFacet>,
+    pub methods: Vec<PayableFacet>,
+}
+
+/// A page of supplier payments, and what the whole matched set comes to.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PaymentPage {
+    /// This page, each row with its allocations attached — one extra query for
+    /// the page rather than one per row.
+    pub rows: Vec<SupplierPayment>,
+    /// Opaque. Pass it back as `cursor` for the next page; absent means this
+    /// was the last one, and always absent when the caller sent no `limit`.
+    /// See `BillPage::next_cursor`, which makes the argument in full.
+    pub next_cursor: Option<String>,
+    /// Every payment the search and filters match, not just this page.
+    pub total: i64,
+    /// What those payments come to, added HERE and not in the browser: a paged
+    /// list summed on the client gives a figure that grows while somebody
+    /// scrolls.
+    ///
+    /// The sum is over the payments, not over their allocations. A payment
+    /// filtered to one supplier is still counted at its full value, because
+    /// what left the bank is what left the bank — a bank line settling two
+    /// suppliers does not become two smaller bank lines because a reader
+    /// narrowed to one of them.
+    pub total_minor: i64,
+    pub facets: PaymentFacets,
+}
+
+/// What a caller is asking the payment register for.
+#[derive(Clone, Debug, Default)]
+pub struct PaymentScope {
+    /// Free text, tried against the payment number and the reference — the
+    /// number this system gave it, and the number the bank did. Somebody
+    /// holding a bank statement has the second and not the first.
+    pub needle: Option<String>,
+    /// Empty means every status. Passed through unvalidated, for the reason
+    /// given on `BillScope::statuses`.
+    pub statuses: Vec<String>,
+    pub sites: Vec<String>,
+    /// Who was paid. It lives on the allocations, not on the payment: one bank
+    /// line settling two suppliers is an ordinary Friday, so a payment has no
+    /// supplier of its own and this is an EXISTS rather than a column.
+    pub suppliers: Vec<String>,
+    /// `date`, `total` or `number`. Anything else — including nothing — is the
+    /// house order, newest first. A closed set named here rather than a column
+    /// name taken from the caller; see `BillScope::sort`.
+    pub sort: Option<String>,
+    pub desc: bool,
+    pub cursor: Option<String>,
+    /// Absent asks for everything, unpaged.
+    pub limit: Option<i64>,
+}
+
+/// Where the previous page stopped — as a ROW, not as a position. The
+/// payment's own id, whatever the list is sorted by; see `BillCursor`.
+#[derive(Serialize, Deserialize)]
+struct PaymentCursor {
+    payment_id: Uuid,
 }
 
 const PAYMENT_COLUMNS: &str = "p.payment_id, p.payment_number, p.site_id, p.payment_date,
@@ -232,40 +314,216 @@ async fn attach_allocations(
     Ok(())
 }
 
-/// `supplier` filters by who was paid, which lives on the allocations rather
-/// than on the payment: a payment is a bank line, and one bank line settling
-/// two suppliers is a thing that happens.
-pub async fn list_payments(
-    pool: &PgPool,
-    status: Option<&str>,
-    site_id: Option<&str>,
-    supplier_id: Option<&str>,
-    limit: i64,
-) -> Result<Vec<SupplierPayment>, AppError> {
-    let sql = format!(
+/// One payment row, defined once — the page query and the facet query both
+/// read it, so the counts beside the filters count exactly what the page can
+/// show. See `payables::bill_rows`, which explains the arrangement at length.
+///
+/// Binds: `$1` the search pattern, or NULL for no search.
+///
+/// It stops at the SEARCH. Status, site and supplier are applied outside it.
+fn payment_rows() -> String {
+    format!(
         "SELECT {PAYMENT_COLUMNS} {PAYMENT_FROM}
-          WHERE ($1::text IS NULL OR p.status = $1)
-            AND ($2::text IS NULL OR p.site_id = $2)
-            AND ($3::text IS NULL OR EXISTS (
-                    SELECT 1 FROM supplier_payment_allocation al
-                      JOIN supplier_invoice i USING (invoice_id)
-                     WHERE al.payment_id = p.payment_id AND i.supplier_id = $3))
-          ORDER BY p.payment_date DESC, p.payment_number DESC
-          LIMIT $4"
+          -- Our number and the bank's. `reference` is what somebody holding a
+          -- statement actually has in front of them, and it is the reason this
+          -- search exists at all.
+          WHERE ($1::text IS NULL
+                 OR p.payment_number ILIKE $1
+                 OR p.reference ILIKE $1)"
+    )
+}
+
+/// The status, site and supplier filters, written once for both queries.
+///
+/// The supplier clause is an EXISTS over the allocations rather than a column
+/// comparison, because a payment has no supplier of its own — see
+/// `PaymentScope::suppliers`. It reads `payment_id` off the searched row
+/// rather than off `supplier_payment`, because by the time this clause runs
+/// the table is no longer in scope.
+const PAYMENT_FILTERS: &str = "
+    ($2::text[] IS NULL OR status = ANY($2))
+    AND ($3::text[] IS NULL OR site_id = ANY($3))
+    AND ($4::text[] IS NULL OR EXISTS (
+            SELECT 1 FROM supplier_payment_allocation al
+              JOIN supplier_invoice i USING (invoice_id)
+             WHERE al.payment_id = searched.payment_id
+               AND i.supplier_id = ANY($4)))
+";
+
+/// Supplier payments: a page of them, how many there are, and what they come
+/// to.
+///
+/// The shape is `payables::bill_page`'s, which is `money_overview`'s. What
+/// differs is only what a payment is: the search is over the two numbers, and
+/// the facets count the method as well as the status.
+pub async fn payment_page(pool: &PgPool, scope: PaymentScope) -> Result<PaymentPage, AppError> {
+    // A blank search is not a search: `Some("")` compiles to `ILIKE '%%'`,
+    // which matches everything and costs a scan to say so.
+    let needle = scope
+        .needle
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(|text| format!("%{text}%"));
+    let statuses = (!scope.statuses.is_empty()).then(|| scope.statuses.clone());
+    let sites = (!scope.sites.is_empty()).then(|| scope.sites.clone());
+    let suppliers = (!scope.suppliers.is_empty()).then(|| scope.suppliers.clone());
+
+    // Every order ends in `payment_id`, so no two rows compare equal and the
+    // keyset can neither repeat nor lose a row that ties. `ORDER BY` takes
+    // directions and a row expression does not, which is why the same order is
+    // spelled twice below.
+    let (lead, descending): (&str, bool) = match scope.sort.as_deref() {
+        Some("date") => ("payment_date, payment_number", scope.desc),
+        Some("total") => ("total_minor", scope.desc),
+        Some("number") => ("payment_number", scope.desc),
+        // The house order, and the one this endpoint has always answered in:
+        // the most recent payment first. `dir` is not read here.
+        _ => ("payment_date, payment_number", true),
+    };
+    let cols = format!("{lead}, payment_id");
+    let dir = if descending { "DESC" } else { "ASC" };
+    let order = format!(
+        "{} {dir}, payment_id {dir}",
+        lead.replace(", ", &format!(" {dir}, "))
+    );
+    let seek = if descending { "<" } else { ">" };
+
+    let cursor: Option<PaymentCursor> = scope.cursor.as_deref().map(decode_cursor).transpose()?;
+    // 200 whatever a caller asks for; a client asking for ten thousand has
+    // decided this is a bulk export, and it is not one.
+    let limit = scope.limit.map(|value| value.clamp(1, 200));
+
+    let rows_sql = payment_rows();
+    // `NOT MATERIALIZED`: `kept` is referenced twice — as the page and
+    // inside the seek — and two references makes PostgreSQL materialise a
+    // CTE, which is an optimisation fence the `ORDER BY … LIMIT` cannot be
+    // pushed through. Materialised, this reads the whole table and sorts it
+    // to hand back one page; inlined, it seeks the index. See
+    // `postgres::audit::list_audit`, where the difference was measured.
+    let sql = format!(
+        "WITH searched AS NOT MATERIALIZED ({rows_sql}),
+              kept AS NOT MATERIALIZED (
+             SELECT * FROM searched WHERE {PAYMENT_FILTERS}
+         )
+         SELECT * FROM kept
+          WHERE $5::uuid IS NULL
+             OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE payment_id = $5)
+          ORDER BY {order}
+          LIMIT $6"
     );
     let rows = sqlx::query(&sql)
-        .bind(status)
-        .bind(site_id)
-        .bind(supplier_id)
-        .bind(limit.clamp(1, 500))
+        .bind(&needle)
+        .bind(&statuses)
+        .bind(&sites)
+        .bind(&suppliers)
+        .bind(cursor.as_ref().map(|c| c.payment_id))
+        // No limit means no limit, which is what `NULL` means to `LIMIT`.
+        .bind(limit)
         .fetch_all(pool)
         .await?;
+
+    let next_cursor = match limit {
+        // Unpaged: there is no next page by construction.
+        None => None,
+        Some(limit) if (rows.len() as i64) < limit => None,
+        Some(_) => match rows.last() {
+            Some(row) => Some(encode_cursor(&PaymentCursor {
+                payment_id: row.try_get("payment_id")?,
+            })?),
+            None => None,
+        },
+    };
+
     let mut payments: Vec<SupplierPayment> = rows
         .iter()
         .map(to_payment)
         .collect::<Result<_, AppError>>()?;
     attach_allocations(pool, &mut payments).await?;
-    Ok(payments)
+
+    let (total, total_minor, facets) =
+        payment_facets(pool, needle.as_deref(), &statuses, &sites, &suppliers).await?;
+    Ok(PaymentPage {
+        rows: payments,
+        next_cursor,
+        total,
+        total_minor,
+        facets,
+    })
+}
+
+/// How many payments there are, what they come to, and how they split.
+///
+/// Two scopes, deliberately: the per-value counts read the SEARCHED set so
+/// that "GIRO 14" means "there are 14 giro payments" rather than "14 of the
+/// ones you already narrowed to giro", while the total and the sum read the
+/// FILTERED set because they describe the list on screen. One number serving
+/// both is how a page of 20 rows ends up under a heading that says 96.
+async fn payment_facets(
+    pool: &PgPool,
+    needle: Option<&str>,
+    statuses: &Option<Vec<String>>,
+    sites: &Option<Vec<String>>,
+    suppliers: &Option<Vec<String>>,
+) -> Result<(i64, i64, PaymentFacets), AppError> {
+    let rows_sql = payment_rows();
+    let sql = format!(
+        "WITH searched AS ({rows_sql}), kept AS (
+             SELECT * FROM searched WHERE {PAYMENT_FILTERS}
+         )
+         SELECT 'status' AS kind, status AS value, COUNT(*)::bigint AS n
+           FROM searched GROUP BY status
+          UNION ALL
+         SELECT 'method', method, COUNT(*)::bigint FROM searched GROUP BY method
+          UNION ALL
+         SELECT 'all', '', COUNT(*)::bigint FROM kept
+          UNION ALL
+         SELECT 'sum', '', COALESCE(SUM(total_minor), 0)::bigint FROM kept"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(needle)
+        .bind(statuses)
+        .bind(sites)
+        .bind(suppliers)
+        .fetch_all(pool)
+        .await?;
+
+    let mut total = 0i64;
+    let mut total_minor = 0i64;
+    let mut status_facets = Vec::new();
+    let mut method_facets = Vec::new();
+    for row in &rows {
+        let kind: String = row.try_get("kind")?;
+        let value: String = row.try_get("value")?;
+        let n: i64 = row.try_get("n")?;
+        match kind.as_str() {
+            "status" => status_facets.push(PayableFacet {
+                value,
+                label: None,
+                count: n,
+            }),
+            "method" => method_facets.push(PayableFacet {
+                value,
+                label: None,
+                count: n,
+            }),
+            "sum" => total_minor = n,
+            _ => total = n,
+        }
+    }
+    // Biggest first, ties on the name so the panel does not reshuffle between
+    // calls under somebody's cursor.
+    for list in [&mut status_facets, &mut method_facets] {
+        list.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.value.cmp(&b.value)));
+    }
+    Ok((
+        total,
+        total_minor,
+        PaymentFacets {
+            statuses: status_facets,
+            methods: method_facets,
+        },
+    ))
 }
 
 pub async fn payment(pool: &PgPool, payment_id: Uuid) -> Result<SupplierPayment, AppError> {
@@ -301,7 +559,12 @@ pub async fn payment(pool: &PgPool, payment_id: Uuid) -> Result<SupplierPayment,
 /// the act is a manual journal entry, which names account codes directly and so
 /// is not bounded by this list.
 const MONEY_KEYS: [&str; 4] = ["bank_giro", "bank_savings", "cash", "petty_cash"];
-const METHODS: [&str; 5] = ["TRANSFER", "CASH", "CHEQUE", "GIRO", "OTHER"];
+/// Four, not five: 0220 dropped CHEQUE. The client's chart has no cheque
+/// account anywhere in it, and the two words do not mean the same thing — a cek
+/// is payable the day it is presented, a bilyet giro not before its effective
+/// date. Leaving a value that can only be picked by mistake, next to a GIRO that
+/// is about to carry a lifecycle, is how the wrong instrument gets recorded.
+const METHODS: [&str; 4] = ["TRANSFER", "CASH", "GIRO", "OTHER"];
 
 /// Record a payment. It is not in the books yet — posting is a separate act,
 /// for the same reason a bill's is: somebody keys it, somebody else checks it

@@ -1,5 +1,13 @@
 import { useQuery } from "@tanstack/react-query"
-import { Banknote, CreditCard, QrCode, Ticket, Wallet, X } from "lucide-react"
+import {
+  Banknote,
+  CreditCard,
+  Gift,
+  QrCode,
+  Ticket,
+  Wallet,
+  X,
+} from "lucide-react"
 import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
@@ -14,6 +22,7 @@ import { Banner, EmptyState } from "@/components/ui/states"
 import {
   addCoupon,
   clearBasket,
+  groupBasket,
   quoteBasket,
   removeCoupon,
   setCustomer,
@@ -26,8 +35,30 @@ import { useIdentity } from "@/lib/session"
 import type { PaymentMethod, SaleTender } from "@itulah/contract"
 import { money, parseMoneyToMinor } from "@itulah/contract/money"
 
+/// The four of the wire's five methods a counter can actually take.
+///
+/// VOUCHER is the one left out, and it is left out by the TYPE rather than by
+/// a comment, because the alternative is a picker that can build a tender the
+/// node is obliged to refuse. A voucher tender is only valid carrying
+/// `voucher_authorization_id` — the hold the CENTRE granted against that card —
+/// and `validate_tenders` in `backend/src/tender.rs` refuses a voucher without
+/// one (`VoucherNotAuthorised`) and refuses the field on every other method
+/// (`AuthorisationOnWrongTender`). The hold is what stops two shops settling
+/// two baskets against one card, so it cannot be minted locally and cannot be
+/// invented: it comes from `POST /api/v1/commercial/vouchers/{code}/authorize`,
+/// which locks the row and keys the hold on (voucher, checkout).
+///
+/// That route is on the CLOUD. This app addresses only the shop's own Edge —
+/// which is what keeps the till selling with the line to head office down —
+/// and the Edge has no voucher route and relays nothing to the one that does.
+/// So there is nothing honest to put in that field at this counter, and
+/// `Exclude` makes the tender unbuildable rather than merely discouraged. The
+/// day the node learns to hold a voucher against a checkout, this line is the
+/// one to widen.
+type TakeableMethod = Exclude<PaymentMethod, "VOUCHER">
+
 const METHODS: readonly {
-  readonly value: PaymentMethod
+  readonly value: TakeableMethod
   readonly label: string
 }[] = [
   { value: "CASH", label: "Cash" },
@@ -36,10 +67,17 @@ const METHODS: readonly {
   { value: "OTHER", label: "Other" },
 ]
 
+/// One glyph per method the wire knows, VOUCHER included even though the picker
+/// offers four: the fifth is drawn beside them, visibly shut, because "the
+/// button is missing" and "this till cannot do that" look identical at a
+/// counter and only one of them is true. A gift rather than the ticket that
+/// marks a coupon, which is a different thing entirely — a coupon takes money
+/// off the basket, a voucher pays for it.
 const GLYPH: Record<PaymentMethod, React.ReactNode> = {
   CASH: <Banknote />,
   CARD: <CreditCard />,
   QRIS: <QrCode />,
+  VOUCHER: <Gift />,
   OTHER: <Wallet />,
 }
 
@@ -66,8 +104,9 @@ export function Tender() {
   const currency = catalogue.data?.currency ?? "IDR"
 
   const quote = quoteBasket(basket.lines)
+  const groups = groupBasket(basket.lines)
   const [tenders, setTenders] = useState<readonly SaleTender[]>([])
-  const [method, setMethod] = useState<PaymentMethod>("CASH")
+  const [method, setMethod] = useState<TakeableMethod>("CASH")
   const [digits, setDigits] = useState("")
   const [reference, setReference] = useState("")
   const [coupon, setCoupon] = useState("")
@@ -119,6 +158,12 @@ export function Tender() {
         method,
         amount_minor: keyed,
         reference: reference.trim() === "" ? null : reference.trim(),
+        // Null, and null on every tender this screen can build. The node reads
+        // a hold on a non-voucher tender as a basket whose author believed a
+        // voucher was being taken and refuses the sale outright, so this is not
+        // a harmless spare field — and `method` cannot be VOUCHER here, because
+        // `TakeableMethod` does not contain it.
+        voucher_authorization_id: null,
       },
     ])
     setDigits("")
@@ -164,19 +209,96 @@ export function Tender() {
     )
   }
 
+  /// The figure, the list of what has been taken, and the one button. Each is
+  /// written once and placed where the width has room for it: stacked in the
+  /// phone's single column, or in the right-hand rail of a counter — the same
+  /// column the basket screen keeps its money in, so the number a cashier
+  /// watches does not move across the screen when payment starts.
+  const headline = (
+    <BigNumber
+      label={outstanding > 0 ? "Still owed" : "Change"}
+      value={money(outstanding > 0 ? outstanding : change, currency)}
+      tone={outstanding > 0 ? "ink" : "ok"}
+      sub={`${quote.units} ${quote.units === 1 ? "item" : "items"} · ${money(quote.totalMinor, currency)}${
+        quote.incomplete ? " at least" : ""
+      }`}
+    />
+  )
+
+  const cta = (
+    <Button
+      variant="primary"
+      size="lg"
+      block
+      disabled={!settled}
+      onClick={complete}
+    >
+      {settled ? (
+        <>
+          Complete sale
+          {change > 0 && (
+            <Pill tone="ok" className="ml-1">
+              {money(change, currency)} change
+            </Pill>
+          )}
+        </>
+      ) : (
+        `${money(outstanding, currency)} still to take`
+      )}
+    </Button>
+  )
+
+  const taken = tenders.length > 0 && (
+    <Section title="Taken">
+      <CardList>
+        {tenders.map((one, index) => (
+          <div
+            key={index}
+            className="flex items-center gap-3 rounded-card border border-hairline bg-canvas px-3 py-2.5 shadow-soft"
+          >
+            <span className="grid size-[1.6875rem] shrink-0 place-items-center rounded-inner border border-hairline-2 bg-canvas text-line-ico [&_svg]:size-[0.9375rem]">
+              {GLYPH[one.method]}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="text-card-title font-semibold text-ink">
+                {money(one.amount_minor, currency)}
+              </div>
+              <div className="truncate text-meta text-mute">
+                {one.method === "CASH" ? "Cash" : (one.reference ?? one.method)}
+              </div>
+            </div>
+            <Button
+              size="icon"
+              variant="quiet"
+              aria-label="Take this payment back off"
+              onClick={() => setTenders(tenders.filter((_, at) => at !== index))}
+            >
+              <X />
+            </Button>
+          </div>
+        ))}
+      </CardList>
+
+      <TotalsLadder
+        className="mt-3"
+        rows={[
+          { label: "Basket", value: money(quote.totalMinor, currency) },
+          { label: "Paid", value: money(paid, currency) },
+        ]}
+        total={{
+          label: outstanding > 0 ? "Still owed" : "Change",
+          value: money(outstanding > 0 ? outstanding : change, currency),
+        }}
+      />
+    </Section>
+  )
+
   return (
     <>
-      <Screen foot="none">
-        <div className="py-4">
-          <BigNumber
-            label={outstanding > 0 ? "Still owed" : "Change"}
-            value={money(outstanding > 0 ? outstanding : change, currency)}
-            tone={outstanding > 0 ? "ink" : "ok"}
-            sub={`${quote.units} ${quote.units === 1 ? "item" : "items"} · ${money(quote.totalMinor, currency)}${
-              quote.incomplete ? " at least" : ""
-            }`}
-          />
-        </div>
+      <Screen counter foot="none" className="lg:pb-8">
+        <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)] lg:items-start lg:gap-7 lg:pt-4">
+        <div>
+        <div className="py-4 lg:hidden">{headline}</div>
 
         {quote.incomplete && (
           <Banner tone="warn" className="mb-4">
@@ -195,6 +317,24 @@ export function Tender() {
             }}
             className="mb-3"
           />
+
+          {/* The fifth method, shown and shut — see `TakeableMethod` for why it
+              cannot be taken here. Drawn rather than omitted because a cashier
+              with a gift card in their hand is owed the till's answer, and an
+              option that was simply never rendered reads as one they failed to
+              find. Muted and unpressable: there is no state in which pressing
+              it could do anything but produce a sale the node refuses. */}
+          <div className="mb-3 flex items-center gap-2.5 rounded-inner bg-soft px-3.5 py-2.5">
+            <span className="grid size-[1.6875rem] shrink-0 place-items-center rounded-inner border border-hairline-2 bg-canvas text-mute [&_svg]:size-[0.9375rem]">
+              {GLYPH.VOUCHER}
+            </span>
+            <span className="text-meta text-mute">
+              A voucher is held at the centre before it is spent, so that two
+              shops cannot settle against one card. This till talks only to the
+              shop&rsquo;s own node and cannot ask for that hold, so it cannot
+              take one — ring the basket on another tender.
+            </span>
+          </div>
 
           <div className="mb-3 flex h-14 items-center justify-between rounded-inner bg-soft px-4">
             <span className="text-meta text-mute">Amount</span>
@@ -269,54 +409,7 @@ export function Tender() {
           </Button>
         </Section>
 
-        {tenders.length > 0 && (
-          <Section title="Taken">
-            <CardList>
-              {tenders.map((one, index) => (
-                <div
-                  key={index}
-                  className="flex items-center gap-3 rounded-card border border-hairline bg-canvas px-3 py-2.5 shadow-soft"
-                >
-                  <span className="grid size-[1.6875rem] shrink-0 place-items-center rounded-[0.5rem] border border-hairline bg-canvas text-line-ico [&_svg]:size-[0.9375rem]">
-                    {GLYPH[one.method]}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-card-title font-semibold text-ink">
-                      {money(one.amount_minor, currency)}
-                    </div>
-                    <div className="truncate text-meta text-mute">
-                      {one.method === "CASH"
-                        ? "Cash"
-                        : (one.reference ?? one.method)}
-                    </div>
-                  </div>
-                  <Button
-                    size="icon"
-                    variant="quiet"
-                    aria-label="Take this payment back off"
-                    onClick={() =>
-                      setTenders(tenders.filter((_, at) => at !== index))
-                    }
-                  >
-                    <X />
-                  </Button>
-                </div>
-              ))}
-            </CardList>
-
-            <TotalsLadder
-              className="mt-3"
-              rows={[
-                { label: "Basket", value: money(quote.totalMinor, currency) },
-                { label: "Paid", value: money(paid, currency) },
-              ]}
-              total={{
-                label: outstanding > 0 ? "Still owed" : "Change",
-                value: money(outstanding > 0 ? outstanding : change, currency),
-              }}
-            />
-          </Section>
-        )}
+        <div className="lg:hidden">{taken}</div>
 
         <Section title="Codes and customer">
           <div className="flex gap-2.5">
@@ -344,7 +437,7 @@ export function Tender() {
                   key={code}
                   type="button"
                   onClick={() => removeCoupon(code)}
-                  className="pressable flex h-11 items-center gap-2 rounded-full bg-accent-bg px-3.5 font-mono text-id text-accent"
+                  className="pressable flex h-11 items-center gap-2 rounded-inner bg-accent-bg px-3.5 font-mono text-id text-accent"
                 >
                   {code}
                   <X className="size-3.5" />
@@ -392,30 +485,48 @@ export function Tender() {
             will say what each one took off — and, if one was refused, why.
           </Banner>
         )}
+        </div>
+
+        {/* The rail. Only a counter has the width for it, and only a counter
+            needs it: on a phone the basket is one tap behind this screen, but
+            here the screen it came from is gone, and "what am I taking money
+            for" must not cost a cancelled payment to answer. */}
+        <div className="hidden lg:sticky lg:top-4 lg:block">
+          {headline}
+
+          <Section title="On the counter" className="mt-4">
+            <div className="overflow-hidden rounded-card border border-hairline bg-canvas shadow-soft">
+              {groups.map((group) => (
+                <div
+                  key={group.sku_code}
+                  className="flex items-baseline justify-between gap-3 border-b border-hairline px-3 py-2 last:border-b-0"
+                >
+                  <span className="min-w-0 truncate text-meta text-body">
+                    <span className="font-medium text-ink tabular-nums">
+                      {group.quantity}×
+                    </span>{" "}
+                    {group.name ?? group.sku_code}
+                  </span>
+                  <span className="shrink-0 text-meta text-body tabular-nums">
+                    {group.line_total_minor === null
+                      ? "—"
+                      : money(group.line_total_minor, currency)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </Section>
+
+          {taken}
+
+          <div className="sticky bottom-4 pt-1">{cta}</div>
+        </div>
+        </div>
       </Screen>
 
-      <ActionBar>
-        <Button
-          variant="dark"
-          size="lg"
-          block
-          disabled={!settled}
-          onClick={complete}
-        >
-          {settled ? (
-            <>
-              Complete sale
-              {change > 0 && (
-                <Pill tone="ok" className="ml-1">
-                  {money(change, currency)} change
-                </Pill>
-              )}
-            </>
-          ) : (
-            `${money(outstanding, currency)} still to take`
-          )}
-        </Button>
-      </ActionBar>
+      <div className="lg:hidden">
+        <ActionBar>{cta}</ActionBar>
+      </div>
     </>
   )
 }

@@ -11,6 +11,7 @@ use crate::cloud::application::{
 use crate::cloud::domain::Role;
 use crate::security;
 use chrono::{DateTime, Duration, Utc};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::{PgPool, Row};
 use std::str::FromStr;
@@ -335,48 +336,338 @@ pub async fn create_user(
 /// `employee_status` is the employment record's, not the account's: an account
 /// that is `active` while its employee reads TERMINATED is a live credential
 /// for somebody who has left, and it is the row worth putting at the top.
-pub async fn list_users(pool: &PgPool) -> Result<Value, AppError> {
-    let rows = sqlx::query(
-        "SELECT u.id,u.username,u.display_name,u.role,u.active,u.created_by,
-                u.created_at,u.last_login_at,
-                u.employee_id,e.code AS employee_code,e.status AS employee_status,
-                p.full_name AS employee_name,
-                a.place_id,place.name AS place_name
-         FROM app_user u
-         LEFT JOIN employee e ON e.id = u.employee_id
-         LEFT JOIN employee_profile p ON p.employee_id = e.id
-         LEFT JOIN employee_assignment a
-                ON a.employee_id = e.id AND a.valid_to IS NULL
-         LEFT JOIN org_place place ON place.id = a.place_id
-         ORDER BY u.username",
-    )
+/// One login, as the account console lists it.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct UserRow {
+    pub id: Uuid,
+    pub username: String,
+    pub display_name: String,
+    pub role: String,
+    pub active: bool,
+    pub created_by: String,
+    pub created_at: DateTime<Utc>,
+    /// Null for an account nobody has ever signed in to.
+    pub last_login_at: Option<DateTime<Utc>>,
+    /// Null in all five together: a machine account, or a login HR has not
+    /// finished the paperwork for. The console says which rather than leaving a
+    /// blank column to be read as a bug.
+    pub employee_id: Option<String>,
+    pub employee_code: Option<String>,
+    /// The employment record's status, not the account's. An account that is
+    /// `active` while its employee reads TERMINATED is a live credential for
+    /// somebody who has left, which is the row worth putting at the top.
+    pub employee_status: Option<String>,
+    pub employee_name: Option<String>,
+    pub place_id: Option<String>,
+    pub place_name: Option<String>,
+}
+
+/// One value a filter can take, and how many logins would still be there.
+///
+/// Exact, always. This is an access surface in the same sense
+/// `system/access` is: it answers "who can sign in", and a rough count of that
+/// reads as a fact without being one.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct UserFacet {
+    pub value: String,
+    /// A place's name beside its id. Absent for a role or a state, whose words
+    /// belong to the screen.
+    pub label: Option<String>,
+    pub count: i64,
+}
+
+/// The three things the account list can be narrowed by.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct UserFacets {
+    pub roles: Vec<UserFacet>,
+    /// `ACTIVE` and `DISABLED`. A disabled account is kept rather than deleted
+    /// — usernames are never released — so the count is the only way to see how
+    /// many of them there are.
+    pub states: Vec<UserFacet>,
+    /// Where the person behind each login is posted. Silent about accounts
+    /// posted nowhere: machine accounts and unfinished paperwork are both real,
+    /// but the filter has no spelling for "nowhere" and a count nobody can
+    /// click is worse than no count.
+    pub places: Vec<UserFacet>,
+}
+
+/// A page of logins, and the shape of everything it was drawn from.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct UserList {
+    pub rows: Vec<UserRow>,
+    pub next_cursor: Option<String>,
+    /// Exact. Every login the search and the filters match.
+    pub total: i64,
+    pub facets: UserFacets,
+}
+
+/// What a caller is asking the account list for.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UserScope {
+    /// Free text over the login, the display name, the employee number and the
+    /// colleague's name.
+    ///
+    /// Four columns, and every one of them names a COLLEAGUE rather than a
+    /// customer — the same rule `EmployeeScope::needle` states. The join
+    /// reaches `employee_profile`, which also holds a NIK, a birth date, an
+    /// address and a phone; none of them is searchable here, and `UserRow`
+    /// carries none of them. A search that reached into the profile would let
+    /// somebody confirm a national identity number they already hold without
+    /// ever being granted `people.profile.read`.
+    #[serde(default)]
+    pub q: Option<String>,
+    /// `CASHIER`, `SUPERVISOR` or `ADMIN`.
+    #[serde(default)]
+    pub role: Option<String>,
+    #[serde(default)]
+    pub active: Option<bool>,
+    /// Where the person behind the login is posted.
+    #[serde(default)]
+    pub place_id: Option<String>,
+    /// `username`, `role`, `created` or `last_login`. Anything else is
+    /// `username` rather than a 400, so a stale bookmark still opens.
+    #[serde(default)]
+    pub sort: Option<String>,
+    /// `desc` and nothing else. Absent means ascending — the console is read
+    /// alphabetically.
+    #[serde(default)]
+    pub dir: Option<String>,
+    #[serde(default)]
+    pub cursor: Option<String>,
+    pub limit: Option<i64>,
+}
+
+/// Where the previous page stopped — as a ROW, not a position.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct UserCursor {
+    id: Uuid,
+}
+
+impl UserCursor {
+    fn encode(&self) -> Result<String, AppError> {
+        Ok(hex::encode(serde_json::to_vec(self)?))
+    }
+
+    fn decode(raw: &str) -> Result<Self, AppError> {
+        let bytes = hex::decode(raw).map_err(|_| {
+            AppError::Validation("cursor is not a cursor this server issued".into())
+        })?;
+        serde_json::from_slice(&bytes)
+            .map_err(|_| AppError::Validation("cursor is not a cursor this server issued".into()))
+    }
+}
+
+const USER_DEFAULT_LIMIT: i64 = 200;
+const USER_MAX_LIMIT: i64 = 1_000;
+
+/// One account row, defined once.
+///
+/// Used by the page query and by the facet counts, which is the whole reason it
+/// is a constant: the facets are only honest if they count exactly what the
+/// page can show.
+///
+/// It stops at the SEARCH; the role, state and place filters are applied
+/// outside by each caller, so one definition answers two questions.
+///
+/// `login_key` is the trap this list carries: `last_login_at` is NULL for an
+/// account nobody has ever signed in to, a row comparison against NULL is NULL
+/// rather than true, and paging by it would therefore stop dead at the first
+/// never-used login — which on a console whose job is spotting stale
+/// credentials is exactly the row you were looking for. `-infinity` is the
+/// sentinel, and it also sorts never-used accounts last under a descending
+/// read, where somebody asking "who signed in recently" expects them.
+///
+/// Binds: `$1` the search pattern or NULL.
+const USER_ROWS: &str = "
+    SELECT u.id, u.username, u.display_name, u.role, u.active, u.created_by,
+           u.created_at, u.last_login_at,
+           u.employee_id, e.code AS employee_code, e.status AS employee_status,
+           p.full_name AS employee_name,
+           a.place_id, place.name AS place_name,
+           CASE WHEN u.active THEN 'ACTIVE' ELSE 'DISABLED' END AS state,
+           COALESCE(u.last_login_at, TIMESTAMPTZ '-infinity') AS login_key
+      FROM app_user u
+      LEFT JOIN employee e ON e.id = u.employee_id
+      LEFT JOIN employee_profile p ON p.employee_id = e.id
+      LEFT JOIN employee_assignment a
+             ON a.employee_id = e.id AND a.valid_to IS NULL
+      LEFT JOIN org_place place ON place.id = a.place_id
+     -- A login, a name, a badge number and the name on the badge. Not the
+     -- personal data the profile join happens to reach — see `UserScope::q`.
+     WHERE ($1::text IS NULL
+            OR u.username ILIKE $1
+            OR u.display_name ILIKE $1
+            OR COALESCE(e.code, '') ILIKE $1
+            OR COALESCE(p.full_name, '') ILIKE $1)
+";
+
+/// Every filter, in one place, so the page and the total cannot drift.
+const USER_FILTERS: &str = "
+    WHERE ($2::text IS NULL OR role = $2)
+      AND ($3::bool IS NULL OR active = $3)
+      AND ($4::text IS NULL OR place_id = $4)
+";
+
+/// Every login, one page at a time, beside exactly how many there are.
+///
+/// The employment join is what makes this a console rather than a list of
+/// credentials with nobody behind them: it answers the two questions an
+/// administrator actually opens it with — which of these are people and which
+/// are machines, and which belong to somebody who no longer works here.
+pub async fn list_users(pool: &PgPool, scope: UserScope) -> Result<UserList, AppError> {
+    // A blank search is not a search: `Some("")` compiles to `ILIKE '%%'`,
+    // which matches everything and costs a scan to say so.
+    let needle = scope
+        .q
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| format!("%{value}%"));
+
+    // The sort, and the tie-break that makes it total. Every order ends in the
+    // account id, which is the primary key, so no two rows can compare equal.
+    //
+    // TWO spellings of the same thing, and they are not interchangeable:
+    // `ORDER BY` takes directions, a ROW EXPRESSION does not.
+    let lead = match scope.sort.as_deref() {
+        Some("role") => "role",
+        Some("created") => "created_at",
+        Some("last_login") => "login_key",
+        _ => "username",
+    };
+    let descending = scope.dir.as_deref() == Some("desc");
+    let cols = format!("{lead}, id");
+    let dir = if descending { "DESC" } else { "ASC" };
+    let order = format!("{lead} {dir}, id {dir}");
+    let seek = if descending { "<" } else { ">" };
+
+    let cursor = scope
+        .cursor
+        .as_deref()
+        .map(UserCursor::decode)
+        .transpose()?;
+    let limit = scope
+        .limit
+        .unwrap_or(USER_DEFAULT_LIMIT)
+        .clamp(1, USER_MAX_LIMIT);
+
+    // `NOT MATERIALIZED`: `kept` is referenced twice — as the page and
+    // inside the seek — and two references makes PostgreSQL materialise a
+    // CTE, which is an optimisation fence the `ORDER BY … LIMIT` cannot be
+    // pushed through. Materialised, this reads the whole table and sorts it
+    // to hand back one page; inlined, it seeks the index. See
+    // `postgres::audit::list_audit`, where the difference was measured.
+    let rows = sqlx::query(&format!(
+        "WITH searched AS NOT MATERIALIZED ({USER_ROWS}),
+              kept AS NOT MATERIALIZED (
+             SELECT * FROM searched {USER_FILTERS}
+         )
+         SELECT * FROM kept
+          WHERE $5::uuid IS NULL
+             OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE id = $5)
+          ORDER BY {order}
+          LIMIT $6"
+    ))
+    .bind(&needle)
+    .bind(&scope.role)
+    .bind(scope.active)
+    .bind(&scope.place_id)
+    .bind(cursor.as_ref().map(|one| one.id))
+    .bind(limit)
     .fetch_all(pool)
     .await?;
-    let items: Vec<Value> = rows
-        .into_iter()
+
+    let next_cursor = match rows.last() {
+        Some(row) if rows.len() as i64 == limit => Some(
+            UserCursor {
+                id: row.try_get("id")?,
+            }
+            .encode()?,
+        ),
+        _ => None,
+    };
+
+    let out = rows
+        .iter()
         .map(|row| {
-            json!({
-                "id": row.get::<Uuid,_>("id"),
-                "username": row.get::<String,_>("username"),
-                "display_name": row.get::<String,_>("display_name"),
-                "role": row.get::<String,_>("role"),
-                "active": row.get::<bool,_>("active"),
-                "created_by": row.get::<String,_>("created_by"),
-                "created_at": row.get::<DateTime<Utc>,_>("created_at"),
-                "last_login_at": row.get::<Option<DateTime<Utc>>,_>("last_login_at"),
-                // Null in all five together: a machine account, or a login HR
-                // has not finished the paperwork for. The console says which
-                // rather than leaving a blank column to be read as a bug.
-                "employee_id": row.get::<Option<String>,_>("employee_id"),
-                "employee_code": row.get::<Option<String>,_>("employee_code"),
-                "employee_status": row.get::<Option<String>,_>("employee_status"),
-                "employee_name": row.get::<Option<String>,_>("employee_name"),
-                "place_id": row.get::<Option<String>,_>("place_id"),
-                "place_name": row.get::<Option<String>,_>("place_name"),
+            Ok(UserRow {
+                id: row.try_get("id")?,
+                username: row.try_get("username")?,
+                display_name: row.try_get("display_name")?,
+                role: row.try_get("role")?,
+                active: row.try_get("active")?,
+                created_by: row.try_get("created_by")?,
+                created_at: row.try_get("created_at")?,
+                last_login_at: row.try_get("last_login_at")?,
+                employee_id: row.try_get("employee_id")?,
+                employee_code: row.try_get("employee_code")?,
+                employee_status: row.try_get("employee_status")?,
+                employee_name: row.try_get("employee_name")?,
+                place_id: row.try_get("place_id")?,
+                place_name: row.try_get("place_name")?,
             })
         })
-        .collect();
-    Ok(json!({ "items": items }))
+        .collect::<Result<Vec<_>, AppError>>()?;
+
+    let counted = sqlx::query(&format!(
+        "WITH searched AS ({USER_ROWS}), kept AS (
+             SELECT * FROM searched {USER_FILTERS}
+         )
+         SELECT 'role' AS facet, role AS value, NULL::text AS label,
+                COUNT(*)::bigint AS n
+           FROM searched GROUP BY role
+          UNION ALL
+         SELECT 'state', state, NULL::text, COUNT(*)::bigint
+           FROM searched GROUP BY state
+          UNION ALL
+         SELECT 'place', place_id, place_name, COUNT(*)::bigint
+           FROM searched WHERE place_id IS NOT NULL
+          GROUP BY place_id, place_name
+          UNION ALL
+         SELECT 'all', '', NULL::text, COUNT(*)::bigint FROM kept"
+    ))
+    .bind(&needle)
+    .bind(&scope.role)
+    .bind(scope.active)
+    .bind(&scope.place_id)
+    .fetch_all(pool)
+    .await?;
+
+    let mut total = 0i64;
+    let (mut roles, mut states, mut places) = (Vec::new(), Vec::new(), Vec::new());
+    for row in &counted {
+        let facet: String = row.try_get("facet")?;
+        let one = UserFacet {
+            value: row.try_get("value")?,
+            label: row.try_get("label")?,
+            count: row.try_get("n")?,
+        };
+        match facet.as_str() {
+            "role" => roles.push(one),
+            "state" => states.push(one),
+            "place" => places.push(one),
+            _ => total = one.count,
+        }
+    }
+    for list in [&mut roles, &mut states, &mut places] {
+        list.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.value.cmp(&b.value)));
+    }
+
+    Ok(UserList {
+        rows: out,
+        next_cursor,
+        total,
+        facets: UserFacets {
+            roles,
+            states,
+            places,
+        },
+    })
 }
 
 /// Promote or demote somebody at Cloud.

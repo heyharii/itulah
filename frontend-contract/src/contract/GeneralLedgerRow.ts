@@ -3,9 +3,34 @@
 /**
  * One movement in an account's own ledger.
  */
-export type GeneralLedgerRow = { entry_id: string, entry_number: string, posting_date: string, source_kind: string, source_id: string | null, site_id: string, memo: string | null, debit_minor: number, credit_minor: number, 
+export type GeneralLedgerRow = { 
+/**
+ * The JOURNAL LINE's own id, and not the entry's.
+ *
+ * They are different things and the difference is load-bearing here.
+ * Reconciliation is keyed on the line — `bank_line_match.journal_line_id`
+ * — because a bank statement agrees with one side of an entry, not with
+ * the entry. A payment carries only `journal_entry_id`, which is why the
+ * payments list cannot say whether a payment has cleared and this list
+ * can. Sending the line id is what makes `reconciled` below an answer
+ * rather than a guess.
+ */
+line_id: string, entry_id: string, entry_number: string, posting_date: string, source_kind: string, source_id: string | null, site_id: string, memo: string | null, debit_minor: number, credit_minor: number, 
 /**
  * The balance after this line. Computed by a window function on every
  * read, so it cannot disagree with the lines above it.
+ *
+ * **Over the whole window, not over the page and not over the search.**
+ * Two consecutive rows on a narrowed page will show a gap; the gap is the
+ * movements the narrowing hid.
  */
-running_minor: number, };
+running_minor: number, 
+/**
+ * Whether a bank line has been agreed against this one.
+ *
+ * Only ever true for an account a statement was imported against — see
+ * `banking::confirm_match`. On every other account it is false and means
+ * "nothing has agreed with this", which for a sales entry is the ordinary
+ * state and not an exception.
+ */
+reconciled: boolean, };

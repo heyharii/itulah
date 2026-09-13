@@ -91,7 +91,7 @@ export function PricesView() {
     queryFn: ({ signal }) => articlePrices(scope, signal),
   })
 
-  const all = useMemo(() => page.data?.items ?? [], [page.data])
+  const all = useMemo(() => page.data?.rows ?? [], [page.data])
   const divisions = useMemo(
     () => [...new Set(all.map((a) => a.division_code).filter((d): d is string => d !== null))].sort(),
     [all],
@@ -119,7 +119,7 @@ export function PricesView() {
   const shopCount = page.data?.shops.length ?? 0
   // The server prices a bounded number of styles, because the work is styles
   // times shops. Said out loud rather than left to be discovered.
-  const total = page.data?.total_article_count ?? 0
+  const total = page.data?.total ?? 0
   const capped = total > all.length
 
   return (

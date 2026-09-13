@@ -8,11 +8,13 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Field, Input } from "@/components/ui/field"
+import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { ButtonGroup } from "@/components/ui/segmented"
+import { ButtonGroup, Toolbar } from "@/components/ui/segmented"
 import { Banner, EmptyState } from "@/components/ui/states"
+import { useFilters } from "@/lib/filters"
 import { day } from "@/lib/format"
 import {
   awaitingOvertime,
@@ -65,6 +67,9 @@ const columns: ColumnDef<TableSetup, LeaveRequestView>[] = [
     accessorFn: (row) => row.employee_id,
     header: "Employee",
     size: 200,
+    // No filter: this is a uuid, not a name. Narrowing a queue by one would
+    // mean already knowing whose request you were looking for, which is the
+    // opposite of what a queue is read for.
     cell: ({ row }) => (
       <span className="font-mono text-id text-body">
         {row.original.employee_id}
@@ -75,12 +80,20 @@ const columns: ColumnDef<TableSetup, LeaveRequestView>[] = [
     accessorKey: "leave_type_name",
     header: "Kind",
     size: 180,
+    /// The leave types actually waiting, faceted off the queue: five minutes
+    /// and a list of things is exactly the situation where "just the sick
+    /// leave" is worth one click.
+    meta: { filter: { kind: "option" } },
   },
   {
     id: "when",
     accessorFn: (row) => row.from_date,
     header: "From",
     size: 130,
+    /// Two date columns filtered separately, and that is the point: "starts
+    /// before Friday" and "ends after Friday" together are the request that
+    /// spans the day the shop is short-handed.
+    meta: { filter: { kind: "date" } },
     cell: ({ row }) => day(row.original.from_date),
   },
   {
@@ -88,13 +101,14 @@ const columns: ColumnDef<TableSetup, LeaveRequestView>[] = [
     accessorFn: (row) => row.to_date,
     header: "To",
     size: 130,
+    meta: { filter: { kind: "date" } },
     cell: ({ row }) => day(row.original.to_date),
   },
   {
     accessorKey: "chargeable_days",
     header: "Charged",
     size: 110,
-    meta: { align: "right" },
+    meta: { align: "right", filter: { kind: "number", unit: "days" } },
     /// The days actually charged, which is not the length of the span: a *cuti
     /// bersama* inside it is already taken out of the twelve by the calendar,
     /// and charging it again would take the same day off the employee twice.
@@ -105,6 +119,11 @@ const columns: ColumnDef<TableSetup, LeaveRequestView>[] = [
     accessorKey: "place_id",
     header: "Place",
     size: 130,
+    /// Faceted from the queue itself, never from a places list: the server has
+    /// already bounded these rows to the caller's own reach, so the places
+    /// present here are exactly the places they may narrow by — and the ids on
+    /// these rows are the only spelling that matches them.
+    meta: { filter: { kind: "option" } },
   },
 ]
 
@@ -123,17 +142,19 @@ export function Requests() {
 
   const rows = useMemo(() => queue.data ?? [], [queue.data])
 
+  const filters = useFilters(columns)
+
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
         data: rows,
-        columns,
+        columns: filters.columns,
         getRowId: (row: LeaveRequestView) => row.id,
-        state: { sorting },
+        state: { columnFilters: filters.columnFilters, sorting },
         onSortingChange: setSorting,
       }),
-      [rows, sorting]
+      [rows, filters.columns, filters.columnFilters, sorting]
     )
   )
 
@@ -162,6 +183,10 @@ export function Requests() {
 
       <AwaitingConsent />
 
+      <Toolbar>
+        <FilterPanel model={filters} table={table} />
+      </Toolbar>
+
       <Card className="overflow-hidden">
         {queryState(queue, {
           loading: "Reading the queue…",
@@ -177,6 +202,15 @@ export function Requests() {
                 table={table}
                 onRowClick={(row) => request.open(row.id)}
                 isSelected={(row) => row.id === request.value}
+                // A queue narrowed to nothing is not an empty queue, and on
+                // this screen the difference is somebody's leave waiting
+                // unanswered behind a clause they forgot was there.
+                empty={
+                  <>
+                    {rows.length.toLocaleString("id-ID")} requests are waiting,
+                    and none of them match the filters in force.
+                  </>
+                }
               />
             ),
         })}

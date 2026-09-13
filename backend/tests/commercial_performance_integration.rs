@@ -14,7 +14,7 @@ use chrono::{DateTime, Duration, TimeZone, Utc};
 use inventory_backend::cloud::domain::CommercialChannel;
 use inventory_backend::cloud::postgres::{
     article_prices, campaign_performance, pricelist_performance, rule_performance,
-    ArticlePriceFilter, PerformanceWindow,
+    ArticlePriceScope, PerformanceWindow,
 };
 use serde_json::Value;
 use sqlx::{PgPool, Row};
@@ -922,15 +922,7 @@ async fn the_price_grid_stops_showing_a_paused_campaigns_clearance(pool: PgPool)
     publish_base_prices(&pool).await;
     publish_markdowns(&pool, "MD-TEE-CLEAR", true).await;
 
-    let cleared = article_prices(
-        &pool,
-        CommercialChannel::Store,
-        base(),
-        50,
-        ArticlePriceFilter::default(),
-    )
-    .await
-    .unwrap_or_else(|e| panic!("grid: {e}"));
+    let cleared = grid(&pool).await;
     assert!(
         grid_mentions(&cleared, 120_000),
         "while the campaign runs, the grid shows the cleared price"
@@ -942,19 +934,31 @@ async fn the_price_grid_stops_showing_a_paused_campaigns_clearance(pool: PgPool)
         .await
         .unwrap_or_else(|e| panic!("pause: {e}"));
 
-    let paused = article_prices(
-        &pool,
-        CommercialChannel::Store,
-        base(),
-        50,
-        ArticlePriceFilter::default(),
-    )
-    .await
-    .unwrap_or_else(|e| panic!("grid: {e}"));
+    let paused = grid(&pool).await;
     assert!(
         !grid_mentions(&paused, 120_000),
         "a paused campaign's clearance must leave the console's grid too"
     );
+}
+
+/// The Pricelist menu's own read, as JSON.
+///
+/// `article_prices` answers a typed envelope now — rows, a keyset cursor, a
+/// total and facet counts — and this test is about one figure appearing in it
+/// or not, so it is flattened back to a `Value` rather than walked.
+async fn grid(pool: &PgPool) -> Value {
+    let page = article_prices(
+        pool,
+        CommercialChannel::Store,
+        base(),
+        ArticlePriceScope {
+            limit: Some(50),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap_or_else(|e| panic!("grid: {e}"));
+    serde_json::to_value(page).unwrap_or_else(|e| panic!("grid json: {e}"))
 }
 
 /// Whether any price in the grid is this number. Deliberately blunt: the shape

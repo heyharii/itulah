@@ -194,13 +194,25 @@ async fn an_asset_carries_no_money_until_finance_says_so(pool: PgPool) {
     // Registered and unassessed. That is a real state and the list can ask for
     // it: "nobody has looked at this yet" is an open control gap, and it must
     // not be indistinguishable from "looked at and expensed".
-    let unassessed = cloud::list_assets(&pool, None, None, true, 100)
-        .await
-        .unwrap_or_else(|error| panic!("list: {error}"));
-    assert_eq!(unassessed.len(), 1);
-    assert_eq!(unassessed[0].decision, None);
-    assert_eq!(unassessed[0].capitalized_cost_minor, None);
-    assert_eq!(unassessed[0].accumulated_minor, 0);
+    // The register answers with an envelope now, and "unassessed" is a value
+    // of the decision filter rather than a boolean of its own — because that
+    // is what it is: a state an asset is in, which the old flag could only ever
+    // ask for alone.
+    let unassessed = cloud::asset_page(
+        &pool,
+        cloud::AssetScope {
+            decisions: vec!["UNASSESSED".into()],
+            limit: Some(100),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap_or_else(|error| panic!("list: {error}"));
+    assert_eq!(unassessed.total, 1);
+    assert_eq!(unassessed.rows.len(), 1);
+    assert_eq!(unassessed.rows[0].decision, None);
+    assert_eq!(unassessed.rows[0].capitalized_cost_minor, None);
+    assert_eq!(unassessed.rows[0].accumulated_minor, 0);
 
     cloud::assess_asset(
         &pool,
@@ -227,10 +239,18 @@ async fn an_asset_carries_no_money_until_finance_says_so(pool: PgPool) {
         .unwrap_or_else(|error| panic!("asset: {error}"));
     assert_eq!(after.decision.as_deref(), Some("CAPITALIZE"));
     assert_eq!(after.book_value_minor, Some(12_000_000));
-    assert!(cloud::list_assets(&pool, None, None, true, 100)
-        .await
-        .unwrap_or_else(|error| panic!("list: {error}"))
-        .is_empty());
+    assert!(cloud::asset_page(
+        &pool,
+        cloud::AssetScope {
+            decisions: vec!["UNASSESSED".into()],
+            limit: Some(100),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap_or_else(|error| panic!("list: {error}"))
+    .rows
+    .is_empty());
 }
 
 #[sqlx::test(migrations = "./migrations/postgres")]
@@ -1032,10 +1052,16 @@ async fn a_bank_line_is_matched_against_our_own_ledger(pool: PgPool) {
     .unwrap_or_else(|error| panic!("confirm: {error}"));
 
     // Matching records agreement and writes no journal.
-    let entries = cloud::journal_register(&pool, None, None, None, None, 100)
-        .await
-        .unwrap_or_else(|error| panic!("register: {error}"));
-    assert_eq!(entries.len(), 1, "reconciling posts nothing");
+    let entries = cloud::journal_page(
+        &pool,
+        cloud::JournalScope {
+            limit: Some(100),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap_or_else(|error| panic!("register: {error}"));
+    assert_eq!(entries.total, 1, "reconciling posts nothing");
 
     // And the same journal line cannot be claimed by a second bank line.
     let another = cloud::import_statement(

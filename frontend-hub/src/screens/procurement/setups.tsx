@@ -1,22 +1,22 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import type { ColumnDef, SortingState } from "@tanstack/react-table"
-import { useTable } from "@tanstack/react-table"
+import {
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
+import { useNavigate } from "@tanstack/react-router"
+import { Camera, ListChecks, Search } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
-import { DataTable } from "@/components/ui/data-table"
 import { Field, Input, Money } from "@/components/ui/field"
-import { Kpi, KpiStrip } from "@/components/ui/kpi"
-import { Pill } from "@/components/ui/pill"
-import { SubHead, TotalsLadder } from "@/components/ui/rows"
+import { RecordPanel } from "@/components/ui/record-panel"
+import { SubHead } from "@/components/ui/rows"
 import { PickMany, PickOne, type Choice } from "@/components/ui/pick"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { SubTabs } from "@/components/ui/sub-tabs"
-import { Lifecycle } from "@/components/ui/timeline"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
-import { count, day, label, money, moment, toneFor } from "@/lib/format"
+import { count } from "@/lib/format"
 import { asJpeg, PICTURE_TYPES } from "@/lib/image"
 import { problemOf } from "@/lib/problem"
 import { cn } from "@/lib/utils"
@@ -31,8 +31,6 @@ import {
   setupSessionDetail,
   uploadArticleImage,
   type SetupSession,
-  type SetupSessionRow,
-  type SetupVariant,
   type UnidentifiedReceipt,
   catalogueVocabulary,
   openSetupSession,
@@ -42,9 +40,8 @@ import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { useAwaitingIdentity } from "@/screens/procurement/queue"
 import type { CatalogueVocabulary } from "@itulah/contract"
-import { tableSetup, type TableSetup } from "@/lib/table"
 import {
-  toggle,
+  termLabel,
   useActor,
   useIdempotencyKey,
 } from "@/screens/procurement/shared"
@@ -108,415 +105,411 @@ interface Handover {
   readonly job: string | null
 }
 
-const receiptColumns: ColumnDef<TableSetup, UnidentifiedReceipt>[] = [
-  {
-    accessorKey: "po_number",
-    header: "PO",
-    size: 130,
-    meta: { mono: true, card: "id" },
-    cell: ({ row }) => (
-      <span className="font-mono text-id text-body">
-        {row.original.po_number}
-      </span>
-    ),
-  },
-  {
-    accessorKey: "article_name",
-    header: "What the buyer wrote",
-    size: 260,
-    meta: { card: "title" },
-    cell: ({ row }) => (
-      <span className="flex flex-col">
-        <span className="font-medium text-ink">
-          {row.original.article_name}
-        </span>
-        <span className="font-mono text-[0.65625rem] text-mute">
-          {row.original.supplier_article_code}
-        </span>
-      </span>
-    ),
-  },
-  {
-    accessorKey: "division_code",
-    header: "Filed under",
-    size: 140,
-    // Context: which shelf of the catalogue it will end up on. First to go
-    // when the columns do not fit, because nobody picks the next delivery to
-    // work out by its division.
-    meta: { priority: 3, card: "meta" },
-    cell: ({ row }) =>
-      row.original.division_code === null ? (
-        <span className="text-mute">Unclassified</span>
-      ) : (
-        <Tag>{row.original.division_code}</Tag>
-      ),
-  },
-  {
-    accessorKey: "site_id",
-    header: "Landed at",
-    size: 130,
-    meta: { priority: 3, card: "meta" },
-  },
-  {
-    accessorKey: "quantity",
-    header: "Pieces",
-    size: 100,
-    meta: { align: "right", priority: 2, card: "metric" },
-    cell: ({ row }) => count(row.original.quantity),
-  },
-  {
-    accessorKey: "verified_at",
-    header: "Accepted",
-    size: 160,
-    // The decision metric, sorted oldest first: a delivery sitting without an
-    // identity is stock in a warehouse that nothing can sell. A 1, therefore:
-    // it is never dropped to make room.
-    meta: { card: "meta" },
-    cell: ({ row }) => moment(row.original.verified_at),
-  },
-]
-
-const sessionColumns: ColumnDef<TableSetup, SetupSessionRow>[] = [
-  {
-    accessorKey: "article_code",
-    header: "Article",
-    size: 130,
-    meta: { mono: true, card: "id" },
-    cell: ({ row }) => (
-      <span className="font-mono text-id text-body">
-        {row.original.article_code}
-      </span>
-    ),
-  },
-  {
-    accessorKey: "article_name",
-    header: "Name",
-    size: 250,
-    meta: { card: "title" },
-    cell: ({ row }) => (
-      <span className="font-medium text-ink">{row.original.article_name}</span>
-    ),
-  },
-  {
-    accessorKey: "division_code",
-    header: "Division",
-    size: 130,
-    meta: { priority: 3, card: "meta" },
-    cell: ({ row }) => <Tag>{row.original.division_code}</Tag>,
-  },
-  {
-    accessorKey: "receipt_quantity",
-    header: "Received",
-    size: 110,
-    meta: { align: "right", priority: 2, card: "metric" },
-    cell: ({ row }) => count(row.original.receipt_quantity),
-  },
-  {
-    accessorKey: "declared_quantity",
-    header: "Split out",
-    size: 110,
-    meta: { align: "right", priority: 2, card: "metric" },
-    cell: ({ row }) => count(row.original.declared_quantity),
-  },
-  {
-    id: "undeclared",
-    accessorFn: (row) => row.receipt_quantity - row.declared_quantity,
-    header: "Unaccounted",
-    size: 130,
-    meta: { align: "right", card: "metric" },
-    // The decision metric and the default sort: a session whose variants do not
-    // add up to what arrived is not finished, and it cannot be issued.
-    cell: ({ row }) => {
-      const gap = row.original.receipt_quantity - row.original.declared_quantity
-      return (
-        <span className={gap > 0 ? "font-medium text-warn-fg" : "text-mute"}>
-          {count(gap)}
-        </span>
-      )
-    },
-  },
-  {
-    accessorKey: "created_at",
-    header: "Opened",
-    size: 130,
-    meta: { priority: 3, card: "meta" },
-    cell: ({ row }) => day(row.original.created_at),
-  },
-]
-
-/// The three sheets an article setup is done through, mounted once by the
-/// Articles screen.
+/// The one panel an article setup is done in: the queue on the left, the work
+/// on the right.
 ///
-/// **This was a screen, and it is deliberately not one any more.** A setup is
-/// not a place in the business — it is something you do to *one delivery* that
-/// turned up without an identity, and the list of those deliveries is a queue
-/// rather than a department. So the sidebar lost the row and Articles grew a
-/// trigger: the master product is what a setup produces, so the queue belongs
-/// over the master product. It follows `cart` in `lib/sheets.ts`, which stopped
-/// being a menu entry for the same reason.
+/// **This was a screen, then three sheets, and it is one panel now.** A setup
+/// is not a place in the business — it is something you do to *one delivery*
+/// that turned up without an identity — so it is not in the sidebar. But three
+/// sheets was one panel too many in the other direction: the queue opened, you
+/// picked a row, the queue CLOSED and a form opened, you filled it in and a
+/// third sheet opened over that. Three panels to do one thing, and the form —
+/// the only part anybody came for — was two clicks away.
 ///
-/// Three keys, three moments, each opening on its own so a link to any one of
-/// them works cold:
+/// The owner's instruction on 2026-09-13 was the sketch this follows: the
+/// deliveries down a rail at the left, the form already open at the right, and
+/// nothing opening over anything else. Picking the next delivery is one click
+/// and the rail does not move.
 ///
-///  - `?setups=true` — the queue. Which delivery?
-///  - `?receipt=<line>` — that delivery, being told what it is. No session yet.
-///  - `?setup=<session>` — the session that answer made: what was minted, and
-///    where the tagging job went. It is also the only way back to a session
-///    that opened and did not mint, so it stays reachable for one that is open
-///    and unissued even though nothing routine leaves a session in that state
-///    any more.
+/// Three keys still, because each is a different thing to be pointed at and a
+/// link to any one of them has to work cold — they simply no longer open three
+/// different panels:
 ///
-/// One panel at a time: picking a delivery closes the queue as it opens the
-/// next sheet. Stacked panels would leave two lists arguing about which is on
-/// top, and the queue has nothing left to say once a row has been chosen.
+///  - `?setups=true` — the panel, on whatever the queue's first delivery is.
+///  - `?receipt=<line>` — the panel, on that delivery's form.
+///  - `?setup=<session>` — the panel, on that session's record. It is the link
+///    an article's detail follows back to the delivery that minted it, and the
+///    only way back to a session that opened and did not mint.
+///
+/// **"Open sessions" is gone as a tab.** Filling the form in IS issuing, so a
+/// session that is still open is a mint that failed rather than a stage of the
+/// work, and a tab gave a rare accident equal billing with the queue. The
+/// sessions themselves are not gone: they stand under the queue in the rail,
+/// under a heading that says what they are. Dropping them would have stranded
+/// the one case that needs a person.
 export function SetupSheets() {
-  const [tab, setTab] = useState("waiting")
-  const [query, setQuery] = useState("")
+  const navigate = useNavigate()
   const queue = useSheet("setups")
-  // Which setup session is open lives in the URL, like every other sheet.
+  /// Which setup session the pane is showing. In the URL, like every sheet.
   const session = useSheet("setup")
   /// Which delivery is being given an identity. A separate key from `setup`:
-  /// this line has no session yet, and opening one is what the sheet does.
-  const waiting_ = useSheet("receipt")
+  /// this line has no session yet, and filling the form is what makes one.
+  const chosen = useSheet("receipt")
 
-  /// How the last press of "Set up and send to tagging" ended, for the session
-  /// sheet it hands over to.
+  /// Which purchase order the rail is showing, or `null` for every one of
+  /// them. Not in the URL: it is which part of a queue somebody is looking
+  /// through inside an open panel, not a record anybody links to.
+  const [po, setPo] = useState<string | null>(null)
+  const [query, setQuery] = useState("")
+
+  /// How the last press of "Set up and send to tagging" ended, for the record
+  /// the pane hands over to.
   ///
   /// Not in the URL, unlike everything else here, and deliberately: this is
   /// what just happened in front of one person, not a property of the record.
   /// A colleague opening the same session tomorrow reads its status and its
   /// job; they should not be told a mint failed at somebody else's desk this
-  /// morning. It lives here rather than in the composer because the composer
-  /// closes as it hands over — a banner on a sheet that is going away is a
-  /// banner nobody reads.
+  /// morning.
   const [handover, setHandover] = useState<Handover | null>(null)
 
-  /// The words a division may be named with. Needed only by the composer, but
-  /// fetched here so opening the sheet does not start a request the person is
-  /// then waiting on.
+  /// The words a division may be named with. Fetched here rather than in the
+  /// form, so moving to the next delivery does not start a request the person
+  /// is then waiting on.
   const vocabulary = useQuery({
     queryKey: procurementKeys.vocabulary(),
     queryFn: ({ signal }) => catalogueVocabulary(signal),
     staleTime: 30 * 60 * 1000,
   })
-  const [waitingSort, setWaitingSort] = useState<SortingState>([
-    { id: "verified_at", desc: false },
-  ])
-  const [sessionSort, setSessionSort] = useState<SortingState>([
-    { id: "undeclared", desc: true },
-  ])
 
-  /// Both lists are read while the queue is shut, and that is the point: the
+  /// Both lists are read while the panel is shut, and that is the point: the
   /// trigger on Articles wears the waiting count, and a count that only
-  /// arrives once you have opened the thing it is meant to make you open is
-  /// no count at all. Same keys the queue itself reads, so opening it costs
+  /// arrives once you have opened the thing it is meant to make you open is no
+  /// count at all. Same keys the panel itself reads, so opening it costs
   /// nothing.
   const receipts = useAwaitingIdentity()
-
   const sessions = useQuery({
     queryKey: procurementKeys.setups(),
     queryFn: ({ signal }) => listSetupSessions(signal),
   })
 
   const waiting = useMemo(() => receipts.data ?? [], [receipts.data])
-  const open = useMemo(() => sessions.data ?? [], [sessions.data])
+  /// Sessions that opened and did not mint. Routinely empty: one press does
+  /// both writes, and only the second one failing leaves a session here.
+  const stalled = useMemo(() => sessions.data ?? [], [sessions.data])
   const pieces = waiting.reduce((sum, row) => sum + row.quantity, 0)
-  const unaccounted = open.reduce(
-    (sum, row) => sum + (row.receipt_quantity - row.declared_quantity),
-    0
+
+  /// The orders the queue is standing in, with how many deliveries of each.
+  ///
+  /// Grouped rather than listed flat because a queue is worked through an
+  /// order at a time: one delivery turns up as six lines of one PO, and the
+  /// person setting them up is holding that order's paperwork.
+  const orders = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const row of waiting)
+      counts.set(row.po_number, (counts.get(row.po_number) ?? 0) + 1)
+    return [...counts].sort(([a], [b]) => a.localeCompare(b))
+  }, [waiting])
+
+  /// The order actually being shown. `po` can name one that has just been
+  /// emptied — setting up its last delivery takes it out of the queue — and a
+  /// rail filtered to nothing would read as a queue that had gone.
+  const here =
+    po !== null && orders.some(([number]) => number === po) ? po : null
+
+  const needle = query.trim().toLowerCase()
+  const shown = useMemo(
+    () =>
+      waiting
+        .filter((row) => here === null || row.po_number === here)
+        .filter(
+          (row) =>
+            needle === "" ||
+            `${row.article_name} ${row.po_number} ${row.supplier_article_code}`
+              .toLowerCase()
+              .includes(needle)
+        ),
+    [waiting, here, needle]
   )
 
-  const receiptTable = useTable(
-    useMemo(
-      () => ({
-        features: tableSetup,
-        data: waiting,
-        columns: receiptColumns,
-        getRowId: (row: UnidentifiedReceipt) => row.receipt_line_id,
-        state: { globalFilter: query, sorting: waitingSort },
-        onSortingChange: setWaitingSort,
-        onGlobalFilterChange: setQuery,
-      }),
-      [waiting, query, waitingSort]
-    )
-  )
+  /// Which delivery the form is for.
+  ///
+  /// Derived rather than navigated to: the first of the queue stands in until
+  /// somebody picks another, so the panel opens with the form already on
+  /// screen and the URL stays as short as the person left it. A session on
+  /// screen wins — that is a record, not a form, and the two share the pane.
+  /// Read out of what the RAIL is showing, not out of the whole queue: narrow
+  /// the rail to one order and the delivery that was open may not be in it any
+  /// more, and a pane showing a row the list beside it does not have is a pane
+  /// that looks broken.
+  const active = session.isOpen
+    ? null
+    : (shown.find((row) => row.receipt_line_id === chosen.value) ??
+      shown[0] ??
+      null)
+  const activeId = active?.receipt_line_id ?? null
 
-  const sessionTable = useTable(
-    useMemo(
-      () => ({
-        features: tableSetup,
-        data: open,
-        columns: sessionColumns,
-        getRowId: (row: SetupSessionRow) => row.session_id,
-        state: { globalFilter: query, sorting: sessionSort },
-        onSortingChange: setSessionSort,
-        onGlobalFilterChange: setQuery,
+  const open = queue.isOpen || session.isOpen || chosen.isOpen
+
+  /// Every key at once, in ONE navigation.
+  ///
+  /// Three `close()` calls would be three round trips through the router, each
+  /// building its search from a `prev` the one before it has already changed —
+  /// which is how a panel shuts and comes straight back on the key that lost
+  /// the race.
+  const point = (next: { setups?: true; setup?: string; receipt?: string }) =>
+    navigate({
+      to: ".",
+      replace: true,
+      search: (prev: Record<string, unknown>) => ({
+        ...prev,
+        setups: next.setups,
+        setup: next.setup,
+        receipt: next.receipt,
       }),
-      [open, query, sessionSort]
-    )
-  )
+      viewTransition: false,
+    })
 
   return (
-    <>
-      <Sheet
-        open={queue.isOpen}
-        onOpenChange={(next) => {
-          if (!next) queue.close()
-        }}
-        title="Article setups"
-        // A queue of deliveries, not a record: two tables of six columns, and
-        // a delivery line is only identifiable by several of them at once.
-        // This asked for the room in `className` for a while and never got it
-        // — see the note on `width` in `<Sheet>` — and read as a rail with its
-        // columns sliding out of sight to the right.
-        width="table"
-        actions={
-          <Input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Article, PO or name"
-            className="h-8 w-52"
-          />
-        }
-      >
-        {/* Four figures, four columns — not the six-wide default, which left
-            these four squeezed into two thirds of the strip with their labels
-            wrapping to four lines each. */}
-        <KpiStrip className="grid-cols-2 md:grid-cols-4 xl:grid-cols-4">
-          <Kpi
-            label="Deliveries without an identity"
-            value={count(waiting.length)}
-          />
-          <Kpi label="Pieces waiting" value={count(pieces)} />
-          <Kpi label="Sessions open" value={count(open.length)} />
-          <Kpi label="Pieces not split out" value={count(unaccounted)} />
-        </KpiStrip>
+    <Sheet
+      open={open}
+      onOpenChange={(next) => !next && point({})}
+      title="New items"
+      caption={
+        waiting.length === 0
+          ? "Every accepted delivery has been given an identity."
+          : `${count(waiting.length)} ${waiting.length === 1 ? "delivery" : "deliveries"} · ${count(pieces)} ${pieces === 1 ? "piece" : "pieces"} waiting`
+      }
+      // Three panes, not a record: which order, which delivery of it, and the
+      // form. At `table`'s 64rem the two rails left the form 36rem, which is
+      // under every breakpoint its own columns split at — so the form kept
+      // collapsing into one column and every delivery became a scroll.
+      width="workspace"
+    >
+      {/* `@container` on the panel body, so the rail and the pane split on how
+          much glass this sheet actually got rather than on the window. */}
+      <div className="@container">
+        {/* Three columns: which order, which delivery of it, and the delivery
+            itself.
 
-        <SubTabs
-          className="mt-4"
-          tabs={[
-            {
-              value: "waiting",
-              label: `Awaiting identity (${waiting.length})`,
-            },
-            { value: "sessions", label: `Open sessions (${open.length})` },
-          ]}
-          value={tab}
-          onChange={setTab}
-        />
+            The orders were a bordered card sitting on top of the queue in the
+            same column, which drew two different kinds of list stacked — one
+            boxed, one not — and read as a widget parked above a rail rather
+            than as a step before it. They are two steps of one narrowing, so
+            they are two rails, told apart by a rule rather than by a box. */}
+        <div className="grid items-start gap-6 @3xl:grid-cols-[10.5rem_14rem_minmax(0,1fr)]">
+          <aside
+            aria-label="Purchase orders"
+            className="flex min-w-0 flex-col gap-1 @3xl:sticky @3xl:top-0 @3xl:h-full @3xl:self-start @3xl:border-r @3xl:border-hairline @3xl:pr-5"
+          >
+            <span className="px-2 pb-1 text-[0.6875rem] font-semibold tracking-[0.06em] text-mute uppercase">
+              Purchase order
+            </span>
+            {/* "All" first — it is where somebody starts, and naming it is
+                what makes the rest read as a narrowing rather than as the
+                whole list. */}
+            <RailRow
+              label="All"
+              tally={waiting.length}
+              on={here === null}
+              onClick={() => setPo(null)}
+            />
+            {orders.map(([number, tally]) => (
+              <RailRow
+                key={number}
+                label={number}
+                mono
+                tally={tally}
+                on={here === number}
+                onClick={() => setPo(number)}
+              />
+            ))}
+          </aside>
 
-        {tab === "waiting" ? (
-          <Card className="overflow-hidden">
-            {queryState(receipts, {
-              loading: "Reading the queue…",
-              render: () =>
-                waiting.length === 0 ? (
-                  <EmptyState>
-                    {query === ""
-                      ? "Every accepted delivery has been given an identity."
-                      : "No waiting delivery matches that search."}
-                  </EmptyState>
-                ) : (
-                  <DataTable<UnidentifiedReceipt>
-                    table={receiptTable}
-                    onRowClick={(row) => {
-                      // Closes as it opens: see the note on this component.
-                      queue.close()
-                      waiting_.open(row.receipt_line_id)
-                    }}
-                    isSelected={(row) => row.receipt_line_id === waiting_.value}
-                    className="max-h-[calc(100vh-24rem)]"
-                  />
-                ),
-            })}
-          </Card>
-        ) : (
-          <Card className="overflow-hidden">
-            {queryState(sessions, {
-              loading: "Reading the sessions…",
-              render: () =>
-                open.length === 0 ? (
-                  <EmptyState>
-                    {query === ""
-                      ? "No session is open. Nothing is waiting to be minted."
-                      : "No open session matches that search."}
-                  </EmptyState>
-                ) : (
-                  <DataTable<SetupSessionRow>
-                    table={sessionTable}
-                    onRowClick={(row) => {
-                      queue.close()
-                      session.open(row.session_id)
-                    }}
-                    isSelected={(row) => row.session_id === session.value}
-                    className="max-h-[calc(100vh-24rem)]"
-                  />
-                ),
-            })}
-          </Card>
+          <aside
+            aria-label="Deliveries waiting"
+            className="flex min-w-0 flex-col gap-3 @3xl:sticky @3xl:top-0 @3xl:h-full @3xl:self-start @3xl:border-r @3xl:border-hairline @3xl:pr-5"
+          >
+            {/* The box that sifts THIS list, standing over it.
+
+                It was up in the panel's header beside the close button, which
+                is where a screen's own search goes — and this is not the
+                screen's search. It narrows one of three panes, and from the
+                header it read as though it might be searching the article
+                master, the record on the right, or both. */}
+            {waiting.length > 0 && (
+              <span className="relative block">
+                <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-line-ico" />
+                <input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Search"
+                  aria-label="Search the deliveries waiting"
+                  className="h-[2.125rem] w-full rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.8125rem] text-ink outline-none placeholder:text-body focus:border-accent"
+                />
+              </span>
+            )}
+
+            {/* The queue itself. A delivery is picked out by its name and the
+                supplier's code for it — the PO is the rail to the left, so
+                repeating it on every row would spend this one's whole width
+                on the one thing that does not vary. */}
+            <div className="flex min-w-0 flex-col gap-1">
+              {shown.length === 0 ? (
+                <p className="px-1 py-2 text-[0.71875rem] text-mute">
+                  {waiting.length === 0
+                    ? "Nothing is waiting."
+                    : "Nothing here matches that."}
+                </p>
+              ) : (
+                shown.map((row) => (
+                  <button
+                    key={row.receipt_line_id}
+                    type="button"
+                    onClick={() =>
+                      point({ setups: true, receipt: row.receipt_line_id })
+                    }
+                    aria-current={row.receipt_line_id === activeId}
+                    className={cn(
+                      "flex min-w-0 flex-col gap-0.5 rounded-inner border px-2.5 py-2 text-left transition-colors",
+                      row.receipt_line_id === activeId
+                        ? "border-accent/40 bg-accent-bg"
+                        : "border-transparent hover:bg-soft-2"
+                    )}
+                  >
+                    <span className="truncate text-[0.8125rem] font-medium text-ink">
+                      {row.article_name}
+                    </span>
+                    <span className="flex items-baseline justify-between gap-2">
+                      <span className="truncate font-mono text-[0.625rem] text-mute">
+                        {row.supplier_article_code}
+                      </span>
+                      <span className="shrink-0 text-[0.6875rem] text-body tabular-nums">
+                        {count(row.quantity)}
+                      </span>
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
+
+            {/* The accidents, under the work. A session that is still open is
+                a mint that did not run: the delivery has its identity and is
+                out of the queue above, and nothing but a person pressing the
+                button on its record will finish it. */}
+            {stalled.length > 0 && (
+              <div className="flex min-w-0 flex-col gap-1 border-t border-hairline pt-3">
+                <span className="px-1 pb-0.5 text-[0.6875rem] font-semibold tracking-[0.06em] text-warn-fg uppercase">
+                  Not minted
+                </span>
+                {stalled.map((row) => (
+                  <button
+                    key={row.session_id}
+                    type="button"
+                    onClick={() =>
+                      point({ setups: true, setup: row.session_id })
+                    }
+                    aria-current={row.session_id === session.value}
+                    className={cn(
+                      "flex min-w-0 flex-col gap-0.5 rounded-inner border px-2.5 py-2 text-left transition-colors",
+                      row.session_id === session.value
+                        ? "border-accent/40 bg-accent-bg"
+                        : "border-transparent hover:bg-soft-2"
+                    )}
+                  >
+                    <span className="truncate text-[0.8125rem] font-medium text-ink">
+                      {row.article_name}
+                    </span>
+                    <span className="truncate font-mono text-[0.625rem] text-mute">
+                      {row.article_code}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </aside>
+
+          <section className="min-w-0">
+            {session.value !== undefined ? (
+              <SessionRecord
+                id={session.value}
+                // Only for the session the press actually made: opening a
+                // different one from the rail is a different question, and it
+                // must not inherit this one's answer.
+                handover={
+                  handover !== null && handover.session_id === session.value
+                    ? handover
+                    : null
+                }
+              />
+            ) : active !== null ? (
+              <DeliverySetup
+                receipt={active}
+                vocabulary={vocabulary.data}
+                onDone={(outcome) => {
+                  setHandover({
+                    session_id: outcome.session.session_id,
+                    problem:
+                      outcome.kind === "stalled" ? outcome.problem : null,
+                    job: outcome.session.tagging_job_id ?? null,
+                  })
+                  // Straight to the record the press made, either way, in the
+                  // same pane. It is what the press DID — the article code,
+                  // the SKUs and the serial ranges their tags were drawn from
+                  // — and when the mint did not run it is also where it is run
+                  // again.
+                  point({ setups: true, setup: outcome.session.session_id })
+                }}
+              />
+            ) : (
+              <EmptyState>
+                {receipts.isPending
+                  ? "Reading the queue…"
+                  : "Every accepted delivery has been given an identity. Nothing is waiting to be named."}
+              </EmptyState>
+            )}
+          </section>
+        </div>
+      </div>
+    </Sheet>
+  )
+}
+
+/// One row of the order card: what it is, how many are under it, and whether
+/// the rail is standing on it.
+function RailRow({
+  label,
+  tally,
+  on,
+  mono,
+  onClick,
+}: {
+  label: string
+  tally: number
+  on: boolean
+  mono?: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-current={on}
+      // The rail is nine and a half rem and an order number is sixteen
+      // characters, so the longest of them lose their tail. The whole of it is
+      // here for anybody who needs to read it off.
+      title={label}
+      className={cn(
+        "flex min-h-8 w-full items-center gap-2 rounded-inner px-2 text-left transition-colors",
+        on ? "bg-soft-2 text-ink" : "text-text hover:bg-soft-2"
+      )}
+    >
+      <span
+        className={cn(
+          "min-w-0 flex-1 truncate text-[0.8125rem]",
+          mono && "font-mono text-id",
+          on && "font-medium"
         )}
-      </Sheet>
-
-      <OpenSessionSheet
-        receipt={
-          waiting.find((row) => row.receipt_line_id === waiting_.value) ?? null
-        }
-        vocabulary={vocabulary.data}
-        onClose={waiting_.close}
-        onDone={(outcome) => {
-          waiting_.close()
-          setHandover({
-            session_id: outcome.session.session_id,
-            problem: outcome.kind === "stalled" ? outcome.problem : null,
-            job: outcome.session.tagging_job_id ?? null,
-          })
-          // Straight into the session that was just made, either way. It is
-          // the record of what the press did — the article code, the SKUs and
-          // the serial ranges their tags were drawn from — and when the mint
-          // did not run it is also where it is run again.
-          session.open(outcome.session.session_id)
-        }}
-      />
-      <SessionSheet
-        id={session.value ?? null}
-        // Only for the session the press actually made: opening a different
-        // one from the queue is a different question, and it must not inherit
-        // this one's answer.
-        handover={
-          handover !== null && handover.session_id === session.value
-            ? handover
-            : null
-        }
-        onClose={() => {
-          setHandover(null)
-          session.close()
-        }}
-      />
-    </>
+      >
+        {label}
+      </span>
+      <span className="shrink-0 text-[0.6875rem] text-mute tabular-nums">
+        {count(tally)}
+      </span>
+    </button>
   )
 }
 
 // ---------------------------------------------------------------------------
-
-function lifecycleOf(session: SetupSession) {
-  const issued = session.issued_at !== null
-  const tagged = session.tagged_at !== null
-  return [
-    { label: "Opened", state: "done" as const },
-    {
-      label: "Issued",
-      state: issued ? ("done" as const) : ("current" as const),
-    },
-    {
-      label: "Tagged",
-      state: tagged
-        ? ("done" as const)
-        : issued
-          ? ("current" as const)
-          : ("todo" as const),
-    },
-  ]
-}
 
 /// One colourway of one article, as a row of the grid below.
 interface MatrixColour {
@@ -574,19 +567,31 @@ function Matrix({
   readonly total: React.ReactNode
 }) {
   return (
-    // `w-fit`, so the box hugs its columns: a delivery that came in two sizes
-    // was drawing a two-column grid across sixty rem of sheet, with each
-    // figure stranded in the middle of a column wide enough for a sentence.
-    // It grows to the full width and scrolls from there, which is the case
-    // the frozen colour column below exists for.
-    <div className="w-fit max-w-full overflow-x-auto rounded-inner border border-hairline">
+    // Full width, with every figure column held to a figure's worth and the
+    // colour column taking whatever is left.
+    //
+    // It used to be `w-fit`, so a delivery that came in two sizes drew a
+    // two-column grid a fifth of the way across the pane with a stretch of
+    // empty ground beside it — which read as a table that had failed to load
+    // rather than as a small one.
+    //
+    // `min-w-fit` is what keeps that honest when the sizes outrun the room:
+    // the declared widths win, the box scrolls, and the frozen colour column
+    // below is the reason that is readable.
+    <div className="w-full overflow-x-auto rounded-inner border border-hairline">
       {/* Fixed layout and separated borders, the same as the pricelist grid:
           a matrix is read across as much as down, and without a rule between
           the columns the eye loses which size a figure belongs to halfway
           along the row. */}
-      <table className="table-fixed border-separate border-spacing-0 text-cell">
+      <table className="w-full min-w-fit table-fixed border-separate border-spacing-0 text-cell">
         <colgroup>
-          <col className="w-[8.5rem]" />
+          {/* No width on the colour column: under `table-fixed` the one
+              undeclared column takes what the others leave. The slack goes
+              HERE, to the column holding words, rather than to the figures —
+              stretching a size column strands its number in the middle of a
+              gap wide enough for a sentence, and stretching the total column
+              leaves a hole between the last size and the sum. */}
+          <col />
           {sizes.map((size) => (
             <col key={size.code} className={columnClass} />
           ))}
@@ -597,22 +602,28 @@ function Matrix({
           <tr>
             <th
               scope="col"
-              className="sticky left-0 z-20 border-r border-b border-hairline bg-canvas px-3 py-2 text-left text-eyebrow font-semibold text-mute uppercase"
+              className="sticky left-0 z-20 h-9 border-r border-b border-hairline bg-canvas px-3 text-left text-cell font-normal text-body"
             >
               Colour
             </th>
-            {sizes.map((size) => (
+            {sizes.map((size, at) => (
               <th
                 key={size.code}
                 scope="col"
-                className="border-b border-hairline bg-canvas px-2 py-2 text-right text-eyebrow font-semibold text-mute uppercase"
+                className={cn(
+                  "h-9 border-b border-hairline bg-canvas px-2 text-right text-cell font-normal text-body",
+                  // From the second on: the first already has the frozen
+                  // colour column's own rule to its left, and two hairlines
+                  // side by side draw one two-pixel line.
+                  at > 0 && "border-l"
+                )}
               >
                 {size.label}
               </th>
             ))}
             <th
               scope="col"
-              className="border-b border-l border-hairline bg-canvas px-3 py-2 text-right text-eyebrow font-semibold text-ink uppercase"
+              className="h-9 border-b border-l border-hairline bg-canvas px-3 text-right text-cell font-medium text-ink"
             >
               All
             </th>
@@ -624,21 +635,24 @@ function Matrix({
             <tr key={colour.key}>
               <th
                 scope="row"
-                className="sticky left-0 z-10 border-t border-r border-hairline bg-canvas px-3 py-2 text-left font-normal"
+                className="sticky left-0 z-10 border-t border-r border-hairline bg-canvas px-3 py-1.5 text-left font-normal"
               >
                 <span className="block truncate text-[0.78125rem] font-medium text-ink">
                   {colour.label}
                 </span>
               </th>
-              {sizes.map((size) => (
+              {sizes.map((size, at) => (
                 <td
                   key={size.code}
-                  className="border-t border-hairline px-2 py-1.5 text-right align-middle tabular-nums"
+                  className={cn(
+                    "h-9 border-t border-hairline px-2 text-right align-middle tabular-nums",
+                    at > 0 && "border-l"
+                  )}
                 >
                   {cell(colour, size)}
                 </td>
               ))}
-              <td className="border-t border-l border-hairline px-3 py-2 text-right text-[0.78125rem] font-medium text-ink tabular-nums">
+              <td className="h-9 border-t border-l border-hairline px-3 text-right text-[0.78125rem] font-medium text-ink tabular-nums">
                 {rowTotal(colour)}
               </td>
             </tr>
@@ -649,19 +663,22 @@ function Matrix({
           <tr>
             <th
               scope="row"
-              className="sticky left-0 z-10 border-t border-r border-hairline bg-soft-2 px-3 py-2 text-left text-eyebrow font-semibold text-mute uppercase"
+              className="sticky left-0 z-10 h-9 border-t border-r border-hairline bg-soft-2 px-3 text-left text-cell font-normal text-body"
             >
               All
             </th>
-            {sizes.map((size) => (
+            {sizes.map((size, at) => (
               <td
                 key={size.code}
-                className="border-t border-hairline bg-soft-2 px-2 py-2 text-right text-[0.78125rem] text-text tabular-nums"
+                className={cn(
+                  "h-9 border-t border-hairline bg-soft-2 px-2 text-right text-[0.78125rem] text-text tabular-nums",
+                  at > 0 && "border-l"
+                )}
               >
                 {columnTotal(size)}
               </td>
             ))}
-            <td className="border-t border-l border-hairline bg-soft-2 px-3 py-2 text-right text-[0.78125rem] font-semibold text-ink tabular-nums">
+            <td className="h-9 border-t border-l border-hairline bg-soft-2 px-3 text-right text-[0.78125rem] font-semibold text-ink tabular-nums">
               {total}
             </td>
           </tr>
@@ -681,25 +698,30 @@ function Matrix({
 /// path any more and is not gone either — a mint that failed leaves its
 /// session open, sessions opened before the two presses became one are still
 /// open, and both are sent from here.
-function SessionSheet({
+/// One setup session, read in the right-hand pane of the panel.
+///
+/// It was a `<Sheet>` of its own until 2026-09-13 — the third of three that a
+/// setup passed through. The owner's instruction was one panel: the queue on
+/// the left, and whatever that row is on the right, so nothing opens over
+/// anything else. What was the sheet's header is the first line of the record
+/// now, and what was its footer is the action bar at the foot of the pane.
+function SessionRecord({
   id,
   handover,
-  onClose,
 }: {
-  id: string | null
+  id: string
   /// How the press that made this session ended, when it was that press that
-  /// opened this sheet. Null when it was a link, the queue, or a second look.
+  /// put this record on screen. Null when it was a link, the queue, or a
+  /// second look.
   handover: Handover | null
-  onClose: () => void
 }) {
   const client = useQueryClient()
   const actor = useActor()
   const idempotency = useIdempotencyKey()
 
   const detail = useQuery({
-    queryKey: procurementKeys.setup(id ?? ""),
-    queryFn: ({ signal }) => setupSessionDetail(id!, signal),
-    enabled: id !== null,
+    queryKey: procurementKeys.setup(id),
+    queryFn: ({ signal }) => setupSessionDetail(id, signal),
   })
 
   /// The mint, for a session that has not had one.
@@ -736,79 +758,103 @@ function SessionSheet({
     return [...seen.entries()].sort(([a], [b]) => a.localeCompare(b))
   }, [detail.data])
 
-  /// The size columns, in the order the server sent the variants rather than
-  /// alphabetically: `L` before `M` before `S` is not a size run, and this
-  /// company's own order is the one the SKUs were drawn in.
-  const sizes = useMemo(() => {
-    const seen = new Map<string, string>()
-    for (const variant of detail.data?.variants ?? []) {
-      if (!seen.has(variant.size_code))
-        seen.set(variant.size_code, variant.size_label)
-    }
-    return [...seen.entries()].map(([code, label]) => ({ code, label }))
-  }, [detail.data])
-
-  /// One cell of the grid, keyed the way a variant is: colour digit and size.
-  const byCell = useMemo(() => {
-    const map = new Map<string, SetupVariant>()
-    for (const variant of detail.data?.variants ?? [])
-      map.set(`${variant.colour_digit}|${variant.size_code}`, variant)
-    return map
-  }, [detail.data])
-
-  const declared = (detail.data?.variants ?? []).reduce(
-    (sum, variant) => sum + variant.quantity,
-    0
+  /// The photograph of each colourway, read once here rather than by each row
+  /// separately — the article's own picture is the first colourway that has
+  /// one, so the same answers decide both.
+  const photographs = useQueries({
+    queries: colours.map(([digit]) => ({
+      queryKey: procurementKeys.articleImage(
+        detail.data?.article_code ?? "",
+        digit
+      ),
+      queryFn: ({ signal }: { signal: AbortSignal }) =>
+        articleImage(detail.data?.article_code ?? "", digit, signal),
+      enabled: detail.data !== undefined,
+      staleTime: 10 * 60 * 1000,
+    })),
+  })
+  /// Built plainly rather than memoised: it is at most ten entries — a colour
+  /// is one digit of the SKU — and a dependency list over an array of query
+  /// results cannot be written as the simple expressions the rule wants.
+  const photographOf = new Map(
+    colours.map(([digit], at) => [digit, photographs[at]?.data?.url ?? null])
   )
+  /// The article's picture, which is simply the first colourway that has one.
+  /// Nothing is drawn when none of them does: a placeholder the size of a
+  /// photograph is a hole in the record, not a picture.
+  const cover =
+    colours.map(([digit]) => photographOf.get(digit)).find((url) => url) ?? null
 
-  /// What one piece is worth. Intake gives every variant the same figure, so
-  /// this is one sentence under the grid rather than a column in it — and a
-  /// range if a later hand has made them differ.
-  const prices = [
-    ...new Set(
-      (detail.data?.variants ?? []).map((one) => one.base_price_minor)
-    ),
-  ].sort((a, b) => a - b)
+  /// The words a division and a tag are READ by. The record stores codes —
+  /// `KIDS`, `KAUS_KAKI` — because a code is what survives a rename; a person
+  /// reads "Kids" and "Kaus Kaki", which is what the form they filled in
+  /// showed them. The same query the panel already made, so this costs
+  /// nothing.
+  const vocabulary = useQuery({
+    queryKey: procurementKeys.vocabulary(),
+    queryFn: ({ signal }) => catalogueVocabulary(signal),
+    staleTime: 30 * 60 * 1000,
+  })
+
+  /// Who sent it, by name. The record carries the supplier's CODE — `SUP02` —
+  /// which is what the delivery was booked against; the book of suppliers is
+  /// what turns it into a name, so renaming a supplier does not leave old
+  /// records saying the old thing.
+  const suppliers = useQuery({
+    queryKey: procurementKeys.suppliers(),
+    queryFn: ({ signal }) => listSuppliers(undefined, signal),
+    staleTime: 30 * 60 * 1000,
+  })
+  const supplierName = (code: string) =>
+    (suppliers.data ?? []).find(
+      (one) =>
+        one.supplier_code.toLowerCase() === code.toLowerCase() ||
+        one.supplier_id === code
+    )?.name ?? code
 
   return (
-    <Sheet
-      open={id !== null}
-      subject={id === null ? undefined : { kind: "article_setup", id }}
-      onOpenChange={(open) => !open && onClose()}
-      id={detail.data?.article_code}
-      title={detail.data?.article_name ?? "Setup session"}
-      // What this sheet is for is the variant grid, and a grid is read across.
-      width="table"
-      footer={
-        detail.data?.status === "OPEN" && (
-          <Button
-            variant="primary"
-            className="w-full"
-            disabled={actor === "" || (mine && issue.isPending)}
-            onClick={() => issue.mutate(id!)}
-          >
-            {mine && issue.isPending
-              ? "Minting…"
-              : "Mint the article and send the tagging job"}
-          </Button>
-        )
-      }
-    >
+    // Measured on the PANE, not the sheet and not the window: this column is
+    // what the rail beside it leaves over, so a breakpoint reading the sheet
+    // would lay a two-column grid out in one column's worth of room.
+    <div className="@container flex min-w-0 flex-col">
       {queryState(detail, {
         loading: "Loading the session…",
         render: (session) => (
-          // Measured on the sheet rather than the window: this panel is 64rem
-          // at a desk and the whole glass on a phone.
-          <div className="@container flex flex-col gap-5">
-            <Lifecycle steps={lifecycleOf(session)} />
+          <div className="flex flex-col gap-5">
+            {/* What the sheet header used to say, with the article's own
+                picture beside it.
 
-            {/* What the press that opened this sheet did, until the button
-                below is used on this session and answers for itself. The
-                stalled half is the one sentence in this flow that has to be
-                exact: the delivery has an identity, the receipt is out of the
-                queue, and none of the numbers were drawn — so what a person
-                needs told is where the thing went and that pressing again is
-                safe. */}
+                The picture is the first colourway that has one, and there is
+                nothing in its place when none of them does: a grey box the
+                size of a photograph is a hole in the record rather than a
+                picture of anything. */}
+            <div className="flex min-w-0 items-center gap-3.5">
+              {cover !== null && (
+                <img
+                  src={cover}
+                  alt={session.article_name}
+                  className="size-14 shrink-0 rounded-inner border border-hairline object-cover"
+                />
+              )}
+              {/* The name, and only the name. The code was a mono line over
+                  it — a second identifier standing above the first, in the
+                  position a title goes. It is a fact about the article like
+                  the division and the supplier are, so it is filed with
+                  them. */}
+              <h3 className="min-w-0 flex-1 truncate text-[1.0625rem] font-semibold tracking-[-0.01em] text-ink">
+                {session.article_name}
+              </h3>
+            </div>
+
+            {/* The one thing that can go wrong and needs a person.
+
+                The success banners are gone on the owner's word of
+                2026-09-13: "minted, job on its way" told somebody what they
+                had just watched happen, in a record that says so itself — the
+                grid below is full of serial ranges, which is what having
+                minted LOOKS like. A failure is different. The delivery has an
+                identity, the receipt is out of the queue, nothing was drawn,
+                and nothing but the button below will finish it. */}
             {!mine && handover !== null && handover.problem !== null && (
               <Banner tone="bad">
                 The delivery has its identity, but nothing was minted against
@@ -817,194 +863,244 @@ function SessionSheet({
                 {handover.problem}
               </Banner>
             )}
-            {!mine && handover !== null && handover.job !== null && (
-              <Banner tone="ok">
-                Minted. Tagging job {handover.job} is on its way to{" "}
-                {session.site_id}.
-              </Banner>
-            )}
-
             {mine && issue.isError && (
               <Banner tone="bad">{(issue.error as Error).message}</Banner>
             )}
-            {mine && issue.isSuccess && issue.data.tagging_job_id && (
-              <Banner tone="ok">
-                Minted. Tagging job {issue.data.tagging_job_id} is on its way to{" "}
-                {session.site_id}.
-              </Banner>
-            )}
 
-            <div className="flex items-center gap-2">
-              <Pill tone={toneFor(session.status)}>
-                {label(session.status)}
-              </Pill>
-              {session.job && (
-                <Pill tone={toneFor(session.job.status)}>
-                  Tagging {label(session.job.status)}
-                </Pill>
-              )}
-            </div>
+            {/* Four facts of the errand became four of the ARTICLE, in the
+                order the owner fixed on 2026-09-13: who sent it, what it is
+                filed under, what it will be found by, and what we call it.
 
-            {/* Eight facts in two rows of four rather than four rows of two:
-                at this width a two-column grid leaves half the sheet empty
-                and makes the record twice as tall as it needs to be. */}
-            <Facts className="@2xl:grid-cols-4">
-              <Fact term="Our article">{session.article_code}</Fact>
-              <Fact term="Supplier's code">
-                {session.supplier_article_code ?? "—"}
+                Who keyed it in, when it was opened, which door it came through
+                and what the supplier calls it are gone — they are facts about
+                the errand, and this is a record of a product. The code comes
+                last because it is the one nobody reads first: it is what you
+                copy into something else once you have found the thing. */}
+            <Facts className="@xl:grid-cols-2">
+              <Fact term="Supplier">
+                {session.supplier_code
+                  ? supplierName(session.supplier_code)
+                  : "—"}
               </Fact>
-              <Fact term="Division">{session.division_code}</Fact>
-              <Fact term="Landed at">{session.site_id}</Fact>
-              <Fact term="Opened by">{session.created_by}</Fact>
-              <Fact term="Opened">{day(session.created_at)}</Fact>
-              <Fact term="Issued">{day(session.issued_at)}</Fact>
-              <Fact term="Tagged">{day(session.tagged_at)}</Fact>
+              <Fact term="Division">
+                {termLabel(vocabulary.data?.divisions, session.division_code)}
+              </Fact>
+              <Fact term="Tags">
+                {session.tags.length === 0 ? (
+                  "—"
+                ) : (
+                  <span className="flex flex-wrap gap-1.5">
+                    {session.tags.map((tag) => (
+                      <Tag key={tag}>
+                        {termLabel(vocabulary.data?.tags, tag)}
+                      </Tag>
+                    ))}
+                  </span>
+                )}
+              </Fact>
+              <Fact term="Article code">
+                <span className="font-mono text-id">
+                  {session.article_code}
+                </span>
+              </Fact>
             </Facts>
 
-            {session.tags.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {session.tags.map((tag) => (
-                  <Tag key={tag}>{tag}</Tag>
-                ))}
-              </div>
-            )}
+            {/* What was minted, one row per SKU.
 
+                It was the colour x size grid the form is filled in on, and a
+                grid is the wrong shape here. That grid exists to be COUNTED
+                INTO — every cell a box, the totals checking against the
+                delivery — and once the numbers are drawn the question changes
+                from "how do these split" to "what exists now": a SKU code, the
+                thing it names, and how many. None of those fit in a cell, and
+                the first two were not on the screen at all.
+
+                The serial ranges went with the grid, on the owner's word of
+                2026-09-13: `1–60` is the numbering the DC's tags were drawn
+                from, which is a fact about a print run rather than about the
+                product, and this record is about the product. It is still on
+                the tagging job, where somebody chasing a tag will look. */}
             <div>
-              <SubHead
-                aside={
-                  session.variants.length === 0
-                    ? undefined
-                    : `${count(session.variants.length)} SKUs`
-                }
-              >
-                Variants
-              </SubHead>
+              {/* Not a `<SubHead>`. That is 15px semibold and the article's
+                  name two rows above it is 17px, so the word "Variants" was
+                  shouting as loudly as the thing it belongs to — on a record
+                  with one heading in it, which needs no shout at all. This is
+                  the weight a label over a table wants: present, and plainly
+                  subordinate to the name. */}
+              <div className="mb-2 flex items-baseline justify-between gap-2">
+                <h4 className="text-[0.8125rem] font-medium text-body">
+                  Variants
+                </h4>
+                {session.variants.length > 0 && (
+                  <span className="text-[0.71875rem] text-mute tabular-nums">
+                    {count(session.variants.length)} SKUs
+                  </span>
+                )}
+              </div>
               {session.variants.length === 0 ? (
                 <p className="text-meta text-mute">
                   Nothing has been minted yet. Issuing the session draws the
                   SKUs, their serial ranges and their EPCs in one transaction.
                 </p>
               ) : (
-                <>
-                  <Matrix
-                    colours={colours.map(([digit, colourLabel]) => ({
-                      key: digit,
-                      label: colourLabel,
-                    }))}
-                    sizes={sizes}
-                    // Room for a serial range under the count. The SKU code
-                    // itself is not drawn: it is this article, this row's
-                    // digit and this column's size, which is the grid.
-                    columnClass="w-[7.5rem]"
-                    cell={(colour, size) => {
-                      const variant = byCell.get(`${colour.key}|${size.code}`)
-                      return variant === undefined ? (
-                        <span className="text-faint">—</span>
-                      ) : (
-                        <span className="flex flex-col items-end leading-tight">
-                          <span className="text-[0.8125rem] font-medium text-ink">
-                            {count(variant.quantity)}
-                          </span>
-                          <span className="font-mono text-[0.625rem] text-mute">
-                            {variant.serial_from}–{variant.serial_to}
-                          </span>
-                        </span>
-                      )
-                    }}
-                    rowTotal={(colour) =>
-                      count(
-                        session.variants
-                          .filter((one) => one.colour_digit === colour.key)
-                          .reduce((sum, one) => sum + one.quantity, 0)
-                      )
-                    }
-                    columnTotal={(size) =>
-                      count(
-                        session.variants
-                          .filter((one) => one.size_code === size.code)
-                          .reduce((sum, one) => sum + one.quantity, 0)
-                      )
-                    }
-                    total={count(declared)}
-                  />
-                  <p className="mt-2 text-[0.71875rem] text-mute">
-                    Under each count is the serial range its tags were drawn
-                    from.{" "}
-                    {prices.length === 1
-                      ? `Every variant is priced at ${money(prices[0])}.`
-                      : prices.length > 1
-                        ? `Prices run ${money(prices[0])} to ${money(prices[prices.length - 1])}.`
-                        : ""}
-                  </p>
-                </>
-              )}
-              <TotalsLadder
-                className="mt-3"
-                rows={[
-                  {
-                    label: "Split into variants",
-                    value: count(declared),
-                  },
-                  {
-                    label: "Not yet accounted for",
-                    value: count(session.receipt_quantity - declared),
-                  },
-                ]}
-                total={{
-                  label: "Pieces received",
-                  value: count(session.receipt_quantity),
-                }}
-              />
-            </div>
-
-            <div>
-              <SubHead>Colourways</SubHead>
-              {colours.length === 0 ? (
-                <p className="text-meta text-mute">
-                  A photograph is filed per colourway, so there is nowhere to
-                  put one until the session has been issued and its colours
-                  exist.
-                </p>
-              ) : (
-                <div className="grid gap-3 @2xl:grid-cols-2">
-                  {colours.map(([digit, colourLabel]) => (
-                    <Colourway
-                      key={digit}
-                      articleCode={session.article_code}
-                      digit={digit}
-                      label={colourLabel}
-                    />
-                  ))}
+                <div className="overflow-hidden rounded-inner border border-hairline">
+                  <table className="w-full border-separate border-spacing-0 text-cell">
+                    <thead>
+                      <tr>
+                        <th
+                          scope="col"
+                          className="h-9 border-b border-hairline px-3 text-left text-cell font-normal text-body"
+                        >
+                          Article
+                        </th>
+                        <th
+                          scope="col"
+                          className="h-9 border-b border-l border-hairline px-3 text-left text-cell font-normal text-body"
+                        >
+                          SKU
+                        </th>
+                        <th
+                          scope="col"
+                          className="h-9 w-[6rem] border-b border-l border-hairline px-3 text-right text-cell font-normal text-body"
+                        >
+                          Pieces
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {session.variants.map((variant, at) => {
+                        // The photograph is a fact about the COLOURWAY, so it
+                        // is drawn once per colour rather than once per SKU —
+                        // every size of the red shirt is the red shirt. The
+                        // server orders by SKU code and a SKU begins with the
+                        // colour digit, so a colour's sizes are contiguous.
+                        const opens =
+                          at === 0 ||
+                          session.variants[at - 1].colour_digit !==
+                            variant.colour_digit
+                        return (
+                          <tr key={variant.sku_code}>
+                            <td className="border-t border-hairline px-3 py-1.5">
+                              <span className="flex min-w-0 items-center gap-2.5">
+                                {opens ? (
+                                  <ColourwayPhoto
+                                    articleCode={session.article_code}
+                                    digit={variant.colour_digit}
+                                    label={variant.colour_label}
+                                    url={
+                                      photographOf.get(variant.colour_digit) ??
+                                      null
+                                    }
+                                  />
+                                ) : (
+                                  <span
+                                    aria-hidden
+                                    className="size-9 shrink-0"
+                                  />
+                                )}
+                                {/* The SKU said the way somebody holding the
+                                    garment would say it: what it is, what
+                                    colour, what size. The article's name is
+                                    repeated down the column on purpose — a
+                                    variant is not "White M", it is a white
+                                    medium OF something, and this table is
+                                    read a row at a time. */}
+                                <span className="min-w-0 truncate text-[0.8125rem] text-ink">
+                                  {session.article_name} {variant.colour_label}{" "}
+                                  {variant.size_label}
+                                </span>
+                              </span>
+                            </td>
+                            <td className="border-t border-l border-hairline px-3 py-1.5 font-mono text-id text-body">
+                              {variant.sku_code}
+                            </td>
+                            <td className="border-t border-l border-hairline px-3 py-1.5 text-right text-[0.8125rem] font-medium text-ink tabular-nums">
+                              {count(variant.quantity)}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                    <tfoot>
+                      <tr>
+                        <td className="border-t border-hairline bg-soft-2 px-3 py-2 text-cell text-body">
+                          All
+                        </td>
+                        <td className="border-t border-l border-hairline bg-soft-2 px-3 py-2" />
+                        <td className="border-t border-l border-hairline bg-soft-2 px-3 py-2 text-right text-[0.8125rem] font-semibold text-ink tabular-nums">
+                          {count(
+                            session.variants.reduce(
+                              (sum, one) => sum + one.quantity,
+                              0
+                            )
+                          )}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
                 </div>
               )}
             </div>
+
+            {/* The mint, for a session that opened and did not run one. It was
+                the sheet's footer; this panel's footer belongs to the queue as
+                much as to the record, so the button that acts on THIS record
+                stands at the foot of it. */}
+            {session.status === "OPEN" && (
+              <div className="sticky bottom-0 -mx-1 flex flex-col gap-2.5 border-t border-hairline bg-canvas px-1 pt-3.5 pb-1 @xl:flex-row @xl:items-center @xl:justify-between">
+                <p className="min-w-0 text-[0.71875rem] leading-relaxed text-mute">
+                  Nothing has been drawn against this session yet. Minting draws
+                  the SKUs, their serial ranges and their EPCs in one
+                  transaction and sends the tagging job to {session.site_id}.
+                </p>
+                <Button
+                  variant="primary"
+                  className="w-full shrink-0 @xl:w-auto @xl:min-w-[13rem]"
+                  disabled={actor === "" || (mine && issue.isPending)}
+                  onClick={() => issue.mutate(id)}
+                >
+                  {mine && issue.isPending ? "Adding…" : "Add to inventory"}
+                </Button>
+              </div>
+            )}
+
+            {/* The record's own surroundings — who touched it, what was said
+                about it. `<Sheet>` appends this itself when it is given a
+                subject, and it cannot here: it would land under BOTH columns
+                rather than under the record it belongs to. */}
+            <RecordPanel subject={{ kind: "article_setup", id }} />
           </div>
         ),
       })}
-    </Sheet>
+    </div>
   )
 }
 
-/// One colour of one article, and its photograph.
+/// One colourway's photograph, at the head of its row in the variant grid.
+///
+/// It was a card in a "Colourways" block at the foot of the record: the colour
+/// name again, the storage key in mono, and a button. All three were noise —
+/// the name is the row this now sits in, and `catalogue/00000001/0.jpg` is
+/// where the file lands, which is the app's business and nobody else's. What
+/// is left is the picture, and a way to put one there.
 ///
 /// The bytes never pass through the node: it hands out a URL that authorises
 /// exactly this key for an hour, and the browser PUTs straight to the bucket.
-function Colourway({
+function ColourwayPhoto({
   articleCode,
   digit,
   label: colourLabel,
+  url,
 }: {
   articleCode: string
   digit: string
   label: string
+  /// What the record already read for this colourway, so the row does not ask
+  /// again — the article's own picture is the first of these, so they are read
+  /// once for both.
+  url: string | null
 }) {
   const client = useQueryClient()
-
-  const image = useQuery({
-    queryKey: procurementKeys.articleImage(articleCode, digit),
-    queryFn: ({ signal }) => articleImage(articleCode, digit, signal),
-    staleTime: 10 * 60 * 1000,
-  })
 
   const upload = useMutation({
     // Converted on the way in, not refused at the picker: the store is JPEG
@@ -1018,50 +1114,47 @@ function Colourway({
   })
 
   return (
-    <div className="flex items-center gap-3 rounded-inner border border-hairline p-2.5">
-      {image.data ? (
-        <img
-          src={image.data.url}
-          alt={colourLabel}
-          className="size-14 shrink-0 rounded-inner border border-hairline object-cover"
-        />
+    <label
+      title={
+        upload.isError
+          ? (upload.error as Error).message
+          : url
+            ? `Replace the photograph of ${colourLabel}`
+            : `Add a photograph of ${colourLabel}`
+      }
+      className={cn(
+        "relative grid size-9 shrink-0 cursor-pointer place-items-center overflow-hidden rounded-inner border transition-colors",
+        upload.isError
+          ? "border-bad"
+          : "border-hairline-2 hover:border-hairline-strong",
+        url ? "border-hairline" : "bg-soft-2"
+      )}
+    >
+      {url ? (
+        <img src={url} alt={colourLabel} className="size-full object-cover" />
       ) : (
-        <span className="grid size-14 shrink-0 place-items-center rounded-inner bg-soft-2 font-mono text-[0.71875rem] text-mute">
-          {digit}
+        // A camera and not the colour digit. The digit is half of a SKU
+        // number nobody says out loud, and what this control does is take a
+        // photograph.
+        <Camera className="size-3.5 text-line-ico" />
+      )}
+      {upload.isPending && (
+        <span className="absolute inset-0 grid place-items-center bg-canvas/75 text-[0.5625rem] font-medium text-body">
+          …
         </span>
       )}
-      <span className="min-w-0 flex-1">
-        <span className="block text-[0.8125rem] font-medium text-ink">
-          {colourLabel}
-        </span>
-        <span className="block font-mono text-[0.65625rem] text-mute">
-          catalogue/{articleCode}/{digit}.jpg
-        </span>
-        {upload.isError && (
-          <span className="block text-[0.6875rem] text-bad">
-            {(upload.error as Error).message}
-          </span>
-        )}
-      </span>
-      <label className="inline-flex h-8 shrink-0 cursor-pointer items-center rounded-full border border-hairline-2 bg-canvas px-3 text-[0.78125rem] font-medium text-text transition-colors hover:bg-soft-2">
-        {upload.isPending
-          ? "Sending…"
-          : image.data
-            ? "Replace"
-            : "Add a photograph"}
-        <input
-          type="file"
-          accept={PICTURE_TYPES}
-          className="sr-only"
-          disabled={upload.isPending}
-          onChange={(event) => {
-            const file = event.target.files?.[0]
-            if (file) upload.mutate(file)
-            event.target.value = ""
-          }}
-        />
-      </label>
-    </div>
+      <input
+        type="file"
+        accept={PICTURE_TYPES}
+        className="sr-only"
+        disabled={upload.isPending}
+        onChange={(event) => {
+          const file = event.target.files?.[0]
+          if (file) upload.mutate(file)
+          event.target.value = ""
+        }}
+      />
+    </label>
   )
 }
 
@@ -1083,15 +1176,20 @@ function Colourway({
 /// Finishing the form mints it. The form is the whole of what the mint needs,
 /// so the second press this used to end at could only ever agree with the
 /// first one.
-function OpenSessionSheet({
+/// One delivery being told what it is, in the right-hand pane.
+///
+/// It was a `<Sheet>` of its own until 2026-09-13 — the second of three a
+/// setup passed through, opened by clicking a row in a sheet that then closed.
+/// The owner's instruction was one panel with the form already on screen: a
+/// queue whose whole purpose is to be worked through should not cost a click
+/// per delivery before there is anything to fill in.
+function DeliverySetup({
   receipt,
   vocabulary,
-  onClose,
   onDone,
 }: {
-  receipt: UnidentifiedReceipt | null
+  receipt: UnidentifiedReceipt
   vocabulary?: CatalogueVocabulary
-  onClose: () => void
   onDone: (outcome: SetupOutcome) => void
 }) {
   const client = useQueryClient()
@@ -1141,32 +1239,22 @@ function OpenSessionSheet({
   })
 
   return (
-    <Sheet
-      open={receipt !== null}
-      onOpenChange={(next) => !next && onClose()}
-      id={receipt?.po_number}
-      title={receipt?.article_name ?? "Give this delivery an identity"}
-      // The same glass as the session this makes: the widest thing on it is
-      // the colour x size grid, and it is the thing somebody is here to fill
-      // in. A rail turned that grid into a sideways scroll with the sizes off
-      // the edge — which is to say, into the flat list it replaced.
-      width="table"
-    >
-      {receipt !== null && (
-        <SessionComposer
-          key={receipt.receipt_line_id}
-          receipt={receipt}
-          vocabulary={vocabulary}
-          actor={actor}
-          // The identity itself failing to save. The mint failing after it
-          // saved is not a problem this form can restate — the delivery is no
-          // longer waiting, so the sheet has closed over the session that is.
-          problem={problemOf(setUp.error)}
-          busy={setUp.isPending}
-          onSubmit={(request) => setUp.mutate(request)}
-        />
-      )}
-    </Sheet>
+    <SessionComposer
+      // Keyed on the line, so moving to the next delivery starts clean rather
+      // than carrying the last one's colours into this one. It matters more
+      // here than it did behind a sheet: the rail beside this makes switching
+      // deliveries one click.
+      key={receipt.receipt_line_id}
+      receipt={receipt}
+      vocabulary={vocabulary}
+      actor={actor}
+      // The identity itself failing to save. The mint failing after it saved
+      // is not a problem this form can restate — the delivery is no longer
+      // waiting, so the pane has moved on to the session that is.
+      problem={problemOf(setUp.error)}
+      busy={setUp.isPending}
+      onSubmit={(request) => setUp.mutate(request)}
+    />
   )
 }
 
@@ -1265,8 +1353,12 @@ function SessionComposer({
   /// What it actually showed was `02 06 04 03`: facets carry the stored code
   /// and there is nowhere in them to find the word for it.
   const sizes = useMemo(() => vocabulary?.sizes ?? [], [vocabulary])
+  const sizeChoices = useMemo<Choice[]>(
+    () => sizes.map((term) => ({ value: term.code, label: term.label })),
+    [sizes]
+  )
   /// The grid, in the master's order rather than the order somebody happened
-  /// to press the chips in.
+  /// to pick them in.
   const columns = useMemo(
     () =>
       sizes
@@ -1383,60 +1475,75 @@ function SessionComposer({
         </Fact>
       </Facts>
 
-      {/* Two questions, side by side once there is room: what this thing is,
-          and what actually turned up. They are answered by different people
-          reading different pieces of paper, and stacking them made the second
-          one — the one only the warehouse can answer — a scroll away. */}
-      <div className="grid gap-6 @3xl:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] @3xl:gap-x-8">
-        <div className="flex flex-col gap-5">
-          <SubHead>What it is</SubHead>
+      {/* What the article IS, in four fields two to a row.
 
-          <Field label="Name">
-            <Input
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-            />
-          </Field>
+          They sat under a heading reading "What it is", beside a second column
+          headed "What arrived". Both headings are gone on the owner's word of
+          2026-09-13, and they were not carrying their weight: the panel is
+          titled New items and the record above says which delivery this is, so
+          a heading over the name box was labelling a form with the word
+          "form". What replaced them is the only division this form actually
+          has — the article, and then the variants it is being split into.
 
-          <Field label="Division">
-            <PickOne
-              choices={divisionChoices}
-              value={division === "" ? null : division}
-              onChange={(next) => setDivision(next ?? "")}
-              placeholder="Choose a division…"
-              label="Division"
-            />
-          </Field>
+          Two to a row at `@xl`. This form used to have the whole sheet; it now
+          shares it with two rails, which leaves it 36.5rem. Every wider
+          breakpoint silently drops it to one column and every delivery becomes
+          a scroll again — which is exactly what happened twice while this was
+          being built, at `@3xl` and then at `@2xl`. Measured, not guessed: the
+          pane is what the rails leave of 64rem.
 
-          <Field label="Tags" hint="What the article will be found by.">
-            <PickMany
-              choices={tagChoices}
-              values={tags}
-              onChange={setTags}
-              placeholder="None"
-              label="Tags"
-            />
-          </Field>
+          `items-start` because two of the four carry a hint and two do not: a
+          stretched row makes the boxes of the short pair as tall as the text
+          under the long one. */}
+      <div className="grid items-start gap-5 @xl:grid-cols-2 @xl:gap-x-6">
+        <Field label="Name">
+          <Input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+          />
+        </Field>
 
-          <Field
-            label="Base price"
-            hint="One piece, every variant. A colour worth more is a Commercial decision."
-          >
-            <Money value={price} onChange={setPrice} placeholder="31.000" />
-          </Field>
-        </div>
+        <Field label="Division">
+          <PickOne
+            choices={divisionChoices}
+            value={division === "" ? null : division}
+            onChange={(next) => setDivision(next ?? "")}
+            placeholder="Choose a division…"
+            label="Division"
+          />
+        </Field>
 
-        <div className="flex flex-col gap-5">
-          <SubHead>What arrived</SubHead>
+        <Field label="Tags">
+          <PickMany
+            choices={tagChoices}
+            values={tags}
+            onChange={setTags}
+            placeholder="None"
+            label="Tags"
+          />
+        </Field>
 
-          <Field
-            label="Colours"
-            hint={
-              chosenColours.length >= COLOURWAY_CEILING
-                ? "Ten is the ceiling — a colour is one digit of the SKU."
-                : "Type to search. Ten at most: a colour is one digit of the SKU."
-            }
-          >
+        <Field label="Base price">
+          <Money value={price} onChange={setPrice} placeholder="31.000" />
+        </Field>
+      </div>
+
+      <div>
+        <SubHead>Variants</SubHead>
+
+        {/* Colour and size, under the one heading with the grid they produce.
+            They stood in a column of their own headed "What arrived", which
+            filed them as a second kind of fact about the delivery; they are
+            not that. A colour and a size are the two halves of a SKU — picking
+            them IS declaring which variants exist, and the grid under them is
+            the same act finished. Read top to bottom now: which colours, which
+            sizes, how many of each. */}
+        <div className="mb-5 grid items-start gap-5 @xl:grid-cols-2 @xl:gap-x-6">
+          {/* No hint under it, on the owner's word of 2026-09-13. The ceiling
+              is still enforced — `onChange` refuses the eleventh — and a line
+              of small print under every box was three sentences of chrome on a
+              form of six fields. */}
+          <Field label="Colours">
             <PickMany
               choices={colourChoices}
               values={chosenColours}
@@ -1459,165 +1566,205 @@ function SessionComposer({
             />
           </Field>
 
-          {/* A field, in `<Field>`'s own label type — not a `<SubHead>`. The
-              two headings on this form are "What it is" and "What arrived",
-              and a third thing set at the same weight two rows under one of
-              them flattens the pair into a list of five headings. */}
-          <div className="flex flex-col gap-1.5">
-            <div className="flex items-baseline justify-between gap-2">
-              <span className="text-[0.78125rem] font-medium text-text">
-                Sizes
-              </span>
-              <span className="text-[0.71875rem] text-mute tabular-nums">
-                {chosenSizes.length === 0
-                  ? "None"
-                  : `${count(chosenSizes.length)} chosen`}
-              </span>
-            </div>
-            {/* Chips rather than a second search box: there are fourteen of
-                them, they are the one vocabulary somebody wants to see all of
-                at once, and a size run reads as a run only when it is drawn
-                as one. */}
-            <div className="flex flex-wrap gap-1.5">
-              {sizes.map((size) => (
-                <button
-                  key={size.code}
-                  type="button"
-                  title={size.code}
-                  onClick={() => setChosenSizes(toggle(chosenSizes, size.code))}
-                  className={cn(
-                    "rounded-full border px-2.5 py-1 text-[0.75rem] transition-colors",
-                    chosenSizes.includes(size.code)
-                      ? "border-ink bg-ink text-white"
-                      : "border-hairline-2 text-text hover:bg-soft-2"
-                  )}
-                >
-                  {size.label}
-                </button>
-              ))}
-            </div>
-            {sizes.length === 0 && (
-              <p className="text-[0.71875rem] text-mute">
-                The size master is not answering, so there is nothing to choose
-                from.
-              </p>
-            )}
-          </div>
+          {/* The same control as Colours, on the owner's word of 2026-09-13.
+              They were fourteen chips — on the argument that a size run reads
+              as a run only when it is drawn as one — and beside a picker they
+              read as a different KIND of question. They are not: colour and
+              size are the two halves of a SKU, answered in the same breath by
+              the same person, and one shape for both is what says so. The
+              master's order still decides the grid's columns, so XS still
+              comes before XXL whatever order they were picked in. */}
+          <Field label="Sizes">
+            <PickMany
+              choices={sizeChoices}
+              values={chosenSizes}
+              onChange={setChosenSizes}
+              placeholder={
+                sizes.length === 0
+                  ? "Reading the size master…"
+                  : "Search a size"
+              }
+              label="The sizes that arrived"
+            />
+          </Field>
         </div>
-      </div>
 
-      <div>
-        <SubHead
-          aside={
-            rows.length === 0 || columns.length === 0 ? undefined : (
-              <span
-                className={
-                  over ? "text-bad" : balanced ? "text-ok-fg" : "text-warn-fg"
-                }
-              >
-                {count(declared)} of {count(receipt.quantity)}
-              </span>
-            )
-          }
-        >
-          How the pieces split
-        </SubHead>
         {rows.length === 0 || columns.length === 0 ? (
           <p className="rounded-inner border border-dashed border-hairline-2 px-3.5 py-6 text-center text-[0.71875rem] text-mute">
             Choose the colours and the sizes above, and the grid to count them
             into appears here.
           </p>
         ) : (
-          <Matrix
-            colours={rows}
-            sizes={columns}
-            columnClass="w-[5.25rem]"
-            cell={(colour, size) => (
-              <Input
-                inputMode="numeric"
-                // The whole SKU, in words, for anybody who cannot see the row
-                // and the column this box is sitting in: "Kemeja Biru XL".
-                aria-label={`${name.trim() === "" ? "This article" : name.trim()} ${colour.label} ${size.label}`}
-                placeholder="0"
-                value={pieces[`${colour.key}|${size.code}`] ?? ""}
-                onChange={(event) =>
-                  setPieces((was) => ({
-                    ...was,
-                    [`${colour.key}|${size.code}`]: event.target.value,
-                  }))
-                }
-                // Flat inside the grid, not a pill: twenty pill-shaped boxes
-                // in a table read as twenty controls, and what this is is one
-                // table somebody is filling in. The fill arrives on hover and
-                // focus, so the cell still says it can be typed into.
-                //
-                // The negative margin is what puts the figures in a COLUMN.
-                // A box with its own padding sitting inside a padded cell
-                // stands its digits 16px off the column's right edge while
-                // the totals under them stand at 8 — and a grid of numbers
-                // that do not line up is not a grid of numbers. So the box
-                // spans the cell edge to edge and carries the cell's padding
-                // itself: one 8px gap, the same one the totals and the
-                // headers use.
-                // `border-0` for the last pixel: the field's transparent
-                // hairline sits INSIDE the box, so its text edge stood one
-                // pixel short of the totals under it — invisible at 1x and
-                // plain as day on a retina screen.
-                className="-mx-2 h-8 w-[calc(100%+1rem)] rounded-[0.5rem] border-0 bg-transparent px-2 text-right hover:bg-soft-2 focus:bg-soft-2"
-              />
-            )}
-            rowTotal={(colour) =>
-              count(
-                columns.reduce(
-                  (sum, size) => sum + piecesAt(colour.key, size.code),
-                  0
+          <>
+            {/* How much of the delivery is in the grid, on the line directly
+                over it. It rode on the "Variants" heading, which is two
+                controls further up — a running total belongs against the thing
+                it is counting, not against the heading of the section that
+                thing happens to be in. */}
+            <p
+              className={cn(
+                "mb-1.5 text-right text-[0.71875rem] font-medium tabular-nums",
+                over ? "text-bad" : balanced ? "text-ok-fg" : "text-warn-fg"
+              )}
+            >
+              {count(declared)} of {count(receipt.quantity)}
+            </p>
+            <Matrix
+              colours={rows}
+              sizes={columns}
+              columnClass="w-[5.25rem]"
+              cell={(colour, size) => (
+                <Input
+                  inputMode="numeric"
+                  // The whole SKU, in words, for anybody who cannot see the row
+                  // and the column this box is sitting in: "Kemeja Biru XL".
+                  aria-label={`${name.trim() === "" ? "This article" : name.trim()} ${colour.label} ${size.label}`}
+                  placeholder="0"
+                  value={pieces[`${colour.key}|${size.code}`] ?? ""}
+                  onChange={(event) =>
+                    setPieces((was) => ({
+                      ...was,
+                      [`${colour.key}|${size.code}`]: event.target.value,
+                    }))
+                  }
+                  // Flat inside the grid, and square: twenty rounded boxes in a
+                  // table read as twenty controls, and what this is is one table
+                  // somebody is filling in. The fill arrives on hover and focus,
+                  // so the cell still says it can be typed into — and it now
+                  // stops at the column rule instead of meeting the fill of the
+                  // cell beside it, which drew two pills jammed together.
+                  //
+                  // The negative margin is what puts the figures in a COLUMN.
+                  // A box with its own padding sitting inside a padded cell
+                  // stands its digits 16px off the column's right edge while
+                  // the totals under them stand at 8 — and a grid of numbers
+                  // that do not line up is not a grid of numbers. So the box
+                  // spans the cell edge to edge and carries the cell's padding
+                  // itself: one 8px gap, the same one the totals and the
+                  // headers use.
+                  // `border-0` for the last pixel: the field's transparent
+                  // hairline sits INSIDE the box, so its text edge stood one
+                  // pixel short of the totals under it — invisible at 1x and
+                  // plain as day on a retina screen.
+                  className="-mx-2 h-8 w-[calc(100%+1rem)] rounded-none border-0 bg-transparent px-2 text-right hover:bg-soft-2 focus:bg-soft-2"
+                />
+              )}
+              rowTotal={(colour) =>
+                count(
+                  columns.reduce(
+                    (sum, size) => sum + piecesAt(colour.key, size.code),
+                    0
+                  )
                 )
-              )
-            }
-            columnTotal={(size) =>
-              count(
-                chosenColours.reduce(
-                  (sum, colour) => sum + piecesAt(colour, size.code),
-                  0
+              }
+              columnTotal={(size) =>
+                count(
+                  chosenColours.reduce(
+                    (sum, colour) => sum + piecesAt(colour, size.code),
+                    0
+                  )
                 )
-              )
-            }
-            total={
-              <span
-                className={
-                  over ? "text-bad" : balanced ? "text-ok-fg" : "text-warn-fg"
-                }
-              >
-                {count(declared)}
-              </span>
-            }
-          />
+              }
+              total={
+                <span
+                  className={
+                    over ? "text-bad" : balanced ? "text-ok-fg" : "text-warn-fg"
+                  }
+                >
+                  {count(declared)}
+                </span>
+              }
+            />
+          </>
         )}
       </div>
 
-      {/* The button, and on the same line either what pressing it does or the
-          reason it cannot be pressed. The first half is not decoration: this
-          one press mints, and a button whose weight is only discoverable by
-          pressing it is not a button anybody should press. */}
-      <div className="flex flex-col gap-3 border-t border-hairline pt-4 @xl:flex-row @xl:items-center @xl:justify-between">
+      {/* The button, and beside it the reason it cannot be pressed.
+      
+          Only that reason. It used to say what pressing it does when there was
+          nothing stopping it — "this mints the article, its SKUs and their
+          EPCs, and sends the tagging job to dc-01; the serials are drawn once
+          and cannot be drawn back" — which is a paragraph of warehouse
+          mechanics under a button somebody presses forty times a morning.
+          Gone on the owner's word of 2026-09-13. The half that earns its place
+          is the other one: a disabled button with nothing beside it is a dead
+          end, and on a form this long the answer is usually off the top of the
+          pane.
+      
+          Stuck to the foot of the pane, for the same reason: the grid alone
+          can be ten rows, and the line saying why the button is dead was
+          scrolling off the bottom just as somebody went looking for it. */}
+      <div className="sticky bottom-0 -mx-1 flex flex-col gap-3 border-t border-hairline bg-canvas px-1 pt-4 pb-1 @xl:flex-row @xl:items-center @xl:justify-between">
         <p
           className={cn(
             "min-w-0 text-[0.71875rem] leading-relaxed",
             over ? "text-bad" : "text-mute"
           )}
         >
-          {missing ??
-            `This mints the article, its SKUs and their EPCs, and sends the tagging job to ${receipt.site_id}. The serials are drawn once and cannot be drawn back.`}
+          {missing}
         </p>
+        {/* "Add to inventory", on the owner's word of 2026-09-13. "Set up and
+            send to tagging" named the two writes the press performs; this
+            names what the press is FOR. The sentence beside it still says what
+            actually happens, which is where that detail belongs — a button is
+            read in half a second and a warehouse job is not what somebody came
+            here to think about. */}
         <Button
           variant="primary"
           type="submit"
           disabled={!ready || busy}
           className="w-full shrink-0 @xl:w-auto @xl:min-w-[13rem]"
         >
-          {busy ? "Minting…" : "Set up and send to tagging"}
+          {busy ? "Adding…" : "Add to inventory"}
         </Button>
       </div>
     </form>
+  )
+}
+
+/// The way into the queue, and the count that argues for it.
+///
+/// It stood on Purchase orders until 2026-09-13, and before that on Articles;
+/// the owner has moved it back to Articles, where a delivery under no article
+/// is a gap in the CATALOGUE rather than a step of a purchase. The trigger and
+/// the sheets travel together — a button whose sheets are mounted on another
+/// screen opens nothing.
+
+/// The way into a setup, and the count that makes it worth pressing.
+///
+/// A trigger and not a menu row: a setup is done to one delivery, so what this
+/// opens is a queue to pick from. The number is the whole argument for the
+/// button — the word alone says a thing exists, while "3" says three
+/// deliveries are sitting in the warehouse under a code nobody can sell
+/// against. Nothing is drawn while the count is unknown, and the button goes
+/// quiet rather than away at zero: it is still how you reach the sessions
+/// already open.
+///
+/// **"New items", not "Set up deliveries"** — the owner's word on 2026-09-13.
+/// It reads as what comes OUT of the queue rather than as the errand: standing
+/// on the article master, what is waiting is new items to be named, and
+/// "deliveries" named the carton they arrived in.
+///
+/// The primary button on this page, and the only one. It is what somebody came
+/// to Articles to DO when the count is not zero; `soft` filed it with the
+/// chrome and left the screen with nothing to press.
+export function SetupTrigger() {
+  const queue = useSheet("setups")
+  const waiting = useAwaitingIdentity()
+  const pending = waiting.data?.length ?? 0
+
+  return (
+    <Button variant="primary" onClick={() => queue.open(true)}>
+      <ListChecks className="size-4 stroke-[1.7]" />
+      New items
+      {pending > 0 && (
+        // On the fill rather than beside it: a warm pill on a blue button is
+        // two statuses arguing. Glass over the button's own colour keeps the
+        // count legible and keeps the button one thing.
+        <span className="ml-0.5 rounded-full bg-on-dark/20 px-[0.375rem] py-px text-[0.65625rem] font-semibold text-cta-fg tabular-nums">
+          {count(pending)}
+        </span>
+      )}
+    </Button>
   )
 }

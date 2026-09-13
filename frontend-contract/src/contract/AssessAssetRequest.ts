@@ -2,9 +2,36 @@
 
 export type AssessAssetRequest = { 
 /**
- * `CAPITALIZE` or `EXPENSE`.
+ * `CAPITALIZE`, `EXPENSE`, or `IN_PROGRESS`.
+ *
+ * The third is work being paid for on something not yet built — the
+ * client's `Contract In Progress`, which is 668 of the 1,342 rows in
+ * their own register. It carries a cost and nothing else, charges
+ * nothing, and is superseded by a second assessment the day the thing is
+ * finished. See migration 0213.
  */
-decision: string, capitalized_cost_minor: number | null, salvage_value_minor: number | null, useful_life_months: number | null, method: string | null, 
+decision: string, capitalized_cost_minor: number | null, salvage_value_minor: number | null, useful_life_months: number | null, 
+/**
+ * The family this asset belongs in from now on.
+ *
+ * Only ever used for one thing: a shop fit-out finishing. Work in
+ * progress sits under `1031803`, and the day it is done it becomes a
+ * building, an instalation, or furniture — so the assessment that
+ * capitalises it also says which. Refused on anything else: an asset that
+ * could be re-filed at will would let somebody move cost between families
+ * without a trace, and the client's own `REKLAS CIP` rows show this is
+ * the one move they actually make.
+ */
+category_code?: string, 
+/**
+ * The annual rate, in basis points — 20% is `2000`.
+ *
+ * Optional, and either this or the life may be given: the two are one
+ * fact said twice, and this client's register says it this way. When both
+ * arrive they must agree; when one arrives the other is derived. The
+ * arithmetic downstream still reads the life.
+ */
+rate_bps?: number, method: string | null, 
 /**
  * `DEPRECIATION`, `REPLACEMENT_RESERVE` or `AMORTISATION`.
  *

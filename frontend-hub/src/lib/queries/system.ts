@@ -8,6 +8,7 @@ import type {
   SetEdgeAssignmentActiveRequest,
   SetUserActiveRequest,
   SetUserRoleRequest,
+  SyncFleetHealth,
   UpsertEdgeAssignmentRequest,
 } from "@itulah/contract"
 
@@ -220,6 +221,7 @@ export const systemKeys = {
   fleet: () => ["system", "fleet"] as const,
   deadLetters: () => ["system", "dead-letters"] as const,
   reconciliation: () => ["system", "reconciliation"] as const,
+  health: () => ["system", "health"] as const,
   command: (id: string) => ["system", "commands", id] as const,
   notifications: () => ["system", "notifications"] as const,
   edgeAssignments: () => ["system", "edge-assignments"] as const,
@@ -323,12 +325,37 @@ export function revokeCommand(
   )
 }
 
+/// One value a system list can be narrowed by, and how many rows it leaves.
+/// Counted over what the search leaves, ignoring the filters applied — so the
+/// number beside a value answers "how many of these are there".
+export interface SystemFacet {
+  readonly value: string
+  readonly label: string | null
+  readonly count: number
+}
+
+export interface DeadLetterFacets {
+  readonly origins: readonly SystemFacet[]
+  readonly event_types: readonly SystemFacet[]
+  readonly reasons: readonly SystemFacet[]
+}
+
+/// A page of rejections, and the shape of everything it was drawn from.
+///
+/// This replaced a bare `{ items }`. `total` is the number the sync console
+/// could not previously state: it asked for a hundred and had no way of
+/// knowing whether that was the backlog.
+export interface DeadLetterList {
+  readonly rows: readonly DeadLetter[]
+  readonly next_cursor: string | null
+  readonly total: number
+  readonly facets: DeadLetterFacets
+}
+
 export function listDeadLetters(limit = 100, signal?: AbortSignal) {
-  return node
-    .get<{ items: DeadLetter[] }>(`/api/v1/sync/dead-letters?limit=${limit}`, {
-      signal,
-    })
-    .then((body) => body.items)
+  return node.get<DeadLetterList>(`/api/v1/sync/dead-letters?limit=${limit}`, {
+    signal,
+  })
 }
 
 export function reconciliation(signal?: AbortSignal) {
@@ -347,10 +374,24 @@ export function resetBreaker(signal?: AbortSignal) {
 
 // ---- The identity store ---------------------------------------------------
 
+export interface UserFacets {
+  readonly roles: readonly SystemFacet[]
+  readonly states: readonly SystemFacet[]
+  readonly places: readonly SystemFacet[]
+}
+
+/// A page of logins, and exactly how many there are. Exact because this
+/// answers "who can sign in", and a rough count of that reads as a fact
+/// without being one.
+export interface UserList {
+  readonly rows: readonly UserRow[]
+  readonly next_cursor: string | null
+  readonly total: number
+  readonly facets: UserFacets
+}
+
 export function listUsers(signal?: AbortSignal) {
-  return node
-    .get<{ items: UserRow[] }>("/api/v1/auth/users", { signal })
-    .then((body) => body.items)
+  return node.get<UserList>("/api/v1/auth/users", { signal })
 }
 
 export function createUser(request: CreateUserRequest, signal?: AbortSignal) {
@@ -422,12 +463,24 @@ export function changeOwnPassword(
 
 // ---- Access at a node -----------------------------------------------------
 
+export interface EdgeAssignmentFacets {
+  readonly origins: readonly SystemFacet[]
+  readonly roles: readonly SystemFacet[]
+  readonly states: readonly SystemFacet[]
+}
+
+/// A page of grants, and exactly how many there are.
+export interface EdgeAssignmentList {
+  readonly rows: readonly EdgeAssignment[]
+  readonly next_cursor: string | null
+  readonly total: number
+  readonly facets: EdgeAssignmentFacets
+}
+
 export function listEdgeAssignments(signal?: AbortSignal) {
-  return node
-    .get<{ items: EdgeAssignment[] }>("/api/v1/auth/edge-assignments", {
-      signal,
-    })
-    .then((body) => body.items)
+  return node.get<EdgeAssignmentList>("/api/v1/auth/edge-assignments", {
+    signal,
+  })
 }
 
 /// Grant somebody access at one node, or rotate the PIN they use there.
@@ -479,10 +532,21 @@ export function publishEdgePolicy(originId: string, signal?: AbortSignal) {
 
 // ---- Readers --------------------------------------------------------------
 
+export interface RfidDeviceFacets {
+  readonly origins: readonly SystemFacet[]
+  readonly states: readonly SystemFacet[]
+}
+
+/// A page of readers, and exactly how many there are.
+export interface RfidDeviceList {
+  readonly rows: readonly RfidDevice[]
+  readonly next_cursor: string | null
+  readonly total: number
+  readonly facets: RfidDeviceFacets
+}
+
 export function listRfidDevices(signal?: AbortSignal) {
-  return node
-    .get<{ items: RfidDevice[] }>("/api/v1/auth/rfid-devices", { signal })
-    .then((body) => body.items)
+  return node.get<RfidDeviceList>("/api/v1/auth/rfid-devices", { signal })
 }
 
 export interface RegisterRfidDeviceRequest {
@@ -577,4 +641,16 @@ export function markAllNotificationsRead(signal?: AbortSignal) {
     {},
     { signal }
   )
+}
+
+// ---- Health ---------------------------------------------------------------
+
+/// Both lanes of the sync, every node, and the security posture, in one read.
+///
+/// One endpoint rather than six stitched together in the browser: the verdict
+/// is computed on the server, where its thresholds are policy and its rule has
+/// tests. The response is typed from the Rust struct the server serialises —
+/// the one answer in this module that is not transcribed by hand.
+export function syncHealth(signal?: AbortSignal) {
+  return node.get<SyncFleetHealth>("/api/v1/sync/health", { signal })
 }

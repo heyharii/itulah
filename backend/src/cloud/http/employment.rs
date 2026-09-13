@@ -51,10 +51,11 @@ use crate::cloud::{
         actions, required_role_for_action, role_allows, Address, AssignmentSpan, Authorization,
         Contact, Contract, ContractKind, Employee, EmployeeCode, EmploymentStatus,
         EmploymentTransition, FullName, Grade, Nik, PlaceId, PlaceKind, Position, Posting, Profile,
-        ProfileField, Reach,
+        ProfileField, Reach, RecordKind,
     },
+    http::audit::DeclaredSubject,
     postgres::{
-        self as infrastructure, AccountBinding, EmployeeRecord, EmployeeSummary, ExpiringContract,
+        self as infrastructure, AccountBinding, EmployeeList, EmployeeRecord, ExpiringContract,
     },
 };
 use axum::{
@@ -67,10 +68,6 @@ use uuid::Uuid;
 
 /// The path segment that means "the caller".
 const SELF: &str = "me";
-
-/// How many rows the workforce list returns when the caller does not say.
-const DEFAULT_LIMIT: i64 = 200;
-const MAX_LIMIT: i64 = 1000;
 
 /// A resolved subject, and whether the caller is asking about themselves.
 ///
@@ -494,13 +491,45 @@ fn contracts_view(record: &EmployeeRecord, as_of: NaiveDate) -> ContractsView {
 
 // ── request bodies ───────────────────────────────────────────────────────
 
+/// What the workforce list was asked for.
+///
+/// A typed struct where `GET /finance/money` reads `Query<Vec<(String, String)>>`,
+/// and the difference is not a second convention: that route's facets are
+/// multi-select, so `?pot=CASH&pot=BANK` has to survive, and a struct's
+/// deserializer keeps the last value and drops the rest in silence. Nothing
+/// here repeats — a status is one of four and a place is one place — so the
+/// struct keeps what it is worth keeping: `deny_unknown_fields`, which refuses
+/// `?statuss=ACTIVE` instead of quietly listing the whole company under a
+/// filter the caller believes is applied.
+///
+/// That strictness is also why every new parameter below is additive. A caller
+/// on the old shape sends `status`, `place_id` and `limit`, all still here and
+/// all still meaning what they did.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ListQuery {
+    /// Free text over the employee number and the person's name.
+    #[serde(default)]
+    pub q: Option<String>,
     #[serde(default)]
     pub status: Option<String>,
+    /// A place to narrow to — and, for a bounded caller, a place they must be
+    /// posted to. See [`list`]: naming somebody else's shop is refused, never
+    /// quietly replaced with their own.
     #[serde(default)]
     pub place_id: Option<String>,
+    /// `code`, `name`, `contract_end` or `place`. Anything else is the house
+    /// order rather than a 400 — see `EmployeeScope::sort`.
+    #[serde(default)]
+    pub sort: Option<String>,
+    /// `desc` and nothing else. Absent, empty and anything unrecognised all
+    /// mean ascending, which is the direction a list is in before anybody
+    /// touches it.
+    #[serde(default)]
+    pub dir: Option<String>,
+    /// A `next_cursor` from the previous page, verbatim.
+    #[serde(default)]
+    pub cursor: Option<String>,
     #[serde(default)]
     pub limit: Option<i64>,
 }
@@ -615,11 +644,29 @@ pub struct ExpiringQuery {
 /// A bounded caller who names a place they cannot reach is refused rather than
 /// silently re-filtered. Quietly answering a different question than the one
 /// asked is how somebody concludes store-03 has the same staff as store-07.
+///
+/// # Why searching and sorting moved to the server
+///
+/// It answers with an envelope — rows, a cursor, a total and facet counts — in
+/// the shape `GET /finance/money` established, because the alternative this
+/// replaces was the hub fetching a thousand rows and sorting them in the
+/// browser. That works until the thousand-and-first person is hired, and the
+/// way it stops working is a directory that is quietly missing somebody and a
+/// contract-expiry sort that only ordered the rows it happened to have. A sort
+/// that lives on the server survives paging; one that lives in the browser is
+/// a sort of the first page.
+///
+/// The reach gate below is deliberately untouched by all of that, and runs
+/// before any of it. The place a bounded caller is served is still their own
+/// posting, the place they may ask for is still only that one, and the refusal
+/// still names the place they asked for. Two things now carry it into the
+/// query — the filter and the fence — for the reason `EmployeeScope::reach_place`
+/// gives.
 pub async fn list(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
     Query(query): Query<ListQuery>,
-) -> Result<Json<Vec<EmployeeSummary>>, AppError> {
+) -> Result<Json<EmployeeList>, AppError> {
     if !role_allows(
         required_role_for_action(actions::EMPLOYEE_READ),
         principal.role,
@@ -649,13 +696,27 @@ pub async fn list(
             )));
         }
     };
-    let limit = query.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
     Ok(Json(
         infrastructure::list_employees(
             &state.db,
-            query.status.as_deref(),
-            place_filter.as_deref(),
-            limit,
+            infrastructure::EmployeeScope {
+                // The fence, beside the filter. `place_filter` is what the
+                // caller asked for once it has been reconciled above; this is
+                // what their own posting allows, whatever they asked. They are
+                // the same value for a bounded caller today — and the query
+                // applies both, so the day somebody edits the reconciliation
+                // without reading it, the answer narrows rather than widens.
+                reach_place: reach.sole_place().map(ToString::to_string),
+                needle: query.q,
+                status: query.status,
+                place_id: place_filter,
+                sort: query.sort,
+                desc: query.dir.as_deref() == Some("desc"),
+                cursor: query.cursor,
+                // Clamped where it is enforced, not here: one spelling of "how
+                // much of the company one request may see".
+                limit: query.limit,
+            },
         )
         .await?,
     ))
@@ -713,6 +774,7 @@ pub async fn reach(
 pub async fn register(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
+    Extension(acted_on): Extension<DeclaredSubject>,
     Json(body): Json<RegisterBody>,
 ) -> Result<Json<EmployeeView>, AppError> {
     // A registration has no subject yet, so there is no place to reach into —
@@ -732,6 +794,7 @@ pub async fn register(
     let employee_id = format!("emp_{}", Uuid::new_v4().simple());
     let employee = Employee::try_register(&employee_id, &body.employee_code).map_err(invalid)?;
     infrastructure::register_employee(&state.db, &employee).await?;
+    acted_on.set(RecordKind::Employee, employee_id.clone());
     Ok(Json(employee_view(&record(&state, &employee_id).await?)))
 }
 

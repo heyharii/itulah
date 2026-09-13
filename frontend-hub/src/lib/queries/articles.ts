@@ -1,4 +1,5 @@
 import { node } from "@/lib/api"
+import { arity, type Filter } from "@/lib/filters"
 import type { ArticleConsequences, ProposedArticle } from "@itulah/contract"
 
 /// The master product — article and SKU — read as itself rather than as a
@@ -187,6 +188,13 @@ export interface ArticleScope {
   readonly sizeCodes?: readonly string[]
   readonly colourCodes?: readonly string[]
   readonly active?: boolean
+  /// Which way the master is read. `oldest` is the default and the order this
+  /// endpoint has always answered in — the catalogue in the order it was built
+  /// up. `newest` is `created_at` descending, which is what somebody asking
+  /// "what is new" means; it is NOT the article code descending, because the
+  /// seeded and legacy articles carry hand-written codes that sort above every
+  /// code this server has minted.
+  readonly sort?: "newest" | "oldest"
   readonly limit?: number
   /// From a previous page's `next_cursor`.
   readonly cursor?: string
@@ -215,6 +223,48 @@ export const articleKeys = {
 // ---------------------------------------------------------------------------
 
 /// One page of the catalogue, plus enough about the rest to describe it.
+/// The filter chips, as the four sets `/api/v1/articles` answers.
+///
+/// The same shape `scopeFromFilters` has in `queries/procurement` and for the
+/// same reason: the chips are the screen's language and the query string is the
+/// server's, and one function that knows both is what stops a chip narrowing
+/// nothing in silence.
+///
+/// Only the operators the endpoint can honour are translated, because the
+/// fields declare only those — `division_code` and its three neighbours are
+/// repeated positive sets, and there is no parameter for "is none of" or "is
+/// empty". A clause the handler cannot carry would leave the list unchanged
+/// while the chip above it claimed otherwise.
+export function articleScopeFromFilters(
+  filters: readonly Filter[]
+): Partial<ArticleScope> {
+  const scope: {
+    -readonly [K in keyof ArticleScope]: ArticleScope[K]
+  } = {}
+
+  for (const { column, operator, values } of filters) {
+    if (values.length === 0 && arity(operator) !== "none") continue
+
+    switch (column) {
+      case "division":
+        if (operator === "is" || operator === "isAnyOf")
+          scope.divisionCodes = values
+        break
+      case "tag":
+        if (operator === "includesAnyOf") scope.tagCodes = values
+        break
+      case "colour":
+        if (operator === "includesAnyOf") scope.colourCodes = values
+        break
+      case "size":
+        if (operator === "includesAnyOf") scope.sizeCodes = values
+        break
+    }
+  }
+
+  return scope
+}
+
 export function searchArticles(scope: ArticleScope, signal?: AbortSignal) {
   const params = new URLSearchParams()
   if (scope.q !== undefined && scope.q !== "") params.set("q", scope.q)
@@ -228,6 +278,11 @@ export function searchArticles(scope: ArticleScope, signal?: AbortSignal) {
   for (const code of scope.sizeCodes ?? []) params.append("size_code", code)
   for (const code of scope.colourCodes ?? []) params.append("colour_code", code)
   if (scope.active !== undefined) params.set("active", String(scope.active))
+  // Only when it is not the default. The plain URL is the plain catalogue, and
+  // one spelling of "no order chosen" is what stops two query keys standing
+  // for the same page.
+  if (scope.sort !== undefined && scope.sort !== "oldest")
+    params.set("sort", scope.sort)
   if (scope.limit !== undefined) params.set("limit", String(scope.limit))
   if (scope.cursor !== undefined) params.set("cursor", scope.cursor)
   const query = params.toString()

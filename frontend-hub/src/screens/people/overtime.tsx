@@ -9,10 +9,13 @@ import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Field, Input, Select } from "@/components/ui/field"
+import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
+import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
+import { useFilters } from "@/lib/filters"
 import { day } from "@/lib/format"
 import type { Tone } from "@/lib/format"
 import {
@@ -74,6 +77,8 @@ const columns: ColumnDef<TableSetup, OvertimeOrderView>[] = [
     accessorFn: (row) => row.employee_id,
     header: "Employee",
     size: 190,
+    // No filter: a uuid is not something a manager narrows by. Who is chased
+    // is decided by reading the list, not by knowing the id first.
     cell: ({ row }) => (
       <span className="font-mono text-id text-body">
         {row.original.employee_id}
@@ -84,6 +89,9 @@ const columns: ColumnDef<TableSetup, OvertimeOrderView>[] = [
     accessorKey: "on_date",
     header: "Date",
     size: 130,
+    /// "This week" is the whole reason somebody opens this list — an order for
+    /// tomorrow night that nobody has answered is the one worth chasing today.
+    meta: { filter: { kind: "date" } },
     cell: ({ row }) => day(row.original.on_date),
   },
   {
@@ -92,13 +100,20 @@ const columns: ColumnDef<TableSetup, OvertimeOrderView>[] = [
     size: 110,
     /// Which statutory pay table applies — Kepmenaker 102/2004 has one schedule
     /// for ordinary days and another for rest days and holidays. Never a rate.
+    /// Filterable because those are different schedules: "the rest-day and
+    /// holiday orders" is one clause and a different conversation.
+    meta: {
+      filter: { kind: "option", format: (value) => value.toLowerCase() },
+    },
     cell: ({ row }) => row.original.day_kind.toLowerCase(),
   },
   {
     accessorKey: "planned_minutes",
     header: "Ordered",
     size: 110,
-    meta: { align: "right" },
+    /// Minutes, never hours — the same rule the order form states, and for the
+    /// same reason: a fractional hour cannot round-trip.
+    meta: { align: "right", filter: { kind: "number", unit: "min" } },
     cell: ({ row }) => readMinutesSpan(row.original.planned_minutes),
   },
   {
@@ -106,6 +121,12 @@ const columns: ColumnDef<TableSetup, OvertimeOrderView>[] = [
     accessorFn: (row) => row.authorized_minutes ?? 0,
     header: "Authorized",
     size: 120,
+    /// **Not filterable, and the `?? 0` above is exactly why.** An order
+    /// nobody has answered authorizes nothing, which is not the same fact as
+    /// an order authorizing zero minutes — the cell draws a dash for precisely
+    /// that reason. A number clause would see the stand-in: "authorized is 0"
+    /// would gather up every unanswered order and report them as answered for
+    /// nothing. State says it truthfully, so State is what this offers.
     meta: { align: "right" },
     /// Blank until the worker agrees. An order nobody answered authorizes
     /// nothing, and a dash says that better than a zero would.
@@ -120,6 +141,11 @@ const columns: ColumnDef<TableSetup, OvertimeOrderView>[] = [
     accessorKey: "state",
     header: "State",
     size: 190,
+    /// The honest form of the question the Authorized column cannot be asked:
+    /// waiting, agreed, declined. A fact to read and to narrow by — never a
+    /// control. Nothing in this panel can change a state, which is the whole
+    /// discipline of this screen.
+    meta: { filter: { kind: "option", format: overtimeStateLabel } },
     cell: ({ row }) => (
       <Pill tone={stateTone(row.original.state)}>
         {overtimeStateLabel(row.original.state)}
@@ -147,17 +173,19 @@ export function Overtime() {
 
   const rows = useMemo(() => queue.data ?? [], [queue.data])
 
+  const filters = useFilters(columns)
+
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
         data: rows,
-        columns,
+        columns: filters.columns,
         getRowId: (row: OvertimeOrderView) => row.id,
-        state: { sorting },
+        state: { columnFilters: filters.columnFilters, sorting },
         onSortingChange: setSorting,
       }),
-      [rows, sorting]
+      [rows, filters.columns, filters.columnFilters, sorting]
     )
   )
 
@@ -194,6 +222,10 @@ export function Overtime() {
         )
       )}
 
+      <Toolbar>
+        <FilterPanel model={filters} table={table} />
+      </Toolbar>
+
       <Card className="mb-4 overflow-hidden">
         <CardHeader>
           <CardTitle>Waiting on an answer</CardTitle>
@@ -211,6 +243,15 @@ export function Overtime() {
                 table={table}
                 onRowClick={(row) => order.open(row.id)}
                 isSelected={(row) => row.id === order.value}
+                // "Nothing is waiting" is the good outcome this screen hopes
+                // for, so a narrowing that produces the same empty box has to
+                // say which of the two it is.
+                empty={
+                  <>
+                    {rows.length.toLocaleString("id-ID")} orders are here, and
+                    none of them match the filters in force.
+                  </>
+                }
               />
             ),
         })}

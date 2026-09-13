@@ -1,6 +1,7 @@
 import {
   ScrollText,
   Activity,
+  HeartPulse,
   KeyRound,
   LayoutGrid,
   RefreshCcw,
@@ -21,13 +22,21 @@ export const systemNav: AppModule = {
   id: "system",
   label: "System",
   icon: Settings2,
-  home: "/system",
+  home: "/system/health",
+  // The prefix the module owns, now that its first screen is not at the
+  // prefix itself — see `AppModule.base`. Every `/system/...` URL still draws
+  // this sidebar; only where the row lands changed.
+  base: "/system",
   // Not drawn in the sidebar. The screens stay routed and stay in ⌘K — the
   // module is simply not one of the places the sidebar offers.
   hidden: true,
   sections: [
     {
       items: [
+        // First, because it is the question the rest of the module answers in
+        // pieces: is data moving between the centre and every node, both ways,
+        // and is anything stuck.
+        { path: "/system/health", label: "Health", icon: HeartPulse },
         { path: "/system", label: "Nodes", icon: LayoutGrid },
         { path: "/system/sync", label: "Sync", icon: RefreshCcw },
         // Edge assignments and RFID readers: the identity policy the centre

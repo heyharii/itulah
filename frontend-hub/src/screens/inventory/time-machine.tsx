@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Field, Input } from "@/components/ui/field"
+import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { KeyValue, MiniTable } from "@/components/ui/rows"
@@ -16,6 +17,7 @@ import { Banner, EmptyState } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { Tag } from "@/components/ui/tag"
 import { Timeline } from "@/components/ui/timeline"
+import { useFilters } from "@/lib/filters"
 import { count, moment } from "@/lib/format"
 import {
   fleetPools,
@@ -63,6 +65,10 @@ const stateColumns: ColumnDef<
     accessorKey: "place_id",
     header: "Place",
     size: 260,
+    /// `text`, because a place is `<pool>:<state>` and the question is always a
+    /// part of it — "contains :missing", "starts with store-07". A fold of the
+    /// whole ledger has more places than a facet list can hold.
+    meta: { filter: { kind: "text" } },
     cell: ({ row }) => (
       <span className="font-mono text-id text-body">
         {row.original.place_id}
@@ -73,6 +79,8 @@ const stateColumns: ColumnDef<
     accessorKey: "subject_id",
     header: "Subject",
     size: 300,
+    // No filter: a subject is a uuid somebody arrives holding, and the box
+    // that takes one is the what-if tab.
     cell: ({ row }) => (
       <span className="font-mono text-id text-mute">
         {row.original.subject_id}
@@ -83,16 +91,19 @@ const stateColumns: ColumnDef<
     accessorKey: "quantity",
     header: "Quantity",
     size: 110,
-    meta: { align: "right" },
+    /// "Less than 0" is the clause this tool exists for: a negative position in
+    /// a fold is an invariant the ledger broke, and the violations card above
+    /// only lists the ones the server checked for.
+    meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
     cell: ({ row }) => count(row.original.quantity),
   },
   {
     accessorKey: "last_fact_sequence",
     header: "Last fact",
     size: 120,
-    meta: { align: "right" },
     // The decision metric here: which rows moved most recently is what an
     // operator scans for when a fold looks wrong.
+    meta: { align: "right", filter: { kind: "number" } },
     cell: ({ row }) => count(row.original.last_fact_sequence),
   },
 ]
@@ -146,18 +157,24 @@ function StateTab() {
 
   const rows = useMemo(() => world.data?.items ?? [], [world.data])
 
+  /// Only this tab gets a panel. The three beside it are a diff report, a
+  /// two-log comparison and a form — none of them a list, and a filter over a
+  /// timeline of what happened in what order would be a way to hide the event
+  /// that explains the one still on screen.
+  const filters = useFilters(stateColumns)
+
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
         data: rows,
-        columns: stateColumns,
+        columns: filters.columns,
         getRowId: (row: { subject_id: string; place_id: string }) =>
           `${row.subject_id}/${row.place_id}`,
-        state: { sorting },
+        state: { columnFilters: filters.columnFilters, sorting },
         onSortingChange: setSorting,
       }),
-      [rows, sorting]
+      [rows, filters.columns, filters.columnFilters, sorting]
     )
   )
 
@@ -180,6 +197,7 @@ function StateTab() {
           placeholder="Whole ledger"
           className="max-w-72"
         />
+        <FilterPanel model={filters} table={table} />
       </Toolbar>
 
       {queryState(world, {
@@ -255,6 +273,7 @@ function StateTab() {
               ) : (
                 <DataTable
                   table={table}
+                  empty="Nothing in this fold matches the filters in force."
                   className="max-h-[calc(100vh-28rem)]"
                 />
               )}

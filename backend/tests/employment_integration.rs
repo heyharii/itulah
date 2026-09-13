@@ -640,7 +640,7 @@ async fn a_status_the_history_does_not_produce_refuses_to_load(pool: PgPool) {
     .await;
     assert_eq!(listed.status, StatusCode::OK, "list: {:?}", listed.body);
     assert_eq!(
-        listed.body[0]["status"], "TERMINATED",
+        listed.body["rows"][0]["status"], "TERMINATED",
         "the projection reads the column, and the column was tampered with"
     );
 }
@@ -755,8 +755,15 @@ async fn staff_at(
     employee_id
 }
 
+/// The employee numbers on a page of the workforce list.
+///
+/// `body["rows"]` rather than the body itself: the route answers with an
+/// envelope — the page, a cursor, the total of everything matched and the
+/// facet counts — in the shape `GET /finance/money` established. A bare array
+/// could say how many rows came back and never how many there are.
 fn codes(body: &Value) -> Vec<String> {
-    body.as_array()
+    body["rows"]
+        .as_array()
         .unwrap_or_else(|| panic!("a list: {body:?}"))
         .iter()
         .map(|row| row["employee_code"].as_str().unwrap_or_default().to_owned())
@@ -811,6 +818,17 @@ async fn a_supervisor_reaches_only_the_shop_they_are_posted_to(pool: PgPool) {
     )
     .await;
     assert_eq!(listed.status, StatusCode::OK, "list: {:?}", listed.body);
+    // The envelope says whose list this is, which is how a screen can say so
+    // rather than reading as a company of three.
+    assert_eq!(listed.body["place_id"], "store-07");
+    // And it offers her no place filter: she reaches one place, so a filter
+    // over places is a control that cannot change the answer.
+    assert_eq!(
+        listed.body["facets"]["places"].as_array().map(Vec::len),
+        Some(0),
+        "a bounded caller is offered no choice of place: {:?}",
+        listed.body["facets"]
+    );
     let seen = codes(&listed.body);
     assert!(seen.contains(&"K0701".to_owned()), "her own shop: {seen:?}");
     assert!(seen.contains(&"K0700".to_owned()), "herself: {seen:?}");
@@ -950,8 +968,21 @@ async fn a_supervisor_with_no_posting_reaches_nothing(pool: PgPool) {
     assert_eq!(own.body["employee_code"], "K9000");
 }
 
+/// Head office is a place, not a pass to every place.
+///
+/// This test used to assert the opposite: any rung posted to a place of kind
+/// `HO` reached the whole company, on the reading that head office is the
+/// employer rather than a fourteenth shop. That reading assumed head office
+/// holds HR and nobody else, and it does not — the buyers, the finance staff
+/// and the merchandisers are posted to `ho` too. Under the old rule any one of
+/// them at supervisor rung read all thirteen shops' payrolls' worth of people
+/// and could decide their leave, because of where their desk is.
+///
+/// Company-wide reach is the Admin rung's now. What this test pins is the
+/// narrowing: the same HR assistant, same rung, same posting, reaches head
+/// office and stops there.
 #[sqlx::test(migrations = "./migrations/postgres")]
-async fn head_office_reaches_every_place_without_being_admin(pool: PgPool) {
+async fn head_office_is_a_place_not_a_pass_to_every_place(pool: PgPool) {
     cloud::bootstrap_admin(&pool, Some(ADMIN_PASSWORD), true)
         .await
         .unwrap_or_else(|error| panic!("bootstrap: {error}"));
@@ -960,9 +991,9 @@ async fn head_office_reaches_every_place_without_being_admin(pool: PgPool) {
 
     staff_at(&app, &cookies, &csrf, "K0701", "store-07").await;
     staff_at(&app, &cookies, &csrf, "K0301", "store-03").await;
-    // An HR assistant: supervisor rung, posted to head office. Head office is
-    // the employer in this model rather than a fourteenth shop, so the whole
-    // workforce is what they administer.
+    // A supervisor posted to head office — an HR assistant, or equally a
+    // procurement or finance lead, which is the whole point: the posting cannot
+    // tell them apart, so it must not be what grants company-wide reach.
     supervisor_at(
         &app,
         &cookies,
@@ -985,7 +1016,7 @@ async fn head_office_reaches_every_place_without_being_admin(pool: PgPool) {
     )
     .await;
     assert_eq!(reach.status, StatusCode::OK, "reach: {:?}", reach.body);
-    assert_eq!(reach.body["scope"], "EVERYWHERE");
+    assert_eq!(reach.body["scope"], "ONE_PLACE");
     assert_eq!(reach.body["place_id"], "ho");
     assert_eq!(reach.body["place_kind"], "HO");
     assert_eq!(reach.body["place_name"], "Head Office");
@@ -1001,10 +1032,20 @@ async fn head_office_reaches_every_place_without_being_admin(pool: PgPool) {
     .await;
     assert_eq!(listed.status, StatusCode::OK, "list: {:?}", listed.body);
     let seen = codes(&listed.body);
-    assert!(seen.contains(&"K0701".to_owned()), "{seen:?}");
-    assert!(seen.contains(&"K0301".to_owned()), "{seen:?}");
+    assert!(
+        !seen.contains(&"K0701".to_owned()),
+        "store-07's team is not head office's to read: {seen:?}"
+    );
+    assert!(
+        !seen.contains(&"K0301".to_owned()),
+        "store-03's team is not head office's to read: {seen:?}"
+    );
+    // Her own colleague at head office is, though — the bound is a place, not a
+    // blindfold.
+    assert!(seen.contains(&"K0001".to_owned()), "{seen:?}");
 
-    // Including one shop at a time, which a bounded caller cannot do.
+    // And asking for a shop by name does not get round it. This is the shape
+    // the old rule allowed: one shop at a time, thirteen times.
     let one = send(
         app.clone(),
         "GET",
@@ -1013,11 +1054,18 @@ async fn head_office_reaches_every_place_without_being_admin(pool: PgPool) {
         None,
     )
     .await;
-    assert_eq!(one.status, StatusCode::OK, "one place: {:?}", one.body);
-    assert_eq!(codes(&one.body), vec!["K0301".to_owned()]);
+    // Refused rather than answered empty: an empty list reads as "nobody works
+    // there", which is a different and wrong answer to a question she is simply
+    // not entitled to ask.
+    assert_eq!(
+        one.status,
+        StatusCode::FORBIDDEN,
+        "another place: {:?}",
+        one.body
+    );
 
-    // Reading is not deciding. The rung is still what stops her ending
-    // somebody's employment, and head office's reach does not touch it.
+    // Reading is not deciding, and the rung is still the other half: even
+    // inside her reach she may not end somebody's employment.
     let refused = send(
         app.clone(),
         "POST",
@@ -1202,9 +1250,10 @@ async fn leaving_closes_the_login_it_was_bound_to(pool: PgPool) {
         "list users: {:?}",
         accounts.body
     );
-    let hers = accounts.body["items"]
+    // `rows`, not `items`: the account list answers an envelope now.
+    let hers = accounts.body["rows"]
         .as_array()
-        .unwrap_or_else(|| panic!("items: {:?}", accounts.body))
+        .unwrap_or_else(|| panic!("rows: {:?}", accounts.body))
         .iter()
         .find(|row| row["username"] == "siti")
         .unwrap_or_else(|| panic!("siti is listed: {:?}", accounts.body))
@@ -1216,9 +1265,9 @@ async fn leaving_closes_the_login_it_was_bound_to(pool: PgPool) {
 
     // And the admin account beside hers belongs to nobody, which is a fact
     // about it rather than a gap in the answer.
-    let machine = accounts.body["items"]
+    let machine = accounts.body["rows"]
         .as_array()
-        .unwrap_or_else(|| panic!("items: {:?}", accounts.body))
+        .unwrap_or_else(|| panic!("rows: {:?}", accounts.body))
         .iter()
         .find(|row| row["username"] == "admin")
         .unwrap_or_else(|| panic!("admin is listed: {:?}", accounts.body))

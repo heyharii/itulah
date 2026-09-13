@@ -621,13 +621,15 @@ export interface ArticlePricePage {
   readonly channel: CommercialChannel
   readonly as_of: string
   readonly shops: readonly { readonly site_id: string; readonly label: string }[]
-  /// How many styles came back.
-  readonly article_count: number
-  /// How many there are. Larger than `article_count` means the page was
+  readonly rows: readonly ArticlePrices[]
+  /// Opaque. Pass it back as `cursor` for the next page; absent means this was
+  /// the last one. This console does not page — it draws the first `limit`
+  /// styles — so it reads `total` to say it is showing a slice.
+  readonly next_cursor: string | null
+  /// How many styles match. Larger than `rows.length` means the page was
   /// capped — a cap that does not say so reads as "this is all of them", and
   /// somebody who cannot find a style goes looking for a pricing fault.
-  readonly total_article_count: number
-  readonly items: readonly ArticlePrices[]
+  readonly total: number
 }
 
 export interface ArticlePriceScope {

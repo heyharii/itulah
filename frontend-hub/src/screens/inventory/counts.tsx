@@ -2,7 +2,7 @@ import { useForm } from "@tanstack/react-form"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { Plus } from "lucide-react"
+import { Plus, Search } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -11,34 +11,45 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Field, Input } from "@/components/ui/field"
-import { FilterBar } from "@/components/ui/filter-bar"
+import { FilterPanel } from "@/components/ui/filter-panel"
+import {
+  ColumnsMenu,
+  DockedFilters,
+  SortMenu,
+  ViewPicker,
+} from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { MiniTable, TotalsLadder } from "@/components/ui/rows"
-import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { Lifecycle } from "@/components/ui/timeline"
-import { useFilters } from "@/lib/filters"
+import { useFilterState, type FilterField } from "@/lib/filters"
+import { usePanelDock } from "@/lib/layout"
 import { count, label as humanise, moment } from "@/lib/format"
 import {
   activateCount,
   addCountEntries,
   approveCount,
   countDetail,
+  countScopeFromFilters,
+  countsPage,
   createCount,
   fleetPools,
   idempotencyKey,
   inventoryKeys,
-  listCounts,
   submitCount,
+  type CountBookScope,
+  type CountDetail,
   type CountKind,
+  type CountPage,
   type CountRow,
 } from "@/lib/queries/inventory"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
+import { useDebounced } from "@/lib/use-debounced"
 import { Choice } from "@/screens/inventory/parts"
 import { signed, useActor, writablePools } from "@/screens/inventory/shared"
 
@@ -60,12 +71,31 @@ const KINDS = [
   { value: "TARGETED", label: "Targeted" },
 ]
 
+/// Which column means which of the five orders the endpoint names.
+///
+/// A column that is not in here cannot be sorted — `enableSorting: false` says
+/// so on the column itself, so neither the header nor the Sort menu offers it.
+/// The alternative is worse than a missing menu item: the table would sort the
+/// PAGE it is holding, and a book sorted one screenful at a time is a list that
+/// lies about where its first row is.
+const SORTS: Record<string, string> = {
+  pool_id: "pool",
+  status: "status",
+  difference: "variance",
+  created_at: "created_at",
+  closed_at: "closed_at",
+}
+
 const columns: ColumnDef<TableSetup, CountRow>[] = [
   {
     accessorKey: "reason",
     header: "Count",
-    size: 240,
-    meta: { filter: { kind: "text" } },
+    size: 250,
+    // Ordered by the POOL it counts, which is the order the endpoint has and
+    // the one somebody means: two counts of the same shelf belong together,
+    // and nobody looks for a count by the first letter of its reason.
+    id: "pool_id",
+    accessorFn: (row) => row.pool_id,
     cell: ({ row }) => (
       <div className="min-w-0">
         <span className="block truncate text-ink">{row.original.reason}</span>
@@ -79,14 +109,17 @@ const columns: ColumnDef<TableSetup, CountRow>[] = [
     accessorKey: "kind",
     header: "Kind",
     size: 100,
-    meta: { filter: { kind: "option", format: humanise } },
-    cell: ({ row }) => <Tag>{row.original.kind}</Tag>,
+    enableSorting: false,
+    cell: ({ row }) => <Tag>{humanise(row.original.kind)}</Tag>,
   },
   {
     accessorKey: "execution_authority",
     header: "Counted by",
     size: 130,
-    meta: { filter: { kind: "option" } },
+    // Not a parameter this endpoint takes, so it is a column and not a filter:
+    // a chip the request cannot carry is a control that claims to narrow a
+    // list and does not.
+    enableSorting: false,
     cell: ({ row }) => (
       <Tag
         tone={
@@ -101,7 +134,6 @@ const columns: ColumnDef<TableSetup, CountRow>[] = [
     accessorKey: "status",
     header: "Status",
     size: 120,
-    meta: { filter: { kind: "option", format: humanise } },
     cell: ({ row }) => (
       <Pill
         tone={
@@ -122,14 +154,16 @@ const columns: ColumnDef<TableSetup, CountRow>[] = [
     accessorKey: "expected",
     header: "Expected",
     size: 100,
-    meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
+    enableSorting: false,
+    meta: { align: "right" },
     cell: ({ row }) => count(row.original.expected),
   },
   {
     accessorKey: "found",
     header: "Found",
     size: 100,
-    meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
+    enableSorting: false,
+    meta: { align: "right" },
     cell: ({ row }) => count(row.original.found),
   },
   {
@@ -137,7 +171,7 @@ const columns: ColumnDef<TableSetup, CountRow>[] = [
     accessorFn: (row) => row.found - row.expected,
     header: "Difference",
     size: 120,
-    meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
+    meta: { align: "right" },
     // The decision metric. Sorted ascending by default so the deepest shortage
     // is the first row: a count that found everything needs nobody.
     cell: ({ row }) => {
@@ -161,47 +195,155 @@ const columns: ColumnDef<TableSetup, CountRow>[] = [
     accessorKey: "created_at",
     header: "Opened",
     size: 150,
-    meta: { filter: { kind: "date" } },
+    meta: { priority: 2 },
     cell: ({ row }) => moment(row.original.created_at),
+  },
+  {
+    accessorKey: "closed_at",
+    header: "Closed",
+    size: 150,
+    // The other end of the record, and the other order the endpoint has: a
+    // supervisor asking "what was signed off this week" is asking about this
+    // date and not about when the count was opened.
+    meta: { priority: 3 },
+    cell: ({ row }) =>
+      row.original.closed_at === null ? (
+        <span className="text-mute">—</span>
+      ) : (
+        moment(row.original.closed_at)
+      ),
   },
 ]
 
+/// The four columns the board used to be, as readings of one list.
+///
+/// They were a row of segmented tabs, which says "these are four screens" when
+/// they are four readings of one — and each of them is just the `status`
+/// parameter the endpoint already takes. As views they sit with the saved ones,
+/// because picking either is the same act: replacing what the list is showing.
+const SLICES = [
+  { value: "", label: "All counts" },
+  { value: "REVIEW", label: "Needs review" },
+  { value: "ACTIVE", label: "Counting" },
+  { value: "DRAFT", label: "Drafts" },
+  { value: "CLOSED", label: "Closed" },
+] as const
+
 export function Counts() {
-  const [slice, setSlice] = useState<
-    "needs_review" | "active" | "drafts" | "history"
-  >("needs_review")
-  const [query, setQuery] = useState("")
+  /// Which reading is on screen, in the URL: a supervisor sending "the three
+  /// waiting on you" is sending this.
+  const slice = useSheet("count-status")
+  /// What was typed, also in the URL, and answered by the server against the
+  /// pool id, the reason and who opened it.
+  const search = useSheet("q")
+  /// Whether the filter panel has room to stand beside the list. Below it the
+  /// same model is a sheet behind a Filter button, and the panel unmounts.
+  const docked = usePanelDock()
   const [composing, setComposing] = useState(false)
   const sheet = useSheet("count")
+  // The deepest shortage first: a count that found everything needs nobody.
   const [sorting, setSorting] = useState<SortingState>([
     { id: "difference", desc: false },
   ])
 
-  const board = useQuery({
-    queryKey: inventoryKeys.counts(),
-    queryFn: ({ signal }) => listCounts(signal),
+  const fleet = useQuery({
+    queryKey: inventoryKeys.fleet(),
+    queryFn: ({ signal }) => fleetPools(signal),
   })
 
-  const rows = useMemo(() => board.data?.[slice] ?? [], [board.data, slice])
+  /// The columns this list can be narrowed by, and the only ones: each maps to
+  /// a parameter `GET /inventory/counts` answers. Status is not among them —
+  /// it is the view above, and asking the same question in two controls is how
+  /// a screen ends up disagreeing with itself.
+  const fields = useMemo<FilterField[]>(
+    () => [
+      {
+        column: "kind",
+        label: "Kind",
+        spec: {
+          kind: "option",
+          single: true,
+          operators: ["isAnyOf"],
+          options: KINDS.map((one) => ({ value: one.value, label: one.label })),
+          format: humanise,
+        },
+      },
+      {
+        column: "site_id",
+        label: "Site",
+        spec: {
+          kind: "option",
+          single: true,
+          operators: ["isAnyOf"],
+          format: (id) =>
+            fleet.data?.items.find((item) => item.site_id === id)?.site_name ??
+            id,
+        },
+      },
+      {
+        column: "pool_id",
+        label: "Pool",
+        spec: { kind: "option", single: true, operators: ["isAnyOf"] },
+      },
+    ],
+    [fleet.data]
+  )
 
-  const filters = useFilters(columns)
+  const filters = useFilterState(fields)
+
+  const needle = useDebounced((search.value ?? "").trim(), 400)
+  const scope = useMemo<CountBookScope>(() => {
+    const by = sorting[0]
+    return {
+      ...countScopeFromFilters(filters.filters),
+      ...(slice.value === undefined ? {} : { status: slice.value }),
+      ...(needle === "" ? {} : { q: needle }),
+      sort: by === undefined ? undefined : SORTS[by.id],
+      desc: by?.desc === true,
+    }
+  }, [filters.filters, needle, slice.value, sorting])
+
+  const narrowed = needle !== "" || filters.filters.length > 0
+
+  const board = useQuery({
+    queryKey: inventoryKeys.countsScoped(scope),
+    queryFn: ({ signal }) => countsPage(scope, signal),
+    placeholderData: (previous) => previous,
+  })
+
+  const rows = useMemo(() => board.data?.rows ?? [], [board.data])
+
+  /// The same fields, carrying the server's own tally over the whole book —
+  /// not over the page in hand, which holds only what the same filters already
+  /// let through.
+  const counted = useMemo<FilterField[]>(() => {
+    const facets = board.data?.facets
+    if (facets === undefined) return fields
+    return fields.map((field) =>
+      field.column === "kind"
+        ? { ...field, spec: { ...field.spec, counted: facets.kinds } }
+        : field.column === "site_id"
+          ? { ...field, spec: { ...field.spec, counted: facets.sites } }
+          : field.column === "pool_id"
+            ? { ...field, spec: { ...field.spec, counted: facets.pools } }
+            : field
+    )
+  }, [fields, board.data])
 
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
         data: rows,
-        columns: filters.columns,
+        columns,
         getRowId: (row: CountRow) => row.id,
-        state: {
-          columnFilters: filters.columnFilters,
-          globalFilter: query,
-          sorting,
-        },
+        state: { sorting },
+        // The rows arrive in the order the request asked for. Sorting them
+        // again here would sort the page and call it the book.
+        manualSorting: true,
         onSortingChange: setSorting,
-        onGlobalFilterChange: setQuery,
       }),
-      [rows, filters.columns, filters.columnFilters, query, sorting]
+      [rows, sorting]
     )
   )
 
@@ -213,61 +355,104 @@ export function Counts() {
         sub="What was expected, what was found, and who is allowed to say so."
       />
 
-      <Toolbar>
-        <Segmented
-          value={slice}
-          onChange={setSlice}
-          options={[
-            {
-              value: "needs_review",
-              label:
-                `Needs review ${board.data ? board.data.needs_review.length : ""}`.trim(),
-            },
-            { value: "active", label: "Counting" },
-            { value: "drafts", label: "Drafts" },
-            { value: "history", label: "Closed" },
-          ]}
-        />
-        <Input
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search"
-          className="h-8 w-48"
-        />
-        <FilterBar model={filters} table={table} />
-        <Toolbar.Spacer />
-        <Button onClick={() => setComposing(true)}>
-          <Plus />
-          New count
-        </Button>
-      </Toolbar>
-
-      <Card className="overflow-hidden">
-        {queryState(board, {
-          loading: "Reading the count board…",
-          render: () =>
-            rows.length === 0 ? (
-              <EmptyState>
-                {query !== ""
-                  ? `No count in this column matches “${query}”.`
-                  : slice === "needs_review"
-                    ? "Nothing is waiting for a decision."
-                    : slice === "active"
-                      ? "Nobody is counting anything right now."
-                      : slice === "drafts"
-                        ? "No count has been drafted."
-                        : "No count has been closed yet."}
-              </EmptyState>
-            ) : (
-              <DataTable<CountRow>
-                table={table}
-                onRowClick={(row) => sheet.open(row.id)}
-                isSelected={(row) => row.id === sheet.value}
-                className="max-h-[calc(100vh-17rem)]"
+      <div className="grid min-w-0 items-start gap-5 min-[1440px]:grid-cols-[minmax(0,1fr)_16rem]">
+        <div className="flex min-w-0 flex-col">
+          {/* One line the width of the table, carrying everything that acts on
+              it: what narrows it at the left, what orders and shapes it in the
+              middle, and what opens a new one at the right. */}
+          <div className="mb-3 flex flex-wrap items-center gap-1.5">
+            <span className="relative mr-auto">
+              <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-line-ico" />
+              <input
+                value={search.value ?? ""}
+                onChange={(event) =>
+                  event.target.value
+                    ? search.open(event.target.value)
+                    : search.close()
+                }
+                placeholder="Search pool, reason, who"
+                aria-label="Search counts"
+                className="h-[2.125rem] w-64 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.8125rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent"
               />
-            ),
-        })}
-      </Card>
+            </span>
+            {/* The same model as the panel, as the chips over the table and
+                a Filter button beside them — for every width the panel cannot
+                dock at. Rendered only there: the panel unmounts below the dock
+                width rather than hiding, because both of these carry a sheet
+                on the same `?filters=` key. */}
+            {!docked && (
+              <FilterPanel
+                model={{ ...filters, fields: counted }}
+                className="mr-auto"
+              />
+            )}
+            <SortMenu
+              table={table}
+              sorting={sorting}
+              onSort={(id, desc) => setSorting([{ id, desc }])}
+            />
+            <ColumnsMenu table={table} />
+            <span aria-hidden className="mx-1 h-5 w-px bg-hairline" />
+            <ViewPicker
+              model={filters}
+              id="counts"
+              all="All counts"
+              views={SLICES.map((one) => ({
+                value: one.value,
+                label:
+                  one.value === ""
+                    ? one.label
+                    : `${one.label} ${count(facetOf(board.data, one.value))}`,
+              }))}
+              view={slice.value ?? ""}
+              onView={(value) =>
+                value === "" ? slice.close() : slice.open(value)
+              }
+            />
+            <Button variant="primary" onClick={() => setComposing(true)}>
+              <Plus />
+              New count
+            </Button>
+          </div>
+
+          <Card className="overflow-hidden">
+            {queryState(board, {
+              loading: "Reading the count board…",
+              render: () =>
+                rows.length === 0 ? (
+                  <EmptyState>
+                    {narrowed
+                      ? "No count matches what you asked for."
+                      : slice.value === "REVIEW"
+                        ? "Nothing is waiting for a decision."
+                        : slice.value === "ACTIVE"
+                          ? "Nobody is counting anything right now."
+                          : slice.value === "DRAFT"
+                            ? "No count has been drafted."
+                            : slice.value === "CLOSED"
+                              ? "No count has been closed yet."
+                              : "No count has been opened yet."}
+                  </EmptyState>
+                ) : (
+                  <DataTable<CountRow>
+                    table={table}
+                    onRowClick={(row) => sheet.open(row.id)}
+                    isSelected={(row) => row.id === sheet.value}
+                    className="max-h-[calc(100vh-14rem)]"
+                  />
+                ),
+            })}
+          </Card>
+        </div>
+
+        <DockedFilters
+          model={{ ...filters, fields: counted }}
+          kpis={bookKpis(board.data)}
+          id="counts"
+          subject="Count"
+          className="hidden min-[1440px]:flex"
+        />
+      </div>
 
       <CountSheet id={sheet.value ?? null} onClose={sheet.close} />
       <Composer open={composing} onClose={() => setComposing(false)} />
@@ -275,7 +460,50 @@ export function Counts() {
   )
 }
 
+/// How many counts a status holds, over the whole book rather than the page.
+function facetOf(page: CountPage | undefined, status: string): number {
+  return (
+    page?.facets.statuses.find((facet) => facet.value === status)?.count ?? 0
+  )
+}
+
+/// Three figures about the book as it currently stands.
+///
+/// All three are the server's own — `total` over everything the search, the
+/// view and the chips match, the other two from the status facet — so none of
+/// them is a sum over whatever page happens to be in hand.
+function bookKpis(page: CountPage | undefined) {
+  if (page === undefined) return undefined
+  return [
+    { label: "Counts", value: count(page.total) },
+    {
+      label: "In review",
+      value: count(facetOf(page, "REVIEW")),
+      note: "Counted, and waiting for somebody to approve the adjustment.",
+    },
+    {
+      label: "Counting",
+      value: count(facetOf(page, "ACTIVE")),
+      note: "Open on somebody's floor right now.",
+    },
+    {
+      label: "Drafts",
+      value: count(facetOf(page, "DRAFT")),
+      note: "Opened, not yet started.",
+    },
+  ]
+}
+
 const STEPS = ["DRAFT", "ACTIVE", "REVIEW", "CLOSED"] as const
+
+/// How narrow a count's scope is, over the two lists that may not be there.
+///
+/// Nought means "everything in the pool", which is also what an absent scope
+/// means — the same answer for the two reasons, which is why one function
+/// gives it rather than two `?? 0`s at the call site.
+function scopeSize(scope: CountDetail["scope"]): number {
+  return (scope.sku_codes?.length ?? 0) + (scope.epcs?.length ?? 0)
+}
 
 function CountSheet({
   id,
@@ -402,9 +630,16 @@ function CountSheet({
                   {data.activation_target_origin_id ?? "This node"}
                 </Fact>
                 <Fact term="Scope">
-                  {data.scope.sku_codes.length + data.scope.epcs.length === 0
+                  {/* Both lists are written into the scope at ACTIVATION, so a
+                      count that has not reached it — and every seeded one —
+                      carries neither key. Read as present, this line threw and
+                      took the whole sheet down with it: the row opened to
+                      "Something went wrong". */}
+                  {scopeSize(data.scope) === 0
                     ? "Everything in the pool"
-                    : `${count(data.scope.sku_codes.length)} SKUs · ${count(data.scope.epcs.length)} tags`}
+                    : `${count(data.scope.sku_codes?.length ?? 0)} SKUs · ${count(
+                        data.scope.epcs?.length ?? 0
+                      )} tags`}
                 </Fact>
               </Facts>
 

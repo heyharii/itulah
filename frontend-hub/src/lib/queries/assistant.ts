@@ -1,8 +1,4 @@
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { node } from "@/lib/api"
 
@@ -190,7 +186,9 @@ export function useRenameConversation() {
         { title }
       ),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: ["assistant", "conversations"] })
+      void client.invalidateQueries({
+        queryKey: ["assistant", "conversations"],
+      })
     },
   })
 }
@@ -202,7 +200,9 @@ export function useDiscardConversation() {
     mutationFn: (id: string) =>
       node.delete<{ id: string }>(`/api/v1/assistant/conversations/${id}`),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: ["assistant", "conversations"] })
+      void client.invalidateQueries({
+        queryKey: ["assistant", "conversations"],
+      })
     },
   })
 }

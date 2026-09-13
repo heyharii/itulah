@@ -12,6 +12,7 @@ import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { BarSeries, type ChartSeries } from "@/components/ui/chart"
 import { DataTable } from "@/components/ui/data-table"
 import { Field, Input, Money, Textarea } from "@/components/ui/field"
+import { FilterPanel } from "@/components/ui/filter-panel"
 import {
   MiniCell,
   MiniRow,
@@ -24,8 +25,16 @@ import { Pill } from "@/components/ui/pill"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState, Problem } from "@/components/ui/states"
+import {
+  Banner,
+  EmptyState,
+  NoAccessState,
+  NoMatch,
+  Problem,
+  Truncated,
+} from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
+import { useFilters } from "@/lib/filters"
 import { count, day, label, money, toneFor } from "@/lib/format"
 import {
   billDetail,
@@ -170,6 +179,11 @@ const billColumns: ColumnDef<TableSetup, SupplierBill>[] = [
     accessorFn: (row) => row.supplier_name ?? row.supplier_id,
     header: "Supplier",
     size: 240,
+    // The narrowing payables is actually read with — "everything we owe PT
+    // Maju" — and a closed set, so it is picked from a counted list rather
+    // than typed. The accessor already prefers the name over the id, which is
+    // what keeps uuids out of the picker.
+    meta: { filter: { kind: "option" } },
     // The id stays in `title`, the way a site id does: it is what a support
     // conversation and every cross-screen link will be about. `<SupplierName>`
     // and not the raw field, so a bill recorded before the name was carried
@@ -194,6 +208,7 @@ const billColumns: ColumnDef<TableSetup, SupplierBill>[] = [
     accessorKey: "status",
     header: "Status",
     size: 130,
+    meta: { filter: { kind: "option", format: label } },
     cell: ({ row }) => (
       <Pill tone={toneFor(row.original.status)}>
         {label(row.original.status)}
@@ -204,6 +219,10 @@ const billColumns: ColumnDef<TableSetup, SupplierBill>[] = [
     accessorKey: "due_date",
     header: "Due",
     size: 120,
+    // "Due before the end of the month" is how a payment run is planned, and
+    // the as-of box above answers a different question — it dates the ageing
+    // report, not the list.
+    meta: { filter: { kind: "date" } },
     cell: ({ row }) => day(row.original.due_date),
   },
   {
@@ -238,7 +257,13 @@ const billColumns: ColumnDef<TableSetup, SupplierBill>[] = [
     accessorKey: "outstanding_minor",
     header: "Outstanding",
     size: 150,
-    meta: { align: "right" },
+    // The figure this screen is about, so the only money column offered:
+    // Total and Paid are the two halves of it and a panel with all three is
+    // one nobody reads.
+    meta: {
+      align: "right",
+      filter: { kind: "number", unit: "Rp" },
+    },
     // The figure this screen is about, so it is the one drawn in ink. A bill
     // with a draft payment against it shows the draft's reservation under the
     // number rather than in a tooltip — it is why the bill will not take
@@ -265,7 +290,10 @@ const billColumns: ColumnDef<TableSetup, SupplierBill>[] = [
     accessorKey: "days_overdue",
     header: "Overdue",
     size: 110,
-    meta: { align: "right" },
+    // The decision metric. Negative is "due in n days", so "is at least 1" is
+    // late and "is at most 0" is not yet — which is why it is a number here
+    // rather than a late/not-late pill.
+    meta: { align: "right", filter: { kind: "number", unit: "days" } },
     // The decision metric, and the reason this list overrides the server's
     // order: the invoice date is when the bill was recorded, not the order it
     // has to be paid in.
@@ -391,6 +419,7 @@ const unbilledColumns: ColumnDef<TableSetup, UnbilledReceipt>[] = [
     accessorKey: "arrived_at",
     header: "Arrived",
     size: 120,
+    meta: { filter: { kind: "date" } },
     cell: ({ row }) => day(row.original.arrived_at),
   },
   {
@@ -404,7 +433,10 @@ const unbilledColumns: ColumnDef<TableSetup, UnbilledReceipt>[] = [
     accessorKey: "value_at_order_price_minor",
     header: "At order price",
     size: 170,
-    meta: { align: "right" },
+    meta: {
+      align: "right",
+      filter: { kind: "number", unit: "Rp" },
+    },
     // Accepted quantity times the agreed price. What the delivery is worth if
     // the supplier bills what was agreed — deliberately not a bookable figure.
     cell: ({ row }) => (
@@ -417,7 +449,10 @@ const unbilledColumns: ColumnDef<TableSetup, UnbilledReceipt>[] = [
     accessorKey: "days_waiting",
     header: "Waiting",
     size: 110,
-    meta: { align: "right" },
+    // The decision metric here, and the column's own warn threshold is the
+    // clause somebody wants: more than thirty days without an invoice is a
+    // supplier to telephone.
+    meta: { align: "right", filter: { kind: "number", unit: "days" } },
     cell: ({ row }) => (
       <span
         className={
@@ -439,6 +474,16 @@ const unbilledColumns: ColumnDef<TableSetup, UnbilledReceipt>[] = [
 /// are posted by different rules, and only one of them says what it was for. A
 /// segmented control here would have claimed they were one list narrowed.
 type BillTab = "merchandise" | "expenses" | "unbilled"
+
+/// What the bill read asks for, named here rather than left to the default
+/// inside `listBills` — a ceiling the screen cannot see is one the banner
+/// below would eventually disagree with.
+///
+/// It is not a page size. The location filter, the merchandise/expense split,
+/// the search box and every column heading all narrow what is already here, so
+/// this is the number past which two of the three tabs are about a slice. The
+/// third is not: `GET /finance/unbilled` takes no limit and answers whole.
+const CAP = 200
 
 export function SupplierBills() {
   const [tab, setTab] = useState<BillTab>("merchandise")
@@ -467,7 +512,7 @@ export function SupplierBills() {
 
   const bills = useQuery({
     queryKey: financeKeys.bills(null),
-    queryFn: ({ signal }) => listBills({}, signal),
+    queryFn: ({ signal }) => listBills({ limit: CAP }, signal),
   })
   const unbilled = useQuery({
     queryKey: financeKeys.unbilled(),
@@ -509,18 +554,61 @@ export function SupplierBills() {
     [unbilled.data, site]
   )
 
+  /// Read off the answer and never off either tab's rows, which the location
+  /// filter and the kind split have already thinned. Four expense bills out of
+  /// a full two hundred is still four out of an unknown number of them.
+  const truncated = (bills.data ?? []).length >= CAP
+
+  /// Every `GET /api/v1/finance/…` is behind SUPERVISOR, so a cashier signed
+  /// into the hub is refused all three of these lists rather than served empty
+  /// ones — and an empty payables screen is the single most reassuring wrong
+  /// answer this app can give.
+  const refused = (
+    <NoAccessState
+      what="what the company owes its suppliers"
+      reach="Reading finance takes a supervisor's sign-in; recording and posting a bill, head office's."
+    />
+  )
+
+  /// Three lists, one panel, two keys.
+  ///
+  /// One panel because there is only ever one — it is the shell's right column
+  /// and a single URL flag, so the tab decides which model it is driving
+  /// rather than each tab drawing its own.
+  ///
+  /// Two keys because two of the three are the same dataset. Merchandise and
+  /// Expenses are one read split by kind and share every column id, so a
+  /// clause set on one is meaningful on the other and rides across in `?f=`.
+  /// Unbilled deliveries are a different shape entirely — no status, no
+  /// supplier name, a different date — and share `?f=` with nobody: on one key
+  /// its clauses and the bills' would take turns overwriting each other, since
+  /// each model writes back only the clauses it recognises.
+  const billFilters = useFilters(billColumns)
+  const expenseFilters = useFilters(expenseColumns)
+  const waitFilters = useFilters(unbilledColumns, "f2")
+
   const billTable = useTable(
     useMemo(
       () => ({
         features: tableSetup,
         data: billRows,
-        columns: billColumns,
+        columns: billFilters.columns,
         getRowId: (row: SupplierBill) => row.invoice_id,
-        state: { globalFilter: query, sorting: billSort },
+        state: {
+          columnFilters: billFilters.columnFilters,
+          globalFilter: query,
+          sorting: billSort,
+        },
         onSortingChange: setBillSort,
         onGlobalFilterChange: setQuery,
       }),
-      [billRows, query, billSort]
+      [
+        billRows,
+        billFilters.columns,
+        billFilters.columnFilters,
+        query,
+        billSort,
+      ]
     )
   )
 
@@ -529,13 +617,23 @@ export function SupplierBills() {
       () => ({
         features: tableSetup,
         data: expenseRows,
-        columns: expenseColumns,
+        columns: expenseFilters.columns,
         getRowId: (row: SupplierBill) => row.invoice_id,
-        state: { globalFilter: query, sorting: expenseSort },
+        state: {
+          columnFilters: expenseFilters.columnFilters,
+          globalFilter: query,
+          sorting: expenseSort,
+        },
         onSortingChange: setExpenseSort,
         onGlobalFilterChange: setQuery,
       }),
-      [expenseRows, query, expenseSort]
+      [
+        expenseRows,
+        expenseFilters.columns,
+        expenseFilters.columnFilters,
+        query,
+        expenseSort,
+      ]
     )
   )
 
@@ -544,13 +642,23 @@ export function SupplierBills() {
       () => ({
         features: tableSetup,
         data: waitRows,
-        columns: unbilledColumns,
+        columns: waitFilters.columns,
         getRowId: (row: UnbilledReceipt) => row.receipt_id,
-        state: { globalFilter: query, sorting: waitSort },
+        state: {
+          columnFilters: waitFilters.columnFilters,
+          globalFilter: query,
+          sorting: waitSort,
+        },
         onSortingChange: setWaitSort,
         onGlobalFilterChange: setQuery,
       }),
-      [waitRows, query, waitSort]
+      [
+        waitRows,
+        waitFilters.columns,
+        waitFilters.columnFilters,
+        query,
+        waitSort,
+      ]
     )
   )
 
@@ -608,6 +716,27 @@ export function SupplierBills() {
           onChange={setSite}
           className="h-8 w-44"
           aria-label="Location"
+        />
+        {/* Whichever list is on screen. Location is not among the questions
+            inside it: the select beside this already narrows all three, and
+            the ageing card below is narrowed on the SERVER by the same value —
+            a second copy in the panel would move the table and leave the
+            report above it describing somewhere else. */}
+        <FilterPanel
+          model={
+            tab === "unbilled"
+              ? waitFilters
+              : tab === "expenses"
+                ? expenseFilters
+                : billFilters
+          }
+          table={
+            tab === "unbilled"
+              ? waitTable
+              : tab === "expenses"
+                ? expenseTable
+                : billTable
+          }
         />
         <Toolbar.Spacer />
         {/* The effective answer, in words, always. A date box filled with
@@ -769,9 +898,16 @@ export function SupplierBills() {
             </Card>
           )}
 
+          {/* Under the ageing rather than over it, because the ageing is the
+              server's own and is not capped — the warning belongs to the list
+              it is true of, and putting it at the top of the page would have
+              read as being about both. */}
+          {truncated && <Truncated limit={CAP} noun="bills" />}
+
           <Card className="overflow-hidden">
             {queryState(bills, {
               loading: "Loading the bills…",
+              refused,
               render: () =>
                 billRows.length === 0 ? (
                   <EmptyState>
@@ -784,7 +920,16 @@ export function SupplierBills() {
                     table={billTable}
                     onRowClick={(row) => bill.open(row.invoice_id)}
                     isSelected={(row) => row.invoice_id === bill.value}
-                    empty="No bill matches that search."
+                    // The count is what separates "nothing has been invoiced
+                    // here" — the sentence above — from "plenty has, and none
+                    // of it matches what you typed".
+                    empty={
+                      <NoMatch
+                        what="bills"
+                        held={billRows.length}
+                        onClear={() => setQuery("")}
+                      />
+                    }
                     // The ageing card takes the top of the page, so the
                     // table's own scroll region gives it back rather than
                     // running off the bottom of the window.
@@ -818,9 +963,14 @@ export function SupplierBills() {
             </AppLink>
             , not trade payable.
           </Banner>
+          {/* The same read, so the same warning — and it is worse here: the
+              merchandise bills are the bulk of the answer, so the expenses are
+              the rows most likely to be the ones that fell past the cap. */}
+          {truncated && <Truncated limit={CAP} noun="bills" className="mb-3" />}
           <Card className="overflow-hidden">
             {queryState(bills, {
               loading: "Loading the bills…",
+              refused,
               render: () =>
                 expenseRows.length === 0 ? (
                   <EmptyState>
@@ -833,7 +983,13 @@ export function SupplierBills() {
                     table={expenseTable}
                     onRowClick={(row) => bill.open(row.invoice_id)}
                     isSelected={(row) => row.invoice_id === bill.value}
-                    empty="No expense bill matches that search."
+                    empty={
+                      <NoMatch
+                        what="expense bills"
+                        held={expenseRows.length}
+                        onClear={() => setQuery("")}
+                      />
+                    }
                     className="max-h-[calc(100vh-25rem)]"
                   />
                 ),
@@ -852,9 +1008,15 @@ export function SupplierBills() {
             . The figure is accepted quantity at the agreed price — what the
             supplier will charge if they charge what was agreed.
           </Banner>
+          {/* No `<Truncated>` on this tab, and that is the finding rather than
+              an omission: `unbilledReceipts()` sends no `limit`, so the
+              exposure in the banner above is a total. Drawing the warning here
+              too would have taught a reader to discount a figure that is
+              sound. */}
           <Card className="overflow-hidden">
             {queryState(unbilled, {
               loading: "Looking for unbilled deliveries…",
+              refused,
               render: () =>
                 waitRows.length === 0 ? (
                   <EmptyState>
@@ -865,7 +1027,13 @@ export function SupplierBills() {
                 ) : (
                   <DataTable<UnbilledReceipt>
                     table={waitTable}
-                    empty="No delivery matches that search."
+                    empty={
+                      <NoMatch
+                        what="deliveries"
+                        held={waitRows.length}
+                        onClear={() => setQuery("")}
+                      />
+                    }
                     className="max-h-[calc(100vh-25rem)]"
                   />
                 ),

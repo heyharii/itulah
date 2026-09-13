@@ -24,6 +24,7 @@ const TYPE_SCALE = [
   "pill",
   "id",
   "cell",
+  "control",
 ] as const
 
 /// The colours that live in the `text-*` namespace.
@@ -53,6 +54,9 @@ const TEXT_COLOURS = [
   "info-fg",
   "new-fg",
   "on-dark",
+  "cta",
+  "cta-fg",
+  "cta-hover",
   "tooltip",
   "canvas",
   "soft",

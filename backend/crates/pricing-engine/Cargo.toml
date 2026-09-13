@@ -24,6 +24,11 @@ ts = ["dep:ts-rs"]
 chrono = { version = "=0.4.41", features = ["serde"] }
 ts-rs = { version = "=12.0.1", optional = true, features = ["chrono-impl"] }
 hex = "=0.4.3"
+# Tax is a domain of its own and this crate does not own it — see
+# `retail-tax`'s own module note, which exists because the rounding rule was
+# once implemented twice and the two copies disagreed by a rupiah. This crate
+# CONSUMES that one implementation rather than carrying a third.
+retail-tax = { path = "../tax" }
 serde = { version = "=1.0.219", features = ["derive"] }
 sha2 = "=0.10.9"
 thiserror = "=2.0.20"

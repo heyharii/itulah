@@ -1,4 +1,4 @@
-import { PieChart, Users } from "lucide-react"
+import { Coins, PieChart, ScrollText, Users } from "lucide-react"
 
 import type { AppModule } from "@/lib/navigation"
 
@@ -21,6 +21,21 @@ import type { AppModule } from "@/lib/navigation"
 /// what you just saw — and every count on it links back into a filtered
 /// directory, which is what makes the arithmetic checkable rather than
 /// asserted.
+///
+/// **Points arrived 2026-09-13**, by the owner's ruling that loyalty belongs to
+/// the customer and not to Commercial. A point is a liability the business owes
+/// a member; everything in Commercial is what something costs. Filing points
+/// beside pricing is how an obligation comes to be read as a discount.
+///
+/// Two rows and not one, for the reason a bank statement is not a balance:
+/// **Points** is what each member holds now, **Points Ledger** is every
+/// movement that got them there. One screen showing both would have to choose
+/// which of the two it is the source of truth for, and the answer — the ledger,
+/// always — is exactly what a balance-shaped screen hides.
+///
+/// Both are routed and neither is written: there is no points endpoint at the
+/// centre yet, so they render `Placeholder` on purpose rather than being left
+/// out and forgotten.
 export const membersNav: AppModule = {
   id: "members",
   label: "Members",
@@ -31,6 +46,12 @@ export const membersNav: AppModule = {
       items: [
         { path: "/members", label: "Members", icon: Users },
         { path: "/members/segments", label: "Segments", icon: PieChart },
+        { path: "/members/points", label: "Points", icon: Coins },
+        {
+          path: "/members/points-ledger",
+          label: "Points Ledger",
+          icon: ScrollText,
+        },
       ],
     },
   ],

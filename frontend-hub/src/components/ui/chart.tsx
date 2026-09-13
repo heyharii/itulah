@@ -4,6 +4,8 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  ComposedChart,
+  Line,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -168,6 +170,133 @@ export function BarSeries({
             />
           ))}
         </BarChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
+/// A level and the cost of reaching it, on one axis.
+///
+/// The third chart in this file, and the only one that draws two series — so
+/// the rule the other two keep is worth restating rather than quietly dropped.
+/// `<BarSeries>` takes a `tone` per series and `<LineSeries>` takes none: a
+/// caller cannot choose a hue, which is what keeps a fourth colour out of the
+/// app. Nothing changes here. The two roles are FIXED — the line is whatever
+/// the reader picked, the bars are always what it cost — so the colours are
+/// decided in this function and there is still no hue to pass in.
+///
+/// **One axis, deliberately.** Discount runs at a tenth of the sales it buys,
+/// so the bars are short and that is the finding, not a drawing problem. A
+/// second axis would scale them up to match the line and invite the eye to read
+/// "as much discount as sales", which is the single most flattering lie a
+/// promotion chart can tell. If the bars are invisible, the discount was small.
+///
+/// `bars` is nullable for the case where the two would be the same series: when
+/// the reader picks Discount Given itself, it is drawn once as the line rather
+/// than twice in two colours.
+export function ComboSeries({
+  rows,
+  bars,
+  line,
+  format,
+  titleOf,
+  labelOf,
+  className,
+}: {
+  rows: readonly ChartRow[]
+  bars: { readonly key: string; readonly label: string } | null
+  line: { readonly key: string; readonly label: string }
+  format: (value: number) => string
+  titleOf: (bucket: string) => string
+  labelOf: (bucket: string) => string
+  className?: string
+}) {
+  return (
+    <div className={cn("w-full text-eyebrow", className ?? "h-[13.75rem]")}>
+      <ResponsiveContainer width="100%" height="100%">
+        <ComposedChart
+          data={rows as ChartRow[]}
+          margin={{ top: 4, right: 4, bottom: 0, left: 4 }}
+        >
+          <CartesianGrid
+            vertical={false}
+            stroke="var(--hairline)"
+            strokeDasharray="2 3"
+          />
+          <XAxis
+            dataKey="bucket"
+            tickFormatter={labelOf}
+            tick={{ fill: "var(--mute)" }}
+            tickLine={false}
+            axisLine={{ stroke: "var(--hairline-2)" }}
+            interval="preserveStartEnd"
+            minTickGap={14}
+          />
+          <YAxis
+            tickFormatter={(value: number) => compact.format(value)}
+            tick={{ fill: "var(--mute)" }}
+            tickLine={false}
+            axisLine={false}
+            width={46}
+          />
+          <Tooltip
+            cursor={{ fill: "var(--soft)" }}
+            content={(info) => {
+              if (
+                info.active !== true ||
+                info.payload === undefined ||
+                info.payload.length === 0
+              ) {
+                return null
+              }
+              return (
+                <div className="rounded-inner border border-hairline bg-canvas px-2.5 py-2 shadow-pop">
+                  <div className="mb-1 text-[0.6875rem] font-medium text-ink">
+                    {titleOf(String(info.label ?? ""))}
+                  </div>
+                  {info.payload.map((entry, index) => (
+                    <div
+                      key={index}
+                      className="flex items-center gap-1.5 text-[0.6875rem] text-body"
+                    >
+                      <span
+                        aria-hidden
+                        className="size-[5px] shrink-0 rounded-full"
+                        style={{ background: entry.color }}
+                      />
+                      <span>{String(entry.name ?? "")}</span>
+                      <span className="ml-auto pl-4 font-medium text-ink tabular-nums">
+                        {format(Number(entry.value ?? 0))}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )
+            }}
+          />
+          {bars !== null && (
+            <Bar
+              dataKey={bars.key}
+              name={bars.label}
+              fill="var(--a-violet)"
+              maxBarSize={11}
+              radius={[3, 3, 0, 0]}
+              isAnimationActive={false}
+            />
+          )}
+          {/* No smoothing: a curved promotion line invents trading on days
+              nothing sold, which is the same objection `<LineSeries>` makes. */}
+          <Line
+            type="linear"
+            dataKey={line.key}
+            name={line.label}
+            stroke="var(--accent)"
+            strokeWidth={1.5}
+            dot={{ r: 2, fill: "var(--accent)", strokeWidth: 0 }}
+            activeDot={{ r: 3.5 }}
+            isAnimationActive={false}
+          />
+        </ComposedChart>
       </ResponsiveContainer>
     </div>
   )

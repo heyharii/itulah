@@ -69,10 +69,16 @@ export const workplaceKeys = {
 /// The nine kinds of record a discussion can hang on, and what to call each on
 /// screen.
 ///
-/// Not categories somebody invented: `0040_collaboration.sql` enforces this
-/// list in a CHECK constraint, because a thread that is not about a record is
-/// a conversation and there is a table for those. So this is the left-hand
-/// axis of the screen — counts of work, not of topics.
+/// Not categories somebody invented: a thread hangs on a RECORD, because a
+/// conversation that is not about one is a conversation and there is a table
+/// for those. So this is the left-hand axis of the screen — counts of work,
+/// not of topics.
+///
+/// The nine below are the ones this screen draws a dot and a word for. The
+/// server's list is longer since `0190` — it is `record_kind`, shared with the
+/// activity log and the filing cabinet — and `subjectLabel` falls through to
+/// the raw kind for anything not named here, so a thread opened against a
+/// supplier bill reads `bill` rather than disappearing.
 export const SUBJECT_LABEL: Readonly<Record<string, string>> = {
   purchase_order: "Purchase order",
   purchase_order_line: "PO line",
@@ -91,24 +97,25 @@ export function subjectLabel(kind: string): string {
   return SUBJECT_LABEL[kind] ?? kind
 }
 
-/// What a DOCUMENT may be filed against — a different, shorter list, spelled
-/// differently on purpose.
+/// What a DOCUMENT may be filed against.
 ///
-/// `document_link` in `0075_documents.sql` accepts five kinds and they are
-/// UPPERCASE; a discussion's nine are lowercase. The two are not the same
-/// vocabulary and never were: a thread hangs on anything an argument can be
-/// about, a document is filed against the things somebody goes looking through
-/// a filing cabinet for.
+/// A SHORTER list than a discussion's, and no longer a differently spelled
+/// one. `0075_documents.sql` accepted five UPPERCASE words while a thread's
+/// nine were lowercase, so `SUPPLIER` and `supplier` were two vocabularies
+/// that happened to mean the same thing and could not be compared — which is
+/// how the drawer came to offer the discussion's nine and have every one of
+/// them rejected by a check constraint.
 ///
-/// The drawer offered the discussion's nine until this was written, so every
-/// attempt to file a document against a record was rejected by the check
-/// constraint, and the `subject_kind` filter matched nothing.
+/// `0190` ends that: both read `record_kind`, the one list, lowercase. This is
+/// still five, because a filing cabinet is not a forum — these are the things
+/// somebody goes looking through one FOR. `GOODS_RECEIPT` is `receipt` now,
+/// which is what the threads have called it since 0040.
 export const DOCUMENT_SUBJECT_LABEL: Readonly<Record<string, string>> = {
-  PURCHASE_ORDER: "Purchase order",
-  SUPPLIER: "Supplier",
-  GOODS_RECEIPT: "Goods receipt",
-  ARTICLE: "Article",
-  SUPPLIER_ITEM: "Supplier item",
+  purchase_order: "Purchase order",
+  supplier: "Supplier",
+  receipt: "Goods receipt",
+  article: "Article",
+  supplier_item: "Supplier item",
 }
 
 export const DOCUMENT_SUBJECT_KINDS: readonly string[] = Object.keys(

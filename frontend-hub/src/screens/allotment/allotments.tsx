@@ -15,14 +15,13 @@ import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Field, Input } from "@/components/ui/field"
-import { FilterBar } from "@/components/ui/filter-bar"
+import { DockedFilters, ViewPicker } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { MiniTable, TotalsLadder } from "@/components/ui/rows"
 import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
-import { SubTabs } from "@/components/ui/sub-tabs"
 import { Tag } from "@/components/ui/tag"
 import { Thumbnail } from "@/components/ui/thumbnail"
 import {
@@ -281,6 +280,20 @@ function Journey({
   )
 }
 
+/// The three readings of the allotment book, as the picker beside the title
+/// offers them.
+///
+/// They were a row of tabs until 2026-09-13. Tabs say "these are three
+/// screens"; they are three questions asked of one book — the paperwork, one
+/// shop's, one garment's — and the owner's instruction was to name them the way
+/// the order book names its views. The value is what the queries below switch
+/// on, so the words here are the only place they are spelled for a reader.
+const VIEWS = [
+  { value: "all", label: "Every allotment" },
+  { value: "store", label: "By store" },
+  { value: "article", label: "By article" },
+]
+
 export function Allotments() {
   const [tab, setTab] = useState("all")
   const [type, setType] = useState("")
@@ -366,17 +379,19 @@ export function Allotments() {
         sub="What has been promised out of a pool, and how far it has actually travelled."
       />
 
-      <SubTabs
-        tabs={[
-          { value: "all", label: "Every allotment" },
-          { value: "store", label: "By store" },
-          { value: "article", label: "By article" },
-        ]}
-        value={tab}
-        onChange={setTab}
-      />
-
       <Toolbar>
+        {/* Which reading of the book is on screen, and the saved questions
+            somebody asks of it every morning — one control, the same one the
+            order book wears, in the same place. The three readings were tabs
+            until 2026-09-13; a tab row claimed they were three screens, and
+            spent a full line of the page saying so. */}
+        <ViewPicker
+          model={filters}
+          id="allotments"
+          views={VIEWS}
+          view={tab}
+          onView={setTab}
+        />
         {tab === "all" ? (
           <>
             <Choice
@@ -407,7 +422,6 @@ export function Allotments() {
           placeholder="Search"
           className="h-8 w-48"
         />
-        <FilterBar model={filters} table={table} />
         <Toolbar.Spacer />
         {/* A link and not a button: the composer is a page of its own now —
             a matrix wide enough to hold thirteen stores does not fit a rail —
@@ -418,145 +432,173 @@ export function Allotments() {
         </AppLink>
       </Toolbar>
 
-      {shortages.length > 0 && (
-        <Card className="mb-[1.125rem] overflow-hidden">
-          <CardHeader>
-            <CardTitle>Promised more than the pool holds</CardTitle>
-            <span className="text-[0.75rem] text-mute tabular-nums">
-              {count(shortages.length)}
-            </span>
-          </CardHeader>
-          <div className="border-t border-hairline px-4 py-3">
-            <p className="mb-2.5 text-[0.71875rem] text-mute">
-              On Hand is Stock minus Allotted, so a negative reading means the
-              allotments standing against this pool add up to more than the
-              goods in it. The server reports it rather than preventing it —
-              allotting is a promise, and a warehouse is allowed to find out it
-              cannot keep one.
-            </p>
-            <MiniTable
-              head={["Article", "SKU", "Stock", "Allotted", "Short by"]}
-            >
-              {shortages.map((item) => (
-                <tr key={item.sku_id} className="border-t border-hairline">
-                  <td className="py-2 pr-2 text-[0.8125rem] text-ink">
-                    {item.article_name}
-                  </td>
-                  <td className="py-2 text-right font-mono text-[0.65625rem] text-body">
-                    {item.sku_code}
-                  </td>
-                  <td className="py-2 text-right tabular-nums">
-                    {count(item.stock_qty)}
-                  </td>
-                  <td className="py-2 text-right tabular-nums">
-                    {count(item.allotted_qty)}
-                  </td>
-                  <td className="py-2 text-right font-medium text-bad-fg tabular-nums">
-                    {count(item.shortage_qty)}
-                  </td>
-                </tr>
-              ))}
-            </MiniTable>
-          </div>
-        </Card>
-      )}
-
-      {tab === "article" ? (
-        <ByArticle
-          query={byArticle}
-          needle={query}
-          store={stores.find((one) => one.value === store)?.label ?? null}
-        />
-      ) : tab === "store" && store === "" ? (
-        <Card>
-          <EmptyState>
-            Choose a store to see everything owed to it, and its lifetime
-            per-SKU pipeline.
-          </EmptyState>
-        </Card>
-      ) : (
-        <>
-          {tab === "store" && byStore.data && (
-            <Card className="mb-[1.125rem] px-4 py-3.5">
-              <MetricRow>
-                <Metric
-                  label="Ordered"
-                  value={count(
-                    byStore.data.sku_summary.reduce(
-                      (total, sku) => total + sku.quantity,
-                      0
-                    )
-                  )}
-                />
-                <Metric
-                  label="Received"
-                  value={count(
-                    byStore.data.sku_summary.reduce(
-                      (total, sku) => total + sku.received_quantity,
-                      0
-                    )
-                  )}
-                />
-                <Metric
-                  label="Still owed"
-                  value={count(
-                    byStore.data.sku_summary.reduce(
-                      (total, sku) =>
-                        total +
-                        Math.max(
-                          0,
-                          sku.quantity -
-                            sku.received_quantity -
-                            sku.cancelled_quantity
-                        ),
-                      0
-                    )
-                  )}
-                  tone="warn"
-                />
-                <Metric
-                  label="SKUs"
-                  value={count(byStore.data.sku_summary.length)}
-                />
-              </MetricRow>
-              <p className="mt-3 text-[0.71875rem] text-mute">
-                This summary spans every allotment ever addressed to{" "}
-                {byStore.data.destination_name} — not only the ones listed
-                below.
-              </p>
+      {/* Two columns from 1440 up: the book, and the panel that narrows it —
+          the shape the order book has worn since its own panel docked, and the
+          reason the filter popover above the table is gone. Below that width
+          the same model is reached from the panel's own sheet. */}
+      <div className="grid min-w-0 items-start gap-5 min-[1440px]:grid-cols-[minmax(0,1fr)_16rem]">
+        <div className="flex min-w-0 flex-col">
+          {shortages.length > 0 && (
+            <Card className="mb-[1.125rem] overflow-hidden">
+              <CardHeader>
+                <CardTitle>Promised more than the pool holds</CardTitle>
+                <span className="text-[0.75rem] text-mute tabular-nums">
+                  {count(shortages.length)}
+                </span>
+              </CardHeader>
+              <div className="border-t border-hairline px-4 py-3">
+                <p className="mb-2.5 text-[0.71875rem] text-mute">
+                  On Hand is Stock minus Allotted, so a negative reading means
+                  the allotments standing against this pool add up to more than
+                  the goods in it. The server reports it rather than preventing
+                  it — allotting is a promise, and a warehouse is allowed to
+                  find out it cannot keep one.
+                </p>
+                <MiniTable
+                  head={["Article", "SKU", "Stock", "Allotted", "Short by"]}
+                >
+                  {shortages.map((item) => (
+                    <tr key={item.sku_id} className="border-t border-hairline">
+                      <td className="py-2 pr-2 text-[0.8125rem] text-ink">
+                        {item.article_name}
+                      </td>
+                      <td className="py-2 text-right font-mono text-[0.65625rem] text-body">
+                        {item.sku_code}
+                      </td>
+                      <td className="py-2 text-right tabular-nums">
+                        {count(item.stock_qty)}
+                      </td>
+                      <td className="py-2 text-right tabular-nums">
+                        {count(item.allotted_qty)}
+                      </td>
+                      <td className="py-2 text-right font-medium text-bad-fg tabular-nums">
+                        {count(item.shortage_qty)}
+                      </td>
+                    </tr>
+                  ))}
+                </MiniTable>
+              </div>
             </Card>
           )}
 
-          {tab === "store" && byStore.data && (
-            <ByStoreSkus
-              rows={byStore.data.sku_summary}
-              store={byStore.data.destination_name}
+          {tab === "article" ? (
+            <ByArticle
+              query={byArticle}
               needle={query}
+              store={stores.find((one) => one.value === store)?.label ?? null}
             />
-          )}
+          ) : tab === "store" && store === "" ? (
+            <Card>
+              <EmptyState>
+                Choose a store to see everything owed to it, and its lifetime
+                per-SKU pipeline.
+              </EmptyState>
+            </Card>
+          ) : (
+            <>
+              {tab === "store" && byStore.data && (
+                <Card className="mb-[1.125rem] px-4 py-3.5">
+                  <MetricRow>
+                    <Metric
+                      label="Ordered"
+                      value={count(
+                        byStore.data.sku_summary.reduce(
+                          (total, sku) => total + sku.quantity,
+                          0
+                        )
+                      )}
+                    />
+                    <Metric
+                      label="Received"
+                      value={count(
+                        byStore.data.sku_summary.reduce(
+                          (total, sku) => total + sku.received_quantity,
+                          0
+                        )
+                      )}
+                    />
+                    <Metric
+                      label="Still owed"
+                      value={count(
+                        byStore.data.sku_summary.reduce(
+                          (total, sku) =>
+                            total +
+                            Math.max(
+                              0,
+                              sku.quantity -
+                                sku.received_quantity -
+                                sku.cancelled_quantity
+                            ),
+                          0
+                        )
+                      )}
+                      tone="warn"
+                    />
+                    <Metric
+                      label="SKUs"
+                      value={count(byStore.data.sku_summary.length)}
+                    />
+                  </MetricRow>
+                  <p className="mt-3 text-[0.71875rem] text-mute">
+                    This summary spans every allotment ever addressed to{" "}
+                    {byStore.data.destination_name} — not only the ones listed
+                    below.
+                  </p>
+                </Card>
+              )}
 
-          <Card className="overflow-hidden">
-            {queryState(source, {
-              loading: "Reading the allotment book…",
-              render: () =>
-                rows.length === 0 ? (
-                  <EmptyState>
-                    {type === "" && status === "" && query === ""
-                      ? "Nothing has been allotted out of any pool yet."
-                      : "No allotment matches these filters."}
-                  </EmptyState>
-                ) : (
-                  <DataTable<AllotmentRow>
-                    table={table}
-                    onRowClick={(row) => allotment.open(row.id)}
-                    isSelected={(row) => row.id === allotment.value}
-                    className="max-h-[calc(100vh-22rem)]"
-                  />
-                ),
-            })}
-          </Card>
-        </>
-      )}
+              {tab === "store" && byStore.data && (
+                <ByStoreSkus
+                  rows={byStore.data.sku_summary}
+                  store={byStore.data.destination_name}
+                  needle={query}
+                />
+              )}
+
+              <Card className="overflow-hidden">
+                {queryState(source, {
+                  loading: "Reading the allotment book…",
+                  render: () =>
+                    rows.length === 0 ? (
+                      <EmptyState>
+                        {type === "" && status === "" && query === ""
+                          ? "Nothing has been allotted out of any pool yet."
+                          : "No allotment matches these filters."}
+                      </EmptyState>
+                    ) : (
+                      <DataTable<AllotmentRow>
+                        table={table}
+                        onRowClick={(row) => allotment.open(row.id)}
+                        isSelected={(row) => row.id === allotment.value}
+                        className="max-h-[calc(100vh-22rem)]"
+                      />
+                    ),
+                })}
+              </Card>
+            </>
+          )}
+        </div>
+
+        {/* Only where there is a table to narrow. "By article" is a different
+            reading with columns of its own, and a panel offering the order
+            book's fields beside it would be a panel that narrows nothing. */}
+        {tab !== "article" && (
+          <DockedFilters
+            model={filters}
+            id="allotments"
+            subject="Allotment"
+            kpis={[
+              { label: "Allotments", value: count(rows.length) },
+              {
+                label: "Short",
+                value: count(shortages.length),
+                note: "Pools promising more than they hold.",
+              },
+            ]}
+            className="hidden min-[1440px]:flex"
+          />
+        )}
+      </div>
 
       <AllotmentSheet id={allotment.value ?? null} onClose={allotment.close} />
     </PageContent>

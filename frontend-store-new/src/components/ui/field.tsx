@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils"
 /// A labelled input, and the one place a field's chrome is described.
 ///
 /// Inputs are pills like everything else interactive, `{soft-2}` filled, and
-/// they take the indigo focus ring the base layer authors — so a form does not
+/// they take the accent focus ring the base layer authors — so a form does not
 /// have to restate any of it. Every control here is 48px: a field on a counter
 /// is aimed at with a thumb while somebody is talking to you.
 export function Field({
@@ -38,7 +38,7 @@ export function Field({
 }
 
 const control =
-  "h-12 w-full rounded-full border border-transparent bg-soft-2 px-4 text-[1rem] text-ink transition-colors outline-none placeholder:text-mute disabled:opacity-45"
+  "h-12 w-full rounded-inner border border-transparent bg-soft-2 px-4 text-[1rem] text-ink transition-colors outline-none placeholder:text-mute disabled:opacity-45"
 
 export function Input({
   className,
@@ -85,7 +85,7 @@ export function Input({
 /// The panel and its rows. Local to this kit rather than shared: the row
 /// height is the touch decision this file exists to make.
 const PANEL =
-  "z-50 min-w-[var(--anchor-width)] rounded-inner border border-hairline bg-canvas p-1 shadow-pop outline-none"
+  "z-50 min-w-[var(--anchor-width)] rounded-inner border border-hairline-2 bg-canvas p-1 shadow-pop outline-none"
 
 const ITEM =
   "flex w-full cursor-pointer items-center justify-between gap-2 rounded-[calc(var(--r-inner)-0.25rem)] min-h-12 px-4 py-2.5 text-[1rem] text-left text-ink outline-none select-none data-[highlighted]:bg-soft-2 data-disabled:cursor-default data-disabled:text-mute data-disabled:data-[highlighted]:bg-transparent"

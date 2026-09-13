@@ -1,5 +1,9 @@
 import type { ChartRow, ChartSeries } from "@/components/ui/chart"
-import type { ReportResult, ReportSpec, ResultColumn } from "@/lib/queries/reports"
+import type {
+  ReportResult,
+  ReportSpec,
+  ResultColumn,
+} from "@/lib/queries/reports"
 
 /// What a report's chart is made of, in one place.
 ///

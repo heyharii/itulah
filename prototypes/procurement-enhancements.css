@@ -1,0 +1,61 @@
+/* The purchase-order list: a stable toolbar, and the draft composer. */
+body[data-screen="orders"] .page { padding-top:26px; }
+body[data-screen="orders"] .page-header h1 { font-size:17px; line-height:24px; letter-spacing:-.02em; }
+body[data-screen="orders"] .page-header p { margin-top:3px; font-size:12px; line-height:18px; }
+body[data-screen="orders"] .list-toolbar { display:flex; flex-direction:column; align-items:stretch; gap:10px; }
+body[data-screen="orders"] .qf-row { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); width:100%; gap:8px; }
+body[data-screen="orders"] .qf-wrap { min-width:0; max-width:none; width:auto; }
+body[data-screen="orders"] .tool-right { width:100%; margin:0; min-height:34px; }
+body[data-screen="orders"] .tool-right > .count { margin-right:auto; }
+.selection-bar { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px; padding:10px 12px; background:#eff5ff; border:1px solid #d4e2fb; border-radius:8px; font-size:13px; color:#2459b8; }
+.selection-bar > span { margin-right:auto; }
+body[data-screen="orders"] .menu [hidden] { display:none!important; }
+.facet-search { display:flex; align-items:center; gap:8px; padding:8px; background:white; position:sticky; top:-5px; z-index:1; border-bottom:1px solid var(--hairline); margin-bottom:4px; }
+.facet-search input { width:100%; min-width:0; border:0; outline:none; font:13px var(--sans); background:transparent; color:var(--ink); }
+.facet-search:focus-within { box-shadow:inset 0 -2px var(--accent); }
+.facet-no-results { padding:14px 8px; font-size:13px; color:var(--body); margin:0; }
+.po-section { margin-bottom:24px; }
+.po-section h4 { font-size:14px; margin:0; font-weight:600; }
+.po-fields { display:grid; grid-template-columns:1fr 1fr; gap:20px 16px; }
+#po-form label { display:flex; flex-direction:column; gap:7px; min-width:0; font-size:12px; font-weight:500; color:var(--text); }
+#po-form :is(input,select,textarea) { width:100%; min-width:0; border:1px solid var(--hairline-2); border-radius:7px; background:#fff; color:var(--ink); padding:10px 12px; font:14px var(--sans); min-height:40px; }
+#po-form textarea { resize:vertical; line-height:22px; }
+#po-form :is(input,select,textarea):focus { outline:2px solid #8db3fa; outline-offset:2px; border-color:var(--accent); }
+#po-form [aria-invalid="true"] { border-color:#cf5d5d; background:#fffbfb; }
+.po-field-error { font-size:12px; color:#b53d3d; line-height:18px; font-weight:400; }
+.po-form-error { padding:12px 14px; margin-bottom:20px; border:1px solid #efd4d4; border-radius:8px; background:#fff4f4; color:#a73d3d; font-size:13px; }
+.po-line { padding:14px 16px 16px; border:1px solid var(--hairline); border-radius:10px; margin-bottom:12px; background:#fafbfd; }
+.po-line-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; font-size:12px; font-weight:600; color:var(--body); }
+.po-line-values { display:grid; grid-template-columns:1fr 1.5fr 1.5fr; gap:12px; margin-top:14px; }
+.po-line-total { display:flex; flex-direction:column; align-items:flex-end; gap:14px; font-size:12px; color:var(--body); }
+.po-line-total strong { font-size:14px; color:var(--ink); font-weight:500; font-variant-numeric:tabular-nums; }
+.po-summary { display:flex; align-items:center; justify-content:space-between; padding:18px 20px; border:1px solid var(--hairline); background:#f7f9fc; border-radius:10px; gap:16px; }
+.po-summary span { font-size:13px; font-weight:500; }
+.po-summary small { display:block; margin-top:5px; font-size:12px; color:var(--body); }
+.po-summary strong { font-size:24px; font-weight:600; letter-spacing:-.025em; font-variant-numeric:tabular-nums; }
+.po-save-note { color:var(--body); font-size:12px; line-height:19px; margin:12px 0 0; }
+.po-notes { font-size:14px; line-height:22px; white-space:pre-wrap; }
+@media(max-width:1000px) {
+}
+@media(max-width:600px) {
+ body[data-screen="orders"] .page { padding-top:24px; }
+ body[data-screen="orders"] .qf-row { grid-template-columns:repeat(2,minmax(0,1fr)); }
+ body[data-screen="orders"] .topbar { padding:0 16px; }
+ body[data-screen="orders"] .page-header h1 { font-size:16px; line-height:23px; }
+ body[data-screen="orders"] .topbar-right { margin-left:auto; }
+ .po-fields { grid-template-columns:1fr; gap:16px; }
+ .po-line { padding:12px; }
+ .po-line-values { grid-template-columns:1fr 1fr; }
+ .po-line-total { grid-column:1/-1; flex-direction:row; justify-content:space-between; align-items:center; }
+ .po-summary { padding:14px; }
+ .po-summary strong { font-size:20px; }
+}
+.po-terms-template { margin-bottom:12px; }
+.po-terms-empty { margin:0 0 12px; font-size:13px; color:var(--body); }
+table.po-terms th { font-size:11px; font-weight:500; color:var(--body); padding-bottom:6px; }
+table.po-terms td { padding:6px 0; font-size:13px; color:var(--text); vertical-align:middle; }
+table.po-terms td input { height:32px; border:1px solid var(--hairline-2); border-radius:7px; background:#fff; padding:0 8px; font:400 13px var(--sans); min-height:0; width:100%; }
+table.po-terms td.r input { text-align:right; padding-right:22px; }
+table.po-terms td.r { position:relative; }
+.po-pct { position:absolute; right:8px; top:50%; transform:translateY(-50%); font-size:12px; color:var(--mute); }
+table.po-terms .icon-btn { width:26px; height:26px; }

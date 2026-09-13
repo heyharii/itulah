@@ -1065,11 +1065,10 @@ export function PublishSheet({
           {priced.length > 0 && (
             <>
               {" "}
-              A price rule carries no dates of its own, so the book's window is
-              the whole of when its prices apply.{" "}
+              The book's window is when its prices apply.{" "}
               {books.length > 1
-                ? "The one above belongs to the first book; the rest start on the days their prices asked for, and all of them end when “Until” says."
-                : "The one above is theirs."}
+                ? "The date above is the first book's; the rest start when their prices asked."
+                : ""}
             </>
           )}
         </p>

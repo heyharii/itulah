@@ -27,6 +27,7 @@ use crate::cloud::{
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use sqlx::{postgres::PgRow, PgPool, Postgres, Row, Transaction};
 use std::str::FromStr;
 use uuid::Uuid;
@@ -129,14 +130,67 @@ pub struct VoucherLedger {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct VoucherList {
-    pub vouchers: Vec<VoucherRow>,
+    pub rows: Vec<VoucherRow>,
+    /// Opaque. Pass it back as `cursor` for the next page; absent means this
+    /// was the last one.
+    ///
+    /// Deliberately not an offset. Cards are issued and spent while somebody
+    /// pages through them, and an offset would skip or repeat rows with nothing
+    /// saying so — on a list where every row is money the shop owes.
+    pub next_cursor: Option<String>,
+    /// Every card the search and the filters match — not just this page.
+    ///
+    /// Distinct from `ledger.issued_count`, and the difference is the point:
+    /// `total` describes the LIST, and the ledger describes the BOOK. A search
+    /// for one customer's cards should say "3" above the rows and still say
+    /// what the shop owes everybody.
+    pub total: i64,
+    pub facets: VoucherFacets,
     /// Over the WHOLE book, not over the page or the filter. A liability that
     /// changed because somebody typed in the search box would be a liability
     /// nobody could quote.
     pub ledger: VoucherLedger,
 }
 
+/// One value a filter can take, and how many cards would still be there.
+///
+/// Counted over everything the search and the holder leave, deliberately
+/// ignoring which boxes are ticked — so the number beside `ACTIVE` answers "how
+/// many live cards are there", which is the question somebody has while
+/// deciding whether to click it.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct VoucherFacet {
+    pub value: String,
+    pub count: i64,
+}
+
+/// The two things this list can be narrowed by.
+///
+/// The holder is not among them. `member_id` scopes WHICH BOOK is being looked
+/// at rather than narrowing a list of it — the members screen opens this at one
+/// customer — so the counts are taken inside that scope, exactly as the
+/// workforce list counts inside a manager's reach.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct VoucherFacets {
+    pub statuses: Vec<VoucherFacet>,
+    pub kinds: Vec<VoucherFacet>,
+}
+
+/// Where the previous page stopped — as a ROW, not as a position.
+#[derive(Serialize, Deserialize)]
+struct VoucherCursor {
+    voucher_id: Uuid,
+}
+
+/// What a caller is asking the voucher list for.
+///
+/// `deny_unknown_fields`, so a misspelled filter is refused rather than quietly
+/// ignored: `?statuss=ACTIVE` narrows nothing and the screen shows the whole
+/// book under a filter somebody believes is applied.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct VoucherQuery {
     pub status: Option<String>,
     pub kind: Option<String>,
@@ -144,10 +198,28 @@ pub struct VoucherQuery {
     /// Matches a code or a holder's name. A cashier holding a card types the
     /// code; a supervisor chasing a complaint types the name.
     pub q: Option<String>,
+    /// `issued` (the default), `code`, `value`, `balance` or `expires`.
+    ///
+    /// Anything unrecognised falls back to `issued` rather than refusing: a
+    /// sort arrives from a URL somebody may have kept from an older build, and
+    /// a 400 for a stale bookmark is a worse answer than the rows in the house
+    /// order.
+    pub sort: Option<String>,
+    /// `asc` or `desc`. Absent means each key's OWN natural direction, which is
+    /// the one place this list departs from the estate's `dir=desc` convention
+    /// and it is deliberate: a book of cards is read newest first, and money
+    /// columns are read biggest first, while a code and an expiry date are read
+    /// forwards. Making every key default to ascending would open this screen
+    /// on the oldest card the shop ever issued.
+    pub dir: Option<String>,
+    /// A `next_cursor` from the previous page, verbatim.
+    pub cursor: Option<String>,
     pub limit: Option<i64>,
 }
 
+/// How many cards the list returns when the caller does not say.
 const DEFAULT_PAGE: i64 = 200;
+/// And the most it will return however loudly a caller asks.
 const MAX_PAGE: i64 = 1_000;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -219,6 +291,50 @@ const VOUCHER_COLUMNS: &str = "
              WHERE mv.voucher_id = v.voucher_id)           AS last_movement_at
       FROM voucher v
       LEFT JOIN member m ON m.member_id = v.member_id";
+
+/// One listable voucher row, defined once.
+///
+/// Used by the page query and by the facet counts, and that is the whole reason
+/// it is a constant: the facets are only honest if they count exactly what the
+/// page can show. It WRAPS [`VOUCHER_COLUMNS`] rather than restating it, so what
+/// a voucher row is stays written in one place — the detail route and the list
+/// cannot come to disagree about whether a card is expired.
+///
+/// Binds: `$1` the holder, or NULL for every holder. `$2` the normalised search
+/// pattern, or NULL for no search.
+///
+/// It stops at the HOLDER and the SEARCH. The status and kind filters are
+/// applied outside it, which is what lets one definition answer two different
+/// questions from the same rows: the page wants what the filters leave, while
+/// the filter panel's counts want what the search alone leaves.
+///
+/// `expires_key` is computed here rather than only in `ORDER BY` because the
+/// keyset has to COMPARE the sort value in a `WHERE`, and a sort expression
+/// that is not also a column is one a `WHERE` cannot see. It is non-null for a
+/// reason that is easy to miss and expensive to find: a row comparison against
+/// NULL is NULL rather than true, so the first card with no expiry — which is
+/// most of them — would end paging at whatever row happened to carry it,
+/// silently, with the rest of the book below the fold. `9999-12-31` as a
+/// sentinel VALUE rather than a `NULLS LAST` decoration, because `NULLS LAST`
+/// orders a result and says nothing a keyset can seek against; it is also the
+/// more useful answer, since a card that never lapses does sort after every
+/// card that does.
+///
+/// A function rather than a `const` only because it has to splice
+/// [`VOUCHER_COLUMNS`] into itself, and a `const` cannot call `format!`. Every
+/// caller binds the same two parameters in the same order.
+fn voucher_searched() -> String {
+    format!(
+        "SELECT base.*,
+                COALESCE(base.expires_at, TIMESTAMPTZ '9999-12-31') AS expires_key
+           FROM ({VOUCHER_COLUMNS}) base
+          WHERE ($1::text IS NULL OR base.member_id = $1)
+            AND ($2::text IS NULL
+                 OR base.code LIKE '%' || $2 || '%'
+                 OR upper(COALESCE(base.member_name, '')) LIKE '%' || $2 || '%'
+                 OR upper(COALESCE(base.member_id, '')) LIKE '%' || $2 || '%')"
+    )
+}
 
 fn voucher_from_row(row: &PgRow) -> Result<VoucherRow, AppError> {
     Ok(VoucherRow {
@@ -336,33 +452,158 @@ pub async fn list_vouchers(pool: &PgPool, query: VoucherQuery) -> Result<Voucher
         stripped.to_uppercase()
     });
 
-    let rows = sqlx::query(&format!(
-        "{VOUCHER_COLUMNS}
-          WHERE ($1::text IS NULL OR v.status = $1)
-            AND ($2::text IS NULL OR v.kind = $2)
-            AND ($3::text IS NULL OR v.member_id = $3)
-            AND ($4::text IS NULL
-                 OR v.code LIKE '%' || $4 || '%'
-                 OR upper(COALESCE(m.display_name, '')) LIKE '%' || $4 || '%'
-                 OR upper(COALESCE(v.member_id, '')) LIKE '%' || $4 || '%')
-          ORDER BY v.issued_at DESC, v.code
-          LIMIT $5"
-    ))
-    .bind(&status)
-    .bind(&kind)
-    .bind(&member_id)
-    .bind(&search)
-    .bind(limit)
-    .fetch_all(pool)
+    // The sort, and the tie-break that makes it total. Every order ends in the
+    // voucher id, which is the primary key, so no two rows can compare equal —
+    // which is what stops a keyset from repeating or losing the rows that tie.
+    // The code would nearly do and the issue instant would not: two cards minted
+    // in one batch share it to the microsecond.
+    let (lead, natural_desc) = match query.sort.as_deref() {
+        Some("code") => ("code", false),
+        Some("value") => ("issued_minor", true),
+        Some("balance") => ("balance_minor", true),
+        Some("expires") => ("expires_key", false),
+        _ => ("issued_at", true),
+    };
+    let desc = match query.dir.as_deref() {
+        Some("asc") => false,
+        Some("desc") => true,
+        _ => natural_desc,
+    };
+    let (cols, order) = super::order_by(lead, "voucher_id", desc);
+    let seek = if desc { "<" } else { ">" };
+
+    let cursor: Option<VoucherCursor> = query
+        .cursor
+        .as_deref()
+        .map(super::decode_cursor)
+        .transpose()?;
+
+    // The seek re-reads the previous row's own sort value rather than trusting
+    // one encoded in the cursor: one cursor shape then serves every order, and
+    // a sixth sort cannot arrive without its cursor.
+    let searched = voucher_searched();
+    // `NOT MATERIALIZED`: `kept` is referenced twice — as the page and
+    // inside the seek — and two references makes PostgreSQL materialise a
+    // CTE, which is an optimisation fence the `ORDER BY … LIMIT` cannot be
+    // pushed through. Materialised, this reads the whole table and sorts it
+    // to hand back one page; inlined, it seeks the index. See
+    // `postgres::audit::list_audit`, where the difference was measured.
+    let sql = format!(
+        "WITH searched AS NOT MATERIALIZED ({searched}),
+              kept AS NOT MATERIALIZED (
+             SELECT * FROM searched
+              WHERE ($3::text IS NULL OR status = $3)
+                AND ($4::text IS NULL OR kind = $4)
+         )
+         SELECT * FROM kept
+          WHERE $5::uuid IS NULL
+             OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE voucher_id = $5)
+          ORDER BY {order}
+          LIMIT $6"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(&member_id)
+        .bind(&search)
+        .bind(&status)
+        .bind(&kind)
+        .bind(cursor.as_ref().map(|c| c.voucher_id))
+        .bind(limit)
+        .fetch_all(pool)
+        .await?;
+
+    // A short page is the last page. A full one may not be — the next request
+    // can come back empty — and that is the honest answer: knowing whether more
+    // rows exist without asking costs a second count of the same query.
+    let next_cursor = match rows.last() {
+        Some(row) if rows.len() as i64 == limit => Some(super::encode_cursor(&VoucherCursor {
+            voucher_id: row.try_get("voucher_id")?,
+        })?),
+        _ => None,
+    };
+
+    let (total, facets) = voucher_facets(
+        pool,
+        member_id.as_deref(),
+        search.as_deref(),
+        &status,
+        &kind,
+    )
     .await?;
 
     Ok(VoucherList {
-        vouchers: rows
+        rows: rows
             .iter()
             .map(voucher_from_row)
             .collect::<Result<Vec<_>, _>>()?,
+        next_cursor,
+        total,
+        facets,
         ledger: voucher_ledger(pool).await?,
     })
+}
+
+/// How many cards there are, and how they split.
+///
+/// Counted from the SAME [`voucher_searched`] the page is drawn from, so the
+/// holder scope applies to the counts as well: a members screen opened at one
+/// customer must not be told how many live cards the shop has issued to
+/// everybody. The two scopes are deliberate:
+///
+///   per-value counts read the SEARCHED set, ignoring which boxes are ticked.
+///     Counting the already-filtered set instead shows the chosen value its own
+///     row count and every other one a zero.
+///   the total reads the FILTERED set, because it describes the list on screen.
+async fn voucher_facets(
+    pool: &PgPool,
+    member_id: Option<&str>,
+    search: Option<&str>,
+    status: &Option<String>,
+    kind: &Option<String>,
+) -> Result<(i64, VoucherFacets), AppError> {
+    let searched = voucher_searched();
+    let sql = format!(
+        "WITH searched AS ({searched}), kept AS (
+             SELECT * FROM searched
+              WHERE ($3::text IS NULL OR status = $3)
+                AND ($4::text IS NULL OR kind = $4)
+         )
+         SELECT 'status' AS facet, status AS value, count(*)::bigint AS n
+           FROM searched GROUP BY status
+          UNION ALL
+         SELECT 'kind', kind, count(*)::bigint FROM searched GROUP BY kind
+          UNION ALL
+         SELECT 'all', '', count(*)::bigint FROM kept"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(member_id)
+        .bind(search)
+        .bind(status)
+        .bind(kind)
+        .fetch_all(pool)
+        .await?;
+
+    let mut total = 0i64;
+    let mut statuses = Vec::new();
+    let mut kinds = Vec::new();
+    for row in &rows {
+        let facet: String = row.try_get("facet")?;
+        let one = VoucherFacet {
+            value: row.try_get("value")?,
+            count: row.try_get("n")?,
+        };
+        match facet.as_str() {
+            "status" => statuses.push(one),
+            "kind" => kinds.push(one),
+            _ => total = one.count,
+        }
+    }
+    // Biggest first, ties broken on the value, as every other facet panel in
+    // this estate is ordered — a list that reshuffles between calls is a list
+    // nobody can click.
+    for list in [&mut statuses, &mut kinds] {
+        list.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.value.cmp(&b.value)));
+    }
+    Ok((total, VoucherFacets { statuses, kinds }))
 }
 
 /// The book, added up. One query rather than five, because five would be five
@@ -817,4 +1058,447 @@ async fn detail_in_transaction(
             .map(movement_from_row)
             .collect::<Result<Vec<_>, _>>()?,
     })
+}
+
+// ── holding a card before it is spent ──────────────────────────────────────
+//
+// See migration 0162. A redemption is final and a checkout is not, so the till
+// takes a HOLD first and the hold becomes a redemption only when the sale
+// lands. The invariant every read here defends:
+//
+//     available = balance_minor − sum(open holds)
+//
+// Checking a balance is not reserving against it. Two tills reading the same
+// 100.000 card both see 100.000 and both would be told yes, which is exactly
+// how a voucher gets spent twice. Every path below takes `FOR UPDATE` on the
+// voucher row FIRST and computes `available` inside that lock.
+
+#[derive(Debug, Deserialize)]
+pub struct AuthorizeVoucherRequest {
+    /// The basket this hold belongs to. The till's own id for the sale it is
+    /// building — it has no server-side row yet.
+    pub checkout_id: String,
+    pub amount_minor: i64,
+    #[serde(default)]
+    pub site_id: Option<String>,
+    pub actor_id: String,
+    /// How long the hold counts against the card. Absent is fifteen minutes,
+    /// which is a queue and a card terminal with room to spare.
+    #[serde(default)]
+    pub hold_seconds: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CommitVoucherRequest {
+    pub checkout_id: String,
+    #[serde(default)]
+    pub sale_id: Option<Uuid>,
+    pub actor_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ReleaseVoucherRequest {
+    pub checkout_id: String,
+    pub actor_id: String,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+const DEFAULT_HOLD_SECONDS: i64 = 900;
+
+/// What is left on a card once every open hold is taken off it.
+///
+/// Must be called with the voucher row already locked in `tx`, and the caller
+/// must write its hold in the same transaction. Called outside a lock it is a
+/// number that was true a moment ago, which is the fault this exists to stop.
+async fn available_minor(
+    tx: &mut Transaction<'_, Postgres>,
+    voucher_id: Uuid,
+    balance_minor: i64,
+) -> Result<i64, AppError> {
+    let held: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(sum(amount_minor), 0)::bigint
+           FROM voucher_authorization
+          WHERE voucher_id = $1 AND status = 'AUTHORIZED' AND expires_at > now()",
+    )
+    .bind(voucher_id)
+    .fetch_one(&mut **tx)
+    .await?;
+    Ok(balance_minor - held)
+}
+
+/// Hold an amount against a card, or hand back the hold this checkout already
+/// has.
+///
+/// Idempotent by `(voucher_id, checkout_id)` rather than by an idempotency
+/// header, and deliberately: a till that asks twice for the same basket means
+/// the same question, however many times the network ate the answer. A second
+/// hold for the same basket would reserve the money twice.
+pub async fn authorize_voucher(
+    pool: &PgPool,
+    code: &str,
+    request: AuthorizeVoucherRequest,
+) -> Result<Value, AppError> {
+    let code = normalize_code(code).map_err(|error| AppError::Validation(error.to_string()))?;
+    let checkout_id = request.checkout_id.trim();
+    if checkout_id.is_empty() {
+        return Err(AppError::Validation(
+            "a hold has to name the basket it is for".into(),
+        ));
+    }
+    let actor = request.actor_id.trim();
+    if actor.is_empty() {
+        return Err(AppError::Validation(
+            "a hold has to be attributable to somebody".into(),
+        ));
+    }
+    if request.amount_minor <= 0 {
+        return Err(AppError::Validation(
+            "a hold has to be for something".into(),
+        ));
+    }
+    let seconds = request
+        .hold_seconds
+        .filter(|value| *value > 0)
+        .unwrap_or(DEFAULT_HOLD_SECONDS);
+
+    let mut tx = pool.begin().await?;
+    let (voucher_id, balance, status, expires_at, _currency) = lock_voucher(&mut tx, &code).await?;
+
+    // The hold this basket already has, if it asked before. Returned unchanged
+    // — not topped up, not replaced — because a retry is the same question.
+    if let Some(row) = sqlx::query(
+        "SELECT authorization_id, amount_minor, status, expires_at
+           FROM voucher_authorization
+          WHERE voucher_id = $1 AND checkout_id = $2",
+    )
+    .bind(voucher_id)
+    .bind(checkout_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    {
+        let held_status: String = row.try_get("status")?;
+        let held_amount: i64 = row.try_get("amount_minor")?;
+        if held_status == "AUTHORIZED" && held_amount == request.amount_minor {
+            let id: Uuid = row.try_get("authorization_id")?;
+            let until: DateTime<Utc> = row.try_get("expires_at")?;
+            tx.commit().await?;
+            return Ok(json!({
+                "authorization_id": id,
+                "code": code,
+                "amount_minor": held_amount,
+                "status": held_status,
+                "expires_at": until,
+                "replayed": true,
+            }));
+        }
+        return Err(AppError::Conflict(format!(
+            "this basket already has a {held_status} hold on that voucher for {held_amount}"
+        )));
+    }
+
+    match status.as_str() {
+        "SPENT" => {
+            return Err(AppError::Conflict(
+                "that voucher has already been spent to nothing".into(),
+            ));
+        }
+        "VOIDED" => {
+            return Err(AppError::Conflict(
+                "that voucher was stopped and cannot be spent".into(),
+            ));
+        }
+        _ => {}
+    }
+    if let Some(expiry) = expires_at {
+        if expiry <= Utc::now() {
+            return Err(AppError::Conflict(format!(
+                "that voucher expired on {}",
+                expiry.date_naive()
+            )));
+        }
+    }
+
+    // The invariant, inside the lock.
+    let available = available_minor(&mut tx, voucher_id, balance).await?;
+    if request.amount_minor > available {
+        return Err(AppError::Conflict(format!(
+            "the voucher has {available} available and the basket asked for {} \
+             (balance {balance}, the difference is held by another checkout)",
+            request.amount_minor
+        )));
+    }
+
+    let authorization_id = Uuid::new_v4();
+    let until = Utc::now() + chrono::Duration::seconds(seconds);
+    sqlx::query(
+        "INSERT INTO voucher_authorization
+             (authorization_id, voucher_id, checkout_id, amount_minor, status,
+              site_id, actor, expires_at)
+         VALUES ($1, $2, $3, $4, 'AUTHORIZED', $5, $6, $7)",
+    )
+    .bind(authorization_id)
+    .bind(voucher_id)
+    .bind(checkout_id)
+    .bind(request.amount_minor)
+    .bind(optional_text(request.site_id.as_deref()))
+    .bind(actor)
+    .bind(until)
+    .execute(&mut *tx)
+    .await
+    .map_err(map_voucher_write_error)?;
+    tx.commit().await?;
+
+    Ok(json!({
+        "authorization_id": authorization_id,
+        "code": code,
+        "amount_minor": request.amount_minor,
+        "status": "AUTHORIZED",
+        "expires_at": until,
+        "replayed": false,
+    }))
+}
+
+/// Turn a hold into a redemption, because the sale landed.
+///
+/// Replaying this returns the same answer rather than taking the money twice:
+/// a hold that is already COMMITTED is reported as committed and nothing moves.
+pub async fn commit_voucher_hold(
+    pool: &PgPool,
+    code: &str,
+    request: CommitVoucherRequest,
+) -> Result<VoucherDetail, AppError> {
+    let code = normalize_code(code).map_err(|error| AppError::Validation(error.to_string()))?;
+    let checkout_id = request.checkout_id.trim();
+    let actor = request.actor_id.trim();
+    if checkout_id.is_empty() || actor.is_empty() {
+        return Err(AppError::Validation(
+            "a commit has to name the basket and who did it".into(),
+        ));
+    }
+
+    let mut tx = pool.begin().await?;
+    let (voucher_id, balance, _status, _expires_at, _currency) =
+        lock_voucher(&mut tx, &code).await?;
+
+    let row = sqlx::query(
+        "SELECT authorization_id, amount_minor, status, expires_at, site_id
+           FROM voucher_authorization
+          WHERE voucher_id = $1 AND checkout_id = $2
+          FOR UPDATE",
+    )
+    .bind(voucher_id)
+    .bind(checkout_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or_else(|| {
+        AppError::Conflict(
+            "that basket holds nothing against this voucher — authorize before committing".into(),
+        )
+    })?;
+
+    let held_status: String = row.try_get("status")?;
+    let amount: i64 = row.try_get("amount_minor")?;
+    let authorization_id: Uuid = row.try_get("authorization_id")?;
+    let site_id: Option<String> = row.try_get("site_id")?;
+
+    if held_status == "COMMITTED" {
+        // Already taken. Say so and move nothing — the till retrying after a
+        // lost response must not spend the card a second time.
+        let detail = detail_in_transaction(&mut tx, voucher_id).await?;
+        tx.commit().await?;
+        return Ok(detail);
+    }
+    if held_status != "AUTHORIZED" {
+        return Err(AppError::Conflict(format!(
+            "that hold was {held_status} and cannot be committed"
+        )));
+    }
+    // An expired hold is refused loudly rather than quietly honoured: the money
+    // it was reserving has been available to other tills since it lapsed, and
+    // committing it now is exactly the double spend the hold existed to stop.
+    let until: DateTime<Utc> = row.try_get("expires_at")?;
+    if until <= Utc::now() {
+        return Err(AppError::Conflict(
+            "that hold expired before the sale landed — re-authorize against what is left".into(),
+        ));
+    }
+    if amount > balance {
+        return Err(AppError::Conflict(format!(
+            "the voucher has {balance} left and the hold was for {amount}"
+        )));
+    }
+
+    let remaining = balance - amount;
+    let next_status = if remaining == 0 {
+        VoucherStatus::Spent
+    } else {
+        VoucherStatus::Active
+    };
+    sqlx::query(
+        "UPDATE voucher SET balance_minor = $2, status = $3, version = version + 1
+          WHERE voucher_id = $1",
+    )
+    .bind(voucher_id)
+    .bind(remaining)
+    .bind(next_status.as_str())
+    .execute(&mut *tx)
+    .await
+    .map_err(map_voucher_write_error)?;
+
+    append_movement(
+        &mut tx,
+        voucher_id,
+        "REDEEM",
+        -amount,
+        remaining,
+        request.sale_id,
+        site_id.as_deref(),
+        actor,
+        Some(&format!("checkout {checkout_id}")),
+    )
+    .await?;
+
+    sqlx::query(
+        "UPDATE voucher_authorization
+            SET status = 'COMMITTED', settled_at = now()
+          WHERE authorization_id = $1",
+    )
+    .bind(authorization_id)
+    .execute(&mut *tx)
+    .await
+    .map_err(map_voucher_write_error)?;
+
+    let detail = detail_in_transaction(&mut tx, voucher_id).await?;
+    tx.commit().await?;
+    Ok(detail)
+}
+
+/// Give the held amount back, because the checkout did not become a sale.
+///
+/// Releasing a hold that is already RELEASED is a success and not an error: a
+/// till abandoning a basket twice means the basket is abandoned.
+pub async fn release_voucher_hold(
+    pool: &PgPool,
+    code: &str,
+    request: ReleaseVoucherRequest,
+) -> Result<Value, AppError> {
+    let code = normalize_code(code).map_err(|error| AppError::Validation(error.to_string()))?;
+    let checkout_id = request.checkout_id.trim();
+    if checkout_id.is_empty() || request.actor_id.trim().is_empty() {
+        return Err(AppError::Validation(
+            "a release has to name the basket and who did it".into(),
+        ));
+    }
+
+    let mut tx = pool.begin().await?;
+    let (voucher_id, _balance, _status, _expires_at, _currency) =
+        lock_voucher(&mut tx, &code).await?;
+
+    let released = sqlx::query(
+        "UPDATE voucher_authorization
+            SET status = 'RELEASED', settled_at = now()
+          WHERE voucher_id = $1 AND checkout_id = $2 AND status = 'AUTHORIZED'",
+    )
+    .bind(voucher_id)
+    .bind(checkout_id)
+    .execute(&mut *tx)
+    .await
+    .map_err(map_voucher_write_error)?
+    .rows_affected();
+
+    let current: Option<String> = sqlx::query_scalar(
+        "SELECT status FROM voucher_authorization
+          WHERE voucher_id = $1 AND checkout_id = $2",
+    )
+    .bind(voucher_id)
+    .bind(checkout_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    // A committed hold is NOT released. The sale happened; the money is gone.
+    if current.as_deref() == Some("COMMITTED") {
+        return Err(AppError::Conflict(
+            "that hold was already committed to a sale and cannot be released".into(),
+        ));
+    }
+    Ok(json!({
+        "code": code,
+        "checkout_id": checkout_id,
+        "released": released,
+        "status": current.unwrap_or_else(|| "RELEASED".to_string()),
+    }))
+}
+
+/// A voucher issued inside somebody else's transaction.
+///
+/// [`issue_voucher`] is the front door: it opens its own transaction and takes
+/// an idempotency key, because it answers an HTTP request. This is the same act
+/// for a caller that is already in a transaction and must not commit
+/// separately — points turning into a voucher, where a debit that lands without
+/// its voucher is money taken for nothing.
+///
+/// It deliberately has no idempotency of its own. The caller owns that: a
+/// redemption is identified by its own key, and a second key here would be a
+/// second opinion about whether the same act happened twice.
+pub struct IssuedVoucher<'a> {
+    pub kind: &'a str,
+    pub value_minor: i64,
+    pub member_id: Option<&'a str>,
+    pub expires_at: Option<DateTime<Utc>>,
+    pub actor: &'a str,
+    pub note: Option<&'a str>,
+}
+
+pub async fn issue_in_transaction(
+    tx: &mut Transaction<'_, Postgres>,
+    issued: IssuedVoucher<'_>,
+) -> Result<(Uuid, String), AppError> {
+    let kind = VoucherKind::from_str(issued.kind)
+        .map_err(|error| AppError::Validation(error.to_string()))?;
+    if issued.value_minor <= 0 {
+        return Err(AppError::Validation(
+            "a voucher has to carry something — its value must be above zero".into(),
+        ));
+    }
+    let voucher_id = Uuid::new_v4();
+    // Minted the way `issue_voucher` mints one: twelve characters from a
+    // CSPRNG, because a voucher code is a bearer token.
+    let code = mint_code(
+        Uuid::new_v4().as_bytes()[..12]
+            .try_into()
+            .expect("a uuid is sixteen bytes"),
+    );
+    sqlx::query(
+        "INSERT INTO voucher (voucher_id, code, kind, currency, issued_minor,
+                              balance_minor, status, member_id, expires_at,
+                              issued_by, issued_site, note)
+         VALUES ($1, $2, $3, 'IDR', $4, $4, 'ACTIVE', $5, $6, $7, NULL, $8)",
+    )
+    .bind(voucher_id)
+    .bind(&code)
+    .bind(kind.as_str())
+    .bind(issued.value_minor)
+    .bind(issued.member_id)
+    .bind(issued.expires_at)
+    .bind(issued.actor)
+    .bind(issued.note)
+    .execute(&mut **tx)
+    .await
+    .map_err(map_voucher_write_error)?;
+
+    append_movement(
+        tx,
+        voucher_id,
+        "ISSUE",
+        issued.value_minor,
+        issued.value_minor,
+        None,
+        None,
+        issued.actor,
+        issued.note,
+    )
+    .await?;
+    Ok((voucher_id, code))
 }

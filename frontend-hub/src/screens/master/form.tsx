@@ -24,10 +24,7 @@ import { listTerms, vocabularyKeys } from "@/lib/queries/vocabulary"
 import { ColourPicker } from "@/screens/master/colour-picker"
 import { useIdempotencyKey } from "@/screens/procurement/shared"
 import { ApiError } from "@itulah/contract/client"
-import type {
-  ArticleConsequence,
-  CatalogueVocabulary,
-} from "@itulah/contract"
+import type { ArticleConsequence, CatalogueVocabulary } from "@itulah/contract"
 
 /// Correcting an article — its attributes, never its identity.
 ///
@@ -484,7 +481,11 @@ export function ArticleForm({
               stop somebody editing an article, and saying so in the same voice
               as the half above is how a warning becomes wallpaper. */}
           {started.length > 0 && (
-            <div className={scheduled.length > 0 ? "border-t border-hairline pt-2.5" : ""}>
+            <div
+              className={
+                scheduled.length > 0 ? "border-t border-hairline pt-2.5" : ""
+              }
+            >
               <p className="text-[0.71875rem] text-body">
                 {consequences.data?.started_note}
               </p>

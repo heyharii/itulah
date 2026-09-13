@@ -9,9 +9,9 @@
 //! 1. **A salary is a history, not a number.** There is no current-salary
 //!    field, because that is the field a raise overwrites — taking February's
 //!    payslip with it. See [`agreement`].
-//! 2. **Two people sign a run, not one.** Verify and approve are separate
-//!    steps by separate actors, enforced on the transition and again on the way
-//!    in from storage. See [`run`].
+//! 2. **Two people sign a run, not one.** The place submits and head office
+//!    approves — separate steps by separate actors, enforced on the transition
+//!    and again on the way in from storage. See [`run`].
 //! 3. **A bank account is stored whole and shown masked.** The screen that
 //!    checks an account is right needs four digits; a payment file needs the
 //!    number. See [`identity`].
@@ -27,9 +27,15 @@
 //! What a slip carries instead is the agreement in force and the facts this
 //! system recorded — and it says, on the run itself, that it is incomplete and
 //! why. There is no punch source, so nothing knows what was *worked*.
+//!
+//! The handoff to Finance inherits that absence rather than papering over it:
+//! it crosses **gross only**, one liability plus a per-employee breakdown, and
+//! there is no column anywhere for a deduction it would have had to invent.
+//! See [`handover`].
 
 mod agreement;
 mod error;
+mod handover;
 mod identity;
 mod run;
 
@@ -37,6 +43,7 @@ pub use agreement::{
     AllowanceCode, FixedAllowance, PayRecord, PayRecordWire, PayTimeline, MAX_ALLOWANCE_CODE_LEN,
 };
 pub use error::PayError;
+pub use handover::{HandoverState, PayrollHandover, PayrollHandoverLine, PayrollHandoverWire};
 pub use identity::{
     BankAccount, BankAccountWire, IdentityAmendment, IdentityChange, PayrollIdentity, PtkpStatus,
 };

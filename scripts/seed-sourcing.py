@@ -105,7 +105,7 @@ def existing_suppliers(token):
     status, body = call("GET", "/api/v1/suppliers?limit=500", token=token)
     if status != 200:
         return {}
-    rows = body if isinstance(body, list) else body.get("items", [])
+    rows = body if isinstance(body, list) else body.get("rows", body.get("items", []))
     return {row["supplier_code"]: row["supplier_id"] for row in rows}
 
 

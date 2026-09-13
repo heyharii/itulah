@@ -1,25 +1,59 @@
-//! The payroll run, and the chain of people who sign it.
+//! The payroll run: the place asks for it, head office decides it.
 //!
-//! # Two people, not one
+//! # Three states, because there were four and one of them was a ceremony
 //!
-//! A run is verified and then approved, and **the same person may not do both**.
-//! A control one person can complete alone is a record of a signature rather
-//! than a control, and the whole reason a payroll run has states at all is that
-//! somebody other than its author looked at it.
+//! `DRAFT` → `SUBMITTED` → `APPROVED`, and that is all. The run this replaced
+//! had a `VERIFIED` step between the first two and a `SEALED` one after the
+//! last, and both were head office's — so head office checked its own figures,
+//! approved them, and then locked them, which is one person's opinion recorded
+//! three times.
 //!
-//! The reference this is adapted from lets one actor do both; the rule is added
-//! here rather than ported, and it is enforced on the transition *and* on the
-//! way in from storage — a stored run whose verifier and approver are the same
-//! name fails to hydrate rather than becoming an approved payroll.
+//! Hari's decision, 2026-09-13: **the place that employs the staff submits the
+//! batch, and head office decides it.** So the first signature moved to the
+//! store, the middle step went with it, and `SEALED` went because approval is
+//! already final — a state whose only content is "and we mean it" is a state
+//! nobody can tell from the one before it. What sealing was reaching for is
+//! held by [`PayrollRun::reopen`] being head office's and by the reopen being
+//! written down.
+//!
+//! # Two people, not one — now in the shape the work actually has
+//!
+//! A run is submitted and then approved, and **the same person may not do
+//! both**. That was the rule when the two signatures were verify and approve,
+//! and it is the rule now that they are submit and approve; what changed is
+//! that the two actors are no longer both at head office, which is the version
+//! of this control that means something. A control one person can complete
+//! alone is a record of a signature rather than a control.
+//!
+//! It is enforced on the transition *and* on the way in from storage — a
+//! stored run whose submitter and approver carry one name fails to hydrate
+//! rather than becoming an approved payroll. A rule only the live path enforces
+//! is a rule a round trip through storage removes.
+//!
+//! # A reopen undoes an approval, and says so
+//!
+//! Head office may send an approved run back to draft. Hari accepted
+//! explicitly that this can happen after Finance has booked the handoff, so
+//! there is **no guard here that refuses it** — the honest design is to let it
+//! happen and record it, because a company that needs to correct a paid month
+//! needs to correct it, and a guard would only push the correction somewhere
+//! nothing is written down. What Finance was handed is snapshotted at the
+//! moment of the handoff (see `postgres::pay`), so the booked figure survives
+//! the run moving underneath it.
+//!
+//! A reopen also clears the chain: the next approval is a fresh pair of
+//! signatures, not a continuation of the old one. Without clearing the
+//! submitter, the person who submitted before a reopen could never approve
+//! afterwards — a rule nobody stated.
 //!
 //! # What a run does not do
 //!
 //! Compute anything statutory. The retail backend this borrows its lifecycle
-//! from carries a component engine that applies PPh 21 brackets and BPJS rates;
-//! none of it is here. A slip carries the pay agreement in force and the facts
-//! this system actually recorded, and the columns for computed deductions do
-//! not exist — so nothing can quietly acquire a zero that reads as "nothing was
-//! owed".
+//! from carries a component engine that applies PPh 21 brackets and BPJS
+//! rates; none of it is here. A slip carries the pay agreement in force and the
+//! facts this system actually recorded, and the columns for computed deductions
+//! do not exist — so nothing can quietly acquire a zero that reads as "nothing
+//! was owed". The handoff to Finance is **gross only** for the same reason.
 //!
 //! # Why a run knows it is incomplete
 //!
@@ -37,32 +71,28 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RunState {
-    /// Built, and nobody has checked it.
+    /// The place is still building it.
     Draft,
-    /// Somebody has checked the figures against what they were computed from.
-    Verified,
-    /// Somebody *else* has approved them.
+    /// The place has sent it, figures and all, and stands behind them.
+    Submitted,
+    /// Head office has decided. **Final** — there is no state after this.
     Approved,
-    /// Sealed. The figures do not move again.
-    Sealed,
 }
 
 impl RunState {
     pub const fn code(self) -> &'static str {
         match self {
             Self::Draft => "DRAFT",
-            Self::Verified => "VERIFIED",
+            Self::Submitted => "SUBMITTED",
             Self::Approved => "APPROVED",
-            Self::Sealed => "SEALED",
         }
     }
 
     pub fn parse(code: &str) -> Option<Self> {
         match code {
             "DRAFT" => Some(Self::Draft),
-            "VERIFIED" => Some(Self::Verified),
+            "SUBMITTED" => Some(Self::Submitted),
             "APPROVED" => Some(Self::Approved),
-            "SEALED" => Some(Self::Sealed),
             _ => None,
         }
     }
@@ -72,18 +102,16 @@ impl RunState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RunStep {
-    Verified,
+    Submitted,
     Approved,
-    Sealed,
     Reopened,
 }
 
 impl RunStep {
     pub const fn code(self) -> &'static str {
         match self {
-            Self::Verified => "VERIFIED",
+            Self::Submitted => "SUBMITTED",
             Self::Approved => "APPROVED",
-            Self::Sealed => "SEALED",
             Self::Reopened => "REOPENED",
         }
     }
@@ -92,9 +120,8 @@ impl RunStep {
     /// approved" reads as a sentence.
     const fn verb(self) -> &'static str {
         match self {
-            Self::Verified => "verified",
+            Self::Submitted => "submitted",
             Self::Approved => "approved",
-            Self::Sealed => "sealed",
             Self::Reopened => "reopened",
         }
     }
@@ -133,7 +160,7 @@ pub struct PayrollRunWire {
     pub history: Vec<RunEvent>,
 }
 
-/// One payroll run: one place, one month, and its chain of signatures.
+/// One payroll run: one place, one month, and its two signatures.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PayrollRun {
     id: String,
@@ -156,7 +183,7 @@ impl<'de> Deserialize<'de> for PayrollRun {
 }
 
 impl PayrollRun {
-    /// Open a run in draft.
+    /// Open a run in draft. The place's act, for its own unit.
     ///
     /// `incomplete_because` is `Some` while anything about the month is
     /// unknowable — today, always, because there is no punch source.
@@ -183,34 +210,32 @@ impl PayrollRun {
 
     /// Rebuild from storage, re-running the machine and the two-person rule.
     ///
-    /// A stored run whose verifier and approver are the same name fails to
+    /// A stored run whose submitter and approver are the same name fails to
     /// hydrate rather than becoming an approved payroll — because a rule only
     /// the live path enforces is a rule a round trip through storage removes.
     pub fn try_new(wire: PayrollRunWire) -> Result<Self, PayError> {
         let mut folded = RunState::Draft;
-        let mut verifier: Option<ActorId> = None;
+        let mut submitter: Option<ActorId> = None;
         for event in &wire.history {
             match (folded, event.step) {
-                (RunState::Draft, RunStep::Verified) => {
-                    verifier = Some(event.authorization.actor().clone());
-                    folded = RunState::Verified;
+                (RunState::Draft, RunStep::Submitted) => {
+                    submitter = Some(event.authorization.actor().clone());
+                    folded = RunState::Submitted;
                 }
-                (RunState::Verified, RunStep::Approved) => {
-                    if verifier.as_ref() == Some(event.authorization.actor()) {
-                        return Err(PayError::SameActorVerifiedAndApproved {
+                (RunState::Submitted, RunStep::Approved) => {
+                    if submitter.as_ref() == Some(event.authorization.actor()) {
+                        return Err(PayError::SameActorSubmittedAndApproved {
                             actor: event.authorization.actor().to_string(),
                         });
                     }
                     folded = RunState::Approved;
                 }
-                (RunState::Approved, RunStep::Sealed) => folded = RunState::Sealed,
-                // A reopen returns the run to draft and clears the chain: the
-                // next approval is a fresh pair of signatures, not a
-                // continuation of the old one. Without clearing the verifier,
-                // the person who verified before a reopen could never approve
-                // afterwards — which is a rule nobody stated.
-                (RunState::Verified | RunState::Approved, RunStep::Reopened) => {
-                    verifier = None;
+                // A reopen returns the run to draft and clears the chain. From
+                // `SUBMITTED` it is head office handing the batch back to the
+                // place; from `APPROVED` it undoes a decision — including one
+                // Finance has already booked, which Hari accepted explicitly.
+                (RunState::Submitted | RunState::Approved, RunStep::Reopened) => {
+                    submitter = None;
                     folded = RunState::Draft;
                 }
                 (state, step) => {
@@ -265,20 +290,37 @@ impl PayrollRun {
         &self.history
     }
 
-    /// Who verified the run as it currently stands, if anybody has.
+    /// Who submitted the run as it currently stands, if anybody has.
     ///
     /// Cleared by a reopen, because the next approval is a fresh pair of
     /// signatures.
-    pub fn verifier(&self) -> Option<&ActorId> {
-        let mut verifier = None;
+    pub fn submitter(&self) -> Option<&ActorId> {
+        let mut submitter = None;
         for event in &self.history {
             match event.step {
-                RunStep::Verified => verifier = Some(event.authorization.actor()),
-                RunStep::Reopened => verifier = None,
+                RunStep::Submitted => submitter = Some(event.authorization.actor()),
+                RunStep::Reopened => submitter = None,
                 _ => {}
             }
         }
-        verifier
+        submitter
+    }
+
+    /// Who approved it, if anybody has and no reopen has undone it.
+    ///
+    /// Cleared by a reopen for the same reason the submitter is: an approval
+    /// that has been undone is not an approval, and a screen that still showed
+    /// the name would be showing a decision nobody is standing behind.
+    pub fn approver(&self) -> Option<&ActorId> {
+        let mut approver = None;
+        for event in &self.history {
+            match event.step {
+                RunStep::Approved => approver = Some(event.authorization.actor()),
+                RunStep::Reopened => approver = None,
+                _ => {}
+            }
+        }
+        approver
     }
 
     fn step(
@@ -288,9 +330,6 @@ impl PayrollRun {
         step: RunStep,
         authorization: Authorization,
     ) -> Result<(), PayError> {
-        if self.state == RunState::Sealed {
-            return Err(PayError::RunSealed);
-        }
         if self.state != from {
             return Err(PayError::RunNotInState {
                 state: self.state.code(),
@@ -305,25 +344,31 @@ impl PayrollRun {
         Ok(())
     }
 
-    /// Check the figures against what they were computed from.
-    pub fn verify(&mut self, authorization: Authorization) -> Result<(), PayError> {
-        if !authorization.authorizes_payroll_verify() {
+    /// Send the batch to head office.
+    ///
+    /// The place's act, and the first of the two signatures. The place sees the
+    /// figures it is submitting — Hari's decision, taken twice — so this is a
+    /// person saying "these are my staff and this is what they are owed",
+    /// which is the only reading under which the second signature adds
+    /// anything.
+    pub fn submit(&mut self, authorization: Authorization) -> Result<(), PayError> {
+        if !authorization.authorizes_payroll_submit() {
             return Err(PayError::ActionForbidsPayrollStep {
                 action_key: authorization.action_key().to_owned(),
-                step: "verification",
+                step: "submission",
             });
         }
         self.step(
             RunState::Draft,
-            RunState::Verified,
-            RunStep::Verified,
+            RunState::Submitted,
+            RunStep::Submitted,
             authorization,
         )
     }
 
-    /// Approve a verified run.
+    /// Approve a submitted run. Head office's, and **final**.
     ///
-    /// **Not the person who verified it.** The refusal is a conflict rather
+    /// **Not the person who submitted it.** The refusal is a conflict rather
     /// than a bad request: the payload is fine, and what is wrong is who is
     /// sending it.
     pub fn approve(&mut self, authorization: Authorization) -> Result<(), PayError> {
@@ -333,50 +378,34 @@ impl PayrollRun {
                 step: "approval",
             });
         }
-        if self.verifier() == Some(authorization.actor()) {
-            return Err(PayError::SameActorVerifiedAndApproved {
+        if self.submitter() == Some(authorization.actor()) {
+            return Err(PayError::SameActorSubmittedAndApproved {
                 actor: authorization.actor().to_string(),
             });
         }
         self.step(
-            RunState::Verified,
+            RunState::Submitted,
             RunState::Approved,
             RunStep::Approved,
             authorization,
         )
     }
 
-    /// Seal it. After this the figures do not move.
-    pub fn seal(&mut self, authorization: Authorization) -> Result<(), PayError> {
-        if !authorization.authorizes_payroll_seal() {
-            return Err(PayError::ActionForbidsPayrollStep {
-                action_key: authorization.action_key().to_owned(),
-                step: "seal",
-            });
-        }
-        self.step(
-            RunState::Approved,
-            RunState::Sealed,
-            RunStep::Sealed,
-            authorization,
-        )
-    }
-
-    /// Send a run back to draft.
+    /// Send a run back to draft. Head office's.
     ///
-    /// Its own key, because it undoes work somebody has signed for. A sealed
-    /// run is not reopenable at all: sealing is the point past which the
-    /// figures are the figures, and a seal that could be undone would not be
-    /// one.
+    /// Its own key, because it undoes work somebody has signed for — and after
+    /// an approval it may undo work **Finance has already booked**. Hari
+    /// accepted that consequence explicitly, so there is deliberately no guard
+    /// here that asks Finance first. The handoff keeps its own snapshot of what
+    /// it handed over, so the booked figure does not move when this does; what
+    /// this does instead is record, in the history, that somebody undid a
+    /// decision the ledger had already acted on.
     pub fn reopen(&mut self, authorization: Authorization) -> Result<(), PayError> {
         if !authorization.authorizes_payroll_reopen() {
             return Err(PayError::ActionForbidsPayrollStep {
                 action_key: authorization.action_key().to_owned(),
                 step: "reopening",
             });
-        }
-        if self.state == RunState::Sealed {
-            return Err(PayError::RunSealed);
         }
         if matches!(self.state, RunState::Draft) {
             return Err(PayError::RunNotInState {

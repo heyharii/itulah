@@ -85,10 +85,12 @@ export const procurementNav: AppModule = {
           moved: ["/master/suppliers"],
         },
         {
+          // In the sidebar as of 2026-09-13, on the owner's instruction: it is
+          // part of Buying, and a screen reachable only from one button on one
+          // other screen is a screen most people never learn exists.
           path: "/procurement/sourcing",
           label: "Sourcing",
           icon: PackageSearch,
-          hidden: true,
         },
         {
           path: "/procurement/outstanding",

@@ -90,9 +90,23 @@ export function clearable(field: AmendableField): boolean {
   return field === "phone" || field === "email"
 }
 
+/// What to ask the workforce list for.
+///
+/// `q`, `sort` and `dir` are the server's now. They were the browser's: the
+/// Directory fetched a thousand rows and searched and sorted them here, which
+/// is a search of whatever the first thousand happened to be. `cursor` comes
+/// back from a previous page — see `listWorkforce`.
 export interface EmployeeFilters {
+  /// Free text over the employee number and the person's name.
+  readonly q?: string
   readonly status?: string
   readonly placeId?: string
+  /// `code`, `name`, `contract_end` or `place` — the closed set the server
+  /// names. Anything else is the house order rather than an error.
+  readonly sort?: string
+  /// `desc`, or left out for ascending.
+  readonly dir?: string
+  readonly cursor?: string
   readonly limit?: number
 }
 
@@ -115,8 +129,15 @@ export const peopleKeys = {
     [
       "people",
       "employees",
+      filters.q ?? null,
       filters.status ?? null,
       filters.placeId ?? null,
+      // The sort is part of the key because it is now part of the ANSWER: the
+      // server returns one page in that order, so two sorts are two different
+      // answers and must not share a cache entry.
+      filters.sort ?? null,
+      filters.dir ?? null,
+      filters.cursor ?? null,
       filters.limit ?? null,
     ] as const,
   employee: (id: string) => ["people", "employees", id] as const,
@@ -134,25 +155,83 @@ export const peopleKeys = {
   /// fact about the session, and signing out drops it with the rest of the
   /// module's answers by prefix.
   reach: () => ["people", "reach"] as const,
+  /// The places the caller may act in. Derived from the workforce list's own
+  /// facets rather than from a register of its own — see `usePlaces`.
+  places: () => ["people", "places"] as const,
 }
 
 // ── reads ──────────────────────────────────────────────────────────────────
 
-/// The workforce list.
+/// One page of the workforce, beside the size and shape of the whole answer.
 ///
 /// Deliberately not a list of employee records: it is read far more often than
 /// any one person is opened, and it carries a name and nothing else from the
 /// profile — see `domain::employment::audit`.
+///
+/// The envelope is the shape `GET /finance/money` established — the rows, an
+/// opaque `next_cursor`, the `total` of everything MATCHED rather than of the
+/// page, and facet counts to fill a filter panel with. `place_id` is the place
+/// the server actually answered about, which for a caller posted to one shop is
+/// their shop whether or not they asked: a directory that silently showed eight
+/// people where the company has ninety would read as a company of eight.
+///
+/// `facets.places` is empty for such a caller. That is not "no places matched"
+/// — it is "you reach one place, so there is no choice to offer".
+///
+/// Typed structurally rather than against the generated `EmployeeList`, only
+/// until `make contract` is next run. When it is, this becomes that import and
+/// the shape below goes.
+interface WorkforcePage {
+  readonly place_id: string | null
+  readonly rows: EmployeeSummary[]
+  readonly next_cursor: string | null
+  readonly total: number
+  readonly facets: {
+    readonly statuses: ReadonlyArray<{
+      readonly value: string
+      readonly label: string | null
+      readonly count: number
+    }>
+    readonly places: ReadonlyArray<{
+      readonly value: string
+      readonly label: string | null
+      readonly count: number
+    }>
+  }
+}
+
+export function listWorkforce(
+  filters: EmployeeFilters = {},
+  signal?: AbortSignal
+): Promise<WorkforcePage> {
+  const params = new URLSearchParams()
+  if (filters.q) params.set("q", filters.q)
+  if (filters.status) params.set("status", filters.status)
+  if (filters.placeId) params.set("place_id", filters.placeId)
+  if (filters.sort) params.set("sort", filters.sort)
+  if (filters.dir) params.set("dir", filters.dir)
+  if (filters.cursor) params.set("cursor", filters.cursor)
+  if (filters.limit) params.set("limit", String(filters.limit))
+  const suffix = params.size > 0 ? `?${params.toString()}` : ""
+  // Only what the server named. The route refuses a parameter it does not
+  // know rather than ignoring it, so a typo here is a 400 and not a screen
+  // quietly listing the whole company under a filter nobody applied.
+  return node.get<WorkforcePage>(`/api/v1/employees${suffix}`, { signal })
+}
+
+/// The rows alone, for the screens that hold the whole list and work on it
+/// locally — the roster, payroll and overtime pickers, and the command bar.
+///
+/// One place unwraps the envelope rather than eight, which is the only reason
+/// this route's answer could change shape without touching the screens that
+/// read it. A screen that wants the total or the facets calls `listWorkforce`
+/// instead; a screen that pages MUST, because the rows alone cannot say
+/// whether there are more.
 export function listEmployees(
   filters: EmployeeFilters = {},
   signal?: AbortSignal
 ): Promise<EmployeeSummary[]> {
-  const params = new URLSearchParams()
-  if (filters.status) params.set("status", filters.status)
-  if (filters.placeId) params.set("place_id", filters.placeId)
-  if (filters.limit) params.set("limit", String(filters.limit))
-  const suffix = params.size > 0 ? `?${params.toString()}` : ""
-  return node.get<EmployeeSummary[]>(`/api/v1/employees${suffix}`, { signal })
+  return listWorkforce(filters, signal).then((page) => page.rows)
 }
 
 export function readEmployee(
@@ -467,6 +546,46 @@ export function useReach() {
   return useQuery({
     queryKey: peopleKeys.reach(),
     queryFn: ({ signal }) => readReach(signal),
+    staleTime: 5 * 60_000,
+  })
+}
+
+/// One place head office may act in.
+export interface PlaceChoice {
+  readonly id: string
+  readonly name: string
+  /// How many people are posted there. Head office chooses a unit out of
+  /// fourteen, and the count is what tells a shop with two staff from one with
+  /// twelve before the week is even drawn.
+  readonly employees: number
+}
+
+/// The places the caller may act in, for the screens that are *about* one
+/// place rather than about the caller.
+///
+/// **This is the workforce list's own facets, not a second register.** The
+/// server already computes them, already bounds them by the caller's reach, and
+/// already labels `store-01` as `Store 01`; a `/org-places` route beside that
+/// would be a second answer to "where may they", and the day the two disagreed
+/// the picker would be the one that looked right. `limit: 1` because only the
+/// facets are wanted — the rows are the part this call throws away.
+///
+/// **Empty is the honest answer for a bounded caller**, by the server's own
+/// design: `facets.places` is empty when the caller reaches one place, because
+/// a filter offering a single value is a control that cannot change anything.
+/// So a store manager gets no picker, which is what should happen — they were
+/// never choosing.
+export function usePlaces() {
+  return useQuery({
+    queryKey: peopleKeys.places(),
+    queryFn: ({ signal }) =>
+      listWorkforce({ limit: 1 }, signal).then((page) =>
+        page.facets.places.map((facet) => ({
+          id: facet.value,
+          name: facet.label ?? facet.value,
+          employees: facet.count,
+        }))
+      ),
     staleTime: 5 * 60_000,
   })
 }

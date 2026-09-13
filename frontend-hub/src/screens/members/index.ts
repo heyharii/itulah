@@ -1,5 +1,7 @@
 import type { ScreenMap } from "@/screens/registry"
 import { Members } from "@/screens/members/directory"
+import { Points } from "@/screens/members/points"
+import { PointsLedger } from "@/screens/members/points-ledger"
 import { Segments } from "@/screens/members/segments"
 
 /// Screens this module has written. Keys must be paths declared in
@@ -10,4 +12,6 @@ import { Segments } from "@/screens/members/segments"
 export const screens: ScreenMap = {
   "/members": Members,
   "/members/segments": Segments,
+  "/members/points": Points,
+  "/members/points-ledger": PointsLedger,
 }

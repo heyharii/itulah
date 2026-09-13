@@ -125,14 +125,25 @@ export function Sheet({
   /// and there is nothing to read next to a form that has not been filled in
   /// yet anyway.
   ///
-  /// `table` is the third and widest: a sheet whose body is a GRID, read
-  /// across rather than down. Receiving's verifier is the case it exists for —
-  /// six figures per line that only mean anything side by side, and in a
-  /// 27.5rem rail those six became a stack of cards a screen tall each, so
-  /// five garments off one lorry could not be seen at once. It behaves like
-  /// `wide` in every other way, and stops at 64rem because past that the
-  /// columns stop being a row the eye can track.
-  width?: "rail" | "wide" | "table"
+  /// `table` is the third: a sheet whose body is a GRID, read across rather
+  /// than down. Receiving's verifier is the case it exists for — six figures
+  /// per line that only mean anything side by side, and in a 27.5rem rail
+  /// those six became a stack of cards a screen tall each, so five garments
+  /// off one lorry could not be seen at once. It behaves like `wide` in every
+  /// other way, and stops at 64rem because past that the columns stop being a
+  /// row the eye can track.
+  ///
+  /// `workspace` is the fourth and widest, and it is not a record at all: a
+  /// panel whose body is a LIST AND THE WORK BESIDE IT. New items is the case
+  /// it exists for — an order rail, a delivery rail and a form with a colour x
+  /// size grid in it, three panes that each need their own room. At 64rem the
+  /// two rails left the form 36rem and it kept collapsing to one column.
+  ///
+  /// The 64rem cap does not apply because the thing being tracked is not one
+  /// row of columns: it is three panes, each read on its own, and the rule
+  /// about the eye losing a row is a rule about a table. It stops at 84rem
+  /// because that is where the form's own columns stop being readable.
+  width?: "rail" | "wide" | "table" | "workspace"
   children: React.ReactNode
   className?: string
 }) {
@@ -197,11 +208,13 @@ export function Sheet({
             "inset-x-0 bottom-0 max-h-[90dvh] rounded-t-sheet pb-[env(safe-area-inset-bottom)]",
             // The desk and the tablet: the floating rail, inset on three sides.
             "md:inset-x-auto md:top-5 md:right-5 md:bottom-5 md:max-h-none md:max-w-[calc(100vw-2.5rem)] md:rounded-shell md:pb-0",
-            width === "table"
-              ? "md:w-[clamp(27.5rem,92vw,64rem)]"
-              : width === "wide"
-                ? "md:w-[clamp(27.5rem,72vw,56rem)]"
-                : "md:w-[clamp(27.5rem,62vw,47.5rem)]",
+            width === "workspace"
+              ? "md:w-[clamp(27.5rem,96vw,84rem)]"
+              : width === "table"
+                ? "md:w-[clamp(27.5rem,92vw,64rem)]"
+                : width === "wide"
+                  ? "md:w-[clamp(27.5rem,72vw,56rem)]"
+                  : "md:w-[clamp(27.5rem,62vw,47.5rem)]",
             className
           )}
         >

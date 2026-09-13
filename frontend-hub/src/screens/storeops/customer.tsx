@@ -8,12 +8,15 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Input } from "@/components/ui/field"
+import { FilterPanel } from "@/components/ui/filter-panel"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { MiniTable, TotalsLadder } from "@/components/ui/rows"
+import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState } from "@/components/ui/states"
+import { Banner, EmptyState, Truncated } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
+import { useFilters } from "@/lib/filters"
 import { count, money, moment } from "@/lib/format"
 import {
   customerTransaction,
@@ -49,12 +52,20 @@ const columns: ColumnDef<TableSetup, CustomerTransaction>[] = [
     accessorKey: "occurred_at",
     header: "When",
     size: 170,
+    /// "Between August and September" is what somebody asks a member's history
+    /// — the only question on this screen that is not answered by reading down
+    /// the first page.
+    meta: { filter: { kind: "date" } },
     cell: ({ row }) => moment(row.original.occurred_at),
   },
   {
     accessorKey: "site_id",
     header: "Store",
     size: 140,
+    /// The shops THIS member has used, faceted off their own rows — these are
+    /// the shops' own sale records, and the ids they carry are the ones the
+    /// shops report, not the ones the centre spells.
+    meta: { filter: { kind: "option" } },
     cell: ({ row }) => (
       <span className="font-medium text-ink">{row.original.site_id}</span>
     ),
@@ -65,14 +76,25 @@ const columns: ColumnDef<TableSetup, CustomerTransaction>[] = [
     size: 100,
     meta: { align: "right" },
     // Units, not lines: two of the same shirt reads as two items on a receipt
-    // and should read as two here.
+    // and should read as two here. Not filtered: basket size is read down the
+    // column, never asked as a question.
     cell: ({ row }) => count(row.original.item_count),
   },
   {
     accessorKey: "discount_total_minor",
     header: "Saved",
     size: 140,
-    meta: { align: "right" },
+    /// "Saved at least something" is the promotions question, and it is the
+    /// one this column exists for.
+    ///
+    /// **No `scale`, despite the `_minor` in the name.** `lib/format.ts` says
+    /// it plainly — IDR has no minor unit in practice, so the server's "minor"
+    /// is already whole rupiah and `money()` prints it undivided. A
+    /// `scale: 100` would multiply every bound typed here by a hundred.
+    meta: {
+      align: "right",
+      filter: { kind: "number", unit: "Rp" },
+    },
     cell: ({ row }) =>
       row.original.discount_total_minor > 0 ? (
         <span className="text-ok-fg">
@@ -86,6 +108,8 @@ const columns: ColumnDef<TableSetup, CustomerTransaction>[] = [
     accessorKey: "points_earned",
     header: "Points",
     size: 100,
+    // Not filtered: points are earned in proportion to what was charged, so a
+    // clause here is the Charged clause said less clearly.
     meta: { align: "right" },
     cell: ({ row }) => count(row.original.points_earned),
   },
@@ -93,7 +117,10 @@ const columns: ColumnDef<TableSetup, CustomerTransaction>[] = [
     accessorKey: "total_minor",
     header: "Charged",
     size: 150,
-    meta: { align: "right" },
+    meta: {
+      align: "right",
+      filter: { kind: "number", unit: "Rp" },
+    },
     cell: ({ row }) => (
       <span className="font-medium text-ink">
         {money(row.original.total_minor)}
@@ -140,17 +167,19 @@ export function Member() {
     [history.data]
   )
 
+  const filters = useFilters(columns)
+
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
         data: rows,
-        columns,
+        columns: filters.columns,
         getRowId: (row: CustomerTransaction) => row.sale_id,
-        state: { sorting },
+        state: { columnFilters: filters.columnFilters, sorting },
         onSortingChange: setSorting,
       }),
-      [rows, sorting]
+      [rows, filters.columns, filters.columnFilters, sorting]
     )
   )
 
@@ -230,6 +259,22 @@ export function Member() {
             />
           </KpiStrip>
 
+          {/* Below the tiles rather than beside the title, deliberately: the
+              six figures above are the fold of everything loaded and the
+              clauses do not touch them, so the chips belong on the list's side
+              of that line. */}
+          <Toolbar>
+            <FilterPanel model={filters} table={table} />
+          </Toolbar>
+
+          {/* A history is read a page at a time, and the filters — like the
+              sort — only ever see the pages already fetched. While the server
+              still has older purchases to give, a narrowed list here is a
+              narrowing of what arrived, which is not the same answer. */}
+          {history.hasNextPage && (
+            <Truncated limit={rows.length} noun="purchases" />
+          )}
+
           <Card className="overflow-hidden">
             {queryState(history, {
               loading: "Reading their history…",
@@ -244,6 +289,12 @@ export function Member() {
                     table={table}
                     onRowClick={(row) => receipt.open(row.sale_id)}
                     isSelected={(row) => row.sale_id === receipt.value}
+                    empty={
+                      <>
+                        None of the {count(rows.length)} purchases loaded match
+                        the filters in force.
+                      </>
+                    }
                     className="max-h-[calc(100vh-22rem)]"
                   />
                 ),

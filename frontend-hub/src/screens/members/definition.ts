@@ -109,7 +109,6 @@ export function isComplete(clause: SpecFilter, operator: Operator): boolean {
   }
 }
 
-
 export function toSpec(clause: Clause): SpecFilter {
   return {
     column: clause.column,

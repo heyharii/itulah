@@ -215,6 +215,7 @@ fn rule(sku_code: &str, site_id: Option<&str>, minor: i64) -> serde_json::Value 
 /// are the point.
 fn cash(amount_minor: i64) -> Vec<SaleTender> {
     vec![SaleTender {
+        voucher_authorization_id: None,
         method: PaymentMethod::Cash,
         amount_minor,
         reference: None,
@@ -247,6 +248,7 @@ async fn a_published_price_is_what_the_shop_charges() {
     let sale = shop
         .edge
         .complete_sale(SaleRequest {
+            charges: Vec::new(),
             coupon_codes: Vec::new(),
             customer_id: None,
             idempotency_key: "sale-1".into(),
@@ -293,6 +295,7 @@ async fn a_shop_specific_price_beats_the_company_one_at_the_counter() {
     let sale = shop
         .edge
         .complete_sale(SaleRequest {
+            charges: Vec::new(),
             coupon_codes: Vec::new(),
             customer_id: None,
             idempotency_key: "sale-2".into(),
@@ -332,6 +335,7 @@ async fn a_second_price_book_changes_the_price_the_till_takes() {
     let sale = shop
         .edge
         .complete_sale(SaleRequest {
+            charges: Vec::new(),
             coupon_codes: Vec::new(),
             customer_id: None,
             idempotency_key: "sale-3".into(),
@@ -356,6 +360,7 @@ async fn a_shop_that_has_never_received_a_price_book_can_still_sell() {
     let sale = shop
         .edge
         .complete_sale(SaleRequest {
+            charges: Vec::new(),
             coupon_codes: Vec::new(),
             customer_id: None,
             idempotency_key: "sale-4".into(),
@@ -386,6 +391,7 @@ async fn an_item_missing_from_a_live_price_book_is_refused_not_guessed() {
 
     shop.stock_one("EPC00000005", "CEL001");
     let refused = shop.edge.complete_sale(SaleRequest {
+        charges: Vec::new(),
         coupon_codes: Vec::new(),
         customer_id: None,
         idempotency_key: "sale-5".into(),
@@ -528,6 +534,7 @@ impl Shop {
     ) -> inventory_backend::edge::SaleResult {
         self.edge
             .complete_sale(SaleRequest {
+                charges: Vec::new(),
                 coupon_codes: coupons.iter().map(|c| (*c).to_string()).collect(),
                 customer_id: None,
                 idempotency_key: format!("{epc}-sale"),
@@ -903,6 +910,7 @@ async fn the_centre_accepts_the_sale_it_is_told_about() {
     let sale = shop
         .edge
         .complete_sale(SaleRequest {
+            charges: Vec::new(),
             coupon_codes: Vec::new(),
             customer_id: None,
             idempotency_key: "sale-two-lines".into(),
@@ -1193,6 +1201,7 @@ async fn a_sale_tells_the_centre_which_promotion_came_off_and_who_bought_it() {
     let sale = shop
         .edge
         .complete_sale(SaleRequest {
+            charges: Vec::new(),
             coupon_codes: vec!["LEBARAN".into()],
             customer_id: Some("member-1".into()),
             idempotency_key: "sale-counted".into(),

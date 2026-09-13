@@ -24,10 +24,21 @@ const CLEARANCE = {
 /// band.
 export function Screen({
   foot = "tabs",
+  counter = false,
   className,
   ...props
 }: React.HTMLAttributes<HTMLDivElement> & {
   foot?: keyof typeof CLEARANCE
+  /// Let this screen use the whole counter monitor instead of the reading
+  /// measure.
+  ///
+  /// The cap below is right for everything that is *read* — a form, a report, a
+  /// product. It is wrong for the two screens that are *worked*: a till at
+  /// 1440px with a 960px column has the basket and the number a cashier is
+  /// watching in one narrow strip down the middle, and the scan field scrolled
+  /// off the top. Those two lay themselves out in panes instead, and say so
+  /// here rather than fighting the cap with negative margins.
+  counter?: boolean
 }) {
   return (
     <div
@@ -39,7 +50,9 @@ export function Screen({
         // content column and centres it; without that a two-field form is
         // 1440px of white with a hairline somewhere in the middle, which is
         // what a phone layout looks like when nobody stopped it.
-        "md:mx-auto md:w-full md:max-w-[60rem] md:px-7",
+        counter
+          ? "md:mx-auto md:w-full md:max-w-[60rem] md:px-7 lg:max-w-[96rem] lg:px-8"
+          : "md:mx-auto md:w-full md:max-w-[60rem] md:px-7",
         CLEARANCE[foot],
         className,
       )}
@@ -91,7 +104,7 @@ export function CardList({
 /// This is DESIGN.md's **floating card** — all corners rounded at `{r.sheet}`,
 /// ~16px side margins, clear of the home indicator, no drag handle — used for
 /// what a phone-shaped till needs at the foot of a basket: the number, and the
-/// one black button.
+/// one filled button.
 ///
 /// It floats rather than being a sticky opaque bar because the tab bar is
 /// already down there, and two full-width bars stacked at the foot of a phone
@@ -139,7 +152,9 @@ export function ActionBar({
       {/* Capped to the same measure as `Screen`, so the one action lines up
           with the column above it instead of stretching the full width of a
           counter monitor. */}
-      <div className="mx-auto w-full max-w-[60rem] pb-3 md:px-3">{children}</div>
+      <div className="mx-auto w-full max-w-[60rem] pb-3 md:px-3">
+        {children}
+      </div>
     </div>
   )
 }

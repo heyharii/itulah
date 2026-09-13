@@ -10,13 +10,15 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Field, Input, Select } from "@/components/ui/field"
+import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
-import { ButtonGroup } from "@/components/ui/segmented"
+import { ButtonGroup, Toolbar } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { Tag } from "@/components/ui/tag"
+import { useFilters } from "@/lib/filters"
 import { count, day, moment } from "@/lib/format"
 import {
   listEdgeAssignments,
@@ -30,7 +32,9 @@ import {
   systemKeys,
   upsertEdgeAssignment,
   type EdgeAssignment,
+  type EdgeAssignmentList,
   type RfidDevice,
+  type RfidDeviceList,
 } from "@/lib/queries/system"
 import { queryState } from "@/lib/query-state"
 import { tableSetup, type TableSetup } from "@/lib/table"
@@ -74,7 +78,15 @@ function peopleColumns(on: {
   busy: boolean
 }): ColumnDef<TableSetup, EdgeAssignment>[] {
   return [
-    { accessorKey: "origin_id", header: "Node", size: 150 },
+    {
+      accessorKey: "origin_id",
+      header: "Node",
+      size: 150,
+      // "Who may sign in at this shop" is the question this list is opened
+      // with, and it is the one a sort cannot answer: a node's grants are
+      // adjacent rows, never a prefix somebody can read down to.
+      meta: { filter: { kind: "option", label: "Node" } },
+    },
     {
       accessorKey: "display_name",
       header: "Person",
@@ -99,6 +111,10 @@ function peopleColumns(on: {
       accessorKey: "role",
       header: "Role here",
       size: 120,
+      // The role AT THE NODE, which is not the role at the centre — the whole
+      // reason this list exists apart from Account. "Every till administrator"
+      // is the clause an audit starts with.
+      meta: { filter: { kind: "option", label: "Role here" } },
       cell: ({ row }) => (
         <Tag tone={row.original.role === "ADMIN" ? "accent" : "neutral"}>
           {row.original.role}
@@ -109,7 +125,14 @@ function peopleColumns(on: {
       accessorKey: "offline_ttl_seconds",
       header: "Offline lease",
       size: 120,
-      meta: { align: "right" },
+      // In seconds, because that is what the column holds and inventing a
+      // friendlier unit here would mean the number somebody types and the
+      // number the row carries are two different things. 86400 is the day the
+      // cell already marks in amber.
+      meta: {
+        align: "right",
+        filter: { kind: "number", label: "Offline lease", unit: "seconds" },
+      },
       // The decision metric. A lease is how long a node keeps honouring this
       // person after it stops being able to ask the centre, so the longest
       // ones are the ones worth looking at first.
@@ -130,6 +153,7 @@ function peopleColumns(on: {
       accessorFn: (row) => (row.active ? "Active" : "Suspended"),
       header: "State",
       size: 110,
+      meta: { filter: { kind: "option", label: "State" } },
       cell: ({ row }) => (
         <Pill tone={row.original.active ? "ok" : "bad"}>
           {row.original.active ? "Active" : "Suspended"}
@@ -140,7 +164,13 @@ function peopleColumns(on: {
       accessorKey: "updated_at",
       header: "Changed",
       size: 120,
-      meta: { align: "right" },
+      // "What was granted or suspended since Monday" — the question somebody
+      // asks of an access list after an incident, and the one a search box
+      // cannot be made to answer at all.
+      meta: {
+        align: "right",
+        filter: { kind: "date", label: "Changed" },
+      },
       cell: ({ row }) => day(row.original.updated_at),
     },
     {
@@ -193,12 +223,22 @@ function readerColumns(on: {
         <span className="font-medium text-ink">{row.original.label}</span>
       ),
     },
-    { accessorKey: "origin_id", header: "Node", size: 140 },
+    {
+      accessorKey: "origin_id",
+      header: "Node",
+      size: 140,
+      meta: { filter: { kind: "option", label: "Node" } },
+    },
     {
       id: "pools",
       accessorFn: (row) => row.pools.join(" "),
       header: "Pools",
       size: 200,
+      // **Not filterable, and the accessor is why.** The pools are joined into
+      // one string for sorting, so `multi` would test the sentence rather than
+      // the list and "includes SELLABLE" would match a reader scoped only to
+      // `SELLABLE_RESERVED`. A filter that is right most of the time is worse
+      // here than none: this list says which readers a node trusts.
       cell: ({ row }) => (
         <span className="flex gap-1">
           {row.original.pools.length === 0 ? (
@@ -213,7 +253,10 @@ function readerColumns(on: {
       accessorKey: "offline_ttl_seconds",
       header: "Offline lease",
       size: 120,
-      meta: { align: "right" },
+      meta: {
+        align: "right",
+        filter: { kind: "number", label: "Offline lease", unit: "seconds" },
+      },
       cell: ({ row }) => span(row.original.offline_ttl_seconds),
     },
     {
@@ -222,6 +265,12 @@ function readerColumns(on: {
         row.last_seen_at === null ? 0 : Date.parse(row.last_seen_at),
       header: "Last seen",
       size: 140,
+      // **No filter.** `0` stands for "never heard from", so a date clause
+      // would answer for those readers as though they had last reported in
+      // 1970: "before last month" would sweep them in silently and "is empty"
+      // would miss them. On a list of devices whose keys a node still trusts,
+      // a clause that is quietly wrong about the never-seen ones is worse than
+      // no clause — they are the rows somebody came here for.
       meta: { align: "right" },
       // The decision metric: a reader nobody has heard from is either broken or
       // gone, and either way its key is still trusted until somebody says
@@ -238,6 +287,7 @@ function readerColumns(on: {
       accessorFn: (row) => (row.active ? "Active" : "Off"),
       header: "State",
       size: 100,
+      meta: { filter: { kind: "option", label: "State" } },
       cell: ({ row }) => (
         <Pill tone={row.original.active ? "ok" : "neutral"}>
           {row.original.active ? "Active" : "Off"}
@@ -395,7 +445,7 @@ export function Access() {
 
       {tab === "people" ? (
         <PeopleTab
-          rows={assignments.data ?? []}
+          rows={assignments.data?.rows ?? []}
           query={query}
           onQuery={setQuery}
           actions={peopleActions}
@@ -403,7 +453,7 @@ export function Access() {
         />
       ) : (
         <ReadersTab
-          rows={devices.data ?? []}
+          rows={devices.data?.rows ?? []}
           query={query}
           onQuery={setQuery}
           actions={readerActions}
@@ -457,57 +507,74 @@ function PeopleTab({
   query: string
   onQuery: (value: string) => void
   actions: Parameters<typeof peopleColumns>[0]
-  state: Loadable<readonly EdgeAssignment[]>
+  state: Loadable<EdgeAssignmentList>
 }) {
   const [sorting, setSorting] = useState<SortingState>([
     { id: "offline_ttl_seconds", desc: true },
   ])
   const columns = useMemo(() => peopleColumns(actions), [actions])
 
+  /// `?f=`, while the readers below take `?f2=`. Two keys because the two tabs
+  /// share three column names — Node, Offline lease, State — so one key would
+  /// let a clause meant for a person half-apply itself to a device the moment
+  /// somebody changed tab. `lib/filters.ts` names this screen as the case the
+  /// second key exists for.
+  const filters = useFilters(columns)
+
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
         data: rows as EdgeAssignment[],
-        columns,
+        columns: filters.columns,
         getRowId: (row: EdgeAssignment) => `${row.origin_id}/${row.user_id}`,
-        state: { globalFilter: query, sorting },
+        state: {
+          columnFilters: filters.columnFilters,
+          globalFilter: query,
+          sorting,
+        },
         onSortingChange: setSorting,
         onGlobalFilterChange: onQuery,
       }),
-      [rows, columns, query, sorting, onQuery]
+      [rows, filters.columns, filters.columnFilters, query, sorting, onQuery]
     )
   )
 
   return (
-    <Card className="overflow-hidden">
-      {queryState(state, {
-        loading: "Loading who may sign in where…",
-        render: () =>
-          rows.length === 0 ? (
-            <EmptyState
-              action={
-                <AppLink
-                  to="/system/account"
-                  className="text-meta font-medium text-accent hover:underline"
-                >
-                  See who has an account
-                </AppLink>
-              }
-            >
-              Nobody has been given access at a node yet. A centre account does
-              not sign anybody in at a till — that is a separate grant, with its
-              own credential.
-            </EmptyState>
-          ) : (
-            <DataTable<EdgeAssignment>
-              table={table}
-              empty="Nobody matches that search."
-              className="max-h-[calc(100vh-18rem)]"
-            />
-          ),
-      })}
-    </Card>
+    <>
+      <Toolbar>
+        <FilterPanel model={filters} table={table} />
+      </Toolbar>
+
+      <Card className="overflow-hidden">
+        {queryState(state, {
+          loading: "Loading who may sign in where…",
+          render: () =>
+            rows.length === 0 ? (
+              <EmptyState
+                action={
+                  <AppLink
+                    to="/system/account"
+                    className="text-meta font-medium text-accent hover:underline"
+                  >
+                    See who has an account
+                  </AppLink>
+                }
+              >
+                Nobody has been given access at a node yet. A centre account
+                does not sign anybody in at a till — that is a separate grant,
+                with its own credential.
+              </EmptyState>
+            ) : (
+              <DataTable<EdgeAssignment>
+                table={table}
+                empty="Nobody matches that search."
+                className="max-h-[calc(100vh-18rem)]"
+              />
+            ),
+        })}
+      </Card>
+    </>
   )
 }
 
@@ -522,47 +589,61 @@ function ReadersTab({
   query: string
   onQuery: (value: string) => void
   actions: Parameters<typeof readerColumns>[0]
-  state: Loadable<readonly RfidDevice[]>
+  state: Loadable<RfidDeviceList>
 }) {
   const [sorting, setSorting] = useState<SortingState>([
     { id: "last_seen", desc: false },
   ])
   const columns = useMemo(() => readerColumns(actions), [actions])
 
+  /// `?f2=`, so a clause about a person and a clause about a reader can both
+  /// stand while somebody moves between the tabs. See the people tab above.
+  const filters = useFilters(columns, "f2")
+
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
         data: rows as RfidDevice[],
-        columns,
+        columns: filters.columns,
         getRowId: (row: RfidDevice) => row.device_id,
-        state: { globalFilter: query, sorting },
+        state: {
+          columnFilters: filters.columnFilters,
+          globalFilter: query,
+          sorting,
+        },
         onSortingChange: setSorting,
         onGlobalFilterChange: onQuery,
       }),
-      [rows, columns, query, sorting, onQuery]
+      [rows, filters.columns, filters.columnFilters, query, sorting, onQuery]
     )
   )
 
   return (
-    <Card className="overflow-hidden">
-      {queryState(state, {
-        loading: "Loading the readers…",
-        render: () =>
-          rows.length === 0 ? (
-            <EmptyState>
-              No reader has been registered. A node will not accept tag reads
-              from a device the centre has not vouched for.
-            </EmptyState>
-          ) : (
-            <DataTable<RfidDevice>
-              table={table}
-              empty="No reader matches that search."
-              className="max-h-[calc(100vh-18rem)]"
-            />
-          ),
-      })}
-    </Card>
+    <>
+      <Toolbar>
+        <FilterPanel model={filters} table={table} />
+      </Toolbar>
+
+      <Card className="overflow-hidden">
+        {queryState(state, {
+          loading: "Loading the readers…",
+          render: () =>
+            rows.length === 0 ? (
+              <EmptyState>
+                No reader has been registered. A node will not accept tag reads
+                from a device the centre has not vouched for.
+              </EmptyState>
+            ) : (
+              <DataTable<RfidDevice>
+                table={table}
+                empty="No reader matches that search."
+                className="max-h-[calc(100vh-18rem)]"
+              />
+            ),
+        })}
+      </Card>
+    </>
   )
 }
 
@@ -771,7 +852,7 @@ function GrantSheet({
                     onChange={(next) => field.handleChange(next)}
                   >
                     <option value="">Choose somebody…</option>
-                    {(users.data ?? []).map((user) => (
+                    {(users.data?.rows ?? []).map((user) => (
                       <option key={user.id} value={user.id}>
                         {user.display_name} · {user.username}
                       </option>

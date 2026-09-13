@@ -20,7 +20,7 @@ export function Segmented<T extends string>({
   return (
     <div
       role="group"
-      className={cn("inline-flex rounded-full bg-soft-2 p-0.5", className)}
+      className={cn("inline-flex rounded-inner bg-soft-2 p-0.5", className)}
     >
       {options.map((option) => (
         <button
@@ -29,7 +29,7 @@ export function Segmented<T extends string>({
           aria-pressed={option.value === value}
           onClick={() => onChange(option.value)}
           className={cn(
-            "h-[1.625rem] rounded-full px-2.5 text-[0.75rem] font-medium transition-colors",
+            "h-[1.75rem] rounded-[0.375rem] px-2.5 text-meta font-medium transition-colors",
             option.value === value
               ? "bg-canvas text-ink shadow-soft"
               : "text-body hover:text-ink"
@@ -52,7 +52,7 @@ export function ButtonGroup({
   return (
     <div
       className={cn(
-        "inline-flex overflow-hidden rounded-full border border-hairline-2",
+        "inline-flex overflow-hidden rounded-inner border border-hairline-2",
         "[&>button]:h-8 [&>button]:px-3 [&>button]:text-[0.78125rem] [&>button]:font-medium [&>button]:text-text",
         "[&>button:hover]:bg-soft-2",
         "[&>button+button]:border-l [&>button+button]:border-hairline",

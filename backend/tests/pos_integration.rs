@@ -154,6 +154,7 @@ async fn completed_sale(pool: &PgPool, site: &str, epcs: &[String], key_prefix: 
     let sale = infrastructure::create_sale(
         pool,
         CreateSaleRequest {
+            customer_id: None,
             site_id: site.into(),
             channel: CommercialChannel::Store,
             actor_id: "kasir-1".into(),
@@ -218,6 +219,7 @@ async fn tender_rules_hold_at_the_http_boundary_of_payments(pool: PgPool) {
     let sale = infrastructure::create_sale(
         &pool,
         CreateSaleRequest {
+            customer_id: None,
             site_id: "store-07".into(),
             channel: CommercialChannel::Store,
             actor_id: "kasir-1".into(),
@@ -479,18 +481,16 @@ async fn returns_receipts_and_the_daily_report_agree(pool: PgPool) {
         &pool,
         ReturnQuery {
             site_id: Some("store-07".into()),
-            limit: None,
+            ..Default::default()
         },
     )
     .await
     .unwrap_or_else(|e| panic!("list returns: {e}"));
-    assert_eq!(
-        listed["items"]
-            .as_array()
-            .unwrap_or_else(|| panic!("items"))
-            .len(),
-        2
-    );
+    // `rows` and a `total` beside them: the refund list answers an envelope
+    // now, and the total is over the whole matched set rather than the page —
+    // which here is the same two, and has to be checked to stay that way.
+    assert_eq!(listed.rows.len(), 2);
+    assert_eq!(listed.total, 2);
 
     // Daily report ties out: gross, tenders, refunds, expected cash.
     let today = chrono::Utc::now()

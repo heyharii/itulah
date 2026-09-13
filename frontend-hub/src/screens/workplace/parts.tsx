@@ -1,6 +1,8 @@
+import { micah } from "@dicebear/collection"
+import { createAvatar } from "@dicebear/core"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { ArrowUp, Download, Paperclip, X } from "lucide-react"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -17,22 +19,48 @@ import { avatarTone, bytes, fileKind, initials } from "@/screens/workplace/lib"
 
 // ─── Identity ────────────────────────────────────────────────────────────────
 
-/// The five categorical fills, in the order `avatarTone` indexes them. Written
-/// out rather than composed, because Tailwind only ships a class it can see.
+/// The five categorical fills, in the order `avatarTone` indexes them, at the
+/// weight a GROUND takes rather than a mark: the face is what carries now, and
+/// a face on a saturated square is a face nobody can see. Written out rather
+/// than composed, because Tailwind only ships a class it can see.
 const AVATAR_FILL = [
-  "bg-a-blue",
-  "bg-a-green",
-  "bg-a-orange",
-  "bg-a-violet",
-  "bg-a-pink",
+  "bg-a-blue/15",
+  "bg-a-green/15",
+  "bg-a-orange/15",
+  "bg-a-violet/15",
+  "bg-a-pink/15",
 ] as const
 
-/// A person, as a coloured squircle with their initials.
+/// One face per person, drawn from their name and kept.
+///
+/// DiceBear's `micah` — the owner picked the style. It runs HERE, out of the
+/// npm package, rather than against `api.dicebear.com`: a username is who
+/// somebody is, this app is read on a shop floor behind whatever the internet
+/// is doing that afternoon, and a portrait that arrives over the public web is
+/// both a staff list posted to a third party and an avatar that is a grey box
+/// the day the line drops.
+///
+/// Cached because the drawing is deterministic and the same eight people
+/// appear on every row of a board: `createAvatar` is a few hundred
+/// microseconds and a render of the chat list would otherwise pay it forty
+/// times for the same face.
+const FACES = new Map<string, string>()
+
+function faceOf(name: string): string {
+  const known = FACES.get(name)
+  if (known !== undefined) return known
+  const drawn = createAvatar(micah, { seed: name }).toDataUri()
+  FACES.set(name, drawn)
+  return drawn
+}
+
+/// A person, as their face on a squircle tinted in their own colour.
 ///
 /// The colour is derived from the name, so one person is the same colour on
 /// every screen without a stored preference — and it comes from the
 /// categorical token family, which DESIGN.md reserves for exactly this:
-/// data-viz, identity tiles and system tags, never chrome.
+/// data-viz, identity tiles and system tags, never chrome. The initials are
+/// still there, as the `alt` the portrait falls back to.
 export function Avatar({
   name,
   size = "default",
@@ -43,19 +71,20 @@ export function Avatar({
   className?: string
 }) {
   return (
-    <span
+    <img
+      src={faceOf(name)}
+      alt={initials(name)}
       title={name}
+      draggable={false}
       className={cn(
-        "grid shrink-0 place-items-center rounded-inner font-medium text-on-dark select-none",
-        size === "sm" && "size-[1.375rem] text-[0.5625rem]",
-        size === "default" && "size-7 text-[0.65625rem]",
-        size === "lg" && "size-9 text-[0.78125rem]",
+        "shrink-0 rounded-inner object-contain select-none",
+        size === "sm" && "size-[1.375rem]",
+        size === "default" && "size-7",
+        size === "lg" && "size-9",
         AVATAR_FILL[avatarTone(name)],
         className
       )}
-    >
-      {initials(name)}
-    </span>
+    />
   )
 }
 
@@ -152,6 +181,45 @@ export function VirtualList<T>({
 }
 
 // ─── The composer ────────────────────────────────────────────────────────────
+
+/// A box as tall as what has been written in it, and no taller.
+///
+/// A `<textarea rows=1>` is one line forever: a third sentence scrolls under
+/// the second and somebody writing a paragraph composes it through a slot.
+/// Worse here than in most places, because the line it hid was the one being
+/// typed — `rows` and a `min-height` disagreed by the height of a descender,
+/// so the bottom of the current line was clipped as it was written.
+///
+/// Measured rather than declared: `height: auto` lets the box collapse to its
+/// content, `scrollHeight` is then what the content actually needs, and the
+/// CSS `max-height` caps the growth — past that the textarea scrolls itself,
+/// which is the right behaviour for somebody pasting four paragraphs into a
+/// chat. `rows` survives as the FLOOR, so the thread composer still opens
+/// three lines tall.
+///
+/// A layout effect, not an effect: this runs between React's write and the
+/// browser's paint, so nobody sees the box at the wrong height first.
+function useAutoSize(value: string, rows: number) {
+  const box = useRef<HTMLTextAreaElement>(null)
+
+  useLayoutEffect(() => {
+    const el = box.current
+    if (el === null) return
+    const style = getComputedStyle(el)
+    const line = parseFloat(style.lineHeight) || 20
+    const inside =
+      parseFloat(style.paddingTop) + parseFloat(style.paddingBottom)
+    const edges =
+      parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth)
+    el.style.height = "auto"
+    // `scrollHeight` carries the padding but not the border, and the box is
+    // `border-box`: without the edges back the box loses a hairline top and
+    // bottom every time it is measured.
+    el.style.height = `${Math.max(el.scrollHeight, line * rows + inside) + edges}px`
+  }, [value, rows])
+
+  return box
+}
 
 /// What has been uploaded and is waiting to be attached to the next send.
 export interface PendingAttachment {
@@ -267,6 +335,7 @@ export function Composer({
   rows?: number
 }) {
   const [draft, setDraft] = useState("")
+  const box = useAutoSize(draft, rows)
 
   const pending = attachments ?? []
   const canSend =
@@ -290,6 +359,7 @@ export function Composer({
         {onAttach && <AttachButton onAttach={onAttach} disabled={uploading} />}
 
         <textarea
+          ref={box}
           rows={rows}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
@@ -302,7 +372,7 @@ export function Composer({
             }
           }}
           placeholder={uploading ? "Uploading…" : placeholder}
-          className="max-h-40 min-h-9 w-full resize-none rounded-inner border border-hairline-2 bg-canvas px-3.5 py-2 text-[0.84375rem] text-ink transition-colors outline-none placeholder:text-mute hover:border-hairline-strong"
+          className="max-h-40 w-full resize-none overflow-y-auto rounded-inner border border-hairline-2 bg-canvas px-3.5 py-2 text-[0.84375rem] leading-normal text-ink transition-colors outline-none placeholder:text-mute hover:border-hairline-strong"
         />
 
         <Button

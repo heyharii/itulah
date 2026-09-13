@@ -64,7 +64,7 @@ export function ErrorState({
 }
 
 const banner = cva(
-  "flex items-start gap-2.5 rounded-inner px-3.5 py-2.5 text-[0.78125rem] leading-relaxed",
+  "flex items-start gap-2.5 rounded-inner px-3.5 py-2.5 text-meta leading-relaxed",
   {
     variants: {
       tone: {

@@ -36,6 +36,24 @@ import { placements } from "@/screens/inventory/shared"
 /// accumulating "load more": the cursor is a SKU code, so page two is exactly
 /// the rows after the last one read, and stepping back is exact too. Nothing is
 /// sliced client-side.
+///
+/// # Why there is no filter panel here
+///
+/// Every other list in this module got one on 2026-09-11 and this one did not,
+/// which is a decision rather than an omission. This screen is narrowed at the
+/// SERVER, twice over: the pool and the needle go on the wire as
+/// `source_pool_id` and `q`, and the answer is one cursor page of 200 SKUs out
+/// of a pool that holds thousands. A clause evaluated in the browser would
+/// narrow THAT PAGE — "on hand below zero" over two hundred rows, while Next
+/// walks on through pages it never saw — and the reader would have no way to
+/// tell the difference between "three SKUs are oversold" and "three of these
+/// two hundred are".
+///
+/// So the panel arrives here when the clause can travel with the request. That
+/// is an endpoint change (`/inventory/availability` taking a division, a
+/// quantity bound, a negative-on-hand flag), and when it lands this screen
+/// becomes a `useFilterState(fields)` one with `counted` options from the
+/// response — no table facets — exactly like Sourcing and Articles.
 
 const columns: ColumnDef<TableSetup, AvailabilityItem>[] = [
   {

@@ -33,7 +33,8 @@ export function JournalScreen() {
   const sheet = useEntrySheet()
   const entries = useQuery({
     queryKey: financeKeys.journal(),
-    queryFn: ({ signal }) => listJournal({ limit: 200 }, signal),
+    queryFn: ({ signal }) =>
+      listJournal({ limit: 200 }, signal).then((page) => page.rows),
   })
 
   const rows = useMemo(() => [...(entries.data ?? [])], [entries.data])

@@ -10,7 +10,12 @@ import { Banner, EmptyState } from "@/components/ui/states"
 import { count, label } from "@/lib/format"
 import { useGo } from "@/lib/go"
 import { useParam } from "@/lib/params"
-import { catalogueKey, fetchCatalogue, offersKey, fetchOffers } from "@/lib/queries"
+import {
+  catalogueKey,
+  fetchCatalogue,
+  offersKey,
+  fetchOffers,
+} from "@/lib/queries"
 import { queryState } from "@/lib/query-state"
 import { cn } from "@/lib/utils"
 import type { CatalogRow } from "@itulah/contract"
@@ -194,7 +199,9 @@ export function Catalogue() {
               : `${count(soon)} ${soon === 1 ? "promotion starts" : "promotions start"} soon`}
             {running > 0 && soon > 0 && `, ${count(soon)} starting soon`}
           </span>
-          <span className="shrink-0 text-meta font-medium text-accent">See</span>
+          <span className="shrink-0 text-meta font-medium text-accent">
+            See
+          </span>
         </button>
       )}
 
@@ -202,7 +209,7 @@ export function Catalogue() {
           there. A column of filters is the console's shape and there is no room
           for one on a counter tablet held in one hand. */}
       {divisions.length > 0 && (
-        <div className="-mx-4 mb-3 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="-mx-4 mb-3 flex [scrollbar-width:none] gap-2 overflow-x-auto px-4 pb-1 [&::-webkit-scrollbar]:hidden">
           <FacetChip
             on={division.value === undefined}
             onClick={() => division.set(undefined)}
@@ -243,8 +250,10 @@ export function Catalogue() {
             type="button"
             onClick={() => setOrder(value)}
             className={cn(
-              "h-9 shrink-0 rounded-full px-3 text-meta font-medium transition-colors",
-              order === value ? "bg-ink text-on-dark" : "bg-soft-2 text-body",
+              "h-9 shrink-0 rounded-inner px-3 text-meta font-medium transition-colors",
+              order === value
+                ? "bg-accent text-on-dark"
+                : "bg-soft-2 text-body",
             )}
           >
             {name}
@@ -292,7 +301,9 @@ export function Catalogue() {
                     key={row.sku_code}
                     row={row}
                     currency={book?.currency ?? "IDR"}
-                    onOpen={() => go("/catalogue/product", { sku: row.sku_code })}
+                    onOpen={() =>
+                      go("/catalogue/product", { sku: row.sku_code })
+                    }
                   />
                 ))}
               </div>
@@ -321,7 +332,10 @@ const ORDERS: readonly (readonly [Order, string])[] = [
   ["name", "A–Z"],
 ]
 
-function sorted(rows: readonly CatalogRow[], order: Order): readonly CatalogRow[] {
+function sorted(
+  rows: readonly CatalogRow[],
+  order: Order,
+): readonly CatalogRow[] {
   switch (order) {
     // The order the node sent them in — by SKU code, which is the order the
     // range is numbered in, which is how a shop's own people talk about it.
@@ -363,7 +377,7 @@ function FacetChip({
       aria-pressed={on}
       onClick={onClick}
       className={cn(
-        "h-11 shrink-0 rounded-full px-4 text-meta font-medium whitespace-nowrap transition-colors",
+        "h-11 shrink-0 rounded-inner px-4 text-meta font-medium whitespace-nowrap transition-colors",
         on
           ? "bg-accent text-on-dark"
           : "border border-hairline-2 bg-canvas text-body",
@@ -401,7 +415,7 @@ export function ProductCard({
             of this drew it. Capped at 70% for the same reason: a long division
             name must eat its own tail rather than the flag's. */}
         {row.division_code !== null && row.division_code !== "" && (
-          <span className="absolute top-2 left-2 max-w-[70%] truncate rounded-full bg-canvas/95 px-2 py-[0.1875rem] text-pill font-semibold text-ink shadow-soft backdrop-blur-[5px]">
+          <span className="absolute top-2 left-2 max-w-[70%] truncate rounded-inner bg-canvas/95 px-2 py-[0.1875rem] text-pill font-semibold text-ink shadow-soft backdrop-blur-[5px]">
             {label(row.division_code)}
           </span>
         )}
@@ -427,7 +441,7 @@ export function ProductCard({
               two actually differ — `base` equals `unit` on everything that is
               not marked down. */}
           {down && (
-            <span className="text-pill text-mute line-through tabular-nums">
+            <span className="text-pill text-mute tabular-nums line-through">
               {money(row.base_unit_price_minor, currency)}
             </span>
           )}

@@ -95,7 +95,8 @@ function AccountSuggestions({
   const scroller = useRef<HTMLDivElement>(null)
   const hits = useQuery({
     queryKey: ["finance", "ledger-picker", needle],
-    queryFn: ({ signal }) => searchAccounts(needle, { limit: SUGGESTIONS }, signal),
+    queryFn: ({ signal }) =>
+      searchAccounts(needle, { limit: SUGGESTIONS }, signal).then((page) => page.rows),
   })
   const accounts = hits.data ?? []
 

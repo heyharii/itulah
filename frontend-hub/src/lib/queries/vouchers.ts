@@ -130,7 +130,20 @@ export interface VoucherLedger {
 }
 
 export interface VoucherList {
-  readonly vouchers: readonly VoucherRow[]
+  readonly rows: readonly VoucherRow[]
+  /// Opaque. Pass it back as `cursor` for the next page; null was the last one.
+  readonly next_cursor: string | null
+  /// Every card the search and the filters match, not just this page.
+  ///
+  /// Not the same number as `ledger.issued_count`, and the difference is the
+  /// point: this describes the LIST, the ledger describes the BOOK. A search
+  /// for one customer's cards says "3" above the rows and the ledger still
+  /// says what the shop owes everybody.
+  readonly total: number
+  readonly facets: {
+    readonly statuses: readonly { value: string; count: number }[]
+    readonly kinds: readonly { value: string; count: number }[]
+  }
   readonly ledger: VoucherLedger
 }
 
@@ -139,6 +152,13 @@ export interface VoucherQuery {
   readonly kind?: VoucherKind
   readonly member_id?: string
   readonly q?: string
+  /// `issued` (the default), `code`, `value`, `balance` or `expires`.
+  readonly sort?: string
+  /// `asc` or `desc`. Absent means each key's own natural direction — newest
+  /// card first, biggest amount first, but a code and an expiry forwards.
+  readonly dir?: string
+  /// A `next_cursor` from the previous page, verbatim.
+  readonly cursor?: string
   readonly limit?: number
 }
 
@@ -189,6 +209,9 @@ function search(query: VoucherQuery): string {
   if (query.kind) params.set("kind", query.kind)
   if (query.member_id) params.set("member_id", query.member_id)
   if (query.q) params.set("q", query.q)
+  if (query.sort) params.set("sort", query.sort)
+  if (query.dir) params.set("dir", query.dir)
+  if (query.cursor) params.set("cursor", query.cursor)
   if (query.limit !== undefined) params.set("limit", String(query.limit))
   const encoded = params.toString()
   return encoded === "" ? "" : `?${encoded}`
