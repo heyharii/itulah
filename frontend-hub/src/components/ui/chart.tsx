@@ -320,11 +320,28 @@ export function ComboSeries({
 /// An area under the line rather than a bare stroke: at this size the fill is
 /// what makes the shape legible, and it is the accent at a wash rather than a
 /// second colour.
+///
+/// **One optional exception to "one series only": a ghost.** `<BarSeries>` has
+/// always drawn the span before as faint bars behind the live ones, and a line
+/// answering "how did we trade" gets the same question asked of it. It is still
+/// not a second series in the sense the paragraph above refuses — it carries no
+/// hue, it cannot be chosen by the caller, and it is the SAME measure over a
+/// different span. A second measure still wants a legend and a reason.
+export interface ChartGhost {
+  /// The key on each row carrying the comparison value.
+  readonly dataKey: string
+  /// What this point is called in the tooltip, given the whole row — so a
+  /// comparison aligned by POSITION rather than by date can name its own day
+  /// instead of borrowing the heading above it.
+  readonly labelOf: (row: ChartRow) => string
+}
+
 export function LineSeries({
   rows,
   /// The key on each row carrying the value.
   dataKey,
   label,
+  ghost,
   format,
   titleOf,
   labelOf,
@@ -333,6 +350,7 @@ export function LineSeries({
   rows: readonly ChartRow[]
   dataKey: string
   label: string
+  ghost?: ChartGhost
   format: (value: number) => string
   titleOf: (bucket: string) => string
   labelOf: (bucket: string) => string
@@ -386,6 +404,14 @@ export function LineSeries({
               ) {
                 return null
               }
+              const row = info.payload[0].payload as ChartRow
+              const live = info.payload.find(
+                (entry) => entry.dataKey === dataKey
+              )
+              const past =
+                ghost === undefined
+                  ? undefined
+                  : info.payload.find((entry) => entry.dataKey === ghost.dataKey)
               return (
                 <div className="rounded-inner border border-hairline bg-canvas px-2.5 py-2 shadow-pop">
                   <div className="mb-1 text-[0.6875rem] font-medium text-ink">
@@ -399,13 +425,46 @@ export function LineSeries({
                     />
                     <span>{label}</span>
                     <span className="ml-auto pl-4 font-medium text-ink tabular-nums">
-                      {format(Number(info.payload[0].value ?? 0))}
+                      {format(Number(live?.value ?? 0))}
                     </span>
                   </div>
+                  {/* Named by its OWN date. The heading above is the day being
+                      hovered; this point is a different day, and a tooltip
+                      that let it borrow the heading would be the chart's one
+                      chance to mislead. */}
+                  {ghost !== undefined && past !== undefined && (
+                    <div className="mt-0.5 flex items-center gap-1.5 text-[0.6875rem] text-mute">
+                      <span
+                        aria-hidden
+                        className="size-[5px] shrink-0 rounded-full"
+                        style={{ background: FILL.ghost }}
+                      />
+                      <span>{ghost.labelOf(row)}</span>
+                      <span className="ml-auto pl-4 font-medium tabular-nums">
+                        {format(Number(past.value ?? 0))}
+                      </span>
+                    </div>
+                  )}
                 </div>
               )
             }}
           />
+          {/* Declared first, so the live series is drawn over it. Dashed and
+              unfilled: a second filled area under the first is two washes
+              overlapping, and at this height that is a muddy band rather than
+              two shapes. */}
+          {ghost !== undefined && (
+            <Line
+              type="monotone"
+              dataKey={ghost.dataKey}
+              stroke="var(--hairline-2)"
+              strokeWidth={1.25}
+              strokeDasharray="3 3"
+              dot={false}
+              activeDot={false}
+              isAnimationActive={false}
+            />
+          )}
           <Area
             type="monotone"
             dataKey={dataKey}
@@ -682,5 +741,71 @@ export function ChartLegend({ series }: { series: readonly ChartSeries[] }) {
         </span>
       ))}
     </div>
+  )
+}
+
+/// ── The mark that fits in a table cell ──────────────────────────────────────
+
+/// A shape, at the size of a word.
+///
+/// Not a chart, and the difference is why it carries no axis, no grid, no
+/// tooltip and no numbers: a chart is a thing a reader interrogates, and this
+/// is a thing they glance at on the way to the figure beside it. What it
+/// answers is the one question a column of totals cannot — whether the number
+/// got there going up or coming down.
+///
+/// Hand-drawn as an SVG polyline rather than handed to recharts. Thirteen of
+/// these in a table is thirteen `<ResponsiveContainer>`s each measuring itself
+/// on every resize, and none of them would draw anything the four lines below
+/// do not.
+///
+/// **Scaled to its own row, and that is deliberate.** A shop taking two million
+/// a day and one taking two hundred thousand both fill the height, because the
+/// question is the shape of each shop's own trade. Their sizes are in the
+/// figures beside them, where a number can be read exactly rather than
+/// estimated from a height eleven pixels tall.
+export function Sparkline({
+  values,
+  colour = "var(--accent)",
+  className,
+}: {
+  readonly values: readonly number[]
+  /// A CSS value. The shop's own band colour where a screen has one, so the
+  /// mark and the row's swatch agree.
+  readonly colour?: string
+  readonly className?: string
+}) {
+  // Two points make a line; one makes nothing worth drawing.
+  if (values.length < 2) {
+    return <span className={cn("inline-block", className)} />
+  }
+
+  const top = Math.max(...values)
+  // From zero rather than from the smallest value. A floor at the minimum
+  // magnifies noise into a cliff — every flat week would draw as a mountain
+  // range — and a sales line's zero is a real place.
+  const height = top === 0 ? 1 : top
+  const step = 100 / (values.length - 1)
+  const points = values
+    .map((value, index) => `${index * step},${28 - (value / height) * 26}`)
+    .join(" ")
+
+  return (
+    <svg
+      viewBox="0 0 100 30"
+      preserveAspectRatio="none"
+      aria-hidden
+      className={cn("h-[1.75rem] w-full", className)}
+    >
+      <polyline
+        points={points}
+        fill="none"
+        stroke={colour}
+        strokeWidth={1.5}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+        vectorEffect="non-scaling-stroke"
+      />
+    </svg>
   )
 }

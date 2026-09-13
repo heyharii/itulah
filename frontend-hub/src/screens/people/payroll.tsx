@@ -20,9 +20,12 @@ import { Timeline } from "@/components/ui/timeline"
 import { money, moment } from "@/lib/format"
 import { PickOne } from "@/components/ui/pick"
 import {
+  handOverRun,
+  handoverLabel,
   listRuns,
   openRun,
   payKeys,
+  readHandover,
   runReconciliation,
   runSlips,
   runStateLabel,
@@ -33,33 +36,45 @@ import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import type { PayrollRunView } from "@itulah/contract"
 
-/// Payroll runs — head office only, and two people sign each one.
+/// Payroll runs. The place asks for its own; head office answers.
+///
+/// # Three states, and the two-person rule moved rather than went
+///
+/// The owner's decision of 2026-09-13 removed `verify` and `seal`. What is
+/// left is **Draft → Submitted → Approved**, and approval is final. The rule
+/// that one person cannot complete the control alone survived by changing
+/// shape: it used to be *verifier is not approver* and it is now **submitter
+/// is not approver** — the place sends the batch and head office decides it,
+/// which is two actors by construction rather than by a second signature on
+/// one desk.
 ///
 /// # The buttons are not the control
 ///
-/// The server refuses an approval by the person who verified, and the refusal
+/// The server refuses an approval by the person who submitted, and the refusal
 /// is a conflict rather than a bad request: the payload is fine and what is
-/// wrong is who is sending it. This screen hides the approve button from the
-/// verifier because offering an action that will be refused is a lie, not
-/// because hiding it enforces anything.
+/// wrong is who is sending it. The screen offers the button and lets the server
+/// answer, because the screen cannot know who is reading it without asking, and
+/// a control that appears a moment late is worse than one that is answered
+/// honestly.
 ///
 /// # Read `incomplete_because` before reading a figure
 ///
-/// A run says what it does not know, and today it always does: there is no
-/// punch source, so nothing here knows what was worked. The banner is at the
-/// top of the sheet for that reason — a total somebody reads before the caveat
-/// is a total they remember.
+/// A run says what it does not know, per run and per unit. A unit whose punch
+/// station has never reported produces a run that knows what was planned and
+/// never what was worked — and it says so in a sentence rather than leaving the
+/// reader to infer it from a tidy total.
 ///
 /// # No net, anywhere
 ///
 /// Nothing computes tax or BPJS. A slip is the agreement in force plus the
 /// facts recorded, and the column that would hold a deduction does not exist.
+/// The crossing to Finance is gross for that reason, and says so.
 
 function stateTone(state: string) {
   switch (state) {
-    case "SEALED":
-      return "ok" as const
     case "APPROVED":
+      return "ok" as const
+    case "SUBMITTED":
       return "info" as const
     default:
       return "warn" as const
@@ -92,13 +107,16 @@ export function PayrollRuns() {
       <PageHeader
         crumb="People · Pay"
         title="Payroll runs"
-        sub="One place, one month, and the two people who sign it."
+        sub="One place, one month, and two different people: the place that sends it and the head office that approves it."
       />
 
+      {/* Not a blanket claim about punches any more: a unit with a station
+          reporting produces a run that does know what was worked, and each run
+          states its own case in `incomplete_because`. What is still true of
+          every run is the arithmetic this system declines to do. */}
       <Banner tone="warn" className="mb-4">
-        No punch source is connected, so a run knows what was planned and what
-        was decided — never what was worked. Tax and BPJS are not calculated
-        here either.
+        Nothing here computes tax or BPJS. A run is the agreement in force plus
+        the facts recorded, and it crosses to Finance gross.
       </Banner>
 
       <Card className="mb-4 overflow-hidden">
@@ -166,7 +184,7 @@ function RunSheet({
   })
 
   const step = useMutation({
-    mutationFn: (which: "verify" | "approve" | "seal" | "reopen") => {
+    mutationFn: (which: "submission" | "approve" | "reopen") => {
       if (run === null) throw new Error("no run is open")
       return stepRun(run.id, which, reason.trim())
     },
@@ -203,7 +221,8 @@ function RunSheet({
       <Facts>
         <Fact term="Unit">{run.place_id}</Fact>
         <Fact term="Month">{run.period}</Fact>
-        <Fact term="Checked by">{run.verified_by ?? "nobody yet"}</Fact>
+        <Fact term="Sent by">{run.submitted_by ?? "nobody yet"}</Fact>
+        <Fact term="Approved by">{run.approved_by ?? "nobody yet"}</Fact>
       </Facts>
 
       {reconciliation.data !== undefined && (
@@ -277,66 +296,164 @@ function RunSheet({
         </Banner>
       )}
 
-      {run.state !== "SEALED" && (
-        <div className="mt-4 flex flex-col gap-3">
-          <Field label="Why" hint="Recorded against the step, and required.">
+      <div className="mt-4 flex flex-col gap-3">
+        <Field label="Why" hint="Recorded against the step, and required.">
+          <Input
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            placeholder="angka sudah dicek"
+          />
+        </Field>
+        <div className="flex flex-wrap gap-2">
+          {/* The place sends it. Offered on a draft to whoever is looking,
+              and refused by the server for anybody outside that place — the
+              screen cannot know where the reader is posted without asking,
+              and a button that appears a moment late is worse than one the
+              server answers honestly. */}
+          {run.state === "DRAFT" && (
+            <Button
+              variant="primary"
+              disabled={!ready}
+              onClick={() => step.mutate("submission")}
+            >
+              Send to head office
+            </Button>
+          )}
+          {/* Offered to everybody, refused by the server for the person who
+              SENT it. That is the two-person rule in its new shape: it used to
+              be verifier-is-not-approver and it is now submitter-is-not-
+              approver. The screen cannot know who is looking at it, and
+              guessing would hide the button from the wrong person. */}
+          {run.state === "SUBMITTED" && (
+            <Button
+              variant="primary"
+              disabled={!ready}
+              onClick={() => step.mutate("approve")}
+            >
+              Approve
+            </Button>
+          )}
+          {run.state !== "DRAFT" && (
+            <Button
+              variant="danger"
+              disabled={!ready}
+              onClick={() => step.mutate("reopen")}
+            >
+              Send back
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {run.state === "APPROVED" && <Handover run={run} />}
+    </Sheet>
+  )
+}
+
+/// The crossing to Finance, and what came back.
+///
+/// # Why this is the point of no return and approval is not
+///
+/// The owner removed the `seal` step on 2026-09-13: approval is final. So the
+/// irreversible act is this one — once a liability is with Finance, reopening
+/// the run means Finance has to reverse its own entry first. The screen says
+/// that where the button is rather than in a doc nobody opens.
+///
+/// # Gross, and it says so
+///
+/// Nothing statutory is netted off and no overtime is valued, because there is
+/// no rate for it anywhere in this system. PPh21 and BPJS are computed outside
+/// and entered by Finance as deductions. A figure labelled only "total" would
+/// be read as take-home pay by the first person who saw it.
+///
+/// # Received is not paid
+///
+/// Two states, two signatures, and settling is Finance's own act under its own
+/// key: a grant that could hand a liability over and then declare it paid
+/// would be one person closing the loop on their own request.
+function Handover({ run }: { run: PayrollRunView }) {
+  const client = useQueryClient()
+  const [reason, setReason] = useState("")
+  const [failed, setFailed] = useState<string | null>(null)
+
+  const standing = useQuery({
+    queryKey: payKeys.handover(run.id),
+    queryFn: ({ signal }) => readHandover(run.id, signal),
+  })
+
+  const send = useMutation({
+    mutationFn: () => handOverRun(run.id, reason.trim()),
+    onSuccess: () => {
+      setReason("")
+      setFailed(null)
+      void client.invalidateQueries({ queryKey: payKeys.handover(run.id) })
+      void client.invalidateQueries({ queryKey: payKeys.runs() })
+    },
+    onError: (error: Error) => setFailed(error.message),
+  })
+
+  const crossed = standing.data ?? null
+
+  return (
+    <div className="mt-5">
+      <SubHead>Finance</SubHead>
+      {failed !== null && (
+        <Banner tone="bad" className="mb-3">
+          {failed}
+        </Banner>
+      )}
+
+      {crossed === null ? (
+        <div className="flex flex-col gap-3">
+          <p className="text-meta text-body">
+            Approved and not yet with Finance. Handing it over is the step that
+            cannot be taken back on its own — after it, reopening this run needs
+            Finance to reverse its entry first.
+          </p>
+          <Field label="Why" hint="Recorded against the handover, and required.">
             <Input
               value={reason}
               onChange={(event) => setReason(event.target.value)}
-              placeholder="angka sudah dicek"
+              placeholder="penggajian September"
             />
           </Field>
-          <div className="flex flex-wrap gap-2">
-            {run.state === "DRAFT" && (
-              <Button
-                variant="primary"
-                disabled={!ready}
-                onClick={() => step.mutate("verify")}
-              >
-                Check the figures
-              </Button>
-            )}
-            {run.state === "VERIFIED" && (
-              // Offered to everybody, refused by the server for the person who
-              // verified. The screen cannot know who is looking at it, and
-              // guessing would hide the button from the wrong person.
-              <Button
-                variant="primary"
-                disabled={!ready}
-                onClick={() => step.mutate("approve")}
-              >
-                Approve
-              </Button>
-            )}
-            {run.state === "APPROVED" && (
-              <Button
-                variant="primary"
-                disabled={!ready}
-                onClick={() => step.mutate("seal")}
-              >
-                Seal
-              </Button>
-            )}
-            {run.state !== "DRAFT" && (
-              <Button
-                variant="danger"
-                disabled={!ready}
-                onClick={() => step.mutate("reopen")}
-              >
-                Send back
-              </Button>
-            )}
+          <div>
+            <Button
+              variant="primary"
+              disabled={reason.trim() === "" || send.isPending}
+              onClick={() => send.mutate()}
+            >
+              Hand over to Finance
+            </Button>
           </div>
         </div>
+      ) : (
+        <>
+          <KeyValue term="State">{handoverLabel(crossed.state)}</KeyValue>
+          <KeyValue term="Gross, before deductions">
+            {money(crossed.gross_minor)}
+          </KeyValue>
+          <KeyValue term="Handed over">
+            {crossed.handed_over_by} · {moment(crossed.handed_over_at)}
+          </KeyValue>
+          {crossed.settled_at !== null ? (
+            <KeyValue term="Paid">
+              {crossed.settled_by} · {moment(crossed.settled_at)}
+            </KeyValue>
+          ) : (
+            <KeyValue term="Paid">
+              not yet — Finance has received it, which is not the same as
+              having paid it
+            </KeyValue>
+          )}
+          <p className="mt-2 text-meta text-mute">
+            Gross. PPh21 and BPJS are computed outside this system and entered
+            by Finance as deductions, so this is what the company owes before
+            any of them.
+          </p>
+        </>
       )}
-
-      {run.state === "SEALED" && (
-        <p className="mt-4 text-meta text-mute">
-          Sealed. The figures do not move again — a seal that could be undone
-          would not be one.
-        </p>
-      )}
-    </Sheet>
+    </div>
   )
 }
 

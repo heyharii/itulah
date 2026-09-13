@@ -1313,6 +1313,9 @@ async fn run_tool(state: &AppState, name: &str, input: &Value) -> Result<ToolOut
                 SaleQuery {
                     site_id: text("site_id"),
                     status: text("status"),
+                    from: None,
+                    to: None,
+                    utc_offset_minutes: Some(LOCAL_OFFSET_MINUTES),
                     limit: Some(number("limit").unwrap_or(25).clamp(1, 200)),
                 },
             )

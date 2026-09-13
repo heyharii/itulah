@@ -16,6 +16,7 @@ import { screens as allotment } from "@/screens/allotment"
 import { screens as finance } from "@/screens/finance"
 import { screens as financeLab } from "@/screens/finance-lab"
 import { screens as financeLab2 } from "@/screens/finance-lab-2"
+import { screens as financeFinal } from "@/screens/finance-final"
 import { screens as home } from "@/screens/home"
 import { screens as inventory } from "@/screens/inventory"
 import { screens as letters } from "@/screens/letters"
@@ -25,7 +26,6 @@ import { screens as people } from "@/screens/people"
 import { screens as procurement } from "@/screens/procurement"
 import { screens as reports } from "@/screens/reports"
 import { screens as sales } from "@/screens/sales"
-import { screens as storeops } from "@/screens/storeops"
 import { screens as system } from "@/screens/system"
 import { screens as gaAssets } from "@/screens/assets"
 import { screens as vendors } from "@/screens/vendors"
@@ -66,12 +66,12 @@ const screens: Readonly<Record<string, () => React.ReactNode>> = {
   ...allotment,
   ...procurement,
   ...sales,
-  ...storeops,
   ...operations,
   ...members,
   ...finance,
   ...financeLab,
   ...financeLab2,
+  ...financeFinal,
   ...people,
   ...letters,
   ...vendors,

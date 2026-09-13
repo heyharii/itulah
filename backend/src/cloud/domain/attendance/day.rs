@@ -111,9 +111,9 @@ impl AttendanceOutcome {
 
     pub const fn minutes(self) -> Option<Minutes> {
         match self {
-            Self::Late { minutes } | Self::EarlyLeave { minutes } | Self::AgreedOvertime {
-                minutes,
-            } => Some(minutes),
+            Self::Late { minutes }
+            | Self::EarlyLeave { minutes }
+            | Self::AgreedOvertime { minutes } => Some(minutes),
             _ => None,
         }
     }
@@ -550,10 +550,12 @@ pub fn evaluate_day(
 
     let (outcomes, measures) = match day.plan() {
         DayPlan::Scheduled { shift } => evaluate_scheduled(shift, facts, approvals, policy)?,
-        DayPlan::RestDay | DayPlan::PublicHoliday => match evaluate_non_working(facts, approvals)? {
-            None => return Ok(None),
-            Some(pair) => pair,
-        },
+        DayPlan::RestDay | DayPlan::PublicHoliday => {
+            match evaluate_non_working(facts, approvals)? {
+                None => return Ok(None),
+                Some(pair) => pair,
+            }
+        }
     };
 
     Ok(Some(DayEvaluation {
@@ -751,4 +753,603 @@ fn evaluate_non_working(
             ..DayMeasures::default()
         },
     )))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cloud::domain::attendance::ids::{PunchId, TerminalId};
+    use crate::cloud::domain::attendance::policy::{PolicyId, PolicyLimits};
+    use crate::cloud::domain::attendance::punch::{ClockQuality, PunchDirection};
+    use crate::cloud::domain::attendance::terminal::{AttendanceTerminal, IdentificationMethod};
+    use crate::cloud::domain::attendance::time::{DayOffset, MinuteOfDay, ShiftId};
+    use crate::cloud::domain::attendance::AttendanceMonth;
+    use crate::cloud::domain::attendance::AttendancePeriod;
+    use crate::cloud::domain::employment::{
+        actions, AssignmentSpan, AssignmentTimeline, Employee, EmployeeCode, EmployeeId,
+        EmploymentTransition, PlaceId,
+    };
+    use chrono::{TimeZone, Utc};
+
+    fn date(iso: &str) -> NaiveDate {
+        iso.parse().expect("date")
+    }
+
+    const DAY: &str = "2026-09-14";
+
+    fn authority(action_key: &str) -> Authorization {
+        Authorization::try_new(
+            "manager",
+            action_key,
+            Utc.with_ymd_and_hms(2026, 9, 1, 8, 0, 0).unwrap(),
+            "because the shop opens at eight",
+        )
+        .expect("authorization")
+    }
+
+    fn other_authority(action_key: &str) -> Authorization {
+        Authorization::try_new(
+            "hr.officer",
+            action_key,
+            Utc.with_ymd_and_hms(2026, 9, 15, 9, 0, 0).unwrap(),
+            "the reader was down on Monday",
+        )
+        .expect("authorization")
+    }
+
+    /// 08:00–16:00 with an hour unpaid.
+    fn morning_shift() -> Shift {
+        Shift::try_new(
+            ShiftId::try_new("pagi").unwrap(),
+            "Pagi",
+            MinuteOfDay::try_new(8 * 60).unwrap(),
+            MinuteOfDay::try_new(16 * 60).unwrap(),
+            DayOffset::SAME_DAY,
+            Minutes::new(60),
+        )
+        .expect("shift")
+    }
+
+    /// 22:00–06:00, the case the 0..2879 timeline exists for.
+    fn night_shift() -> Shift {
+        Shift::try_new(
+            ShiftId::try_new("malam").unwrap(),
+            "Malam",
+            MinuteOfDay::try_new(22 * 60).unwrap(),
+            MinuteOfDay::try_new(6 * 60).unwrap(),
+            DayOffset::NEXT_DAY,
+            Minutes::new(30),
+        )
+        .expect("shift")
+    }
+
+    fn scheduled(shift: Shift) -> RosterDay {
+        RosterDay::new(
+            EmployeeId::try_new("emp-1").unwrap(),
+            PlaceId::try_new("store-07").unwrap(),
+            date(DAY),
+            DayPlan::Scheduled { shift },
+            authority(actions::ROSTER_MANAGE),
+        )
+        .expect("roster day")
+    }
+
+    fn rest_day() -> RosterDay {
+        RosterDay::new(
+            EmployeeId::try_new("emp-1").unwrap(),
+            PlaceId::try_new("store-07").unwrap(),
+            date(DAY),
+            DayPlan::RestDay,
+            authority(actions::ROSTER_MANAGE),
+        )
+        .expect("roster day")
+    }
+
+    /// Ten minutes of lateness grace, ten of early-leave grace, thirty before
+    /// overtime is recognised, and five minutes of double-tap window.
+    fn policy() -> AttendancePolicy {
+        AttendancePolicy::try_new(
+            PolicyId::try_new("standard").unwrap(),
+            PolicyVersion::try_new(3).unwrap(),
+            date("2026-01-01"),
+            None,
+            PolicyLimits {
+                late_grace: Minutes::new(10),
+                early_leave_grace: Minutes::new(10),
+                overtime_minimum: Minutes::new(30),
+                duplicate_punch_window: Minutes::new(5),
+            },
+        )
+        .expect("policy")
+    }
+
+    fn terminal() -> AttendanceTerminal {
+        AttendanceTerminal::register(
+            TerminalId::try_new("term-07").unwrap(),
+            PlaceId::try_new("store-07").unwrap(),
+            "Pintu belakang",
+            IdentificationMethod::Fingerprint,
+            authority(actions::ATTENDANCE_TERMINAL_MANAGE),
+        )
+        .expect("terminal")
+    }
+
+    fn employee() -> Employee {
+        let mut employee = Employee::register(
+            EmployeeId::try_new("emp-1").unwrap(),
+            EmployeeCode::try_new("0001").unwrap(),
+        );
+        employee
+            .apply(
+                EmploymentTransition::Hire,
+                date("2026-01-01"),
+                authority(actions::EMPLOYMENT_CHANGE),
+            )
+            .expect("hire");
+        employee
+    }
+
+    fn timeline() -> AssignmentTimeline {
+        let mut timeline = AssignmentTimeline::new();
+        timeline
+            .push(
+                AssignmentSpan::try_new(
+                    PlaceId::try_new("store-07").unwrap(),
+                    date("2026-01-01"),
+                    None,
+                    authority(actions::ASSIGNMENT_MANAGE),
+                )
+                .expect("span"),
+            )
+            .expect("push");
+        timeline
+    }
+
+    /// One punch, positioned on the business date's timeline.
+    fn punch(id: &str, direction: PunchDirection, offset: DayOffset, minute: u16) -> Punch {
+        let terminal = terminal();
+        let employee = employee();
+        let assignment = timeline();
+        let period = AttendancePeriod::open(
+            PlaceId::try_new("store-07").unwrap(),
+            AttendanceMonth::try_new(2026, 9).unwrap(),
+        );
+        Punch::record(
+            PunchId::try_new(id).unwrap(),
+            &terminal.attest(employee.id().clone()).expect("attest"),
+            direction,
+            PunchTime::new(date(DAY), offset, MinuteOfDay::try_new(minute).unwrap()),
+            Utc.with_ymd_and_hms(2026, 9, 14, 1, 0, 0).unwrap(),
+            ClockQuality::Ok,
+            crate::cloud::domain::attendance::punch::PunchContext {
+                employee: &employee,
+                assignment: &assignment,
+                period: &period,
+            },
+        )
+        .expect("punch")
+    }
+
+    fn evaluate(
+        day: &RosterDay,
+        punches: &[&Punch],
+        approvals: &DayApprovals,
+    ) -> Option<DayEvaluation> {
+        evaluate_day(day, punches, &policy(), approvals, None).expect("evaluate")
+    }
+
+    fn codes(evaluation: &DayEvaluation) -> Vec<&'static str> {
+        evaluation
+            .outcomes()
+            .outcomes()
+            .iter()
+            .map(|outcome| outcome.code())
+            .collect()
+    }
+
+    #[test]
+    fn arriving_inside_the_grace_is_on_time() {
+        let day = scheduled(morning_shift());
+        let arrive = punch("in", PunchDirection::In, DayOffset::SAME_DAY, 8 * 60 + 7);
+        let leave = punch("out", PunchDirection::Out, DayOffset::SAME_DAY, 16 * 60);
+        let evaluation = evaluate(&day, &[&arrive, &leave], &DayApprovals::none()).expect("day");
+        assert_eq!(codes(&evaluation), ["ON_TIME"]);
+        // The raw minutes are recorded even when the grace forgives them, so
+        // the number means the same thing under every policy version.
+        assert_eq!(evaluation.measures().late_minutes.get(), 7);
+        assert_eq!(evaluation.measures().attendance_span.get(), 8 * 60 - 7);
+        assert_eq!(evaluation.measures().net_worked.get(), 8 * 60 - 7 - 60);
+    }
+
+    /// `LATE` carries the **raw** minutes, not the minutes beyond the grace.
+    #[test]
+    fn arriving_past_the_grace_is_late_by_the_raw_minutes() {
+        let day = scheduled(morning_shift());
+        let arrive = punch("in", PunchDirection::In, DayOffset::SAME_DAY, 8 * 60 + 25);
+        let leave = punch("out", PunchDirection::Out, DayOffset::SAME_DAY, 16 * 60);
+        let evaluation = evaluate(&day, &[&arrive, &leave], &DayApprovals::none()).expect("day");
+        assert_eq!(codes(&evaluation), ["LATE"]);
+        assert_eq!(
+            evaluation.outcomes().find("LATE").and_then(|o| o.minutes()),
+            Some(Minutes::new(25)),
+            "not 15: the grace forgives, it does not subtract"
+        );
+    }
+
+    /// The rule this whole lane is emphatic about: no punch is an absence only
+    /// against a scheduled day, and it is the *only* thing that makes one.
+    #[test]
+    fn a_scheduled_day_with_no_punch_at_all_is_absent() {
+        let day = scheduled(morning_shift());
+        let evaluation = evaluate(&day, &[], &DayApprovals::none()).expect("day");
+        assert_eq!(codes(&evaluation), ["ABSENT"]);
+    }
+
+    /// And a day nobody scheduled is **not** an absence. It derives to nothing.
+    #[test]
+    fn a_rest_day_nobody_worked_derives_to_nothing() {
+        assert!(
+            evaluate(&rest_day(), &[], &DayApprovals::none()).is_none(),
+            "a day nobody planned and nobody worked is not an absence"
+        );
+    }
+
+    /// A real arrival is never relabelled as absence however late it is. The
+    /// implementation this lineage replaced had an `absent_threshold_minutes`
+    /// that did exactly that.
+    #[test]
+    fn a_very_late_arrival_is_still_not_an_absence() {
+        let day = scheduled(morning_shift());
+        let arrive = punch("in", PunchDirection::In, DayOffset::SAME_DAY, 15 * 60);
+        let leave = punch("out", PunchDirection::Out, DayOffset::SAME_DAY, 16 * 60);
+        let evaluation = evaluate(&day, &[&arrive, &leave], &DayApprovals::none()).expect("day");
+        assert!(codes(&evaluation).contains(&"LATE"));
+        assert!(
+            !codes(&evaluation).contains(&"ABSENT"),
+            "a biometrically attested arrival is not an absence"
+        );
+    }
+
+    /// A lone `OUT` is a question, not a verdict.
+    #[test]
+    fn an_unpairable_punch_is_a_missing_punch_and_not_an_absence() {
+        let day = scheduled(morning_shift());
+        let leave = punch("out", PunchDirection::Out, DayOffset::SAME_DAY, 16 * 60);
+        let evaluation = evaluate(&day, &[&leave], &DayApprovals::none()).expect("day");
+        assert_eq!(codes(&evaluation), ["MISSING_PUNCH"]);
+    }
+
+    /// Two taps inside the duplicate window are one physical event. On a
+    /// fingerprint reader this is the common case, not the exception.
+    #[test]
+    fn a_double_tap_collapses_into_one_arrival() {
+        let day = scheduled(morning_shift());
+        let first = punch("in-1", PunchDirection::In, DayOffset::SAME_DAY, 8 * 60 + 2);
+        let again = punch("in-2", PunchDirection::In, DayOffset::SAME_DAY, 8 * 60 + 4);
+        let leave = punch("out", PunchDirection::Out, DayOffset::SAME_DAY, 16 * 60);
+        let evaluation =
+            evaluate(&day, &[&first, &again, &leave], &DayApprovals::none()).expect("day");
+        assert_eq!(codes(&evaluation), ["ON_TIME"]);
+        // The earliest `IN` of the run is the arrival, so a second tap cannot
+        // make somebody later than they were.
+        assert_eq!(evaluation.measures().late_minutes.get(), 2);
+        assert_eq!(evaluation.punches_considered(), 3, "all three were read");
+    }
+
+    /// Derivation must not depend on delivery order — which matters the day a
+    /// week of buffered punches arrives from a node that was offline.
+    #[test]
+    fn the_answer_does_not_depend_on_the_order_the_punches_arrive_in() {
+        let day = scheduled(morning_shift());
+        let arrive = punch("in", PunchDirection::In, DayOffset::SAME_DAY, 8 * 60 + 25);
+        let leave = punch("out", PunchDirection::Out, DayOffset::SAME_DAY, 15 * 60);
+        let forwards = evaluate(&day, &[&arrive, &leave], &DayApprovals::none()).expect("day");
+        let backwards = evaluate(&day, &[&leave, &arrive], &DayApprovals::none()).expect("day");
+        assert_eq!(forwards, backwards);
+    }
+
+    /// The 0..2879 timeline, doing the job it exists for: an overnight shift
+    /// needs no timezone machinery, and 06:00 the next morning is on time.
+    #[test]
+    fn an_overnight_shift_pairs_across_midnight() {
+        let day = scheduled(night_shift());
+        let arrive = punch("in", PunchDirection::In, DayOffset::SAME_DAY, 22 * 60);
+        let leave = punch("out", PunchDirection::Out, DayOffset::NEXT_DAY, 6 * 60);
+        let evaluation = evaluate(&day, &[&arrive, &leave], &DayApprovals::none()).expect("day");
+        assert_eq!(codes(&evaluation), ["ON_TIME"]);
+        assert_eq!(evaluation.measures().attendance_span.get(), 8 * 60);
+        assert_eq!(evaluation.measures().net_worked.get(), 8 * 60 - 30);
+    }
+
+    /// Work past the planned end with nothing agreed produces **no outcome**
+    /// and is **not discarded**.
+    #[test]
+    fn unagreed_extra_work_is_counted_and_grants_nothing() {
+        let day = scheduled(morning_shift());
+        let arrive = punch("in", PunchDirection::In, DayOffset::SAME_DAY, 8 * 60);
+        let leave = punch("out", PunchDirection::Out, DayOffset::SAME_DAY, 18 * 60);
+        let evaluation = evaluate(&day, &[&arrive, &leave], &DayApprovals::none()).expect("day");
+        assert_eq!(codes(&evaluation), ["ON_TIME"]);
+        assert_eq!(evaluation.measures().overtime_minutes_unagreed.get(), 120);
+        assert_eq!(
+            evaluation.measures().overtime_minutes_agreed.get(),
+            0,
+            "nothing here can be paid from"
+        );
+    }
+
+    /// With an agreement, the same two hours become the one figure a payment
+    /// may be computed from.
+    #[test]
+    fn agreed_extra_work_above_the_minimum_is_agreed_overtime() {
+        let day = scheduled(morning_shift());
+        let arrive = punch("in", PunchDirection::In, DayOffset::SAME_DAY, 8 * 60);
+        let leave = punch("out", PunchDirection::Out, DayOffset::SAME_DAY, 18 * 60);
+        let approvals = DayApprovals::with_overtime(OvertimeAgreement::new(
+            OvertimeRef::try_new("ot-1").unwrap(),
+            authority(actions::OVERTIME_ORDER),
+        ));
+        let evaluation = evaluate(&day, &[&arrive, &leave], &approvals).expect("day");
+        assert!(codes(&evaluation).contains(&"AGREED_OVERTIME"));
+        assert_eq!(evaluation.measures().overtime_minutes_agreed.get(), 120);
+        assert_eq!(evaluation.measures().overtime_minutes_unagreed.get(), 0);
+    }
+
+    /// Agreed but below the policy minimum is neither of the two, so it has its
+    /// own counter. Rounding it into either would misstate what somebody
+    /// authorized or what the policy recognises.
+    #[test]
+    fn agreed_work_below_the_minimum_has_its_own_counter() {
+        let day = scheduled(morning_shift());
+        let arrive = punch("in", PunchDirection::In, DayOffset::SAME_DAY, 8 * 60);
+        let leave = punch(
+            "out",
+            PunchDirection::Out,
+            DayOffset::SAME_DAY,
+            16 * 60 + 20,
+        );
+        let approvals = DayApprovals::with_overtime(OvertimeAgreement::new(
+            OvertimeRef::try_new("ot-1").unwrap(),
+            authority(actions::OVERTIME_ORDER),
+        ));
+        let evaluation = evaluate(&day, &[&arrive, &leave], &approvals).expect("day");
+        assert!(!codes(&evaluation).contains(&"AGREED_OVERTIME"));
+        let measures = evaluation.measures();
+        assert_eq!(measures.overtime_minutes_agreed_below_minimum.get(), 20);
+        assert_eq!(measures.overtime_minutes_agreed.get(), 0);
+        assert_eq!(measures.overtime_minutes_unagreed.get(), 0);
+    }
+
+    /// Approved leave is exclusive: nothing else can be said about the day.
+    #[test]
+    fn an_approved_leave_day_says_only_that() {
+        let day = scheduled(morning_shift());
+        let approvals = DayApprovals::with_leave(LeaveApproval::new(
+            LeaveRef::try_new("leave-1").unwrap(),
+            authority(actions::LEAVE_DECIDE),
+        ));
+        let evaluation = evaluate(&day, &[], &approvals).expect("day");
+        assert_eq!(codes(&evaluation), ["APPROVED_LEAVE"]);
+    }
+
+    /// Work on an approved-leave day is a contradiction the kernel will not
+    /// resolve silently: somebody has to cancel the leave or state what
+    /// happened, with evidence.
+    #[test]
+    fn punches_on_an_approved_leave_day_are_refused() {
+        let day = scheduled(morning_shift());
+        let arrive = punch("in", PunchDirection::In, DayOffset::SAME_DAY, 8 * 60);
+        let approvals = DayApprovals::with_leave(LeaveApproval::new(
+            LeaveRef::try_new("leave-1").unwrap(),
+            authority(actions::LEAVE_DECIDE),
+        ));
+        assert!(matches!(
+            evaluate_day(&day, &[&arrive], &policy(), &approvals, None),
+            Err(AttendanceError::PunchesOnApprovedLeaveDay)
+        ));
+    }
+
+    /// Somebody worked a rest day with nothing agreed. The punches stand; the
+    /// kernel refuses to say what they meant rather than inventing overtime or
+    /// throwing the day away.
+    #[test]
+    fn unagreed_work_on_a_rest_day_is_refused_rather_than_classified() {
+        let arrive = punch("in", PunchDirection::In, DayOffset::SAME_DAY, 9 * 60);
+        let leave = punch("out", PunchDirection::Out, DayOffset::SAME_DAY, 13 * 60);
+        assert!(matches!(
+            evaluate_day(
+                &rest_day(),
+                &[&arrive, &leave],
+                &policy(),
+                &DayApprovals::none(),
+                None
+            ),
+            Err(AttendanceError::UnagreedNonWorkingDayWork)
+        ));
+    }
+
+    /// A day with no policy covering it is a refusal naming the date, never a
+    /// silently assumed tolerance.
+    #[test]
+    fn a_date_no_policy_covers_is_refused_by_name() {
+        let day = RosterDay::new(
+            EmployeeId::try_new("emp-1").unwrap(),
+            PlaceId::try_new("store-07").unwrap(),
+            date("2025-06-01"),
+            DayPlan::Scheduled {
+                shift: morning_shift(),
+            },
+            authority(actions::ROSTER_MANAGE),
+        )
+        .expect("roster day");
+        assert!(matches!(
+            evaluate_day(&day, &[], &policy(), &DayApprovals::none(), None),
+            Err(AttendanceError::NoPolicyEffective { .. })
+        ));
+    }
+
+    /// Somebody else's punch cannot be derived into this person's day.
+    #[test]
+    fn a_punch_for_another_day_is_refused() {
+        let day = scheduled(morning_shift());
+        let elsewhere = punch("in", PunchDirection::In, DayOffset::SAME_DAY, 8 * 60);
+        let other_day = RosterDay::new(
+            EmployeeId::try_new("emp-1").unwrap(),
+            PlaceId::try_new("store-07").unwrap(),
+            date("2026-09-15"),
+            DayPlan::Scheduled {
+                shift: morning_shift(),
+            },
+            authority(actions::ROSTER_MANAGE),
+        )
+        .expect("roster day");
+        assert!(matches!(
+            evaluate_day(
+                &other_day,
+                &[&elsewhere],
+                &policy(),
+                &DayApprovals::none(),
+                None
+            ),
+            Err(AttendanceError::PunchDoesNotMatchRosterDay)
+        ));
+        // And the right day still derives.
+        assert!(evaluate(&day, &[&elsewhere], &DayApprovals::none()).is_some());
+    }
+
+    /// The reason this module matters: a reader that would not take somebody's
+    /// finger produces an absence, and an approved correction turns it back
+    /// into the day they actually worked. **The punches are untouched.**
+    #[test]
+    fn an_approved_correction_rescues_a_day_the_reader_missed() {
+        let day = scheduled(morning_shift());
+        let absent = evaluate(&day, &[], &DayApprovals::none()).expect("day");
+        assert_eq!(codes(&absent), ["ABSENT"]);
+
+        let mut chain = crate::cloud::domain::attendance::correction::CorrectionChain::new(
+            EmployeeId::try_new("emp-1").unwrap(),
+            PlaceId::try_new("store-07").unwrap(),
+            date(DAY),
+        );
+        let period = AttendancePeriod::open(
+            PlaceId::try_new("store-07").unwrap(),
+            AttendanceMonth::try_new(2026, 9).unwrap(),
+        );
+        let correction = Correction::request(
+            CorrectionId::try_new("cor-1").unwrap(),
+            EmployeeId::try_new("emp-1").unwrap(),
+            PlaceId::try_new("store-07").unwrap(),
+            date(DAY),
+            CorrectionEffect::ArrivalAndDeparture {
+                arrival: PunchTime::same_day(date(DAY), MinuteOfDay::try_new(8 * 60).unwrap()),
+                departure: PunchTime::same_day(date(DAY), MinuteOfDay::try_new(16 * 60).unwrap()),
+            },
+            None,
+            authority(actions::CORRECTION_REQUEST),
+        )
+        .expect("request");
+        chain.submit(correction, &period).expect("submit");
+        chain
+            .approve(other_authority(actions::CORRECTION_DECIDE), &period)
+            .expect("approve");
+
+        let rescued = evaluate_day(
+            &day,
+            &[],
+            &policy(),
+            &DayApprovals::none(),
+            chain.effective(),
+        )
+        .expect("evaluate")
+        .expect("day");
+        assert_eq!(codes(&rescued), ["ON_TIME"]);
+        assert_eq!(rescued.measures().net_worked.get(), 8 * 60 - 60);
+        assert_eq!(
+            rescued.applied_correction().map(ToString::to_string),
+            Some("cor-1".to_owned()),
+            "the evaluation names the correction that changed it"
+        );
+        assert_eq!(
+            rescued.punches_considered(),
+            0,
+            "the correction is an overlay: there are still no punches"
+        );
+    }
+
+    /// A pending correction changes nothing. Only an approved one is an
+    /// overlay, which is what stops a request from being a decision.
+    #[test]
+    fn a_pending_correction_changes_no_outcome() {
+        let day = scheduled(morning_shift());
+        let mut chain = crate::cloud::domain::attendance::correction::CorrectionChain::new(
+            EmployeeId::try_new("emp-1").unwrap(),
+            PlaceId::try_new("store-07").unwrap(),
+            date(DAY),
+        );
+        let period = AttendancePeriod::open(
+            PlaceId::try_new("store-07").unwrap(),
+            AttendanceMonth::try_new(2026, 9).unwrap(),
+        );
+        chain
+            .submit(
+                Correction::request(
+                    CorrectionId::try_new("cor-1").unwrap(),
+                    EmployeeId::try_new("emp-1").unwrap(),
+                    PlaceId::try_new("store-07").unwrap(),
+                    date(DAY),
+                    CorrectionEffect::Arrival {
+                        at: PunchTime::same_day(date(DAY), MinuteOfDay::try_new(8 * 60).unwrap()),
+                    },
+                    None,
+                    authority(actions::CORRECTION_REQUEST),
+                )
+                .expect("request"),
+                &period,
+            )
+            .expect("submit");
+        assert!(chain.effective().is_none());
+        let evaluation = evaluate_day(&day, &[], &policy(), &DayApprovals::none(), chain.pending())
+            .expect("evaluate")
+            .expect("day");
+        assert_eq!(codes(&evaluation), ["ABSENT"]);
+    }
+
+    /// An outcome set cannot say two contradictory things, and the refusals are
+    /// what make "a day may carry several outcomes" safe.
+    #[test]
+    fn contradictory_outcomes_are_not_representable() {
+        assert!(matches!(
+            OutcomeSet::try_new(vec![AttendanceOutcome::Absent, AttendanceOutcome::OnTime]),
+            Err(AttendanceError::ContradictoryOutcomes { .. })
+        ));
+        assert!(matches!(
+            OutcomeSet::try_new(vec![
+                AttendanceOutcome::OnTime,
+                AttendanceOutcome::Late {
+                    minutes: Minutes::new(5)
+                }
+            ]),
+            Err(AttendanceError::ContradictoryOutcomes { .. })
+        ));
+        assert!(matches!(
+            OutcomeSet::try_new(vec![
+                AttendanceOutcome::MissingPunch,
+                AttendanceOutcome::EarlyLeave {
+                    minutes: Minutes::new(5)
+                }
+            ]),
+            Err(AttendanceError::ContradictoryOutcomes { .. })
+        ));
+        assert!(matches!(
+            OutcomeSet::try_new(Vec::new()),
+            Err(AttendanceError::EmptyOutcomeSet)
+        ));
+        // A zero-minute LATE says nothing, so it is not a thing a day may say.
+        assert!(matches!(
+            OutcomeSet::single(AttendanceOutcome::Late {
+                minutes: Minutes::ZERO
+            }),
+            Err(AttendanceError::ZeroMinuteOutcome { .. })
+        ));
+    }
 }

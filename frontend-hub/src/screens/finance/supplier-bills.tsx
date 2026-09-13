@@ -512,7 +512,8 @@ export function SupplierBills() {
 
   const bills = useQuery({
     queryKey: financeKeys.bills(null),
-    queryFn: ({ signal }) => listBills({ limit: CAP }, signal),
+    queryFn: ({ signal }) =>
+      listBills({ limit: CAP }, signal).then((page) => page.rows),
   })
   const unbilled = useQuery({
     queryKey: financeKeys.unbilled(),
@@ -1067,7 +1068,7 @@ function BillSheet({
 
   const bills = useQuery({
     queryKey: financeKeys.bills(null),
-    queryFn: ({ signal }) => listBills({}, signal),
+    queryFn: ({ signal }) => listBills({}, signal).then((page) => page.rows),
     enabled: id !== null,
   })
 
@@ -1077,7 +1078,8 @@ function BillSheet({
   // "this invoice" because a payment can settle several bills at once.
   const payments = useQuery({
     queryKey: financeKeys.payments(null, null, null),
-    queryFn: ({ signal }) => listPayments({ limit: 200 }, signal),
+    queryFn: ({ signal }) =>
+      listPayments({ limit: 200 }, signal).then((page) => page.rows),
     enabled: id !== null,
   })
 

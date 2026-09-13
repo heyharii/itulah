@@ -6,4 +6,13 @@ export type ImportOutcome = { statement_id: string, inserted: number,
  * rather than silently dropped: a re-import that says "0 new" is the
  * system confirming it did the right thing.
  */
-duplicates: number, };
+duplicates: number, 
+/**
+ * The import this one replaced, when the same account, unit and period
+ * had already been loaded.
+ *
+ * Reported for the same reason `duplicates` is: an upload that quietly
+ * displaced last week's is one nobody can account for afterwards. Null is
+ * the ordinary case — nothing was in force for that month yet.
+ */
+superseded: string | null, };

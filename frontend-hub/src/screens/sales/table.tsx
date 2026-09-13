@@ -1,393 +1,478 @@
 import {
   bucketEnd,
-  bucketLabel,
   bucketTitle,
+  isoDate,
   type Comparison,
   type SalesBucket,
 } from "@itulah/contract/reporting"
+import { ChevronRight } from "lucide-react"
 
-import { count, money } from "@/lib/format"
+import { Pill } from "@/components/ui/pill"
+import { count } from "@/lib/format"
+import { cn } from "@/lib/utils"
 import { Delta } from "@/screens/sales/delta"
-import type { SalesKind, SalesMatrix } from "@/screens/sales/matrix"
+import { showSales, type SalesMatrix } from "@/screens/sales/matrix"
 
-/// The width of the three columns that do not scroll away.
+/// The trading day, and which shops made it.
 ///
-/// Pinned in pixels rather than in `ch` because each one's `left` offset has to
-/// be exactly the sum of the widths before it; a unit that resolves against the
-/// font would leave a seam that moves as you scroll.
+/// **This used to be shops down the side and periods across the top**, one
+/// measure at a time, and it was the wrong way round for the question it gets
+/// opened with. Nobody starts at a shop; they start at a day — yesterday, last
+/// Saturday, the day the promotion began — and then ask which branch is the
+/// reason. So a day is a row, every metric is a column, and the shops are
+/// folded underneath the day they traded on.
 ///
-/// `TOTAL` is wide enough for the biggest figure this column can hold — the
-/// fleet's own year, eleven digits of rupiah — and that is a constraint rather
-/// than a preference. A table lays itself out from its content, so a figure
-/// wider than the column widens the column, and then the `left` offsets below
-/// point INTO it: the comparison column parks on top of the total and clips it.
-/// It looks like a rendering glitch and it is arithmetic.
-const SHOP = 168
-const TOTAL = 152
-/// The comparison. Pinned with the other two: "which branch is having a bad
-/// month" is the question this table gets opened for, and an answer that
-/// scrolls out of sight is not one.
-const DELTA = 72
+/// The other thing that changes with the transpose: a period can now carry ALL
+/// the measures at once instead of one at a time. The old grid could not — a
+/// column was a date, so a second measure needed a second grid — which is why
+/// takings, transactions, average transaction, units and units per sale all
+/// appear here and the picker above only decides what the chart draws.
+///
+/// Every figure comes from `matrix.ts`, which is the same index the chart is
+/// built from, so a total here cannot disagree with a height up there.
 
-/// Every shop against every period, with the periods scrolling under a shop
-/// column that stays.
+/// The two columns that do not scroll away.
 ///
-/// The chart above answers "how did the fleet trade"; this answers "which shop,
-/// which week". They are the same numbers, and it matters that they are — this
-/// is also the relief for a chart that draws only the five biggest shops by
-/// name. Every shop has a row here, including the ones the chart folds into
-/// Other, and every figure is a figure rather than a height.
+/// Pinned in pixels rather than in `ch`, because the second one's `left` offset
+/// has to be exactly the first one's width; a unit that resolves against the
+/// font leaves a seam that moves as you scroll.
+const WHEN = 208
+const TAKINGS = 152
+/// The comparison. Not sticky like the two above, but fixed all the same: an
+/// arrow and a percentage are five characters, and left to size itself the
+/// column wrapped them onto two lines on a narrow screen.
+const DELTA = 78
+
 export function SalesTable({
   matrix,
   before,
   comparison,
   bucket,
-  kind,
+  expanded,
+  onToggle,
   onOpen,
   onFocus,
 }: {
   matrix: SalesMatrix
-  /// The same shops over the span being compared against, or undefined while it
-  /// is still being fetched. The figures render either way — a comparison that
-  /// has not arrived must not hold up the number it qualifies.
+  /// The same shops over the span being compared against, or undefined while
+  /// it is still being fetched. The figures render either way — a comparison
+  /// that has not arrived must not hold up the number it qualifies.
   before?: SalesMatrix
   comparison: Comparison
   bucket: SalesBucket
-  kind: SalesKind
-  /// A shop and a span — one period, or the whole range from the total column.
+  /// Which days are showing their shops. Held by the screen rather than here
+  /// so it survives a re-render, and deliberately NOT in the URL: it is a
+  /// thing a reader opens and closes while reading one span, like the measure
+  /// the chart is drawn in, rather than a question worth sending to somebody.
+  expanded: ReadonlySet<string>
+  onToggle: (bucketStart: string) => void
+  /// A shop and a span — one day, or the whole range from the footer.
   onOpen: (cell: { siteId: string; from: string; to: string }) => void
   /// Narrow the whole screen to one shop.
   onFocus: (siteId: string) => void
 }) {
-  const show = (value: number) => {
-    if (value === 0) return <span className="text-faint">–</span>
-    return exactly(value)
-  }
-  const exactly = (value: number) =>
-    kind === "gross_minor" ? money(value) : count(value)
+  // Newest first. A register of trading days is read from the top: the day
+  // somebody wants is almost always the most recent one, and scrolling four
+  // hundred rows to reach it is the failure the old left-to-right axis had.
+  const order = [...matrix.buckets].reverse()
 
-  const span = {
-    from: matrix.buckets[0] ?? "",
-    to: bucketEnd(matrix.buckets[matrix.buckets.length - 1] ?? "", bucket),
-  }
+  // The bucket today falls in is still being written by tills that are still
+  // open, so every figure on that row is a part-day. It is drawn rather than
+  // hidden — a manager watching the shop trade wants exactly that row — and
+  // labelled, because an unlabelled part-day beside thirteen whole ones reads
+  // as a collapse.
+  const today = isoDate(new Date())
+  const isLive = (start: string) => start <= today && bucketEnd(start, bucket) >= today
+
+  // A single shop is not a fleet: the roll-up row would repeat the shop rows
+  // under it, and there would be nothing to expand into.
+  const alone = matrix.rows.length === 1
+  const only = alone ? matrix.rows[0] : null
 
   const HEAD =
-    "sticky top-0 h-10 border-b border-hairline bg-canvas px-3 text-cell font-normal whitespace-nowrap text-body"
-  const FIGURE =
-    "w-full cursor-pointer px-3 pt-1.5 text-right tabular-nums transition-colors hover:bg-soft-2 disabled:cursor-default disabled:hover:bg-transparent"
+    "sticky top-0 z-20 h-9 border-b border-hairline bg-canvas px-3 text-cell font-normal whitespace-nowrap text-body"
+  const CELL = "border-b border-hairline px-3 py-2 text-right tabular-nums"
 
   return (
-    <div className="max-h-[calc(100vh-22rem)] min-h-0 overflow-auto rounded-card">
+    <div className="max-h-[calc(100vh-25rem)] min-h-0 overflow-auto rounded-card">
       <table className="w-full border-separate border-spacing-0 text-cell">
         <thead>
           <tr>
             <th
               scope="col"
               className={`${HEAD} left-0 z-30 border-r text-left`}
-              style={{ width: SHOP, minWidth: SHOP }}
+              style={{ width: WHEN, minWidth: WHEN }}
             >
-              Shop
+              {bucket === "day" ? "Day" : bucket === "week" ? "Week" : "Month"}
             </th>
             <th
               scope="col"
               className={`${HEAD} z-30 border-r text-right`}
-              style={{ left: SHOP, width: TOTAL, minWidth: TOTAL }}
+              style={{ left: WHEN, width: TAKINGS, minWidth: TAKINGS }}
             >
-              Total
+              Takings
             </th>
             {before !== undefined && (
               <th
                 scope="col"
                 title={`Against ${comparison.full}`}
-                className={`${HEAD} z-30 border-r px-2 text-right`}
-                style={{ left: SHOP + TOTAL, width: DELTA, minWidth: DELTA }}
+                className={`${HEAD} px-2 text-right whitespace-nowrap`}
+                style={{ width: DELTA, minWidth: DELTA }}
               >
                 {comparison.short}
               </th>
             )}
-            {matrix.buckets.map((start) => (
+            <th scope="col" className={`${HEAD} text-right`}>
+              Transactions
+            </th>
+            <th
+              scope="col"
+              title="Average transaction value — takings over transactions"
+              className={`${HEAD} text-right`}
+            >
+              Avg transaction
+            </th>
+            <th scope="col" className={`${HEAD} text-right`}>
+              Units
+            </th>
+            <th
+              scope="col"
+              title="Units per transaction — how many pieces leave in an average basket"
+              className={`${HEAD} text-right`}
+            >
+              UPT
+            </th>
+            {!alone && (
               <th
-                key={start}
                 scope="col"
-                title={bucketTitle(start, bucket)}
-                className={`${HEAD} z-20 text-right`}
+                title="How many shops rang up a sale"
+                className={`${HEAD} text-right`}
               >
-                {bucketLabel(start, bucket)}
+                Shops
               </th>
-            ))}
+            )}
           </tr>
         </thead>
 
-        {/* One tbody per shop, so a shop and the span it is measured against
-            hover together and the rule underneath separates shops rather than
-            rows.
+        <tbody>
+          {order.map((start) => {
+            const open = expanded.has(start)
+            const takings = matrix.bucketTotal(start, "gross_minor")
+            // Aligned by POSITION and not by date, which is the same bargain
+            // the chart makes: the comparison span starts on a different day —
+            // that is the whole reason it was named — so the second day of one
+            // is read against the second day of the other.
+            const at = matrix.buckets.indexOf(start)
+            const wasBucket = before?.buckets[at]
+            const was =
+              before === undefined || wasBucket === undefined
+                ? null
+                : before.bucketTotal(wasBucket, "gross_minor")
 
-            Two rows rather than a percentage alone, because a percentage
-            answers "how much" and hides "out of what". Ramadan against last
-            Ramadan is the case that makes this obvious: +40% means nothing
-            until you can see it is forty percent of a fortnight that was
-            already the best fortnight of the year. */}
-        {matrix.rows.map((site) => {
-          const total = matrix.siteTotal(site.site_id, kind)
-          const wasTotal = before?.siteTotal(site.site_id, kind) ?? 0
-          return (
-            <tbody key={site.site_id} className="group">
-              <tr>
-                <th
-                  scope="row"
-                  className="sticky left-0 z-10 border-r border-hairline bg-canvas p-0 text-left font-medium transition-colors group-hover:bg-soft"
-                  style={{ width: SHOP, minWidth: SHOP }}
-                >
-                  {/* The name is the way to look at this shop and nothing
-                      else. Somebody who has found the row they care about is
-                      already pointing at it; sending them back to a picker to
-                      say so again would be asking twice. */}
-                  <button
-                    type="button"
-                    onClick={() => onFocus(site.site_id)}
-                    title={`Show ${site.site_name} on its own`}
-                    className="flex w-full cursor-pointer items-center gap-2 px-3 pt-1.5 text-left"
-                  >
-                    <span
-                      aria-hidden
-                      className="size-[7px] shrink-0 rounded-[2px]"
-                      style={{ background: matrix.colourOf(site.site_id) }}
-                    />
-                    <span className="truncate text-ink">{site.site_name}</span>
-                  </button>
-                </th>
-                <td
-                  className="sticky z-10 border-r border-hairline bg-canvas p-0 transition-colors group-hover:bg-soft"
-                  style={{ left: SHOP, width: TOTAL, minWidth: TOTAL }}
-                >
-                  <button
-                    type="button"
-                    disabled={total === 0}
-                    onClick={() =>
-                      onOpen({
-                        siteId: site.site_id,
-                        from: span.from,
-                        to: span.to,
-                      })
-                    }
-                    className={`${FIGURE} font-medium text-ink`}
-                  >
-                    {show(total)}
-                  </button>
-                </td>
-                {before !== undefined && (
-                  <td
-                    rowSpan={2}
-                    className="sticky z-10 border-r border-b border-hairline bg-canvas px-2 text-right align-middle transition-colors group-hover:bg-soft"
-                    style={{
-                      left: SHOP + TOTAL,
-                      width: DELTA,
-                      minWidth: DELTA,
-                    }}
-                  >
-                    <Delta
-                      now={total}
-                      before={wasTotal}
-                      against={comparison.full}
-                    />
-                  </td>
-                )}
-                {matrix.buckets.map((start) => {
-                  const value = matrix.siteValue(site.site_id, start, kind)
-                  return (
-                    <td
-                      key={start}
-                      className="bg-canvas p-0 transition-colors group-hover:bg-soft"
-                    >
-                      <button
-                        type="button"
-                        disabled={value === 0}
-                        title={
-                          value === 0
-                            ? undefined
-                            : `${site.site_name} · ${bucketTitle(start, bucket)} · ${exactly(value)}`
-                        }
-                        onClick={() =>
-                          onOpen({
-                            siteId: site.site_id,
-                            from: start,
-                            to: bucketEnd(start, bucket),
-                          })
-                        }
-                        className={`${FIGURE} text-text`}
-                      >
-                        {show(value)}
-                      </button>
-                    </td>
-                  )
-                })}
-              </tr>
+            // Only the shops that actually traded. A day showing thirteen rows
+            // of dashes is a day nobody can read.
+            const traded = matrix.rows
+              .filter((site) => matrix.siteValue(site.site_id, start, "sales_count") > 0)
+              .sort(
+                (left, right) =>
+                  matrix.siteValue(right.site_id, start, "gross_minor") -
+                  matrix.siteValue(left.site_id, start, "gross_minor")
+              )
 
-              {before !== undefined && (
-                <tr>
-                  <th
-                    scope="row"
-                    className="sticky left-0 z-10 border-r border-b border-hairline bg-canvas px-3 pb-1.5 text-left font-normal transition-colors group-hover:bg-soft"
-                    style={{ width: SHOP, minWidth: SHOP }}
-                  >
-                    {/* Indented past the swatch above it, so the eye reads it
-                        as belonging to that shop rather than as another one. */}
-                    <span className="block truncate pl-[0.9375rem] text-[0.65625rem] text-mute">
-                      {comparison.full}
-                    </span>
-                  </th>
-                  <td
-                    className="sticky z-10 border-r border-b border-hairline bg-canvas p-0 transition-colors group-hover:bg-soft"
-                    style={{ left: SHOP, width: TOTAL, minWidth: TOTAL }}
-                  >
-                    <button
-                      type="button"
-                      disabled={wasTotal === 0}
-                      onClick={() =>
-                        onOpen({
-                          siteId: site.site_id,
-                          from: comparison.from,
-                          to: comparison.to,
-                        })
-                      }
-                      className="w-full cursor-pointer px-3 pb-1.5 text-right text-[0.6875rem] text-body tabular-nums transition-colors hover:bg-soft-2 disabled:cursor-default disabled:hover:bg-transparent"
-                    >
-                      {show(wasTotal)}
-                    </button>
-                  </td>
-                  {/* Aligned by POSITION, not by date. The comparison span
-                      starts on a different day — that is the whole reason it
-                      was named — so the second column of one is read against
-                      the second column of the other: day two of this Ramadan
-                      under day two of last. Where the spans are different
-                      lengths the tail has no counterpart and says so. */}
-                  {matrix.buckets.map((start, index) => {
-                    const wasBucket = before.buckets[index]
-                    const was =
-                      wasBucket === undefined
-                        ? null
-                        : before.siteValue(site.site_id, wasBucket, kind)
-                    return (
-                      <td
-                        key={start}
-                        className="border-b border-hairline bg-canvas p-0 transition-colors group-hover:bg-soft"
-                      >
-                        {was === null || wasBucket === undefined ? (
-                          <span className="block px-3 pb-1.5 text-right text-faint">
-                            ·
-                          </span>
-                        ) : (
-                          <button
-                            type="button"
-                            disabled={was === 0}
-                            title={
-                              was === 0
-                                ? undefined
-                                : `${site.site_name} · ${bucketTitle(wasBucket, bucket)} · ${exactly(was)}`
-                            }
-                            onClick={() =>
-                              onOpen({
-                                siteId: site.site_id,
-                                from: wasBucket,
-                                to: bucketEnd(wasBucket, bucket),
-                              })
-                            }
-                            className="w-full cursor-pointer px-3 pb-1.5 text-right text-[0.6875rem] text-body tabular-nums transition-colors hover:bg-soft-2 disabled:cursor-default disabled:hover:bg-transparent"
-                          >
-                            {show(was)}
-                          </button>
-                        )}
-                      </td>
-                    )
-                  })}
-                </tr>
-              )}
-            </tbody>
-          )
-        })}
+            return (
+              <BucketRows
+                key={start}
+                start={start}
+                open={open}
+                live={isLive(start)}
+                traded={traded}
+                takings={takings}
+                comparing={before !== undefined}
+                was={was}
+                comparison={comparison}
+                bucket={bucket}
+                matrix={matrix}
+                alone={alone}
+                onlySiteId={only?.site_id ?? null}
+                onToggle={onToggle}
+                onOpen={onOpen}
+                onFocus={onFocus}
+                cellClass={CELL}
+              />
+            )
+          })}
+        </tbody>
 
-        {/* What the fleet did, under the shops that did it. Not clickable:
-            there is no one shop to open, and a sheet about "everybody" would be
-            this screen again.
-
-            Absent when one shop is being looked at on its own, because then it
-            is not a total of anything — it is the row above it, again. */}
-        <tfoot hidden={matrix.rows.length < 2}>
+        {/* The whole span, under the days that make it up. The two divided
+            columns are recomputed here rather than averaged down the column —
+            a span's average transaction is its takings over its transactions,
+            not the mean of fourteen daily averages. */}
+        <tfoot>
           <tr>
             <th
               scope="row"
-              className="sticky bottom-0 left-0 z-30 border-t border-r border-hairline bg-soft-2 px-3 pt-1.5 text-left font-semibold text-ink"
-              style={{ width: SHOP, minWidth: SHOP }}
+              className="sticky bottom-0 left-0 z-30 border-t border-r border-hairline bg-soft-2 px-3 py-2 text-left font-semibold text-ink"
+              style={{ width: WHEN, minWidth: WHEN }}
             >
-              Fleet
+              {alone ? (only?.site_name ?? "This shop") : "Whole span"}
             </th>
             <td
-              className="sticky bottom-0 z-30 border-t border-r border-hairline bg-soft-2 px-3 pt-1.5 text-right font-semibold text-ink tabular-nums"
-              style={{ left: SHOP, width: TOTAL, minWidth: TOTAL }}
+              className="sticky bottom-0 z-30 border-t border-r border-hairline bg-soft-2 px-3 py-2 text-right font-semibold text-ink tabular-nums"
+              style={{ left: WHEN, width: TAKINGS, minWidth: TAKINGS }}
             >
-              {show(matrix.grandTotal(kind))}
+              {showSales("gross_minor", matrix.grandTotal("gross_minor"))}
             </td>
             {before !== undefined && (
-              <td
-                rowSpan={2}
-                className="sticky bottom-0 z-30 border-t border-r border-hairline bg-soft-2 px-2 text-right align-middle"
-                style={{ left: SHOP + TOTAL, width: DELTA, minWidth: DELTA }}
-              >
+              <td className="sticky bottom-0 z-20 border-t border-hairline bg-soft-2 px-2 py-2 text-right align-middle">
                 <Delta
-                  now={matrix.grandTotal(kind)}
-                  before={before.grandTotal(kind)}
+                  now={matrix.grandTotal("gross_minor")}
+                  before={before.grandTotal("gross_minor")}
                   against={comparison.full}
                 />
               </td>
             )}
-            {matrix.buckets.map((start) => (
-              <td
-                key={start}
-                className="sticky bottom-0 z-20 border-t border-hairline bg-soft-2 px-3 pt-1.5 text-right font-medium text-ink tabular-nums"
-              >
-                {show(matrix.bucketTotal(start, kind))}
+            {(["sales_count", "average_minor", "units_sold", "items_per_sale"] as const).map(
+              (kind) => (
+                <td
+                  key={kind}
+                  className="sticky bottom-0 z-20 border-t border-hairline bg-soft-2 px-3 py-2 text-right font-medium text-ink tabular-nums"
+                >
+                  {showSales(kind, matrix.grandTotal(kind))}
+                </td>
+              )
+            )}
+            {!alone && (
+              <td className="sticky bottom-0 z-20 border-t border-hairline bg-soft-2 px-3 py-2 text-right font-medium text-ink tabular-nums">
+                {count(
+                  matrix.rows.filter(
+                    (site) => matrix.siteTotal(site.site_id, "sales_count") > 0
+                  ).length
+                )}
               </td>
-            ))}
+            )}
           </tr>
-          {/* The fleet gets the same two rows as the shops above it, for the
-              same reason: a total is only a comparison if you can see what it
-              is being compared with. */}
-          {before !== undefined && (
-            <tr>
-              <th
-                scope="row"
-                className="sticky bottom-0 left-0 z-30 border-r border-hairline bg-soft-2 px-3 pb-1.5 text-left font-normal"
-                style={{ width: SHOP, minWidth: SHOP }}
-              >
-                <span className="block truncate text-[0.65625rem] text-mute">
-                  {comparison.full}
-                </span>
-              </th>
-              <td
-                className="sticky bottom-0 z-30 border-r border-hairline bg-soft-2 px-3 pb-1.5 text-right text-[0.6875rem] text-body tabular-nums"
-                style={{ left: SHOP, width: TOTAL, minWidth: TOTAL }}
-              >
-                {show(before.grandTotal(kind))}
-              </td>
-              {matrix.buckets.map((start, index) => {
-                const wasBucket = before.buckets[index]
-                return (
-                  <td
-                    key={start}
-                    className="sticky bottom-0 z-20 bg-soft-2 px-3 pb-1.5 text-right text-[0.6875rem] text-body tabular-nums"
-                  >
-                    {wasBucket === undefined ? (
-                      <span className="text-faint">·</span>
-                    ) : (
-                      show(before.bucketTotal(wasBucket, kind))
-                    )}
-                  </td>
-                )
-              })}
-            </tr>
-          )}
         </tfoot>
       </table>
     </div>
+  )
+}
+
+/// One trading period, and the shops under it when it is open.
+///
+/// Split out because the day row and its shop rows share a hover group and a
+/// dozen derived figures, and inlining both in the map above made the parent
+/// unreadable rather than shorter.
+function BucketRows({
+  start,
+  open,
+  live,
+  traded,
+  takings,
+  comparing,
+  was,
+  comparison,
+  bucket,
+  matrix,
+  alone,
+  onlySiteId,
+  onToggle,
+  onOpen,
+  onFocus,
+  cellClass,
+}: {
+  start: string
+  open: boolean
+  live: boolean
+  traded: readonly { site_id: string; site_name: string }[]
+  takings: number
+  /// Whether the comparison COLUMN exists, which is not the same question as
+  /// whether this row has a figure for it. The header draws the column from
+  /// the first; a row that answered the second would shift every cell to its
+  /// right by one on any span shorter than the one it is measured against.
+  comparing: boolean
+  was: number | null
+  comparison: Comparison
+  bucket: SalesBucket
+  matrix: SalesMatrix
+  alone: boolean
+  onlySiteId: string | null
+  onToggle: (start: string) => void
+  onOpen: (cell: { siteId: string; from: string; to: string }) => void
+  onFocus: (siteId: string) => void
+  cellClass: string
+}) {
+  const span = { from: start, to: bucketEnd(start, bucket) }
+  const quiet = takings === 0
+
+  return (
+    <>
+      <tr className="group">
+        <th
+          scope="row"
+          className="sticky left-0 z-10 border-r border-b border-hairline bg-canvas p-0 text-left font-medium transition-colors group-hover:bg-soft"
+          style={{ width: WHEN, minWidth: WHEN }}
+        >
+          {/* One shop on screen has nothing to unfold into — the row IS the
+              shop — so the day opens that shop's receipts instead. */}
+          <button
+            type="button"
+            disabled={quiet && !alone}
+            onClick={() =>
+              alone && onlySiteId !== null
+                ? onOpen({ siteId: onlySiteId, ...span })
+                : onToggle(start)
+            }
+            title={
+              alone
+                ? `Open ${bucketTitle(start, bucket)}`
+                : quiet
+                  ? undefined
+                  : `${traded.length} shop${traded.length === 1 ? "" : "s"} traded`
+            }
+            className="flex w-full cursor-pointer items-center gap-1.5 px-2 py-2 text-left disabled:cursor-default"
+          >
+            {!alone && (
+              <ChevronRight
+                aria-hidden
+                className={cn(
+                  "size-3.5 shrink-0 text-line-ico transition-transform",
+                  open && "rotate-90",
+                  quiet && "opacity-0"
+                )}
+              />
+            )}
+            <span className={cn("truncate", alone && "pl-1", quiet ? "text-mute" : "text-ink")}>
+              {bucketTitle(start, bucket)}
+            </span>
+            {live && (
+              <Pill tone="accent" withDot className="ml-auto h-[1.25rem] px-1.5">
+                Live
+              </Pill>
+            )}
+          </button>
+        </th>
+
+        <td
+          className="sticky z-10 border-r border-b border-hairline bg-canvas px-3 py-2 text-right font-medium text-ink tabular-nums transition-colors group-hover:bg-soft"
+          style={{ left: WHEN, width: TAKINGS, minWidth: TAKINGS }}
+        >
+          {quiet ? (
+            <span className="text-faint">–</span>
+          ) : (
+            showSales("gross_minor", takings)
+          )}
+        </td>
+
+        {comparing && (
+          <td
+            className={`${cellClass} bg-canvas px-2 align-middle whitespace-nowrap transition-colors group-hover:bg-soft`}
+            style={{ width: DELTA, minWidth: DELTA }}
+          >
+            {was === null ? (
+              // No counterpart period in the span being compared against.
+              <span className="text-faint">·</span>
+            ) : (
+              <Delta now={takings} before={was} against={comparison.full} />
+            )}
+          </td>
+        )}
+
+        {(["sales_count", "average_minor", "units_sold", "items_per_sale"] as const).map(
+          (kind) => {
+            const value = matrix.bucketTotal(start, kind)
+            return (
+              <td
+                key={kind}
+                className={`${cellClass} bg-canvas text-text transition-colors group-hover:bg-soft`}
+              >
+                {value === 0 ? (
+                  <span className="text-faint">–</span>
+                ) : (
+                  showSales(kind, value)
+                )}
+              </td>
+            )
+          }
+        )}
+
+        {!alone && (
+          <td className={`${cellClass} bg-canvas text-body transition-colors group-hover:bg-soft`}>
+            {traded.length === 0 ? (
+              <span className="text-faint">–</span>
+            ) : (
+              count(traded.length)
+            )}
+          </td>
+        )}
+      </tr>
+
+      {open &&
+        !alone &&
+        traded.map((site) => (
+          <tr key={site.site_id} className="group/shop">
+            <th
+              scope="row"
+              className="sticky left-0 z-10 border-r border-b border-hairline bg-soft/40 p-0 text-left font-normal transition-colors group-hover/shop:bg-soft"
+              style={{ width: WHEN, minWidth: WHEN }}
+            >
+              {/* The name narrows the whole screen to this shop; the takings
+                  cell beside it opens this shop's day. Two different questions
+                  about one row, and the old grid answered them the same way. */}
+              <button
+                type="button"
+                onClick={() => onFocus(site.site_id)}
+                title={`Show ${site.site_name} on its own`}
+                className="flex w-full cursor-pointer items-center gap-2 py-1.5 pr-3 pl-[1.875rem] text-left"
+              >
+                <span
+                  aria-hidden
+                  className="size-[7px] shrink-0 rounded-[2px]"
+                  style={{ background: matrix.colourOf(site.site_id) }}
+                />
+                <span className="truncate text-body">{site.site_name}</span>
+              </button>
+            </th>
+
+            <td
+              className="sticky z-10 border-r border-b border-hairline bg-soft/40 p-0 transition-colors group-hover/shop:bg-soft"
+              style={{ left: WHEN, width: TAKINGS, minWidth: TAKINGS }}
+            >
+              <button
+                type="button"
+                onClick={() => onOpen({ siteId: site.site_id, ...span })}
+                title={`${site.site_name} · ${bucketTitle(start, bucket)} — open the receipts`}
+                className="w-full cursor-pointer px-3 py-1.5 text-right text-text tabular-nums transition-colors hover:bg-soft-2"
+              >
+                {showSales(
+                  "gross_minor",
+                  matrix.siteValue(site.site_id, start, "gross_minor")
+                )}
+              </button>
+            </td>
+
+            {/* No per-shop comparison column. The shop's own day against the
+                positionally-matching day of another span is a number nobody
+                asked for, and drawing it would put thirteen arrows on a screen
+                whose comparison is about the fleet. The cell is held open so
+                the columns to its right stay under their headings. */}
+            {comparing && (
+              <td className="border-b border-hairline bg-soft/40 transition-colors group-hover/shop:bg-soft" />
+            )}
+
+            {(
+              ["sales_count", "average_minor", "units_sold", "items_per_sale"] as const
+            ).map((kind) => (
+              <td
+                key={kind}
+                className={`${cellClass} bg-soft/40 py-1.5 text-body transition-colors group-hover/shop:bg-soft`}
+              >
+                {showSales(kind, matrix.siteValue(site.site_id, start, kind))}
+              </td>
+            ))}
+
+            <td className="border-b border-hairline bg-soft/40 transition-colors group-hover/shop:bg-soft" />
+          </tr>
+        ))}
+    </>
   )
 }

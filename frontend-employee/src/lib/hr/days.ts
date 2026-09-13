@@ -25,3 +25,31 @@ export function readMinutes(minutes: number): string {
   if (hours === 0) return `${rest}m`
   return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`
 }
+
+/// What produced a day's readings, said out loud.
+///
+/// There are two punch sources and they are **not the same evidence**. A
+/// fingerprint station at the unit witnessed an arrival; this app witnessed
+/// nothing — somebody pressed a button on their own phone. The owner's decision
+/// is still readers everywhere, and none has been bought yet, so for now most
+/// days will read as the second.
+///
+/// Which is exactly why the screen says so rather than showing a time and
+/// leaving it at that. "08:32" with no provenance presents a person's own claim
+/// as a measurement, and the day the readers arrive somebody will need to know
+/// which of their months were which. Both can be true of one day: a reader that
+/// failed after lunch leaves a morning reading and an afternoon tap.
+export function punchSource(sources: readonly string[]): string {
+  const reader = sources.includes("TERMINAL")
+  const app = sources.includes("EMPLOYEE_APP")
+  if (reader && app) {
+    return "Fingerprint reader and this app"
+  }
+  if (reader) {
+    return "Fingerprint reader"
+  }
+  if (app) {
+    return "Recorded by you, on this app"
+  }
+  return "Nothing recorded"
+}

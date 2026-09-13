@@ -351,12 +351,18 @@ mod tests {
         )
         .is_ok());
         assert!(
-            SealedTemplate::new(Vec::new(), vec![1; TEMPLATE_NONCE_LEN], "k1", TemplateFormat::ZkfingerV10)
-                .is_err(),
+            SealedTemplate::new(
+                Vec::new(),
+                vec![1; TEMPLATE_NONCE_LEN],
+                "k1",
+                TemplateFormat::ZkfingerV10
+            )
+            .is_err(),
             "empty ciphertext is not a sealed template"
         );
         assert!(
-            SealedTemplate::new(vec![7; 64], vec![1; 8], "k1", TemplateFormat::ZkfingerV10).is_err(),
+            SealedTemplate::new(vec![7; 64], vec![1; 8], "k1", TemplateFormat::ZkfingerV10)
+                .is_err(),
             "a short nonce is a refusal, not a weaker seal"
         );
     }

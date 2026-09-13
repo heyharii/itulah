@@ -15,7 +15,37 @@ export type GeneralLedgerRow = {
  * can. Sending the line id is what makes `reconciled` below an answer
  * rather than a guess.
  */
-line_id: string, entry_id: string, entry_number: string, posting_date: string, source_kind: string, source_id: string | null, site_id: string, memo: string | null, debit_minor: number, credit_minor: number, 
+line_id: string, entry_id: string, entry_number: string, posting_date: string, source_kind: string, source_id: string | null, 
+/**
+ * The account this LINE landed on, which is not always the account that
+ * was asked for.
+ *
+ * The code is matched by PREFIX — that is how "what happened in CASH this
+ * month" is asked without knowing cash is fourteen leaves — so under a
+ * heading the rows come from several accounts and a row that could not
+ * name its own was unreadable. Filling that column meant opening every
+ * voucher, one request per row, to find out which leaf the line was on.
+ */
+account_code: string, 
+/**
+ * The client's own name for that account, never translated.
+ */
+account_name: string, site_id: string, 
+/**
+ * Who the other side was, when the posting named one.
+ *
+ * `journal_line.supplier_id` is the sub-ledger dimension the payables
+ * ageing is projected over (0051), so it is the party on every bill and
+ * every payment line. Null on a sales entry, a depreciation charge or a
+ * hand-written correction, which have no party and must not pretend to.
+ */
+supplier_id: string | null, 
+/**
+ * The supplier's name, looked up best-effort. Null when the line carries
+ * no party, and also when it names one no longer in the register — the id
+ * is the record and the name is the courtesy.
+ */
+supplier_name: string | null, memo: string | null, debit_minor: number, credit_minor: number, 
 /**
  * The balance after this line. Computed by a window function on every
  * read, so it cannot disagree with the lines above it.

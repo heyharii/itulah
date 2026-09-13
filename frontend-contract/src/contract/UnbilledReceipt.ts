@@ -7,7 +7,19 @@
  * operational answer to "what is sitting in the warehouse that the books do
  * not know about", and it is the reason that gap is visible at all.
  */
-export type UnbilledReceipt = { receipt_id: string, receipt_number: string, supplier_id: string, site_id: string, arrived_at: string, 
+export type UnbilledReceipt = { receipt_id: string, receipt_number: string, supplier_id: string, 
+/**
+ * The CENTRE's name for the unit — `dc`, `store-07` — which is the
+ * spelling every other finance read answers in and the one the unit
+ * pickers and `org_place` are keyed on.
+ */
+site_id: string, 
+/**
+ * What the node that minted this receipt calls itself — `dc-01` at the
+ * distribution centre, and the same as `site_id` everywhere else. It is
+ * inside `receipt_number`, so it is what somebody reads off the paper.
+ */
+origin_site_id: string, arrived_at: string, 
 /**
  * What the DC recorded off the paper that came with the goods, when it
  * came with any. Evidence, not a bookable figure.

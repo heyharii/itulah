@@ -9,6 +9,42 @@
  */
 export type RunReconciliation = { slips: number, base_total_minor: number, statutory_base_total_minor: number, overtime_minutes_total: number, leave_days_total: number, 
 /**
+ * Base, standing allowances, valued overtime and the one-offs the place
+ * filed. Always a real sum of what is on the slips.
+ */
+gross_total_minor: number, 
+/**
+ * `null` if **any** slip could not assess its deductions. Not a partial
+ * total: a figure that quietly omits the people it could not compute is
+ * worse than an absent one, because it looks like an answer.
+ */
+deduction_total_minor: number | null, 
+/**
+ * `null` if any slip has no net, for the same reason.
+ */
+net_total_minor: number | null, 
+/**
+ * Slips whose deductions or net could not be worked out, because a
+ * component in force has no ratified rate — or because nobody has defined
+ * a deduction at all. **The thing to fix before approving**, and the
+ * reason it is a count here and a sentence on each slip.
+ */
+slips_with_unworkable_components: number, 
+/**
+ * Slips where the deductions came to more than the month earned. Real
+ * rather than impossible — a *kasbon* instalment set too high does it —
+ * and head office should see it before approving rather than after
+ * somebody is paid a negative wage.
+ */
+slips_with_negative_net: number, 
+/**
+ * Lines that counted nothing: a per-day allowance for somebody nobody
+ * rostered. Not an error and not silence — the line is on the slip saying
+ * "nil days" — but worth a number on the screen, because it is usually a
+ * missing roster rather than a genuine nought.
+ */
+lines_that_counted_nothing: number, 
+/**
  * People on the run with no bank account recorded. **A blocker**: a
  * payment file that fails at the bank fails for everybody in it.
  */

@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 
 import * as api from "@/api"
+import { PinPad } from "@/pinpad"
+import { supervisorByFinger, supervisorByPin } from "@/session"
 import { Topbar } from "@/till"
 import { readScan } from "@epc"
 import { money } from "@itulah/contract/money"
@@ -17,13 +19,27 @@ import { money } from "@itulah/contract/money"
 ///
 /// # What both of them ask for, and why
 ///
-/// **A supervisor, typed at the moment.** `verify_supervisor` in
+/// **A supervisor, at the moment it is needed.** `verify_supervisor` in
 /// `backend/src/edge/till.rs` is a step-up and not a session: the cashier stays
-/// signed in, a second person is checked against `edge_user`, and their name is
-/// written onto the row that needed them. Nothing is issued back, so there is
-/// nothing here to keep — and this screen keeps nothing. The two fields are
-/// uncontrolled, read once on the way into the request body, and wiped the
-/// moment the node has answered, refusal or not.
+/// signed in, a second person is checked, and their name is written onto the
+/// row that needed them. A password typed into the two fields here always
+/// works. Beyond that there is a quick way, and **the node decides which one it
+/// is** — a finger pressed on this counter's scanner, or a PIN pressed on the
+/// pad; either is answered with a one-shot authorisation good for three minutes
+/// and exactly one action. The quick way exists because a supervisor is called
+/// to a till many times a day, and a password typed in front of a queue is how
+/// it ends up written on the side of a monitor.
+///
+/// Which quick way is on offer is asked of the node (`authMethods()`), not
+/// chosen here, and a PIN is the *staging* method: the pad says so where the
+/// cashier can read it. A till that cannot tell a rehearsal from the real thing
+/// is how a rehearsal reaches a customer.
+///
+/// All three are credentials and all three are kept the same way: the fields are
+/// uncontrolled, the PIN and the authorisation live in refs, never in state,
+/// read once on the way out, and wiped the moment the node has answered, refusal
+/// or not. What the screen does keep is the supervisor's *name*, because a
+/// cashier has to see that a person was recognised — a tick is not a person.
 ///
 /// **One key per attempt.** The node files an idempotency key together with the
 /// request it arrived with. Pressing again after a refusal that never reached
@@ -207,6 +223,61 @@ function methodLabel(value: string | null): string {
 
 // ── the supervisor ──────────────────────────────────────────────────────
 
+/// How long a pressed finger is worth, counted from the press and not from the
+/// answer.
+///
+/// `SUPERVISOR_GRANT_SECONDS` in `backend/src/edge/fingerprint.rs` is 180, and
+/// the node stamps the deadline when it writes the grant down — a moment *after*
+/// the finger was pressed here. Its own `expires_at` does not come back through
+/// `supervisorByFinger()`, so this screen counts the three minutes itself; from
+/// the press, which ends them a shade before the node's rather than after. That
+/// is the only safe direction to be wrong in — it warns while the grant is still
+/// good, instead of promising time that has already gone.
+///
+/// A PIN earns the same kind of grant through `supervisorByPin()` and is counted
+/// the same way, from the press. One clock for both, because what expires is the
+/// grant, not the method it was bought with.
+const GRANT_MS = 180_000
+
+/// When the countdown stops being a detail and starts being a warning. Long
+/// enough to still finish the screen, which is the point: the node's refusal
+/// arrives *after* the action was attempted, and this arrives before.
+const GRANT_WARNING_MS = 45_000
+
+/// `m:ss`, for a figure somebody is watching rather than reading.
+function countdown(ms: number): string {
+  const whole = Math.max(0, Math.ceil(ms / 1000))
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`
+}
+
+/// Something to say about the step-up, and which one it was that failed.
+///
+/// The causes spelled out further down are worth offering only when an attempt
+/// was refused, and they are different lists for the two methods: a missing
+/// scanner is not a wrong PIN. A grant that lapsed on the counter, or one that
+/// has already been spent on an attempt, is neither, and `from: null` is what
+/// says so — offering either list for those would be answering a question nobody
+/// asked.
+type Trouble = {
+  readonly text: string
+  readonly from: "FINGER" | "PIN" | null
+}
+
+/// A supervisor who was recognised, as far as this screen is allowed to know it.
+type Granted = {
+  /// The node's own answer about whose credential it was — never what was typed
+  /// in a field. `ClaimAccepted.username` is not optional at the node, so an
+  /// authorisation that arrives without one is not an answer this screen
+  /// understands.
+  readonly who: string
+  /// When this screen stops believing in it, whatever the node's clock says.
+  readonly until: number
+  /// Which way it was earned. Not used to decide anything — the grant is a grant
+  /// — only to say it in the right words, since "tekan jarinya lagi" is an
+  /// instruction nobody can follow on a node that took a PIN.
+  readonly how: "FINGER" | "PIN"
+}
+
 /// The supervisor's credentials, for exactly as long as one request takes.
 ///
 /// Uncontrolled on purpose. `useState` would put a password in the fibre tree,
@@ -219,11 +290,220 @@ function methodLabel(value: string | null): string {
 /// button that greyed out until the password was filled would be a button that
 /// knew what was in it. So they are checked on the press instead, and a blank
 /// one is refused here rather than spent on a call.
+///
+/// A fingerprint authorisation is a credential on the same terms, so the token
+/// itself lives in a ref beside them. A PIN is one too, and lives in a third.
+/// Only what the counter has to *look* at is state — the name it was earned by
+/// and how long is left — and neither of those authorises anything on its own.
 function useSupervisor() {
   const username = useRef<HTMLInputElement>(null)
   const password = useRef<HTMLInputElement>(null)
+  const grant = useRef<string | null>(null)
+  const [granted, setGranted] = useState<Granted | null>(null)
+  /// Which wait is in progress, rather than merely that one is. Two different
+  /// waits drawn in the same words would have the fingerprint button saying
+  /// "menunggu jari pada pemindai" while a PIN claim is in flight, which is a
+  /// sentence telling a supervisor to touch a scanner for something else.
+  const [asking, setAsking] = useState<"FINGER" | "PIN" | null>(null)
+  const [refused, setRefused] = useState<Trouble | null>(null)
+  const [now, setNow] = useState(() => Date.now())
+
+  /// The PIN, and the one thing about it that is allowed to be state.
+  ///
+  /// The digits live in a ref for the same reason the password lives in an
+  /// uncontrolled field: `useState` would put them in the fibre tree, in every
+  /// closure this render made and in any devtools snapshot taken while they sat
+  /// there. But a pad has to redraw on every press, and writing a ref redraws
+  /// nothing — so a press bumps a counter, a number that says nothing about the
+  /// PIN, and the pad is handed the ref's own string at render time. `askPin()`
+  /// and `wipe()` go to the ref, which is why an emptied PIN is actually empty
+  /// rather than merely no longer drawn.
+  const pin = useRef("")
+  const [, redrawPin] = useState(0)
+
+  function setPin(next: string) {
+    pin.current = next
+    redrawPin((count) => count + 1)
+  }
+
+  /// Which quick step-up this node accepts, asked of the node itself.
+  ///
+  /// Null means it has not answered — not `NONE`. Only a positive `PIN` puts the
+  /// pad on screen: a method the node does not accept is refused *at the node*,
+  /// so drawing a pad on a hunch would fetch a supervisor to a counter to type a
+  /// PIN into a machine that was never going to take it.
+  const [stepUp, setStepUp] = useState<api.StepUp | null>(null)
+  const [methods, setMethods] = useState<string | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    void (async () => {
+      const reply = await api.authMethods()
+      if (!alive) return
+      if (!reply.ok) {
+        setStepUp(null)
+        setMethods(reply.problem)
+        return
+      }
+      setStepUp(reply.body?.till_step_up ?? "NONE")
+      setMethods(null)
+    })()
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  /// Stop holding it, and stop naming whoever earned it.
+  function release() {
+    grant.current = null
+    setGranted(null)
+  }
+
+  // The clock, and the only thing that runs on its own here. A grant that
+  // lapses while the screen sits open is dropped on this tick rather than
+  // carried into a submit: the node would refuse it, and that refusal would
+  // arrive with a supervisor's name attached, as though the person standing
+  // there had been the one told no.
+  useEffect(() => {
+    if (granted === null) return
+    const tick = window.setInterval(() => {
+      const at = Date.now()
+      setNow(at)
+      if (at < granted.until) return
+      release()
+      setRefused({
+        text:
+          `${granted.how === "PIN" ? "Otorisasi PIN" : "Otorisasi sidik jari"}` +
+          " sudah lewat tiga menit dan sudah dilepas — node akan menolaknya. " +
+          `Minta supervisor ${
+            granted.how === "PIN"
+              ? "menekan PIN-nya sekali lagi"
+              : "menekan jarinya sekali lagi"
+          }, atau pakai nama pengguna dan kata sandi.`,
+        from: null,
+      })
+    }, 1000)
+    return () => window.clearInterval(tick)
+  }, [granted])
+
+  /// Hold what the node gave back, or say why it gave nothing.
+  ///
+  /// One body for both quick methods, because both are the same transaction: a
+  /// credential goes out, and a one-shot grant comes back with a name on it that
+  /// this screen did not invent. `how` changes not one decision here — a grant is
+  /// a grant — only the words, since "tekan jarinya lagi" is an instruction
+  /// nobody can follow at a node that asked for a PIN.
+  function take(
+    pressed: number,
+    answer: {
+      readonly authorization: string | null
+      readonly username: string | null
+      readonly problem: string | null
+    },
+    how: "FINGER" | "PIN",
+  ): void {
+    if (answer.authorization === null) {
+      // Whoever refused said why, and this screen does not improve on it. For a
+      // finger, three unrelated things end up here — no scanner bound to this
+      // shell, nobody enrolled at this shop, a finger that did not match; for a
+      // PIN, a wrong one, a person who is not a supervisor, or a node that does
+      // not take PINs at all. Only the party that refused knows which it meant.
+      release()
+      setRefused({
+        text:
+          answer.problem ??
+          (how === "PIN"
+            ? "PIN itu tidak menghasilkan otorisasi, dan tidak ada yang menyebut alasannya."
+            : "Sidik jari tidak menghasilkan otorisasi, dan tidak ada yang menyebut alasannya."),
+        from: how,
+      })
+      return
+    }
+    const who = answer.username?.trim() ?? ""
+    if (who === "") {
+      // An authorisation nobody can be named for is not offered as a person,
+      // and a tick is not a person. Dropped rather than spent: the cashier
+      // would be watching a green light stand in for a supervisor.
+      release()
+      setRefused({
+        text:
+          "Node memberi otorisasi tanpa menyebut siapa yang memberikannya, " +
+          "jadi terminal ini tidak memakainya. Pakai nama pengguna dan kata sandi.",
+        from: null,
+      })
+      return
+    }
+    // A second attempt while one is already held replaces it. The one left
+    // behind is unspent, bound to this terminal and lapses by itself, which is a
+    // better trade than refusing a supervisor who wants to start the three
+    // minutes again because the cashier is not finished yet.
+    grant.current = answer.authorization
+    setNow(Date.now())
+    setGranted({ who, until: pressed + GRANT_MS, how })
+  }
+
+  /// Ask the scanner on this counter, and hold what the node gives back.
+  async function ask(): Promise<void> {
+    // Started before the call rather than after it: see `GRANT_MS`.
+    const pressed = Date.now()
+    setAsking(true)
+    setRefused(null)
+    const answer = await supervisorByFinger()
+    setAsking(false)
+    take(pressed, answer, "FINGER")
+  }
+
+  /// Spend a PIN on a grant — the staging counterpart of `ask()`.
+  ///
+  /// The PIN itself never goes any further than this call. `Supervisor` on the
+  /// wire carries a password or an authorisation and has no field for a PIN, and
+  /// that is the right shape: the node files the request body it was sent
+  /// against the idempotency key, so a PIN in that body would be a PIN sitting in
+  /// the shop node's SQLite for as long as the row lives. It is exchanged for a
+  /// grant here, and the grant is what travels.
+  async function askPin(): Promise<void> {
+    const pressed = Date.now()
+    // Both halves are checked here, before anything is spent. A supervisor
+    // should not be told "PIN salah" by the node because the name box above this
+    // pad was empty — and the PIN they typed correctly would be gone either way.
+    const who = username.current?.value.trim() ?? ""
+    const typed = pin.current
+    if (who === "" || typed === "") {
+      setRefused({
+        text:
+          "PIN perlu dua hal: nama pengguna supervisor di kolom di atas, dan " +
+          "PIN-nya di pad. Node mencocokkan keduanya, bukan salah satunya.",
+        from: null,
+      })
+      return
+    }
+    setAsking(true)
+    setRefused(null)
+    const answer = await supervisorByPin(who, typed)
+    setAsking(false)
+    // Gone the moment the node has answered, refusal included. It bought a grant
+    // or it bought nothing, and there is no second thing to buy with it either
+    // way — a PIN still in the ref is a PIN the next person at this counter can
+    // press ⏎ on.
+    setPin("")
+    take(pressed, answer, "PIN")
+  }
 
   function read(): api.Supervisor | null {
+    const token = grant.current
+    if (token !== null) {
+      // A grant is held — by a finger or by a PIN — so the password field is not
+      // read at all, not even if something was typed into it before.
+      // `verify_supervisor` spends the grant first and never looks at a password
+      // once one arrived, and it checks the name against whom the grant was
+      // earned by, so the name sent is the node's own answer rather than
+      // anything on this screen.
+      if (granted !== null && Date.now() < granted.until) {
+        return { username: granted.who, authorization: token }
+      }
+      release()
+      return null
+    }
     const who = username.current?.value.trim() ?? ""
     // Not trimmed: a password's spaces are the password's business.
     const secret = password.current?.value ?? ""
@@ -234,34 +514,219 @@ function useSupervisor() {
   function wipe() {
     if (username.current !== null) username.current.value = ""
     if (password.current !== null) password.current.value = ""
+    // The PIN and the authorisation go at the same moment and for the same
+    // reason. The grant was single-use at the node whichever way the node
+    // answered, so one still sitting in a ref afterwards is a credential this
+    // counter is keeping for nothing — and a PIN left in its ref is worse, since
+    // it can buy another one.
+    const spent = grant.current === null ? null : granted?.how ?? "FINGER"
+    setPin("")
+    release()
+    setRefused(
+      spent === null
+        ? null
+        : {
+            text:
+              (spent === "PIN"
+                ? "PIN itu sudah terpakai untuk percobaan tadi"
+                : "Sidik jari itu sudah terpakai untuk percobaan tadi") +
+              " — satu otorisasi untuk satu tindakan. Kalau percobaannya " +
+              (spent === "PIN"
+                ? "ditolak, minta supervisor menekan PIN-nya lagi."
+                : "ditolak, minta supervisor menekan jarinya lagi."),
+            from: null,
+          },
+    )
   }
 
-  return { username, password, read, wipe }
+  /// What to say when nothing has authorised the action yet.
+  ///
+  /// It names only the ways *this* node will accept. A sentence sending a cashier
+  /// to fetch a finger for a node that takes PINs sends somebody to press a
+  /// scanner that is going to refuse them, while a queue waits — and on a node
+  /// that accepts neither, the password is the whole answer.
+  const missing =
+    "Belum ada otorisasi supervisor. Isi nama pengguna dan kata sandinya" +
+    (stepUp === "PIN"
+      ? ", atau minta supervisor menekan PIN-nya di pad"
+      : stepUp === "NONE"
+        ? ""
+        : ", atau minta supervisor menekan sidik jarinya") +
+    " — node yang memeriksanya, bukan terminal ini."
+
+  return {
+    username,
+    password,
+    granted,
+    asking,
+    refused,
+    now,
+    stepUp,
+    methods,
+    /// The pad's `value`: read out of the ref at render time, never held in
+    /// state. See the ref's own note above.
+    pinValue: pin.current,
+    setPin,
+    missing,
+    ask,
+    askPin,
+    release,
+    read,
+    wipe,
+  }
 }
 
 type Supervision = ReturnType<typeof useSupervisor>
 
 function Authorisation({ hold }: { hold: Supervision }) {
+  const granted = hold.granted
+  const left = granted === null ? null : Math.max(0, granted.until - hold.now)
+
   return (
     <>
       <span className="label">Otorisasi supervisor</span>
       <div className="notice">
-        Supervisor mengetik sendiri di sini, dengan kasir tetap masuk. Terminal
-        tidak menyimpan apa pun: begitu node menjawab, kedua kolom dikosongkan.
+        Supervisor mengotorisasi sendiri di sini, dengan kasir tetap masuk —
+        mengetik sandinya
+        {hold.stepUp === "PIN"
+          ? ", atau menekan PIN-nya di pad di bawah"
+          : ", atau menempelkan jarinya pada pemindai konter ini"}
+        . Terminal tidak menyimpan apa pun: begitu node menjawab, kolomnya
+        dikosongkan, PIN-nya dihapus dan otorisasinya dilepas.
       </div>
-      <label className="field">
-        Nama pengguna supervisor
-        <input
-          ref={hold.username}
-          autoComplete="off"
-          spellCheck={false}
-          placeholder="Nama pengguna di node toko"
-        />
-      </label>
-      <label className="field">
-        Kata sandi supervisor
-        <input ref={hold.password} type="password" autoComplete="off" />
-      </label>
+
+      {granted !== null && left !== null ? (
+        <>
+          {/* Who, before anything else. A cashier has to be able to see that a
+              real person was recognised, and the name is the node's answer —
+              it is also the name that will be written on the row. */}
+          <div className="notice">
+            Diotorisasi oleh <strong>{granted.who}</strong>, lewat{" "}
+            {granted.how === "PIN" ? "PIN" : "sidik jari"} di konter ini. Nama
+            itu datang dari node — bukan dari kolom di layar ini — dan itulah
+            nama yang tercatat pada tindakan ini. Kata sandi tidak dikirim.
+          </div>
+          {left > GRANT_WARNING_MS ? (
+            <p className="muted">
+              Sekali pakai, dan berlaku{" "}
+              <span className="num">{countdown(left)}</span> lagi.
+            </p>
+          ) : (
+            <div className="notice warn">
+              Otorisasi ini tinggal{" "}
+              <strong className="num">{countdown(left)}</strong>. Lewat dari itu
+              node menolaknya dan tindakan ini tidak tercatat — kirim sekarang,
+              atau minta supervisor{" "}
+              {granted.how === "PIN"
+                ? "menekan PIN-nya lagi"
+                : "menekan jarinya lagi"}
+              .
+            </div>
+          )}
+          <button className="btn ghost" type="button" onClick={hold.release}>
+            Lepas otorisasi dan ketik manual
+          </button>
+        </>
+      ) : (
+        <>
+          {/* Unmounted while an authorisation is held, not merely disabled: a
+              password field drawn beside a grant that will not be sending it is
+              a lie about what is going to happen, and a field that is gone is a
+              field nobody can leave a password sitting in. The PIN pad is in here
+              for the same reason and on the same terms — while a grant is held
+              there is nothing left for a PIN to buy, and getting back to it is
+              the "lepas otorisasi" button below. */}
+          <label className="field">
+            Nama pengguna supervisor
+            <input
+              ref={hold.username}
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="Nama pengguna di node toko"
+            />
+          </label>
+          <label className="field">
+            Kata sandi supervisor
+            <input ref={hold.password} type="password" autoComplete="off" />
+          </label>
+
+          {/* Only on a positive PIN from the node, and the notice says out loud
+              what that positive answer means: this is a staging node. A cashier
+              who cannot tell a rehearsal from the real thing is how a rehearsal
+              reaches a customer, and a void authorised by a PIN is a void on a
+              node nobody is meant to be selling from. */}
+          {hold.stepUp === "PIN" && (
+            <div>
+              <span className="label">Otorisasi dengan PIN</span>
+              <div className="notice warn" style={{ marginTop: 8 }}>
+                <strong>PIN hanya diterima node latihan (staging).</strong> Node
+                produksi menolak PIN dan meminta sidik jari. Jadi kalau pad ini
+                muncul, konter ini terhubung ke node latihan — retur dan void di
+                sini adalah latihan, bukan uang pelanggan. Kata sandi tetap
+                berlaku di node mana pun.
+              </div>
+              <p className="muted" style={{ marginTop: 6 }}>
+                PIN dipakai bersama nama pengguna supervisor di kolom di atas.
+              </p>
+              <PinPad
+                value={hold.pinValue}
+                onChange={hold.setPin}
+                onSubmit={() => void hold.askPin()}
+                disabled={hold.asking}
+              />
+              <button
+                className="btn"
+                type="button"
+                style={{ marginTop: 8 }}
+                disabled={hold.asking || hold.pinValue === ""}
+                onClick={() => void hold.askPin()}
+              >
+                {hold.asking
+                  ? "Menanyakan ke node…"
+                  : "Otorisasi dengan PIN ini"}
+              </button>
+            </div>
+          )}
+        </>
+      )}
+
+      <button
+        className="btn"
+        type="button"
+        disabled={hold.asking}
+        onClick={() => void hold.ask()}
+      >
+        {hold.asking
+          ? "Menunggu jari pada pemindai…"
+          : granted === null
+            ? "Otorisasi dengan sidik jari"
+            : "Tekan sidik jari lagi"}
+      </button>
+
+      {hold.refused !== null && (
+        <>
+          <p className="error">{hold.refused.text}</p>
+          {/* Three different problems come through that one sentence, and only
+              one of them is answered by pressing again. Flattened into "coba
+              lagi" it would send a cashier pressing at a counter that has no
+              reader attached at all, while a queue waits. */}
+          {hold.refused.fromPress && (
+            <div className="notice warn">
+              Kalimatnya milik pihak yang menolak, dan tiga hal yang berbeda
+              bisa berakhir di situ. <strong>Pemindainya tidak terpasang</strong>{" "}
+              di mesin ini: ditekan berapa kali pun hasilnya sama sampai
+              pembacanya dipasang, jadi sekarang pakai kata sandi.{" "}
+              <strong>
+                Belum ada supervisor yang sidik jarinya terdaftar
+              </strong>{" "}
+              di toko ini: mendaftarkannya lewat akun admin, bukan dari layar
+              ini. <strong>Jarinya tidak cocok</strong>: hanya yang ini yang
+              selesai dengan menekan lagi — tempelkan lebih rata, lalu coba
+              sekali lagi.
+            </div>
+          )}
+        </>
+      )}
     </>
   )
 }
@@ -478,7 +943,9 @@ export function ReturnScreen({
 
   // The key belongs to the attempt, not to the press: see the file's head.
   // `shape` is everything the node would file the key against except who
-  // authorised it, which this screen deliberately cannot see.
+  // authorised it — a name this screen can now sometimes see, since a finger
+  // comes back with one, and still leaves out. A refusal answered by a second
+  // supervisor is this same return tried twice, not a second return.
   const attempt = useRef<string | null>(null)
   const shape = JSON.stringify([
     sale?.saleId ?? null,
@@ -500,8 +967,9 @@ export function ReturnScreen({
   /// More tags of one SKU than that SKU was sold on this receipt.
   ///
   /// The node refuses the extra one — it matches every EPC against the sale's
-  /// own lines — but it refuses *after* a supervisor has typed a password, and
-  /// this much is knowable before that.
+  /// own lines — but it refuses *after* a supervisor has been fetched to the
+  /// counter and spent a password or a finger on it, and this much is knowable
+  /// before that.
   const overscanned = useMemo(() => {
     if (sale === null) return [] as readonly string[]
     const sold = new Map<string, number>()
@@ -590,12 +1058,12 @@ export function ReturnScreen({
       return
     }
     // Read last, and only once everything this screen could refuse on its own
-    // has already passed: a password is not touched to be told the form is
-    // incomplete.
+    // has already passed: a password is not touched, and a finger's three
+    // minutes are not spent, to be told the form is incomplete.
     const authorisation = supervisor.read()
     if (authorisation === null) {
       setProblem(
-        "Nama pengguna dan kata sandi supervisor harus diisi — node yang memeriksanya, bukan terminal ini.",
+        "Belum ada otorisasi supervisor. Isi nama pengguna dan kata sandinya, atau minta supervisor menekan sidik jarinya — node yang memeriksanya, bukan terminal ini.",
       )
       return
     }
@@ -613,9 +1081,10 @@ export function ReturnScreen({
       actor_id: actorId,
       idempotency_key: attempt.current,
     })
-    // The moment the node has answered, either way. A refusal is the case
-    // where a password is most likely to be left sitting in a field while
-    // somebody reads the reason out loud.
+    // The moment the node has answered, either way — the password field and the
+    // fingerprint authorisation together. A refusal is the case where either is
+    // most likely to be left lying about while somebody reads the reason out
+    // loud, and the grant was single-use whichever way this went.
     supervisor.wipe()
     setBusy(false)
     if (!reply.ok) {
@@ -952,7 +1421,7 @@ export function VoidScreen({
     const authorisation = supervisor.read()
     if (authorisation === null) {
       setProblem(
-        "Nama pengguna dan kata sandi supervisor harus diisi — node yang memeriksanya, bukan terminal ini.",
+        "Belum ada otorisasi supervisor. Isi nama pengguna dan kata sandinya, atau minta supervisor menekan sidik jarinya — node yang memeriksanya, bukan terminal ini.",
       )
       return
     }
@@ -966,7 +1435,8 @@ export function VoidScreen({
       actor_id: actorId,
       idempotency_key: attempt.current,
     })
-    // Wiped the moment the node has answered, refusal included.
+    // Wiped the moment the node has answered, refusal included — the field and
+    // the fingerprint authorisation both.
     supervisor.wipe()
     setBusy(false)
     if (!reply.ok) {

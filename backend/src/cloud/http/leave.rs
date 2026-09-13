@@ -293,7 +293,7 @@ pub async fn balances(
     access.may_read(actions::EMPLOYEE_READ)?;
     reaches_subject(&state, &access).await?;
     let catalogue = infrastructure::load_catalogue(&state.db).await?;
-    let on = query.on.unwrap_or_else(|| Utc::now().date_naive());
+    let on = query.on.unwrap_or_else(crate::reporting::local_today);
     Ok(Json(
         infrastructure::balances_of(&state.db, &access.employee_id, &catalogue, on).await?,
     ))
@@ -335,7 +335,7 @@ pub async fn move_balance(
     }
     infrastructure::append_movement(&state.db, &access.employee_id, leave_type, &entry).await?;
 
-    let on = Utc::now().date_naive();
+    let on = crate::reporting::local_today();
     Ok(Json(
         infrastructure::balances_of(&state.db, &access.employee_id, &catalogue, on).await?,
     ))

@@ -6,16 +6,17 @@ import { StatusPill } from "@/components/status-pill"
 import { buttonVariants } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import {
-  clockTime,
   duration,
   isUpcoming,
   longDate,
   money,
+  punchClock,
   relativeDay,
   shortDate,
 } from "@/lib/format"
-import { readDays, readMinutes } from "@/lib/hr/days"
+import { punchSource, readDays, readMinutes } from "@/lib/hr/days"
 import {
+  attendanceWindow,
   useAttendance,
   useHolidays,
   useLeaveEntitlements,
@@ -40,8 +41,13 @@ export function Home() {
   const holidays = useHolidays()
   const pay = usePaySlips()
 
-  const days = attendance.data ?? []
-  const today = days[days.length - 1]
+  // Today, by its date, rather than "the last day in the range". The range is
+  // the *roster*, so its last entry is the last day somebody was scheduled —
+  // which on a rest day is Saturday, and showing Saturday's hours under a
+  // heading that says Today is the kind of small lie nobody ever reports.
+  const today = (attendance.data?.days ?? []).find(
+    (day) => day.date === attendanceWindow().to
+  )
   // Waiting on *them*, specifically. An order nobody has answered authorizes
   // nothing, so this is the one card on this screen that is a task rather than
   // a fact.
@@ -112,20 +118,35 @@ export function Home() {
         <Async query={attendance}>
           {() =>
             today === undefined ? (
+              // Deliberately not "absent". Today derives to nothing until
+              // somebody has rostered it, and a home screen is the last place
+              // to tell a person they did not turn up.
               <p className="text-[13px] text-muted-foreground">
-                Nothing recorded yet.
+                Nothing recorded yet today.
               </p>
             ) : (
               <>
-                <div className="flex items-center gap-2">
-                  <p className="text-[13px] font-medium">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <p className="mr-auto text-[13px] font-medium">
                     {longDate(today.date)}
                   </p>
-                  <StatusPill status={today.status} className="ml-auto" />
+                  {today.outcomes.map((outcome) => (
+                    <StatusPill key={outcome} status={outcome} />
+                  ))}
+                  {today.outcomes.length === 0 && (
+                    <StatusPill status={today.plan} />
+                  )}
                 </div>
-                <Row label="Clocked in">{clockTime(today.first_in)}</Row>
-                <Row label="Clocked out">{clockTime(today.last_out)}</Row>
-                <Row label="Worked">{duration(today.worked_minutes)}</Row>
+                <Row label="Clocked in">{punchClock(today.arrival)}</Row>
+                <Row label="Clocked out">{punchClock(today.departure)}</Row>
+                <Row label="Worked">{duration(today.net_worked_minutes)}</Row>
+                {/* Where the two times above came from. A reader witnessed an
+                    arrival; this app witnessed a button. Both are on the same
+                    screen now, so the row that tells them apart belongs here
+                    too and not only on the Attendance list. */}
+                <Row label="Recorded by">
+                  {punchSource(today.punch_sources)}
+                </Row>
               </>
             )
           }

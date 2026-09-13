@@ -2321,6 +2321,16 @@ fn apply_command_effect(tx: &Transaction<'_>, command: &PushedCommand) -> Result
             let snapshot = parse_auth_policy(&command.payload).map_err(err)?;
             apply_auth_policy(tx, &snapshot)
         }
+        crate::cloud::domain::COMMAND_ATTENDANCE_BOOK_REPLACE => {
+            // Parsed before anything is written, because an unreadable command
+            // blocks this node's whole command stream — which is the right
+            // behaviour, and the reason to be precise about what unreadable
+            // means. A book whose shift columns contradict its plan is refused
+            // by name rather than written and wondered about at payroll.
+            let book =
+                crate::edge::attendance::parse_attendance_book(&command.payload).map_err(err)?;
+            crate::edge::attendance::replace_book(tx, &book).map_err(|error| err(error.to_string()))
+        }
         INVENTORY_ALLOTMENT_ACTIVATE_V1 => {
             let payload = parse_allotment_activation(&command.payload).map_err(err)?;
             apply_allotment_activation(tx, command.command_id, &payload)

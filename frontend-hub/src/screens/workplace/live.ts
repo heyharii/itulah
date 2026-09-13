@@ -119,8 +119,21 @@ function react(batch: readonly CollaborationEvent[], client: QueryClient) {
           })
         }
         break
+      case "notification":
+        // Somebody else's screen claimed it: the bell in the top bar, and the
+        // full list in System. Both hang off the one key prefix, so one line
+        // corrects the count and the newest five together.
+        //
+        // This is the whole of what the bell rides. It does NOT mount this
+        // poll itself — a count in the corner is not worth a request every few
+        // seconds from every tab in the company — so live is what you get on
+        // the screens where the log is already being followed, and everywhere
+        // else the bell refreshes on focus and after half a minute. That is
+        // the honest trade, and it is the reason the count is never wrong for
+        // longer than it takes to look away and back.
+        void client.invalidateQueries({ queryKey: ["system", "notifications"] })
+        break
       default:
-        // `notification` belongs to somebody else's screen.
         break
     }
   }

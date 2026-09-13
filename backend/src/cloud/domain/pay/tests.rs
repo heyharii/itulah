@@ -400,9 +400,8 @@ fn a_liability_is_the_sum_of_its_breakdown() {
 /// is a request nobody has answered.
 #[test]
 fn only_an_approved_run_can_be_handed_to_finance() {
-    let authority = || authority("hr.dewi", actions::PAYROLL_HAND_TO_FINANCE, 20);
-    let error =
-        PayrollHandover::hand_over(&draft(), vec![line("E-1", 1)], authority()).unwrap_err();
+    let handing = || authority("hr.dewi", actions::PAYROLL_HAND_TO_FINANCE, 20);
+    let error = PayrollHandover::hand_over(&draft(), vec![line("E-1", 1)], handing()).unwrap_err();
     assert_eq!(error.code(), "payroll_run_not_in_state");
     assert!(error.is_conflict());
 
@@ -411,7 +410,7 @@ fn only_an_approved_run_can_be_handed_to_finance() {
         .submit(authority("bu.rina", actions::PAYROLL_SUBMIT, 0))
         .unwrap_or_else(|error| panic!("submit: {error}"));
     let error =
-        PayrollHandover::hand_over(&submitted, vec![line("E-1", 1)], authority()).unwrap_err();
+        PayrollHandover::hand_over(&submitted, vec![line("E-1", 1)], handing()).unwrap_err();
     assert_eq!(error.code(), "payroll_run_not_in_state");
 }
 

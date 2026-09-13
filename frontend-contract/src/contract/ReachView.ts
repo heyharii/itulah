@@ -21,7 +21,15 @@ scope: string,
  */
 place_id: string | null, place_name: string | null, 
 /**
- * `HO`, `DC` or `STORE`.
+ * `HO` or `STORE`, and nothing else.
+ *
+ * It said `HO`, `DC` or `STORE` until migration 0230 folded the
+ * distribution centre into head office — the owner's decision of
+ * 2026-09-13 — and narrowed `org_place.kind` so a third value is
+ * unstorable. `site.kind` is still `DC` or `STORE` and that is not the
+ * same question: the warehouse remains a syncing node that receives
+ * goods, and what changed is only where the people who work there are
+ * posted.
  */
 place_kind: string | null, 
 /**

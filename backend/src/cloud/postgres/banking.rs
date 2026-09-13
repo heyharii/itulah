@@ -45,6 +45,12 @@ pub struct BankStatementRow {
     pub imported_at: DateTime<Utc>,
     pub line_count: i64,
     pub matched_count: i64,
+    /// The later import that replaced this one, when there is one (0245).
+    ///
+    /// Non-null means this statement is HISTORY: it is what the bank said at
+    /// the time and it is kept, but it is no longer the month's statement and
+    /// nothing should add it to anything. Null is the ordinary state.
+    pub superseded_by: Option<Uuid>,
 }
 
 /// One line the bank reported, with whatever we have agreed about it.
@@ -136,6 +142,13 @@ pub struct ImportOutcome {
     /// rather than silently dropped: a re-import that says "0 new" is the
     /// system confirming it did the right thing.
     pub duplicates: i64,
+    /// The import this one replaced, when the same account, unit and period
+    /// had already been loaded.
+    ///
+    /// Reported for the same reason `duplicates` is: an upload that quietly
+    /// displaced last week's is one nobody can account for afterwards. Null is
+    /// the ordinary case — nothing was in force for that month yet.
+    pub superseded: Option<Uuid>,
 }
 
 /// A deterministic fingerprint over what the bank actually gave us.
@@ -185,6 +198,32 @@ pub async fn import_statement(
     let account = request.account_code.trim();
     let statement_id = Uuid::new_v4();
     let mut tx = pool.begin().await?;
+
+    // At most one statement per account, unit and period is IN FORCE (0245).
+    // A second import of the same month replaces the first rather than joining
+    // it — a bank reissues a statement, a first upload is cut short, a
+    // correction arrives, and before this both sat there and anything that
+    // added them up counted the month twice.
+    //
+    // The old row is not deleted: what the bank said, and when, is evidence.
+    // It is marked as replaced by this import, which is the fact worth keeping.
+    // `FOR UPDATE` so two uploads racing each other cannot both find nothing in
+    // force and both insert — the partial unique index would then refuse the
+    // second, which is correct but arrives as a constraint violation rather
+    // than as a supersede.
+    let superseded: Option<Uuid> = sqlx::query_scalar(
+        "SELECT statement_id FROM bank_statement
+          WHERE account_code = $1 AND site_id = $2
+            AND period_start = $3 AND period_end = $4
+            AND superseded_by IS NULL
+          FOR UPDATE",
+    )
+    .bind(account)
+    .bind(&request.site_id)
+    .bind(request.period_start)
+    .bind(request.period_end)
+    .fetch_optional(&mut *tx)
+    .await?;
 
     sqlx::query(
         "INSERT INTO bank_statement
@@ -250,12 +289,22 @@ pub async fn import_statement(
             duplicates += 1;
         }
     }
+
+    // After the new row exists, so the foreign key has something to point at.
+    if let Some(replaced) = superseded {
+        sqlx::query("UPDATE bank_statement SET superseded_by = $2 WHERE statement_id = $1")
+            .bind(replaced)
+            .bind(statement_id)
+            .execute(&mut *tx)
+            .await?;
+    }
     tx.commit().await?;
 
     Ok(ImportOutcome {
         statement_id,
         inserted,
         duplicates,
+        superseded,
     })
 }
 
@@ -366,7 +415,7 @@ impl StatementCursor {
 const STATEMENT_ROWS: &str = "
     SELECT s.statement_id, s.account_code, a.name AS account_name, s.site_id,
            s.period_start, s.period_end, s.opening_minor, s.closing_minor,
-           s.imported_by, s.imported_at,
+           s.imported_by, s.imported_at, s.superseded_by,
            counts.line_count, counts.matched_count,
            (counts.line_count - counts.matched_count) AS unmatched,
            CASE
@@ -415,6 +464,7 @@ fn to_statement(row: &sqlx::postgres::PgRow) -> Result<BankStatementRow, AppErro
         imported_at: row.try_get("imported_at")?,
         line_count: row.try_get("line_count")?,
         matched_count: row.try_get("matched_count")?,
+        superseded_by: row.try_get("superseded_by")?,
     })
 }
 
@@ -552,7 +602,12 @@ async fn statement_facets(
            FROM searched s GROUP BY s.state
           UNION ALL
          SELECT 'all', '', NULL::text, COUNT(*)::bigint,
-                COALESCE(SUM(unmatched), 0)::bigint
+                -- Only what is IN FORCE. A superseded import's lines are still
+                -- rows and are still listed on their own statement, but they
+                -- are not work anybody has to finish — counting them would put
+                -- last month's replaced upload into \"how much is left to
+                -- reconcile\" and leave that number never reaching zero.
+                COALESCE(SUM(unmatched) FILTER (WHERE superseded_by IS NULL), 0)::bigint
            FROM kept"
     );
     let sites = (!scope.sites.is_empty()).then(|| scope.sites.clone());

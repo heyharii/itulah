@@ -60,7 +60,24 @@ fn is_public(path: &str) -> bool {
     }
     matches!(
         path,
-        "/api/v1/health" | "/api/v1/auth/login" | "/api/v1/sync/ingest" | "/metrics"
+        "/api/v1/health"
+            | "/api/v1/auth/login"
+            | "/api/v1/sync/ingest"
+            // The two routes a unit's attendance station reaches, both guarded
+            // by the same per-origin `x-sync-key` as `/sync/ingest` and both
+            // re-checking it in the handler (`http::terminal::node_place`).
+            //
+            // Outside the session space **on purpose**, and it is the
+            // enforcement of a decision rather than a convenience. The path
+            // gate below makes every `GET` a Cashier read, so a template route
+            // inside this space would be readable by every till in the
+            // company; and a punch is authorized by a registered device rather
+            // than by anybody's rung, so a session could only ever be the
+            // wrong credential for it. No session reaches either, which is why
+            // no session can ask for a fingerprint template.
+            | "/api/v1/attendance/terminal-sync"
+            | "/api/v1/attendance/punches"
+            | "/metrics"
     )
 }
 

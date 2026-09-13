@@ -169,10 +169,7 @@ fn a_filed_proposal_waits_on_head_office() {
 #[test]
 fn the_proposer_may_not_decide_their_own_proposal() {
     let mut proposal = filed(1);
-    let refused = proposal.decide(
-        HireDecision::Approve,
-        deciding("store07.manager", 10),
-    );
+    let refused = proposal.decide(HireDecision::Approve, deciding("store07.manager", 10));
     assert_eq!(
         refused,
         Err(HireError::ProposerDecidedTheirOwnProposal {
@@ -361,10 +358,7 @@ fn a_proposal_for_two_stays_open_until_both_records_exist() {
 fn each_act_refuses_the_other_acts_key() {
     let mut proposal = filed(1);
     assert_eq!(
-        proposal.decide(
-            HireDecision::Approve,
-            proposing("hr.dewi", 10)
-        ),
+        proposal.decide(HireDecision::Approve, proposing("hr.dewi", 10)),
         Err(HireError::ActionForbidsDecision {
             action_key: actions::HIRE_PROPOSAL_PROPOSE.to_owned(),
         })
@@ -399,13 +393,9 @@ fn each_act_refuses_the_other_acts_key() {
 /// not store the answer anyway.
 #[test]
 fn a_decision_with_a_blank_reason_cannot_be_built_at_all() {
-    assert!(Authorization::try_new(
-        "hr.dewi",
-        actions::HIRE_PROPOSAL_DECIDE,
-        at(0),
-        "   "
-    )
-    .is_err());
+    assert!(
+        Authorization::try_new("hr.dewi", actions::HIRE_PROPOSAL_DECIDE, at(0), "   ").is_err()
+    );
 }
 
 // ── what a stored row cannot claim ───────────────────────────────────────

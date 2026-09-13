@@ -154,6 +154,17 @@ export function IssueCode({
   )
 }
 
+/// **Not mounted anywhere in the hub since 2026-09-13.** Enrolling moved to the
+/// till, on the owner's instruction, and the reason is sound: a card is a
+/// physical object somebody is holding out across a counter, and the person who
+/// can see it is the cashier. Head office enrolling a number it cannot read is
+/// how a scheme acquires cards nobody ever collected.
+///
+/// Kept rather than deleted because the store app needs exactly this form, and
+/// this one already handles the two things that are easy to get wrong: an
+/// enrolment is idempotent on the card number, and the reply is the member's
+/// whole prior history rather than an empty row.
+
 /// Enrol a card, then activate it without leaving the sheet.
 ///
 /// One sheet for two acts because they are one job at a counter: somebody is

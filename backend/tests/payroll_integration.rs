@@ -1,12 +1,16 @@
 //! Pay, and the run that pays it.
 //!
-//! Two tests carry this file. **The person who verified a run may not approve
-//! it** — a control one person can complete alone is a record of a signature
-//! rather than a control, and this is the rule added to the donor rather than
-//! ported from it. And **a run says it is incomplete and why**: there is no
-//! punch source, so nothing here knows what was worked, and a run that
-//! presented what it does know as a finished payroll would be a run somebody
-//! paid from.
+//! Three tests carry this file. **The place submits and head office decides** —
+//! the owner's decision of 2026-09-13, which moved the first signature out of
+//! head office; **the submitter may not also approve** — a control one person
+//! can complete alone is a record of a signature rather than a control, and
+//! this rule survives the rework in the shape the work actually has; and **a
+//! run says it is incomplete and why**, because there is no punch source and a
+//! run that presented what it does know as a finished payroll would be a run
+//! somebody paid from.
+//!
+//! A fourth covers the crossing to Finance: gross only, idempotent per
+//! (place, period), and a status that comes back.
 
 use axum::body::{to_bytes, Body};
 use http::{header, Request, StatusCode};
@@ -425,10 +429,14 @@ async fn set_account(
 
 /// Sign April off, so a run can be built over it.
 async fn close_april(app: &axum::Router, cookies: &str, csrf: &str) {
+    close_april_at(app, cookies, csrf, "store-07").await;
+}
+
+async fn close_april_at(app: &axum::Router, cookies: &str, csrf: &str, place: &str) {
     let closed = send(
         app.clone(),
         "POST",
-        "/api/v1/attendance-periods/store-07/2026-04/closure",
+        &format!("/api/v1/attendance-periods/{place}/2026-04/closure"),
         write_headers(cookies, csrf),
         Some(json!({ "reason": "absensi April sudah dicek" })),
     )
@@ -437,16 +445,43 @@ async fn close_april(app: &axum::Router, cookies: &str, csrf: &str) {
 }
 
 async fn open_run(app: &axum::Router, cookies: &str, csrf: &str) -> Response {
+    open_run_at(app, cookies, csrf, "store-07").await
+}
+
+async fn open_run_at(app: &axum::Router, cookies: &str, csrf: &str, place: &str) -> Response {
     send(
         app.clone(),
         "POST",
         "/api/v1/payroll/runs",
         write_headers(cookies, csrf),
         Some(json!({
-            "place_id": "store-07",
+            "place_id": place,
             "period": "2026-04",
             "reason": "penggajian April",
         })),
+    )
+    .await
+}
+
+/// The place's signature on the batch.
+async fn submit(app: &axum::Router, cookies: &str, csrf: &str, run_id: &str) -> Response {
+    send(
+        app.clone(),
+        "POST",
+        &format!("/api/v1/payroll/runs/{run_id}/submission"),
+        write_headers(cookies, csrf),
+        Some(json!({ "reason": "angka sudah dicek di toko" })),
+    )
+    .await
+}
+
+async fn approve(app: &axum::Router, cookies: &str, csrf: &str, run_id: &str) -> Response {
+    send(
+        app.clone(),
+        "POST",
+        &format!("/api/v1/payroll/runs/{run_id}/approve"),
+        write_headers(cookies, csrf),
+        Some(json!({ "reason": "disetujui" })),
     )
     .await
 }
@@ -525,8 +560,10 @@ async fn pay_is_a_history_and_cannot_be_backdated(pool: PgPool) {
         backdated.body
     );
 
-    // And a shop manager may not read salaries at all: what everybody earns is
-    // not a rota question.
+    // The shop manager DOES read her own staff's salaries, since 2026-09-13.
+    // The owner took that side twice: a store that submits its own payroll
+    // batch has to be able to check it, and a batch checked blind is not
+    // checked. What replaces the bound being given up is the reach.
     let rina = staff_at(&app, &cookies, &csrf, "K0700", "store-07").await;
     login_for(
         &app,
@@ -538,8 +575,8 @@ async fn pay_is_a_history_and_cannot_be_backdated(pool: PgPool) {
         SUPERVISOR_PASSWORD,
     )
     .await;
-    let (hers, _) = sign_in(&app, "rina", SUPERVISOR_PASSWORD).await;
-    let refused = send(
+    let (hers, her_csrf) = sign_in(&app, "rina", SUPERVISOR_PASSWORD).await;
+    let hers_to_read = send(
         app.clone(),
         "GET",
         &format!("/api/v1/employees/{siti}/pay"),
@@ -547,7 +584,65 @@ async fn pay_is_a_history_and_cannot_be_backdated(pool: PgPool) {
         None,
     )
     .await;
-    assert_eq!(refused.status, StatusCode::FORBIDDEN, "{:?}", refused.body);
+    assert_eq!(
+        hers_to_read.status,
+        StatusCode::OK,
+        "her own shop: {:?}",
+        hers_to_read.body
+    );
+    assert_eq!(hers_to_read.body[0]["base_minor"], 5_000_000);
+
+    // Another shop's is not hers. This is the bound doing the work the rung
+    // cannot: every store manager holds SUPERVISOR.
+    let elsewhere = staff_at(&app, &cookies, &csrf, "K0301", "store-03").await;
+    agree_pay(&app, &cookies, &csrf, &elsewhere, 4_000_000).await;
+    let refused = send(
+        app.clone(),
+        "GET",
+        &format!("/api/v1/employees/{elsewhere}/pay"),
+        read_headers(&hers),
+        None,
+    )
+    .await;
+    assert_eq!(
+        refused.status,
+        StatusCode::FORBIDDEN,
+        "another shop's pay: {:?}",
+        refused.body
+    );
+
+    // Reading the figures is not reading where the money is sent. A bank
+    // account and an NPWP live in their own table so that a read of one is not
+    // a read of the other, and that stays head office's.
+    let identity = send(
+        app.clone(),
+        "GET",
+        &format!("/api/v1/employees/{siti}/payroll-identity"),
+        read_headers(&hers),
+        None,
+    )
+    .await;
+    assert_eq!(
+        identity.status,
+        StatusCode::FORBIDDEN,
+        "payroll identity: {:?}",
+        identity.body
+    );
+
+    // And she may not WRITE pay anywhere, her own shop included.
+    let written = send(
+        app.clone(),
+        "POST",
+        &format!("/api/v1/employees/{siti}/pay"),
+        write_headers(&hers, &her_csrf),
+        Some(json!({
+            "effective_from": "2026-07-01",
+            "base_minor": 9_000_000,
+            "reason": "naik sendiri",
+        })),
+    )
+    .await;
+    assert_eq!(written.status, StatusCode::FORBIDDEN, "{:?}", written.body);
 }
 
 /// Somebody checking their own account confirms four digits; nobody else needs
@@ -614,9 +709,10 @@ async fn an_account_number_never_leaves_the_server_whole(pool: PgPool) {
     );
 }
 
-/// The test this file exists for.
+/// The test this file exists for: the place submits, head office decides, and
+/// the two signatures cannot be one person's.
 #[sqlx::test(migrations = "./migrations/postgres")]
-async fn one_person_cannot_verify_and_approve_the_same_run(pool: PgPool) {
+async fn the_place_submits_and_head_office_approves(pool: PgPool) {
     cloud::bootstrap_admin(&pool, Some(ADMIN_PASSWORD), true)
         .await
         .unwrap_or_else(|error| panic!("bootstrap: {error}"));
@@ -626,9 +722,25 @@ async fn one_person_cannot_verify_and_approve_the_same_run(pool: PgPool) {
     let siti = staff_at(&app, &cookies, &csrf, "K0701", "store-07").await;
     agree_pay(&app, &cookies, &csrf, &siti, 5_000_000).await;
     set_account(&app, &cookies, &csrf, &siti, "1234567890").await;
-    close_april(&app, &cookies, &csrf).await;
 
-    let opened = open_run(&app, &cookies, &csrf).await;
+    // The shop's own manager, posted to store-07.
+    let rina = staff_at(&app, &cookies, &csrf, "K0700", "store-07").await;
+    login_for(
+        &app,
+        &cookies,
+        &csrf,
+        &rina,
+        "rina",
+        "SUPERVISOR",
+        SUPERVISOR_PASSWORD,
+    )
+    .await;
+    let (hers, her_csrf) = sign_in(&app, "rina", SUPERVISOR_PASSWORD).await;
+
+    // The place closes its own month, and then opens its own run. Both are
+    // hers now; opening used to be head office's.
+    close_april(&app, &hers, &her_csrf).await;
+    let opened = open_run_at(&app, &hers, &her_csrf, "store-07").await;
     assert_eq!(opened.status, StatusCode::OK, "open: {:?}", opened.body);
     assert_eq!(opened.body["state"], "DRAFT");
     // The claim the whole design turns on: this is not a finished payroll, and
@@ -637,49 +749,45 @@ async fn one_person_cannot_verify_and_approve_the_same_run(pool: PgPool) {
     assert!(opened.body["incomplete_because"]
         .as_str()
         .is_some_and(|reason| reason.contains("punch source")));
+    // Nothing has crossed to Finance, and the field says so rather than
+    // carrying a hopeful zero.
+    assert_eq!(opened.body["handover"], Value::Null);
     let run_id = opened.body["id"]
         .as_str()
         .unwrap_or_else(|| panic!("run id"))
         .to_owned();
 
-    let verified = send(
+    // She sees the figures she is submitting — the owner's decision, taken
+    // twice. A signature on a batch somebody cannot see is not a signature.
+    let slips = send(
         app.clone(),
-        "POST",
-        &format!("/api/v1/payroll/runs/{run_id}/verify"),
-        write_headers(&cookies, &csrf),
-        Some(json!({ "reason": "angka sudah dicek" })),
+        "GET",
+        &format!("/api/v1/payroll/runs/{run_id}/slips"),
+        read_headers(&hers),
+        None,
     )
     .await;
+    assert_eq!(slips.status, StatusCode::OK, "her slips: {:?}", slips.body);
+    assert_eq!(slips.body[0]["base_minor"], 5_000_000);
+
+    let submitted = submit(&app, &hers, &her_csrf, &run_id).await;
     assert_eq!(
-        verified.status,
+        submitted.status,
         StatusCode::OK,
-        "verify: {:?}",
-        verified.body
+        "submit: {:?}",
+        submitted.body
     );
-    assert_eq!(verified.body["state"], "VERIFIED");
-    assert_eq!(verified.body["verified_by"], "admin");
+    assert_eq!(submitted.body["state"], "SUBMITTED");
+    assert_eq!(submitted.body["submitted_by"], "rina");
+    assert_eq!(submitted.body["approved_by"], Value::Null);
 
-    // The same officer may not approve it.
-    let refused = send(
-        app.clone(),
-        "POST",
-        &format!("/api/v1/payroll/runs/{run_id}/approve"),
-        write_headers(&cookies, &csrf),
-        Some(json!({ "reason": "saya setujui sendiri" })),
-    )
-    .await;
-    assert_eq!(refused.status, StatusCode::CONFLICT, "{:?}", refused.body);
+    // She cannot approve her own submission — and not because of the rung
+    // this time: she does not hold the key at all.
+    let refused = approve(&app, &hers, &her_csrf, &run_id).await;
+    assert_eq!(refused.status, StatusCode::FORBIDDEN, "{:?}", refused.body);
 
-    // A second officer may.
-    let (theirs, their_csrf) = second_officer(&app, &cookies, &csrf).await;
-    let approved = send(
-        app.clone(),
-        "POST",
-        &format!("/api/v1/payroll/runs/{run_id}/approve"),
-        write_headers(&theirs, &their_csrf),
-        Some(json!({ "reason": "disetujui" })),
-    )
-    .await;
+    // Head office may.
+    let approved = approve(&app, &cookies, &csrf, &run_id).await;
     assert_eq!(
         approved.status,
         StatusCode::OK,
@@ -687,7 +795,10 @@ async fn one_person_cannot_verify_and_approve_the_same_run(pool: PgPool) {
         approved.body
     );
     assert_eq!(approved.body["state"], "APPROVED");
+    assert_eq!(approved.body["approved_by"], "admin");
 
+    // Approved is final: there is no seal, and the route that used to add one
+    // is gone rather than aliased.
     let sealed = send(
         app.clone(),
         "POST",
@@ -696,10 +807,36 @@ async fn one_person_cannot_verify_and_approve_the_same_run(pool: PgPool) {
         Some(json!({ "reason": "dikunci" })),
     )
     .await;
-    assert_eq!(sealed.status, StatusCode::OK, "seal: {:?}", sealed.body);
-    assert_eq!(sealed.body["state"], "SEALED");
+    // 405 rather than 404 because the estate's fallback serves the console on
+    // GET, so an unrouted POST is a method that does not exist at that path.
+    // Either way the point holds: nothing answers here.
+    assert_eq!(
+        sealed.status,
+        StatusCode::METHOD_NOT_ALLOWED,
+        "{:?}",
+        sealed.body
+    );
+    // And so is the route the first signature used to be made at. It is gone
+    // rather than aliased to `/submission`: a caller still posting to
+    // `/verify` is a caller whose screen has not been updated, and should hear
+    // so rather than have its request quietly re-interpreted.
+    let verified = send(
+        app.clone(),
+        "POST",
+        &format!("/api/v1/payroll/runs/{run_id}/verify"),
+        write_headers(&cookies, &csrf),
+        Some(json!({ "reason": "dicek" })),
+    )
+    .await;
+    assert_eq!(
+        verified.status,
+        StatusCode::METHOD_NOT_ALLOWED,
+        "{:?}",
+        verified.body
+    );
 
-    // Sealing is the point past which the figures are the figures.
+    // Head office may reopen an approved run, and the reopen clears both
+    // signatures — so the next approval is a fresh pair.
     let reopened = send(
         app.clone(),
         "POST",
@@ -708,7 +845,163 @@ async fn one_person_cannot_verify_and_approve_the_same_run(pool: PgPool) {
         Some(json!({ "reason": "ada koreksi" })),
     )
     .await;
-    assert_eq!(reopened.status, StatusCode::CONFLICT, "{:?}", reopened.body);
+    assert_eq!(
+        reopened.status,
+        StatusCode::OK,
+        "reopen: {:?}",
+        reopened.body
+    );
+    assert_eq!(reopened.body["state"], "DRAFT");
+    assert_eq!(reopened.body["submitted_by"], Value::Null);
+    assert_eq!(reopened.body["approved_by"], Value::Null);
+    // Nothing is lost: the history still says what happened, in order.
+    let steps: Vec<&str> = reopened.body["history"]
+        .as_array()
+        .unwrap_or_else(|| panic!("history"))
+        .iter()
+        .filter_map(|event| event["step"].as_str())
+        .collect();
+    assert_eq!(steps, vec!["SUBMITTED", "APPROVED", "REOPENED"]);
+
+    // The place manager may not reopen, which is the half of this that keeps
+    // the sign-off meaning something.
+    submit(&app, &hers, &her_csrf, &run_id).await;
+    let hers_to_reopen = send(
+        app.clone(),
+        "POST",
+        &format!("/api/v1/payroll/runs/{run_id}/reopen"),
+        write_headers(&hers, &her_csrf),
+        Some(json!({ "reason": "saya buka lagi" })),
+    )
+    .await;
+    assert_eq!(
+        hers_to_reopen.status,
+        StatusCode::FORBIDDEN,
+        "{:?}",
+        hers_to_reopen.body
+    );
+}
+
+/// One person cannot hold both signatures, even holding both keys. The rung
+/// split makes this hard to reach in practice and the rule is enforced on the
+/// actor anyway — because a rung cannot say it, and because a future grant
+/// might put both keys in one pair of hands.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn one_person_cannot_submit_and_approve_the_same_run(pool: PgPool) {
+    cloud::bootstrap_admin(&pool, Some(ADMIN_PASSWORD), true)
+        .await
+        .unwrap_or_else(|error| panic!("bootstrap: {error}"));
+    let app = cloud_http::router(AppState::new(pool.clone(), config()));
+    let (cookies, csrf) = sign_in(&app, "admin", ADMIN_PASSWORD).await;
+
+    let siti = staff_at(&app, &cookies, &csrf, "K0701", "store-07").await;
+    agree_pay(&app, &cookies, &csrf, &siti, 5_000_000).await;
+    close_april(&app, &cookies, &csrf).await;
+
+    // Head office holds every key, submit included — Admin outranks
+    // Supervisor — so it can reach the state the two-person rule guards.
+    let opened = open_run(&app, &cookies, &csrf).await;
+    assert_eq!(opened.status, StatusCode::OK, "open: {:?}", opened.body);
+    let run_id = opened.body["id"].as_str().unwrap_or_default().to_owned();
+
+    let submitted = submit(&app, &cookies, &csrf, &run_id).await;
+    assert_eq!(submitted.status, StatusCode::OK, "{:?}", submitted.body);
+    assert_eq!(submitted.body["submitted_by"], "admin");
+
+    let refused = approve(&app, &cookies, &csrf, &run_id).await;
+    assert_eq!(
+        refused.status,
+        StatusCode::CONFLICT,
+        "the payload is fine; who sent it is not: {:?}",
+        refused.body
+    );
+
+    let (theirs, their_csrf) = second_officer(&app, &cookies, &csrf).await;
+    let approved = approve(&app, &theirs, &their_csrf, &run_id).await;
+    assert_eq!(
+        approved.status,
+        StatusCode::OK,
+        "approve: {:?}",
+        approved.body
+    );
+    assert_eq!(approved.body["state"], "APPROVED");
+}
+
+/// A store must not reach another store's payroll. Every store manager holds
+/// the same rung, so this is the bound doing what a rung cannot.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_store_cannot_touch_another_stores_payroll(pool: PgPool) {
+    cloud::bootstrap_admin(&pool, Some(ADMIN_PASSWORD), true)
+        .await
+        .unwrap_or_else(|error| panic!("bootstrap: {error}"));
+    let app = cloud_http::router(AppState::new(pool.clone(), config()));
+    let (cookies, csrf) = sign_in(&app, "admin", ADMIN_PASSWORD).await;
+
+    let siti = staff_at(&app, &cookies, &csrf, "K0301", "store-03").await;
+    agree_pay(&app, &cookies, &csrf, &siti, 4_000_000).await;
+    close_april_at(&app, &cookies, &csrf, "store-03").await;
+    let theirs = open_run_at(&app, &cookies, &csrf, "store-03").await;
+    assert_eq!(theirs.status, StatusCode::OK, "{:?}", theirs.body);
+    let their_run = theirs.body["id"].as_str().unwrap_or_default().to_owned();
+
+    // store-07's manager.
+    let rina = staff_at(&app, &cookies, &csrf, "K0700", "store-07").await;
+    login_for(
+        &app,
+        &cookies,
+        &csrf,
+        &rina,
+        "rina",
+        "SUPERVISOR",
+        SUPERVISOR_PASSWORD,
+    )
+    .await;
+    let (hers, her_csrf) = sign_in(&app, "rina", SUPERVISOR_PASSWORD).await;
+
+    // She may not open one there.
+    let opened = open_run_at(&app, &hers, &her_csrf, "store-03").await;
+    assert_eq!(opened.status, StatusCode::FORBIDDEN, "{:?}", opened.body);
+    // Nor submit theirs, read their slips, or read their reconciliation.
+    assert_eq!(
+        submit(&app, &hers, &her_csrf, &their_run).await.status,
+        StatusCode::FORBIDDEN
+    );
+    for path in [
+        format!("/api/v1/payroll/runs/{their_run}/slips"),
+        format!("/api/v1/payroll/runs/{their_run}/reconciliation"),
+    ] {
+        let refused = send(app.clone(), "GET", &path, read_headers(&hers), None).await;
+        assert_eq!(refused.status, StatusCode::FORBIDDEN, "{path}");
+    }
+
+    // And the list is bounded rather than filtered by what she asked for: she
+    // has no run of her own, so she sees none — not store-03's.
+    let listed = send(
+        app.clone(),
+        "GET",
+        "/api/v1/payroll/runs",
+        read_headers(&hers),
+        None,
+    )
+    .await;
+    assert_eq!(listed.status, StatusCode::OK, "{:?}", listed.body);
+    assert_eq!(
+        listed.body.as_array().map(Vec::len),
+        Some(0),
+        "an unfiltered list must not be the whole company: {:?}",
+        listed.body
+    );
+
+    // Head office sees it.
+    let all = send(
+        app.clone(),
+        "GET",
+        "/api/v1/payroll/runs",
+        read_headers(&cookies),
+        None,
+    )
+    .await;
+    assert_eq!(all.body.as_array().map(Vec::len), Some(1), "{:?}", all.body);
 }
 
 /// The attendance period is the payroll gate: while it is open the facts are
@@ -741,7 +1034,7 @@ async fn a_run_cannot_be_opened_over_a_month_that_is_still_open(pool: PgPool) {
 /// A slip carries the agreement and the facts, and nothing statutory. What
 /// stands in the run's way is counted rather than assumed away.
 #[sqlx::test(migrations = "./migrations/postgres")]
-async fn a_slip_carries_the_agreement_and_the_facts_and_no_deductions(pool: PgPool) {
+async fn a_slip_carries_the_agreement_and_the_facts_and_no_invented_deductions(pool: PgPool) {
     cloud::bootstrap_admin(&pool, Some(ADMIN_PASSWORD), true)
         .await
         .unwrap_or_else(|error| panic!("bootstrap: {error}"));
@@ -818,10 +1111,25 @@ async fn a_slip_carries_the_agreement_and_the_facts_and_no_deductions(pool: PgPo
     assert_eq!(slip["leave_days_taken"], 2);
     assert_eq!(slip["payable"], true);
     assert_eq!(slip["bank_account_masked"], "••••••7890");
-    // No deduction anywhere. There is no field for one, which is the point.
+    // No deduction anywhere, and — since 0251 — that is said rather than
+    // implied. The columns exist now; what does not exist is a nought in them.
+    // A slip on a deployment where nobody has defined a payroll component
+    // carries `null` and a sentence, because nought is what a system reports
+    // after somebody has looked.
+    assert_eq!(slip["gross_minor"], 5_500_000);
+    assert_eq!(slip["deduction_total_minor"], Value::Null);
+    assert_eq!(slip["net_minor"], Value::Null);
     assert!(
-        slip.get("deductions_minor").is_none() && slip.get("net_minor").is_none(),
-        "a computed deduction appeared: {slip:?}"
+        slip["components_incomplete_because"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("no payroll deduction has been defined"),
+        "the slip says what it could not work out: {slip:?}"
+    );
+    assert!(
+        slip["earnings"].as_array().map(Vec::is_empty) == Some(true)
+            && slip["deductions"].as_array().map(Vec::is_empty) == Some(true),
+        "nothing was invented: {slip:?}"
     );
 
     let reconciliation = send(
@@ -844,6 +1152,11 @@ async fn a_slip_carries_the_agreement_and_the_facts_and_no_deductions(pool: PgPo
     assert_eq!(reconciliation.body["unpayable"], 0);
     // Budi is counted rather than silently absent.
     assert_eq!(reconciliation.body["without_agreement"], 1);
+    // And the run's own totals refuse the same way the slip does.
+    assert_eq!(reconciliation.body["gross_total_minor"], 5_500_000);
+    assert_eq!(reconciliation.body["deduction_total_minor"], Value::Null);
+    assert_eq!(reconciliation.body["net_total_minor"], Value::Null);
+    assert_eq!(reconciliation.body["slips_with_unworkable_components"], 1);
 }
 
 /// A draft is a working figure. Showing it to the person it is about invites
@@ -889,23 +1202,26 @@ async fn a_payslip_appears_only_once_somebody_has_signed_for_it(pool: PgPool) {
         "a draft is not a payslip"
     );
 
-    send(
+    submit(&app, &cookies, &csrf, &run_id).await;
+    // A submitted run is still not a payslip: it is a request nobody has
+    // answered, and the number can still move.
+    let submitted = send(
         app.clone(),
-        "POST",
-        &format!("/api/v1/payroll/runs/{run_id}/verify"),
-        write_headers(&cookies, &csrf),
-        Some(json!({ "reason": "dicek" })),
+        "GET",
+        "/api/v1/employees/me/payslips",
+        read_headers(&hers),
+        None,
     )
     .await;
+    assert_eq!(
+        submitted.body.as_array().map(Vec::len),
+        Some(0),
+        "a submitted run is not a payslip either: {:?}",
+        submitted.body
+    );
+
     let (theirs, their_csrf) = second_officer(&app, &cookies, &csrf).await;
-    send(
-        app.clone(),
-        "POST",
-        &format!("/api/v1/payroll/runs/{run_id}/approve"),
-        write_headers(&theirs, &their_csrf),
-        Some(json!({ "reason": "disetujui" })),
-    )
-    .await;
+    approve(&app, &theirs, &their_csrf, &run_id).await;
 
     let now = send(
         app.clone(),
@@ -919,4 +1235,172 @@ async fn a_payslip_appears_only_once_somebody_has_signed_for_it(pool: PgPool) {
     assert_eq!(now.body[0]["base_minor"], 5_000_000);
     // Her own slip shows her own account, masked like everywhere else.
     assert_eq!(now.body[0]["bank_account_masked"], "••••••7890");
+}
+
+/// The crossing to Finance: gross only, idempotent per (place, period), and a
+/// status that comes back.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn an_approved_run_crosses_to_finance_once_and_answers_back(pool: PgPool) {
+    cloud::bootstrap_admin(&pool, Some(ADMIN_PASSWORD), true)
+        .await
+        .unwrap_or_else(|error| panic!("bootstrap: {error}"));
+    let app = cloud_http::router(AppState::new(pool.clone(), config()));
+    let (cookies, csrf) = sign_in(&app, "admin", ADMIN_PASSWORD).await;
+
+    let siti = staff_at(&app, &cookies, &csrf, "K0701", "store-07").await;
+    agree_pay(&app, &cookies, &csrf, &siti, 5_000_000).await;
+    set_account(&app, &cookies, &csrf, &siti, "1234567890").await;
+    let budi = staff_at(&app, &cookies, &csrf, "K0702", "store-07").await;
+    agree_pay(&app, &cookies, &csrf, &budi, 4_000_000).await;
+    close_april(&app, &cookies, &csrf).await;
+
+    let opened = open_run(&app, &cookies, &csrf).await;
+    let run_id = opened.body["id"].as_str().unwrap_or_default().to_owned();
+    let handover_path = format!("/api/v1/payroll/runs/{run_id}/finance-handover");
+
+    // A run nobody has decided does not cross. A draft is a working figure.
+    let early = send(
+        app.clone(),
+        "POST",
+        &handover_path,
+        write_headers(&cookies, &csrf),
+        Some(json!({ "reason": "buru-buru" })),
+    )
+    .await;
+    assert_eq!(early.status, StatusCode::CONFLICT, "{:?}", early.body);
+
+    submit(&app, &cookies, &csrf, &run_id).await;
+    let (theirs, their_csrf) = second_officer(&app, &cookies, &csrf).await;
+    approve(&app, &theirs, &their_csrf, &run_id).await;
+
+    let crossed = send(
+        app.clone(),
+        "POST",
+        &handover_path,
+        write_headers(&cookies, &csrf),
+        Some(json!({ "reason": "gaji April diserahkan ke keuangan" })),
+    )
+    .await;
+    assert_eq!(
+        crossed.status,
+        StatusCode::OK,
+        "hand over: {:?}",
+        crossed.body
+    );
+    assert_eq!(crossed.body["state"], "RECEIVED");
+    // Gross is base plus the standing allowance, for both people, and nothing
+    // else: 5.500.000 + 4.500.000.
+    assert_eq!(crossed.body["gross_minor"], 10_000_000);
+    assert_eq!(crossed.body["lines"].as_array().map(Vec::len), Some(2));
+    assert_eq!(crossed.body["settled_by"], Value::Null);
+    // Nothing statutory crossed with it. There is no field for either, which
+    // is the point.
+    for absent in ["deductions_minor", "net_minor", "pph21_minor", "bpjs_minor"] {
+        assert!(
+            crossed.body.get(absent).is_none(),
+            "{absent} appeared: {:?}",
+            crossed.body
+        );
+    }
+    // The lines add up to the header, which the database checks at COMMIT too.
+    let summed: i64 = crossed.body["lines"]
+        .as_array()
+        .unwrap_or_else(|| panic!("lines"))
+        .iter()
+        .filter_map(|line| line["gross_minor"].as_i64())
+        .sum();
+    assert_eq!(summed, 10_000_000);
+
+    // Sending it twice cannot double what the company owes.
+    let again = send(
+        app.clone(),
+        "POST",
+        &handover_path,
+        write_headers(&cookies, &csrf),
+        Some(json!({ "reason": "kirim lagi" })),
+    )
+    .await;
+    assert_eq!(again.status, StatusCode::CONFLICT, "{:?}", again.body);
+
+    // The status comes back, and it is on the run as well — so a list of runs
+    // says which months have crossed without loading every line.
+    let read = send(
+        app.clone(),
+        "GET",
+        &handover_path,
+        read_headers(&cookies),
+        None,
+    )
+    .await;
+    assert_eq!(read.status, StatusCode::OK, "{:?}", read.body);
+    assert_eq!(read.body["state"], "RECEIVED");
+    let listed = send(
+        app.clone(),
+        "GET",
+        "/api/v1/payroll/runs",
+        read_headers(&cookies),
+        None,
+    )
+    .await;
+    assert_eq!(listed.body[0]["handover"]["state"], "RECEIVED");
+    assert_eq!(listed.body[0]["handover"]["gross_minor"], 10_000_000);
+    assert_eq!(listed.body[0]["handover"]["people"], 2);
+
+    // Finance answers under its own key: the officer who handed it over cannot
+    // also declare it paid.
+    let settlement = format!("{handover_path}/settlement");
+    let paid = send(
+        app.clone(),
+        "POST",
+        &settlement,
+        write_headers(&cookies, &csrf),
+        Some(json!({ "reason": "transfer 2026-05-02" })),
+    )
+    .await;
+    assert_eq!(paid.status, StatusCode::OK, "settle: {:?}", paid.body);
+    assert_eq!(paid.body["state"], "PAID");
+    assert_eq!(paid.body["settled_by"], "admin");
+
+    // Twice would be a second payment of the same liability.
+    let twice = send(
+        app.clone(),
+        "POST",
+        &settlement,
+        write_headers(&cookies, &csrf),
+        Some(json!({ "reason": "sekali lagi" })),
+    )
+    .await;
+    assert_eq!(twice.status, StatusCode::CONFLICT, "{:?}", twice.body);
+
+    // And head office may still reopen the run afterwards. The owner accepted
+    // that explicitly: nothing refuses it, and what Finance was handed does
+    // not move when the run does.
+    let reopened = send(
+        app.clone(),
+        "POST",
+        &format!("/api/v1/payroll/runs/{run_id}/reopen"),
+        write_headers(&cookies, &csrf),
+        Some(json!({ "reason": "gaji Budi salah, dikoreksi" })),
+    )
+    .await;
+    assert_eq!(
+        reopened.status,
+        StatusCode::OK,
+        "a booked month is still reopenable: {:?}",
+        reopened.body
+    );
+    assert_eq!(reopened.body["state"], "DRAFT");
+    // The snapshot is untouched — still two people and still ten million.
+    assert_eq!(reopened.body["handover"]["state"], "PAID");
+    assert_eq!(reopened.body["handover"]["gross_minor"], 10_000_000);
+    let after = send(
+        app.clone(),
+        "GET",
+        &handover_path,
+        read_headers(&cookies),
+        None,
+    )
+    .await;
+    assert_eq!(after.body["gross_minor"], 10_000_000);
+    assert_eq!(after.body["lines"].as_array().map(Vec::len), Some(2));
 }

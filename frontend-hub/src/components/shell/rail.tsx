@@ -2,6 +2,7 @@ import { Link, useRouterState } from "@tanstack/react-router"
 
 import {
   domainForPath,
+  flatDomain,
   modulesOfDomain,
   moduleForPath,
   shown,
@@ -39,7 +40,10 @@ export function Rail() {
   const active = moduleForPath(pathname)
   const domain = domainForPath(pathname)
   const owned = domain ? modulesOfDomain(domain) : [active]
-  const many = owned.length > 1
+  // A module names itself when its neighbours make the naming worth something.
+  // GA's six modules hold one screen each and every heading was its own row's
+  // word again — see `flatDomain`.
+  const many = owned.length > 1 && !flatDomain(owned)
 
   return (
     <div className="relative z-30 w-16 shrink-0">
@@ -81,9 +85,10 @@ export function Rail() {
 }
 
 /// One module's screens. The module names itself only when its domain holds
-/// more than one — Selling carries three, Buying carries one — and a section
-/// names itself always, because those headings (Inventory's Audit, Finance's
-/// Books) are the modules' own and were not invented here.
+/// more than one that has anything to group — Selling carries three, Buying
+/// carries one, GA carries six of one screen apiece and is drawn flat — and a
+/// section names itself always, because those headings (Inventory's Audit,
+/// Finance's Books) are the modules' own and were not invented here.
 function ModuleBlock({
   module,
   pathname,

@@ -469,10 +469,37 @@ saved segment is defined over.",
             sql: "COALESCE(s.transaction_count, 0)",
             kind: Kind::Number,
         },
+        // Pieces, from the sale LINES rather than the receipts — see the note
+        // on the `n` subquery in `MEMBER_SOURCE` for why it cannot be folded
+        // into `s`. With `transaction_count` beside it, a saved segment can
+        // finally ask the question a buyer actually asks: who buys a basket
+        // rather than one thing.
+        Dimension {
+            key: "units_total",
+            label: "Units bought",
+            sql: "COALESCE(n.units_total, 0)",
+            kind: Kind::Number,
+        },
         Dimension {
             key: "points_earned_total",
             label: "Points earned",
             sql: "COALESCE(s.points_earned_total, 0)",
+            kind: Kind::Number,
+        },
+        // What is on the card now, as against what has ever been credited to
+        // it. A campaign aimed at people who can spend something is written
+        // against this one; a loyalty report about the whole scheme is written
+        // against the one above.
+        Dimension {
+            key: "points_balance",
+            label: "Points held",
+            sql: "COALESCE(pa.balance_points, 0)",
+            kind: Kind::Number,
+        },
+        Dimension {
+            key: "points_spent_total",
+            label: "Points spent",
+            sql: "COALESCE(pr.points_spent_total, 0)",
             kind: Kind::Number,
         },
         Dimension {
@@ -533,6 +560,18 @@ saved segment is defined over.",
             label: "Saved by promotions",
             sql: "COALESCE(SUM(s.saved_minor), 0)",
             format: Format::Money,
+        },
+        Measure {
+            key: "units",
+            label: "Units bought",
+            sql: "COALESCE(SUM(n.units_total), 0)",
+            format: Format::Count,
+        },
+        Measure {
+            key: "points_held",
+            label: "Points held",
+            sql: "COALESCE(SUM(pa.balance_points), 0)",
+            format: Format::Count,
         },
         Measure {
             key: "sales",

@@ -31,7 +31,29 @@ spent_minor: number,
 /**
  * What promotions took off, over the same sales.
  */
-saved_minor: number, points_earned_total: number, first_purchase_at: string | null, last_purchase_at: string | null, 
+saved_minor: number, 
+/**
+ * Pieces, not receipts. Beside `transaction_count` it is the other half of
+ * units per transaction, which is the number a retailer reads to know
+ * whether a shopper buys one thing or a basket.
+ */
+units_total: number, 
+/**
+ * Every point ever credited on this card, over its whole history.
+ */
+points_earned_total: number, 
+/**
+ * What is on the card NOW — the ledger's running sum, which is earning
+ * less redemption less any reversal, and may be negative when goods that
+ * earned points went back after the points were spent. `0165` argues that
+ * at length; the short of it is that the debt stays with the balance
+ * rather than the voucher being clawed back.
+ */
+points_balance: number, 
+/**
+ * What has already been turned into vouchers, as a positive figure.
+ */
+points_spent_total: number, first_purchase_at: string | null, last_purchase_at: string | null, 
 /**
  * How long since they were last in. `None` for somebody who never has
  * been — which is not the same as a very large number, and a screen that

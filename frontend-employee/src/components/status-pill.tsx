@@ -38,6 +38,24 @@ const known: Record<string, { tone: Tone; label: string }> = {
   LEAVE: { tone: "quiet", label: "Leave" },
   HOLIDAY: { tone: "quiet", label: "Holiday" },
   REST: { tone: "quiet", label: "Rest day" },
+  // Attendance, as the server's derivation actually spells it. A day carries an
+  // outcome *set* rather than one status — `LATE` and `AGREED_OVERTIME` are both
+  // true of the same evening — so these are rendered several to a row, and the
+  // seven below are the whole vocabulary. `PRESENT`/`INCOMPLETE`/`REST` above
+  // were this app's own guesses at it and are kept only because other screens
+  // still pass leave and employment states through here.
+  ON_TIME: { tone: "good", label: "On time" },
+  EARLY_LEAVE: { tone: "waiting", label: "Left early" },
+  // Not "absent": nothing was recorded at one end, which is a hole in the day
+  // rather than a day nobody worked. Calling it absence is the mistake the
+  // whole derivation is built to avoid.
+  MISSING_PUNCH: { tone: "bad", label: "A punch is missing" },
+  APPROVED_LEAVE: { tone: "quiet", label: "Approved leave" },
+  AGREED_OVERTIME: { tone: "good", label: "Overtime agreed" },
+  // The plan, for the days that have no outcome to show.
+  SCHEDULED: { tone: "quiet", label: "Scheduled" },
+  REST_DAY: { tone: "quiet", label: "Rest day" },
+  PUBLIC_HOLIDAY: { tone: "quiet", label: "Public holiday" },
   // Employment, as the server's state machine actually spells it. CANDIDATE
   // is not a mistake and not "inactive": somebody has been taken on and has
   // not started, which is normal for a fortnight and alarming for a year.

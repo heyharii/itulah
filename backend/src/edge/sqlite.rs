@@ -332,6 +332,29 @@ pub(crate) const FINGERPRINT_SCHEMA: &str = include_str!(concat!(
     "/migrations/sqlite/0039_a_finger_opens_a_till_and_authorises_a_void.sql"
 ));
 
+pub(crate) const STEP_UP_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0040_a_node_says_which_step_up_it_accepts.sql"
+));
+
+/// The unit's punch station: the employee and roster slice the centre
+/// publishes, the stations it registers, and this box's own punch log. See the
+/// migration for why the slice is here at all, and for why it is a different
+/// thing from `0039` despite both having the word fingerprint in them.
+pub(crate) const ATTENDANCE_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0040_a_terminal_greets_by_name_with_the_line_down.sql"
+));
+
+/// Create the attendance tables on a bare connection.
+///
+/// `pub(crate)` so `edge::attendance`'s own tests can stand up the four tables
+/// they need without opening a whole node. Every statement in the migration is
+/// `IF NOT EXISTS`, so this is safe to call more than once.
+pub(crate) fn apply_attendance_schema(connection: &Connection) -> Result<(), EdgeError> {
+    connection.execute_batch(ATTENDANCE_SCHEMA).map_err(db)
+}
+
 #[derive(Clone)]
 pub struct SqliteEdge {
     connection: Arc<Mutex<Connection>>,
@@ -936,6 +959,31 @@ impl SqliteEdge {
         // is what lets it run on every open without a probe.
         connection.execute_batch(PETTY_CASH_SCHEMA).map_err(db)?;
         connection.execute_batch(FINGERPRINT_SCHEMA).map_err(db)?;
+        connection.execute_batch(STEP_UP_SCHEMA).map_err(db)?;
+        // The claim table was written when a claim could only be a finger. A
+        // PIN claim is the same event — a terminal asserting an identity — so
+        // it goes in the same table rather than a parallel one, and the column
+        // says which. Guarded the way every other late column here is: an
+        // unconditional ALTER succeeds once and fails every boot after.
+        let a_claim_names_its_method: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('edge_fingerprint_claim') WHERE name='method'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        if a_claim_names_its_method == 0 {
+            connection
+                .execute_batch(
+                    "ALTER TABLE edge_fingerprint_claim
+                     ADD COLUMN method TEXT NOT NULL DEFAULT 'FINGERPRINT'",
+                )
+                .map_err(db)?;
+        }
+        // The attendance slice. Same reasoning again: five tables and four
+        // indexes, all `IF NOT EXISTS`, no ALTER and no CHECK rebuilt, so it
+        // creates rather than changes and needs no probe.
+        apply_attendance_schema(&connection)?;
         let existing: Option<(String, String, String)> = connection
             .query_row(
                 "SELECT node_id,role,site_id FROM node_metadata WHERE singleton=1",
@@ -1180,6 +1228,64 @@ impl SqliteEdge {
                 "approved_role": expense.approved_role,
                 "spent_at": expense.spent_at,
             }),
+        )
+        .map_err(db)?;
+        Ok(())
+    }
+
+    /// A stable event id for a punch id that need not be a uuid.
+    ///
+    /// SHA-256 of the punch id, folded into the 128 bits a uuid holds and
+    /// stamped as version 5 — the same construction `Uuid::new_v5` performs,
+    /// written out here because the `uuid` crate is built without its `v5`
+    /// feature and adding one to a lockfile three lanes are editing is not
+    /// worth a hash.
+    ///
+    /// Deterministic is the whole requirement: a retried punch must produce the
+    /// event id its first attempt did, or `ux_sync_fact_event_id` would see two
+    /// identities for one punch and let it up the wire twice.
+    fn event_id_of(punch_id: &str) -> Uuid {
+        use sha2::{Digest as _, Sha256};
+        let digest = Sha256::digest(punch_id.as_bytes());
+        let mut bytes = [0u8; 16];
+        bytes.copy_from_slice(&digest[..16]);
+        // Version 5, RFC 4122 variant.
+        bytes[6] = (bytes[6] & 0x0f) | 0x50;
+        bytes[8] = (bytes[8] & 0x3f) | 0x80;
+        Uuid::from_bytes(bytes)
+    }
+
+    /// Queue one punch for the centre, in the caller's transaction.
+    ///
+    /// The punch's own id is the `event_id`, which gives cross-node dedup for
+    /// free: the same punch may be delivered any number of times and only the
+    /// first lands, because the identity collides at both ends. That is the
+    /// property an offline station's reconnection depends on — without it a
+    /// day of redelivery reads as a day of double-taps.
+    fn capture_attendance_punch(
+        tx: &Transaction<'_>,
+        request: &crate::edge::attendance::PunchRequest,
+        punched: &crate::edge::attendance::Punched,
+        now: DateTime<Utc>,
+    ) -> Result<(), EdgeError> {
+        let place: String = tx
+            .query_row(
+                "SELECT place_id FROM attendance_book WHERE id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        crate::edge::sync::enqueue_fact(
+            tx,
+            // Derived from the punch id rather than `Uuid::parse_str`'d out of
+            // it: the id is minted by whatever drives the station and need not
+            // be a uuid. Derived *deterministically*, which is the part that
+            // matters — a retry has to produce the same event id as the first
+            // attempt, or the fact log would carry the same punch twice under
+            // two identities and `ux_sync_fact_event_id` would not catch it.
+            Self::event_id_of(&punched.punch_id),
+            crate::edge::attendance::FACT_ATTENDANCE_PUNCH_RECORDED,
+            &crate::edge::attendance::punch_fact(&place, punched, request, now),
         )
         .map_err(db)?;
         Ok(())
@@ -5774,6 +5880,66 @@ impl EdgeInventory for SqliteEdge {
         crate::edge::petty::window(&connection, &query)
     }
 
+    // ── the unit's punch station ────────────────────────────────────────
+
+    fn record_punch(
+        &self,
+        request: crate::edge::attendance::PunchRequest,
+    ) -> Result<crate::edge::attendance::Punched, EdgeError> {
+        // No `require_store`: a DC has staff, shifts and a door like every shop
+        // does, and a warehouse whose people could not clock in would be a
+        // warehouse whose payroll had no basis.
+        Self::validate_command_identity(&request.idempotency_key, &request.actor_id)?;
+        let request_json = Self::encode_idempotent_request(&request)?;
+        let mut connection = self.lock()?;
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db)?;
+        if let Some(response) = Self::load_idempotent(
+            &tx,
+            &request.idempotency_key,
+            "ATTENDANCE_PUNCH",
+            &request_json,
+        )? {
+            tx.commit().map_err(db)?;
+            return Ok(response);
+        }
+        let now = Utc::now();
+        let punched = crate::edge::attendance::punch(&tx, &request, now)?;
+        // The centre hears about it in the same transaction as the row, or not
+        // at all. That single property is what makes the buffer durable: there
+        // is no window in which a punch is acknowledged to somebody standing at
+        // the reader and not yet queued for upload.
+        Self::capture_attendance_punch(&tx, &request, &punched, now)?;
+        Self::save_idempotent(
+            &tx,
+            &request.idempotency_key,
+            "ATTENDANCE_PUNCH",
+            &request_json,
+            &punched,
+        )?;
+        tx.commit().map_err(db)?;
+        Ok(punched)
+    }
+
+    fn attendance_today(
+        &self,
+        employee_id: &str,
+        business_date: Option<chrono::NaiveDate>,
+    ) -> Result<crate::edge::attendance::TodayForEmployee, EdgeError> {
+        let connection = self.lock()?;
+        crate::edge::attendance::today(
+            &connection,
+            employee_id,
+            business_date.unwrap_or_else(|| Utc::now().date_naive()),
+        )
+    }
+
+    fn attendance_book_status(&self) -> Result<crate::edge::attendance::BookStatus, EdgeError> {
+        let connection = self.lock()?;
+        crate::edge::attendance::book_status(&connection)
+    }
+
     fn void_sale(
         &self,
         sale_id: &str,
@@ -6290,7 +6456,11 @@ mod tests {
     fn supervisor(username: &str, password: &str) -> crate::edge::till::Supervisor {
         crate::edge::till::Supervisor {
             username: username.into(),
-            password: password.into(),
+            password: Some(password.into()),
+            // A password, and no finger. `verify_supervisor` tries the
+            // fingerprint grant first and falls through to the password, so
+            // `None` here is what "this helper types a password" means.
+            authorization: None,
         }
     }
 
@@ -9319,7 +9489,11 @@ mod petty_tests {
     fn supervisor(username: &str, password: &str) -> crate::edge::till::Supervisor {
         crate::edge::till::Supervisor {
             username: username.into(),
-            password: password.into(),
+            password: Some(password.into()),
+            // A password, and no finger. `verify_supervisor` tries the
+            // fingerprint grant first and falls through to the password, so
+            // `None` here is what "this helper types a password" means.
+            authorization: None,
         }
     }
 

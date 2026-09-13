@@ -50,9 +50,28 @@ PEOPLE = [
     ("HO-0003", "Bagus Nugroho", "Buyer", "S3", "PKWTT", "ho", "2021-02-01"),
     ("HO-0004", "Ratih Kusuma", "Finance Officer", "S2", "PKWTT", "ho", "2021-09-06"),
     ("HO-0005", "Dimas Saputra", "IT Support", "S2", "PKWT", "ho", "2025-01-06"),
-    ("DC-0001", "Yusuf Ramadhan", "Warehouse Supervisor", "S3", "PKWTT", "dc", "2020-05-11"),
-    ("DC-0002", "Nina Oktaviani", "Inbound Clerk", "S1", "PKWT", "dc", "2025-03-03"),
-    ("DC-0003", "Rizal Fadhil", "Picker", "S1", "PKWT", "dc", "2025-06-02"),
+    # The warehouse team is head office staff: posted to `ho`, and numbered in
+    # the HO series. Migration 0230 folded the distribution centre into head
+    # office — the owner's decision of 2026-09-13, restated as "ho cuma 1" —
+    # so `org_place('dc')` no longer exists and `org_place.kind` no longer
+    # admits 'DC'. These three rows posted to "dc" until that landed, and the
+    # foreign key refused them from the moment it did.
+    #
+    # The badge numbers moved too, from `DC-000n` to the HO series. A badge is
+    # a number rather than a name, so keeping the old prefix would have been
+    # defensible — but it is printed in the Directory, and the owner asked for
+    # the letters to stop appearing anywhere a person reads them. `position` is
+    # what still says where somebody works, which is the honest place for it:
+    # a warehouse supervisor is a warehouse supervisor whichever unit employs
+    # them.
+    #
+    # `site('dc')` is untouched. The warehouse is still a syncing node that
+    # receives goods and runs the handhelds, and `site.kind` is still `DC`.
+    # What changed is only where the people who work there are POSTED — a
+    # different table, for exactly this reason.
+    ("HO-0006", "Yusuf Ramadhan", "Warehouse Supervisor", "S3", "PKWTT", "ho", "2020-05-11"),
+    ("HO-0007", "Nina Oktaviani", "Inbound Clerk", "S1", "PKWT", "ho", "2025-03-03"),
+    ("HO-0008", "Rizal Fadhil", "Picker", "S1", "PKWT", "ho", "2025-06-02"),
     ("ST-0101", "Maya Anggraini", "Store Manager", "S4", "PKWTT", "store-01", "2019-08-19"),
     ("ST-0102", "Fajar Setiawan", "Cashier", "S1", "PKWT", "store-01", "2025-02-10"),
     ("ST-0201", "Lestari Handayani", "Store Manager", "S4", "PKWTT", "store-02", "2020-01-13"),

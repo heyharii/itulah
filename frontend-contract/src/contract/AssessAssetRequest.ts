@@ -42,6 +42,16 @@ rate_bps?: number, method: string | null,
  */
 charge_kind: string | null, in_service_on: string | null, 
 /**
+ * What the old system had already depreciated, and the last month that
+ * figure covers.
+ *
+ * Both or neither. The client's register carries a column for this and
+ * leaves it empty on all 1,342 rows, so the figure comes from the ledger
+ * being replaced rather than from the file — and until it does, leaving
+ * these out is the honest state. Migration 0237.
+ */
+opening_accumulated_minor?: number, opening_through?: string, 
+/**
  * Why. Required on both decisions — an expensed asset with no reason is
  * the one somebody queries a year later.
  */

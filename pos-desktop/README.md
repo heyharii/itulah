@@ -49,7 +49,7 @@ to re-check before committing further:
 | Device | Whether .NET wins |
 |---|---|
 | RFID | No. Our lane is networked and signed — a reader proves an enrolment key and POSTs a batch to `/api/v1/rfid/observations`. Nothing requires a process on the till to open a USB device. |
-| Fingerprint | No, though it looks like it does. `pos-fp-host/Native/ZkfpNative.cs` is a P/Invoke surface over `libzkfp.dll` from `libzkfp.h` — a plain **C** API. Rust binds a C API the same way. What C# has is a binding that already works, not a capability Rust lacks. |
+| Fingerprint | No, though it looks like it does. `pos-fp-host/Native/ZkfpNative.cs` is a P/Invoke surface over `libzkfp.dll` from `libzkfp.h` — a plain **C** API. Rust binds a C API the same way. What C# has is a binding that already works, not a capability Rust lacks. **And it is not Windows-bound:** ZKTeco publishes an official ZKFinger SDK for Linux covering the SLK20R and ZK series, so a Linux till — or a Linux VM with USB passthrough, for testing — uses the same FFI. No official native macOS SDK was found; the only macOS mention is a third-party wrapper needing .NET/Mono, which is not evidence of a driver. Verify against the model actually bought. |
 | Printer / drawer | No. Receipts are ESC/POS from the edge, which is already the party on the printer's LAN. |
 
 If a device turns out to need .NET after all, the answer is one small
@@ -116,6 +116,44 @@ user's own config directory, written by the shell and never by the page. A till
 is set up once by whoever installs it and then used by people who were never
 told what a node address is; a terminal that forgot its shop every time it was
 closed would be found broken in the morning by a cashier.
+
+## Testing the fingerprint path without a fingerprint
+
+The interesting half of this feature is not the sensor. It is the roster coming
+down to a paired terminal, the claim being signed, the sequence being burned so
+a captured claim cannot be replayed, and a supervisor's grant being spent once
+and then expiring. None of that needs a scanner, and all of it is wrong in ways
+a demo would never show if it were only ever tried on the day the hardware
+arrives.
+
+So a **development build** can be told whose finger to pretend matched: Setelan
+terminal → *Simulasikan sidik jari milik*. Every answer it produces is labelled
+`SIMULASI` in the words the cashier reads, and the block that implements it is
+behind `#[cfg(debug_assertions)]` — a release has no code to read the setting
+with, so a till in a shop cannot be talked into simulating a supervisor by
+editing a config file.
+
+What it does **not** test is the only thing it cannot: whether the vendor
+matcher says yes to the right finger.
+
+To test that, the blocker on this desk is **the absence of a scanner**, not the
+operating system. ZKTeco ships a Linux SDK, so a Linux box — or a VM with USB
+passthrough — exercises the real matcher without needing a Windows machine at
+all. What cannot be arranged is a real answer from a device nobody has plugged
+in.
+
+### The other alternative, and why it is not a substitute
+
+`pos-electron` also ships WebAuthn (`use-webauthn.ts`), used in exactly the
+three places we care about — opening a shift, settings, and supervisor auth. On
+a Mac that is Touch ID; on Windows, Hello. It works here today.
+
+But it answers a different question. WebAuthn proves *the person enrolled on
+this machine*; the roster proves *which member of this shop's staff*. A cashier
+enrolled at till 1 cannot press at till 2, and covering somebody's break is the
+ordinary case. So WebAuthn is worth having as a second factor for a terminal —
+it is not a replacement for a shop-wide roster, and using it as one would be a
+shop that discovers the difference on a busy Saturday.
 
 ## Not built yet
 

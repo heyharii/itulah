@@ -754,7 +754,7 @@ fn edge_pool_metadata(
         // Off the racks, not yet in a box, and not yet anyone's. It sorts
         // before the destination-scoped leaves because that is the order the
         // goods actually pass through.
-        DcOutboundPicking { .. } => ("OUTBOUND", "PICKING", "Picking", 40, None),
+        DcOutboundPicking { .. } => ("OUTBOUND", "PICKING", "Pick Area", 40, None),
         DcOutboundPicked { .. } => ("OUTBOUND", "PICKED", "Picked", 41, Some("PICKED")),
         DcOutboundPacked { .. } => ("OUTBOUND", "PACKED", "Packed", 51, Some("PACKED")),
         DcOutboundShipment { .. } => ("OUTBOUND", "SHIPMENT", "Shipment", 61, Some("SHIPMENT")),

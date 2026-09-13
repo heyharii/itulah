@@ -313,9 +313,10 @@ pub struct ExpenseWindow {
 
 /// Record an expense paid out of petty cash.
 ///
-/// Five refusals live here and none of them lives in the browser. A screen that
-/// enforced the ceiling would be a screen, and this node answers a browser it
-/// did not write, a tablet running an old build, and curl.
+/// Five refusals live here and none of them lives ONLY in the browser. A
+/// ceiling a screen enforces is a ceiling that holds for exactly one client,
+/// and this node answers a tablet running last month's build, a second app
+/// nobody here wrote, and curl.
 ///
 ///   1. a category the chart knows, or nothing;
 ///   2. an amount, a payee and a reason — a row without any of the three is a

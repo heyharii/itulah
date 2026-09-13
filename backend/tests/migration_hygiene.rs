@@ -166,14 +166,15 @@ const RESERVED: &[(u32, u32, &str)] = &[
          same next number",
     ),
     (
-        217,
-        219,
-        "the giro lane, 2026-09-13, and a worked example of why this table \
-         exists: 0213 was claimed twice within the hour, the loser renumbered \
-         to 0215 while this lane was writing, 0216 went the same way an hour \
-         later, and the giro files took 0220 onwards rather than crowd it \
-         again. The finance-control lane is \
-         also still holding 0115-0119 unmerged",
+        171,
+        172,
+        "never filed by anybody, and verified so: `git log --all` over \
+         `0171*` and `0172*` returns nothing, so these are not files somebody \
+         lost — they are two numbers a lane stepped over on 2026-09-12 while \
+         the promotion and markdown work was landing in the 0170s, and never \
+         wrote down. Recorded rather than reused, because the point of this \
+         table is that the next reader can tell a deliberate hole from a \
+         missing table",
     ),
     (
         224,

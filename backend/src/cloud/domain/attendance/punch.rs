@@ -27,7 +27,7 @@ use super::period::AttendancePeriod;
 use super::terminal::{AttendanceTerminal, IdentificationMethod, TerminalAttestation};
 use super::time::{DayOffset, MinuteOfDay, ShiftPosition};
 use crate::cloud::domain::employment::{
-    AssignmentTimeline, Employee, EmployeeId, EmploymentStatus, PlaceId,
+    AssignmentTimeline, Authorization, Employee, EmployeeId, EmploymentStatus, PlaceId,
 };
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
@@ -117,6 +117,245 @@ impl fmt::Display for ClockQuality {
     }
 }
 
+/// What kind of thing produced a punch.
+///
+/// # Two sources, named for ever, and why that matters more than it looks
+///
+/// The owner's decision of 2026-09-13 is a fingerprint station per unit, no PIN
+/// and no card, reaffirmed twice. Nothing has been bought, so today nobody can
+/// clock in anywhere and the whole HR month has no input to be exercised
+/// against; he asked for attendance in the employee app so the flow can be
+/// walked end to end before the readers arrive.
+///
+/// That is a second source, and the decision above did not contemplate one. The
+/// two are **not the same evidence**: a terminal punch was witnessed by a device
+/// somebody installed and registered, and a phone punch was not witnessed by
+/// anything. Flattening them would make "did a finger produce this, or a phone?"
+/// unanswerable on the day the readers arrive — which is precisely the defect
+/// the implementation this kernel replaced had, where the punch endpoint took
+/// `source` as free text and **defaulted it to `fingerprint`**.
+///
+/// So it is a closed vocabulary with a wire code and a column (migration
+/// `0239`), and adding a third is a typed decision with a migration rather than
+/// a string that appears in a database one afternoon. Retiring [`EmployeeApp`]
+/// later means refusing new rows of it; the ones already stored stay readable
+/// and stay honest about what they are.
+///
+/// [`EmployeeApp`]: Self::EmployeeApp
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum PunchSource {
+    /// A registered, active station at the unit identified the person.
+    Terminal,
+    /// The person themselves, signed in, in the employee app. **Nothing saw
+    /// them arrive.**
+    EmployeeApp,
+}
+
+impl PunchSource {
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::Terminal => "TERMINAL",
+            Self::EmployeeApp => "EMPLOYEE_APP",
+        }
+    }
+
+    /// An error rather than an `Option`, like [`IdentificationMethod::parse`]:
+    /// every caller is about to decide whether a stored punch's provenance
+    /// holds, and a source this build cannot read must fail the row rather than
+    /// pass it as some other source.
+    pub fn parse(code: &str) -> Result<Self, AttendanceError> {
+        match code {
+            "TERMINAL" => Ok(Self::Terminal),
+            "EMPLOYEE_APP" => Ok(Self::EmployeeApp),
+            _ => Err(AttendanceError::UnreadablePunchSource {
+                code: code.to_owned(),
+            }),
+        }
+    }
+}
+
+impl fmt::Display for PunchSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.code())
+    }
+}
+
+/// The provenance of one punch: its source, and whatever that source implies.
+///
+/// An enum rather than a source code beside a nullable terminal, because the
+/// halves belong together. A terminal punch naming no station, and a phone punch
+/// naming one, are both nonsense — and the halfway row is the thing a reader two
+/// years from now would have to guess about. Here neither is representable, and
+/// `0239`'s `punch_provenance_matches_source` says the same thing in the
+/// database so a row edited by hand fails to hydrate rather than becoming
+/// attendance.
+///
+/// [`IdentificationMethod`] lives on the terminal variant rather than on the
+/// punch because that is what it always described: how the identification was
+/// performed *at the station*. A phone punch has no identification to describe,
+/// so the honest answer is its absence rather than a widened vocabulary with a
+/// `SELF_SERVICE` value in it — which would have quietly made a phone tap
+/// indistinguishable from a reading in every query that filters on `method`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "source", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum PunchProvenance {
+    /// A registered station, at the punch's place, performing its own method.
+    Terminal {
+        terminal: TerminalId,
+        method: IdentificationMethod,
+    },
+    /// The employee app. It carries nothing further, and that is the point:
+    /// there is no device to name, so the source itself is the whole of the
+    /// provenance.
+    EmployeeApp,
+}
+
+impl PunchProvenance {
+    pub const fn source(&self) -> PunchSource {
+        match self {
+            Self::Terminal { .. } => PunchSource::Terminal,
+            Self::EmployeeApp => PunchSource::EmployeeApp,
+        }
+    }
+
+    /// The station that took it, for the sources that have one.
+    pub const fn terminal(&self) -> Option<&TerminalId> {
+        match self {
+            Self::Terminal { terminal, .. } => Some(terminal),
+            Self::EmployeeApp => None,
+        }
+    }
+
+    pub const fn method(&self) -> Option<IdentificationMethod> {
+        match self {
+            Self::Terminal { method, .. } => Some(*method),
+            Self::EmployeeApp => None,
+        }
+    }
+}
+
+/// Proof that a signed-in person asked to record their **own** arrival.
+///
+/// # Why this exists, and what it deliberately is not
+///
+/// It is the employee app's counterpart to [`TerminalAttestation`], and the
+/// difference between the two names is the difference in the evidence. An
+/// attestation is a device saying "I identified this person here". A *claim* is
+/// a person saying "I am here", and nothing corroborates it. Calling it an
+/// attestation would have made the two look alike at every call site, which is
+/// the one thing this pair of types exists to prevent.
+///
+/// The shape is the same, though, and for the same reason: private fields, no
+/// public constructor, no `Deserialize`, no `Default`. A claim can only come
+/// from [`SelfPunchClaim::make`], which refuses unless the [`Authorization`] it
+/// is handed carries `people.attendance_punch.record_own`. So "a punch from the
+/// app requires the self-service grant" is a property of the type rather than a
+/// check a handler could forget.
+///
+/// # The bound this type cannot express, and where it lives instead
+///
+/// That the claim is about the *caller's own* record is not checkable here: an
+/// [`Authorization`]'s actor is a login name and an [`EmployeeId`] is an
+/// employment record, and the binding between them is HR data. So the handler
+/// applies it — `Access::own`, exactly as `file_correction` chooses between the
+/// own and the on-behalf-of correction keys — and this type holds the half that
+/// is checkable: the grant. The same division as
+/// `actions::CORRECTION_REQUEST_OWN`, whose bound is likewise the record rather
+/// than the rung.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SelfPunchClaim {
+    employee: EmployeeId,
+    place: PlaceId,
+    authorization: Authorization,
+}
+
+impl SelfPunchClaim {
+    /// Make a claim, refusing any authority that does not carry the
+    /// self-service punch key.
+    ///
+    /// The place is the caller's **posting**, resolved by the handler from the
+    /// effective-dated assignment timeline, and never a body field. A caller
+    /// who could name their own place could file a day's work at a shop they
+    /// have never been posted to — and `Punch::claim_own` re-checks the posting
+    /// on the punch's own business date anyway, so a claim that named somewhere
+    /// else would be refused twice.
+    pub fn make(
+        employee: EmployeeId,
+        place: PlaceId,
+        authorization: Authorization,
+    ) -> Result<Self, AttendanceError> {
+        if !authorization.authorizes_own_punch() {
+            return Err(AttendanceError::ActionForbidsOwnPunch {
+                action_key: authorization.action_key().to_owned(),
+            });
+        }
+        Ok(Self {
+            employee,
+            place,
+            authorization,
+        })
+    }
+
+    pub fn employee(&self) -> &EmployeeId {
+        &self.employee
+    }
+    pub fn place(&self) -> &PlaceId {
+        &self.place
+    }
+    /// Who claimed it, under which key, when, and why.
+    ///
+    /// Kept on the claim and **not persisted with the punch**: `0239` adds a
+    /// source column and no actor column, because on this route the actor is
+    /// the person the row is already about — the handler serves the key only
+    /// for the caller's own record. What the punch keeps is the fact that a
+    /// phone produced it, which is the part a later reader cannot recover from
+    /// anywhere else.
+    pub const fn authorization(&self) -> &Authorization {
+        &self.authorization
+    }
+
+    /// The identity this punch will have, **derived** from what it is rather
+    /// than minted.
+    ///
+    /// # This is the idempotency, and it is the terminal path's own mechanism
+    ///
+    /// A station's punch carries an id minted at the edge, and redelivery is
+    /// free because the identity collides: `ON CONFLICT (id) DO NOTHING`, and
+    /// only the first delivery lands. A phone has no such id to offer — and must
+    /// not be asked for one, because an id a client chooses is an id a client
+    /// can choose *twice differently*, which is the same double tap wearing two
+    /// identities.
+    ///
+    /// So the centre derives it from the punch's own content: the person, the
+    /// business minute it falls in, and the direction. A second tap while the
+    /// first request is still in flight, a retry on a dropped connection, and a
+    /// thumb resting on the button all produce the same id and therefore one
+    /// row — by exactly the mechanism that already makes an offline node's
+    /// redelivery safe, rather than a lock or a de-duplication window the
+    /// storage layer would have to learn about.
+    ///
+    /// A tap in the *next* minute is a different punch and does land, which is
+    /// right: two readings a minute apart are two observations. Whether they
+    /// amount to one arrival is [`super::day`]'s question, and it already folds
+    /// readings closer together than the policy's
+    /// `duplicate_punch_window_minutes`.
+    fn punch_id(
+        &self,
+        at: PunchTime,
+        direction: PunchDirection,
+    ) -> Result<PunchId, AttendanceError> {
+        PunchId::try_new(&format!(
+            "app-{}-{}{}-{:04}-{}",
+            self.employee,
+            at.business_date().format("%Y%m%d"),
+            at.day_offset().days(),
+            at.minute().minutes(),
+            direction.code(),
+        ))
+    }
+}
+
 /// Where a punch sits in place-local business time: the business date it is
 /// filed under, plus a clock reading that may fall after midnight.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -172,16 +411,18 @@ impl fmt::Display for PunchTime {
 
 /// One immutable punch.
 ///
-/// Construction requires a [`TerminalAttestation`], so every punch in existence
-/// was produced by a registered, active terminal that identified the employee.
-/// There is no other constructor — see [`super::terminal`].
+/// Construction requires evidence, and there are exactly **two** kinds of it:
+/// a [`TerminalAttestation`], which only a registered active station produces
+/// (see [`super::terminal`]), or a [`SelfPunchClaim`], which only the
+/// self-service grant produces. There is no third constructor and no way to
+/// build one from raw fields, so every punch in existence names which of the two
+/// it came from — see [`PunchSource`] for why those two must never blur.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Punch {
     id: PunchId,
     employee: EmployeeId,
     place: PlaceId,
-    terminal: TerminalId,
-    method: IdentificationMethod,
+    provenance: PunchProvenance,
     direction: PunchDirection,
     at: PunchTime,
     recorded_at: DateTime<Utc>,
@@ -205,8 +446,12 @@ pub struct PersistedPunch {
     pub id: PunchId,
     pub employee: EmployeeId,
     pub place: PlaceId,
-    pub terminal: TerminalId,
-    pub method: IdentificationMethod,
+    /// The source and whatever it implies, as one value. A row whose columns
+    /// say `EMPLOYEE_APP` and also name a station cannot be assembled into this
+    /// field at all, which is where `0239`'s check constraint is re-stated in
+    /// Rust — the same arrangement as a correction's `state` and the decision
+    /// beside it.
+    pub provenance: PunchProvenance,
     pub direction: PunchDirection,
     pub at: PunchTime,
     pub recorded_at: DateTime<Utc>,
@@ -256,14 +501,98 @@ impl Punch {
         clock_quality: ClockQuality,
         context: PunchContext<'_>,
     ) -> Result<Self, AttendanceError> {
+        if attestation.employee() != context.employee.id() {
+            return Err(AttendanceError::AttestationEmployeeMismatch);
+        }
+        Self::require_eligible(attestation.place(), at, context)?;
+        Ok(Self {
+            id,
+            employee: context.employee.id().clone(),
+            place: attestation.place().clone(),
+            provenance: PunchProvenance::Terminal {
+                terminal: attestation.terminal().clone(),
+                method: attestation.method(),
+            },
+            direction,
+            at,
+            recorded_at,
+            clock_quality,
+        })
+    }
+
+    /// Record a punch somebody made about their own day, from the employee app.
+    ///
+    /// # Every eligibility rule above still applies
+    ///
+    /// The employment status **on the business date**, the posting **on that
+    /// date**, and the `(place, month)` being open are checked by exactly the
+    /// same code as [`Punch::record`] — see [`Punch::require_eligible`]. A
+    /// second source must not be a second set of rules; the only thing that
+    /// differs is the evidence, and the row says which evidence it was.
+    ///
+    /// # There is no `clock_quality` parameter, and no `recorded_at` from a
+    /// client
+    ///
+    /// [`ClockQuality`] answers "how much did the recorder know about its own
+    /// clock". A station that has been offline for a week is keeping time on
+    /// its own and says so. Here the recorder is the **centre**, stamping its
+    /// own clock in the same request, so the quality is
+    /// [`ClockQuality::Ok`] by construction rather than a value anybody
+    /// claimed — and `recorded_at` is the server's instant, passed in by the
+    /// handler so this stays a pure function.
+    ///
+    /// A client-supplied instant is a client that can choose when it arrived,
+    /// which is the whole reason `IncomingPunch::recorded_at` carries the note
+    /// that no rule reads it. Here there is no field to lie in.
+    ///
+    /// # There is no `id` parameter either
+    ///
+    /// It is derived from the punch's own content — see
+    /// [`SelfPunchClaim::punch_id`] — so a double tap lands once by identity
+    /// collision, the way a node's redelivery already does. Taking an id here
+    /// would mean a caller could send the same tap twice under two identities,
+    /// and no amount of care in the handler would close that.
+    pub fn claim_own(
+        claim: &SelfPunchClaim,
+        direction: PunchDirection,
+        at: PunchTime,
+        recorded_at: DateTime<Utc>,
+        context: PunchContext<'_>,
+    ) -> Result<Self, AttendanceError> {
+        if claim.employee() != context.employee.id() {
+            return Err(AttendanceError::ClaimEmployeeMismatch);
+        }
+        Self::require_eligible(claim.place(), at, context)?;
+        Ok(Self {
+            id: claim.punch_id(at, direction)?,
+            employee: context.employee.id().clone(),
+            place: claim.place().clone(),
+            provenance: PunchProvenance::EmployeeApp,
+            direction,
+            at,
+            recorded_at,
+            clock_quality: ClockQuality::Ok,
+        })
+    }
+
+    /// The rules that decide whether attendance may be recorded at all, shared
+    /// by both sources.
+    ///
+    /// One function rather than two copies, because a second source that drifted
+    /// into a second set of eligibility rules is how a closed month ends up
+    /// taking a punch through the newer door. The three questions are the same
+    /// three: was this person employed on that day, were they posted to this
+    /// place on that day, and is that month still open.
+    fn require_eligible(
+        place: &PlaceId,
+        at: PunchTime,
+        context: PunchContext<'_>,
+    ) -> Result<(), AttendanceError> {
         let PunchContext {
             employee,
             assignment,
             period,
         } = context;
-        if attestation.employee() != employee.id() {
-            return Err(AttendanceError::AttestationEmployeeMismatch);
-        }
         let status = employee.status_on(at.business_date());
         if status != EmploymentStatus::Active {
             return Err(AttendanceError::EmploymentForbidsAttendance {
@@ -271,28 +600,18 @@ impl Punch {
                 date: at.business_date(),
             });
         }
-        if assignment.place_on(at.business_date()) != Some(attestation.place()) {
+        if assignment.place_on(at.business_date()) != Some(place) {
             return Err(AttendanceError::NotPostedToPlaceOnDate {
                 date: at.business_date(),
             });
         }
-        period.require_covers(attestation.place(), at.business_date())?;
+        period.require_covers(place, at.business_date())?;
         if period.is_closed() {
             return Err(AttendanceError::ClosedPeriodRejectsPunch {
                 period: period.period().to_string(),
             });
         }
-        Ok(Self {
-            id,
-            employee: employee.id().clone(),
-            place: attestation.place().clone(),
-            terminal: attestation.terminal().clone(),
-            method: attestation.method(),
-            direction,
-            at,
-            recorded_at,
-            clock_quality,
-        })
+        Ok(())
     }
 
     /// Rebuild a punch this kernel previously produced and something else
@@ -339,16 +658,38 @@ impl Punch {
     /// gate: a fabricated row would simply carry a date inside an eligible
     /// window, and what actually stops fabrication is the terminal provenance
     /// check above.
+    /// `terminal` is `Some` for exactly the rows whose source is a terminal.
+    ///
+    /// Not "the terminal if the caller happened to load one": an
+    /// [`PunchSource::EmployeeApp`] row offered a station, or a
+    /// [`PunchSource::Terminal`] row offered none, is refused as a provenance
+    /// mismatch rather than loaded with the mismatch ignored. The alternative —
+    /// taking the terminal when it is there and shrugging when it is not —
+    /// would make a phone punch that somebody pointed at a real station load as
+    /// a fingerprint reading, which is the one outcome the source column exists
+    /// to prevent.
+    ///
+    /// A phone punch's provenance is re-checked as far as it can be, which is
+    /// the posting: nothing else was recorded, because nothing else was
+    /// observed.
     pub fn rehydrate(
         record: PersistedPunch,
-        terminal: &AttendanceTerminal,
+        terminal: Option<&AttendanceTerminal>,
         employee: &Employee,
         assignment: &AssignmentTimeline,
     ) -> Result<Self, AttendanceError> {
         if &record.employee != employee.id() {
             return Err(AttendanceError::PunchProvenanceMismatch { field: "employee" });
         }
-        terminal.require_persisted_provenance(&record.terminal, &record.place, record.method)?;
+        match (&record.provenance, terminal) {
+            (PunchProvenance::Terminal { terminal: id, method }, Some(station)) => {
+                station.require_persisted_provenance(id, &record.place, *method)?;
+            }
+            (PunchProvenance::EmployeeApp, None) => {}
+            (PunchProvenance::Terminal { .. }, None) | (PunchProvenance::EmployeeApp, Some(_)) => {
+                return Err(AttendanceError::PunchProvenanceMismatch { field: "source" })
+            }
+        }
         if assignment.place_on(record.at.business_date()) != Some(&record.place) {
             return Err(AttendanceError::NotPostedToPlaceOnDate {
                 date: record.at.business_date(),
@@ -358,8 +699,7 @@ impl Punch {
             id: record.id,
             employee: record.employee,
             place: record.place,
-            terminal: record.terminal,
-            method: record.method,
+            provenance: record.provenance,
             direction: record.direction,
             at: record.at,
             recorded_at: record.recorded_at,
@@ -375,8 +715,7 @@ impl Punch {
             id: self.id.clone(),
             employee: self.employee.clone(),
             place: self.place.clone(),
-            terminal: self.terminal.clone(),
-            method: self.method,
+            provenance: self.provenance.clone(),
             direction: self.direction,
             at: self.at,
             recorded_at: self.recorded_at,
@@ -393,11 +732,20 @@ impl Punch {
     pub fn place(&self) -> &PlaceId {
         &self.place
     }
-    pub fn terminal(&self) -> &TerminalId {
-        &self.terminal
+    pub const fn provenance(&self) -> &PunchProvenance {
+        &self.provenance
     }
-    pub const fn method(&self) -> IdentificationMethod {
-        self.method
+    /// Which kind of thing produced this punch. Never inferred from the absence
+    /// of a terminal — see [`PunchSource`].
+    pub const fn source(&self) -> PunchSource {
+        self.provenance.source()
+    }
+    /// The station that took it, and `None` for a punch no station took.
+    pub const fn terminal(&self) -> Option<&TerminalId> {
+        self.provenance.terminal()
+    }
+    pub const fn method(&self) -> Option<IdentificationMethod> {
+        self.provenance.method()
     }
     pub const fn direction(&self) -> PunchDirection {
         self.direction
@@ -725,12 +1073,12 @@ mod tests {
         )
         .expect("register");
         assert!(matches!(
-            Punch::rehydrate(punch.to_persisted(), &elsewhere, &employee, &assignment),
+            Punch::rehydrate(punch.to_persisted(), Some(&elsewhere), &employee, &assignment),
             Err(AttendanceError::PunchProvenanceMismatch { .. })
         ));
         // The right terminal loads it back unchanged.
         let terminal = terminal();
-        let reloaded = Punch::rehydrate(punch.to_persisted(), &terminal, &employee, &assignment)
+        let reloaded = Punch::rehydrate(punch.to_persisted(), Some(&terminal), &employee, &assignment)
             .expect("rehydrate");
         assert_eq!(reloaded, punch);
     }
@@ -749,9 +1097,243 @@ mod tests {
                 authority(actions::ATTENDANCE_TERMINAL_MANAGE),
             )
             .expect("revoke");
-        assert!(Punch::rehydrate(punch.to_persisted(), &terminal, &employee, &assignment).is_ok());
+        assert!(
+            Punch::rehydrate(punch.to_persisted(), Some(&terminal), &employee, &assignment).is_ok()
+        );
         // But it attests nothing new.
         assert!(terminal.attest(employee.id().clone()).is_err());
+    }
+
+    // ── the second source ────────────────────────────────────────────────
+
+    fn claim(place: &str) -> SelfPunchClaim {
+        SelfPunchClaim::make(
+            EmployeeId::try_new("emp-1").unwrap(),
+            PlaceId::try_new(place).unwrap(),
+            Authorization::try_new(
+                "store07.kasir",
+                actions::ATTENDANCE_PUNCH_RECORD_OWN,
+                Utc.with_ymd_and_hms(2026, 9, 14, 1, 0, 0).unwrap(),
+                "masuk kerja",
+            )
+            .expect("authorization"),
+        )
+        .expect("claim")
+    }
+
+    fn app_punch(minute: u16, direction: PunchDirection) -> Result<Punch, AttendanceError> {
+        let employee = active_employee();
+        let assignment = posted_to("store-07");
+        let period = open_period();
+        Punch::claim_own(
+            &claim("store-07"),
+            direction,
+            PunchTime::same_day(date("2026-09-14"), MinuteOfDay::try_new(minute).unwrap()),
+            Utc.with_ymd_and_hms(2026, 9, 14, 1, 0, 0).unwrap(),
+            PunchContext {
+                employee: &employee,
+                assignment: &assignment,
+                period: &period,
+            },
+        )
+    }
+
+    /// The property the whole second source rests on: a phone punch is a punch,
+    /// and it names no station and no method for ever.
+    #[test]
+    fn a_punch_from_the_app_names_no_station_and_says_so() {
+        let punch = app_punch(8 * 60, PunchDirection::In).expect("claim");
+        assert_eq!(punch.source(), PunchSource::EmployeeApp);
+        assert_eq!(punch.terminal(), None);
+        assert_eq!(punch.method(), None);
+        assert_eq!(punch.place().as_str(), "store-07");
+        // And a terminal punch still says the opposite, which is the whole
+        // point of asking.
+        let read = punch_at(8 * 60, PunchDirection::In).expect("record");
+        assert_eq!(read.source(), PunchSource::Terminal);
+        assert_eq!(read.method(), Some(IdentificationMethod::Fingerprint));
+        assert!(read.terminal().is_some());
+    }
+
+    /// The capability, in one assertion. A claim is the only way to reach
+    /// `claim_own`, and only the self-service key makes one.
+    #[test]
+    fn nothing_but_the_self_service_grant_makes_a_claim() {
+        let refused = SelfPunchClaim::make(
+            EmployeeId::try_new("emp-1").unwrap(),
+            PlaceId::try_new("store-07").unwrap(),
+            authority(actions::ROSTER_MANAGE),
+        );
+        assert!(matches!(
+            refused,
+            Err(AttendanceError::ActionForbidsOwnPunch { .. })
+        ));
+        // Not even the key that names recording a punch: that one is the
+        // device's act, and a session holding it must not become a way to clock
+        // somebody in from a browser.
+        assert!(matches!(
+            SelfPunchClaim::make(
+                EmployeeId::try_new("emp-1").unwrap(),
+                PlaceId::try_new("store-07").unwrap(),
+                authority(actions::ATTENDANCE_PUNCH_RECORD),
+            ),
+            Err(AttendanceError::ActionForbidsOwnPunch { .. })
+        ));
+    }
+
+    /// A claim about somebody else is refused in the kernel as well as in the
+    /// handler, so the record bound does not rest on one `if` in one route.
+    #[test]
+    fn a_claim_cannot_be_recorded_against_another_employee() {
+        let employee = active_employee();
+        let assignment = posted_to("store-07");
+        let period = open_period();
+        let somebody_else = SelfPunchClaim::make(
+            EmployeeId::try_new("emp-2").unwrap(),
+            PlaceId::try_new("store-07").unwrap(),
+            authority(actions::ATTENDANCE_PUNCH_RECORD_OWN),
+        )
+        .expect("claim");
+        assert!(matches!(
+            Punch::claim_own(
+                &somebody_else,
+                PunchDirection::In,
+                PunchTime::same_day(date("2026-09-14"), MinuteOfDay::try_new(480).unwrap()),
+                Utc::now(),
+                PunchContext {
+                    employee: &employee,
+                    assignment: &assignment,
+                    period: &period,
+                },
+            ),
+            Err(AttendanceError::ClaimEmployeeMismatch)
+        ));
+    }
+
+    /// A second source must not be a second set of rules. The three
+    /// eligibility questions are asked of a phone punch exactly as they are
+    /// asked of a reading.
+    #[test]
+    fn the_app_is_a_second_source_and_not_a_second_rulebook() {
+        let employee = active_employee();
+        let assignment = posted_to("store-07");
+        let mut period = open_period();
+        period
+            .close(
+                super::super::period::CloseReadiness::CLEAR,
+                authority(actions::ATTENDANCE_PERIOD_CLOSE),
+            )
+            .expect("close");
+        let at = PunchTime::same_day(date("2026-09-14"), MinuteOfDay::try_new(480).unwrap());
+        assert!(matches!(
+            Punch::claim_own(
+                &claim("store-07"),
+                PunchDirection::In,
+                at,
+                Utc::now(),
+                PunchContext {
+                    employee: &employee,
+                    assignment: &assignment,
+                    period: &period,
+                },
+            ),
+            Err(AttendanceError::ClosedPeriodRejectsPunch { .. })
+        ));
+
+        // And the posting, on the punch's own business date.
+        let elsewhere = posted_to("store-03");
+        assert!(matches!(
+            Punch::claim_own(
+                &claim("store-07"),
+                PunchDirection::In,
+                at,
+                Utc::now(),
+                PunchContext {
+                    employee: &employee,
+                    assignment: &elsewhere,
+                    period: &open_period(),
+                },
+            ),
+            Err(AttendanceError::NotPostedToPlaceOnDate { .. })
+        ));
+    }
+
+    /// A double tap lands once, by the same identity collision that makes a
+    /// node's redelivery free. The id is derived rather than supplied, so there
+    /// is no way to send one tap twice under two identities.
+    #[test]
+    fn two_taps_in_the_same_minute_are_one_punch() {
+        let first = app_punch(8 * 60, PunchDirection::In).expect("first");
+        let again = app_punch(8 * 60, PunchDirection::In).expect("second");
+        assert_eq!(first.id(), again.id());
+
+        let mut log = PunchLog::new(PlaceId::try_new("store-07").unwrap());
+        assert!(log.append_if_absent(first).expect("first"));
+        assert!(!log.append_if_absent(again).expect("second"));
+        assert_eq!(log.len(), 1);
+
+        // The next minute is a different observation and does land. Whether
+        // the two amount to one arrival is the derivation's question.
+        let later = app_punch(8 * 60 + 1, PunchDirection::In).expect("later");
+        assert!(log.append_if_absent(later).expect("later"));
+        assert_eq!(log.len(), 2);
+        // Leaving is not arriving, either.
+        assert_ne!(
+            app_punch(8 * 60, PunchDirection::Out)
+                .expect("out")
+                .id()
+                .as_str(),
+            app_punch(8 * 60, PunchDirection::In)
+                .expect("in")
+                .id()
+                .as_str()
+        );
+    }
+
+    /// The halfway row, refused from both sides on the way in from storage.
+    ///
+    /// This is what stops a phone punch loading as a fingerprint reading — the
+    /// one outcome the source column exists to prevent — and what stops a
+    /// reading losing its station and quietly becoming a phone tap.
+    #[test]
+    fn a_stored_punch_whose_source_and_station_disagree_does_not_load() {
+        let employee = active_employee();
+        let assignment = posted_to("store-07");
+        let phone = app_punch(8 * 60, PunchDirection::In).expect("claim");
+        assert!(matches!(
+            Punch::rehydrate(
+                phone.to_persisted(),
+                Some(&terminal()),
+                &employee,
+                &assignment
+            ),
+            Err(AttendanceError::PunchProvenanceMismatch { field: "source" })
+        ));
+        // With no station offered it loads back unchanged: the posting is the
+        // only provenance a phone punch ever had, and it is re-checked.
+        assert_eq!(
+            Punch::rehydrate(phone.to_persisted(), None, &employee, &assignment).expect("reload"),
+            phone
+        );
+
+        let read = punch_at(8 * 60, PunchDirection::In).expect("record");
+        assert!(matches!(
+            Punch::rehydrate(read.to_persisted(), None, &employee, &assignment),
+            Err(AttendanceError::PunchProvenanceMismatch { field: "source" })
+        ));
+    }
+
+    /// The codes round-trip, so a stored row and a wire payload cannot
+    /// disagree about which source produced a punch.
+    #[test]
+    fn every_punch_source_round_trips_through_its_code() {
+        for source in [PunchSource::Terminal, PunchSource::EmployeeApp] {
+            assert_eq!(PunchSource::parse(source.code()).unwrap(), source);
+        }
+        assert!(matches!(
+            PunchSource::parse("KIOSK"),
+            Err(AttendanceError::UnreadablePunchSource { .. })
+        ));
     }
 
     /// Derivation must not depend on delivery order, so the log's day view is

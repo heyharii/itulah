@@ -9,4 +9,13 @@ export type DepreciationLine = { asset_id: string, asset_number: string, name: s
  * a run report that says "nothing" without saying why is a report somebody
  * has to re-derive by hand.
  */
-skipped_because: string | null, };
+skipped_because: string | null, 
+/**
+ * Only ever set by a preview: this asset has a charge to make and no
+ * account to make it into.
+ *
+ * A real run cannot report this, because it stops at the first asset it
+ * cannot resolve — which is why the preview exists. Absent in a run, and
+ * absent in a preview for every asset that would post.
+ */
+blocked_because: string | null, };

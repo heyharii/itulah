@@ -131,7 +131,7 @@ export const searchSources: readonly SearchSource[] = [
     run: async (query, client, signal) => {
       const bills = await client.fetchQuery({
         queryKey: financeKeys.bills(null),
-        queryFn: () => listBills({}, signal),
+        queryFn: () => listBills({}, signal).then((page) => page.rows),
       })
       return bills
         .filter((bill) =>
@@ -165,7 +165,8 @@ export const searchSources: readonly SearchSource[] = [
     run: async (query, client, signal) => {
       const payments = await client.fetchQuery({
         queryKey: financeKeys.payments(null, null, null),
-        queryFn: () => listPayments({ limit: 200 }, signal),
+        queryFn: () =>
+          listPayments({ limit: 200 }, signal).then((page) => page.rows),
       })
       return payments
         .filter((payment) =>
@@ -377,8 +378,8 @@ export const searchSources: readonly SearchSource[] = [
     },
   },
   {
-    module: "storeops",
-    label: "Sales",
+    module: "sales",
+    label: "Receipts",
     run: async (query, client, signal) => {
       const sales = await client.fetchQuery({
         queryKey: storeopsKeys.sales(),
@@ -391,7 +392,7 @@ export const searchSources: readonly SearchSource[] = [
           id: sale.id,
           title: sale.sale_number,
           subtitle: sale.site_id,
-          to: "/storeops/sales",
+          to: "/sales",
           sheet: { key: "sale" as const, value: sale.id },
         }))
     },

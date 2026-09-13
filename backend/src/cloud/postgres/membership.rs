@@ -119,7 +119,34 @@ pub const MEMBER_SOURCE: &str = "
           FROM voucher
          WHERE member_id IS NOT NULL AND status = 'ACTIVE'
          GROUP BY member_id
-    ) h ON h.member_id = m.member_id";
+    ) h ON h.member_id = m.member_id
+    -- Pieces, which `edge_sale` does not carry: it holds one row per receipt
+    -- and the quantities are on the lines. Its OWN subquery rather than a join
+    -- inside `s` above — joining the lines in there would multiply every sum
+    -- in it by the number of lines on the receipt, which is the classic way a
+    -- customer list comes to report six times what somebody spent.
+    LEFT JOIN (
+        SELECT es.customer_id,
+               COALESCE(sum(esl.quantity), 0)::bigint AS units_total
+          FROM edge_sale es
+          JOIN edge_sale_line esl ON esl.sale_id = es.sale_id
+         WHERE es.customer_id IS NOT NULL AND btrim(es.customer_id) <> ''
+         GROUP BY es.customer_id
+    ) n ON n.customer_id = m.member_id
+    -- What they hold now. `points_account` is a cache of the ledger's sum and
+    -- 0165 says so plainly, but it is the cache the tills read, so a directory
+    -- reading anything else would show a member a different balance from the
+    -- one the counter just quoted them.
+    LEFT JOIN points_account pa ON pa.customer_id = m.member_id
+    -- What they have already turned into vouchers, as a positive number: the
+    -- ledger stores a redemption as a negative movement, and a person says
+    -- they spent 1.200 points rather than that they earned minus 1.200.
+    LEFT JOIN (
+        SELECT customer_id, COALESCE(-sum(points), 0)::bigint AS points_spent_total
+          FROM points_ledger
+         WHERE entry_type = 'REDEEM_TO_VOUCHER'
+         GROUP BY customer_id
+    ) pr ON pr.customer_id = m.member_id";
 
 /// How long since somebody was last in, in whole days.
 ///
@@ -161,7 +188,20 @@ pub struct MemberRow {
     pub spent_minor: i64,
     /// What promotions took off, over the same sales.
     pub saved_minor: i64,
+    /// Pieces, not receipts. Beside `transaction_count` it is the other half of
+    /// units per transaction, which is the number a retailer reads to know
+    /// whether a shopper buys one thing or a basket.
+    pub units_total: i64,
+    /// Every point ever credited on this card, over its whole history.
     pub points_earned_total: i64,
+    /// What is on the card NOW — the ledger's running sum, which is earning
+    /// less redemption less any reversal, and may be negative when goods that
+    /// earned points went back after the points were spent. `0165` argues that
+    /// at length; the short of it is that the debt stays with the balance
+    /// rather than the voucher being clawed back.
+    pub points_balance: i64,
+    /// What has already been turned into vouchers, as a positive figure.
+    pub points_spent_total: i64,
     pub first_purchase_at: Option<DateTime<Utc>>,
     pub last_purchase_at: Option<DateTime<Utc>>,
     /// How long since they were last in. `None` for somebody who never has
@@ -423,7 +463,10 @@ fn member_from_row(row: &PgRow) -> Result<MemberRow, AppError> {
         transaction_count: row.try_get("transaction_count")?,
         spent_minor: row.try_get("spent_minor")?,
         saved_minor: row.try_get("saved_minor")?,
+        units_total: row.try_get("units_total")?,
         points_earned_total: row.try_get("points_earned_total")?,
+        points_balance: row.try_get("points_balance")?,
+        points_spent_total: row.try_get("points_spent_total")?,
         first_purchase_at: row.try_get("first_purchase_at")?,
         last_purchase_at: row.try_get("last_purchase_at")?,
         days_since_purchase: row.try_get("days_since_purchase")?,
@@ -525,7 +568,10 @@ pub async fn list_members(
                 COALESCE(s.transaction_count, 0)                 AS transaction_count,
                 COALESCE(s.spent_minor, 0)                       AS spent_minor,
                 COALESCE(s.saved_minor, 0)                       AS saved_minor,
+                COALESCE(n.units_total, 0)                       AS units_total,
                 COALESCE(s.points_earned_total, 0)               AS points_earned_total,
+                COALESCE(pa.balance_points, 0)                   AS points_balance,
+                COALESCE(pr.points_spent_total, 0)               AS points_spent_total,
                 s.first_purchase_at,
                 s.last_purchase_at,
                 {DAYS_SINCE_PURCHASE}                            AS days_since_purchase,
@@ -899,7 +945,8 @@ mod tests {
                 assert!(
                     // `ms` is the correlated alias inside PAIRED's subquery,
                     // which is scoped to that subquery and correct there.
-                    matches!(table, "m" | "s" | "h" | "ms"),
+                    // `n`, `pa` and `pr` are the units and points joins.
+                    matches!(table, "m" | "s" | "h" | "n" | "pa" | "pr" | "ms"),
                     "dimension '{}' reads from '{table}', which {MEMBER_SOURCE:?} does not define",
                     dimension.key
                 );

@@ -109,16 +109,6 @@ pub struct SupplierItem {
     #[serde(default)]
     pub size_codes: Vec<String>,
     pub status: SupplierStatus,
-    /// Which book this party is in: `MERCHANDISE`, `EXPENSE` or `AFFILIATE`.
-    ///
-    /// A word rather than an enum, and that is a deliberate limit on how much
-    /// this knows: the categories are a business distinction the client's
-    /// chart of accounts drew (see migration 0212), and the one place they are
-    /// checked is the CHECK constraint that stores them.
-    pub category: String,
-    /// The account this party's bills usually debit. Only a non-merchandise
-    /// party has one — merchandise debits inventory by rule.
-    pub expense_account_code: Option<String>,
     pub version: i64,
     pub created_by: String,
     pub created_at: DateTime<Utc>,

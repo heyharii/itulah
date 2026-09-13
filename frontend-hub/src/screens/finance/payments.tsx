@@ -291,7 +291,9 @@ export function Payments() {
   const payments = useQuery({
     queryKey: financeKeys.payments(null, site || null, null),
     queryFn: ({ signal }) =>
-      listPayments({ site: site || undefined, limit: CAP }, signal),
+      listPayments({ site: site || undefined, limit: CAP }, signal).then(
+        (page) => page.rows
+      ),
   })
 
   // The window is applied here and not on the wire: `PaymentQuery` on the node
@@ -538,7 +540,8 @@ function PaymentSheet({
 
   const detail = useQuery({
     queryKey: financeKeys.payments(null, null, null),
-    queryFn: ({ signal }) => listPayments({ limit: 200 }, signal),
+    queryFn: ({ signal }) =>
+      listPayments({ limit: 200 }, signal).then((page) => page.rows),
     enabled: id !== null,
   })
 
@@ -547,7 +550,7 @@ function PaymentSheet({
   // the row somebody clicked through from.
   const bills = useQuery({
     queryKey: financeKeys.bills(null),
-    queryFn: ({ signal }) => listBills({}, signal),
+    queryFn: ({ signal }) => listBills({}, signal).then((page) => page.rows),
     enabled: id !== null,
   })
 
@@ -885,7 +888,7 @@ function ComposerSheet({
   // subset of a list already in memory.
   const bills = useQuery({
     queryKey: financeKeys.bills(null),
-    queryFn: ({ signal }) => listBills({}, signal),
+    queryFn: ({ signal }) => listBills({}, signal).then((page) => page.rows),
     enabled: open,
   })
 

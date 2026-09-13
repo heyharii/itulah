@@ -17,10 +17,21 @@
 /// cleared the moment the node has answered, whichever way it answered,
 /// because a till is a shared machine and the next person to stand at it is
 /// not the one who typed.
+///
+/// # Why the second way in is asked for, not assumed
+///
+/// A password opens a counter on every node. Beyond that, **the node decides**:
+/// one accepts a PIN, another accepts a finger, and one accepts neither. A
+/// method the node does not accept is refused *by the node* — so a till drawing
+/// both buttons would not be offering a choice, it would be offering a press
+/// that gets somebody's name into a refusal log. `authMethods()` is asked once
+/// on mount, before anybody has signed in, which is exactly why that endpoint
+/// needs no session.
 
 import { useEffect, useState, type FormEvent } from "react"
 
-import { identifyFinger } from "@/edge"
+import { authMethods, pairTerminal, type StepUp } from "@/api"
+import { PinPad } from "@/pinpad"
 import { useNodeConfig, useSession } from "@/session"
 
 /// Sign in on this terminal.
@@ -35,12 +46,50 @@ export function LoginScreen({
   onSignedIn: () => void
   onSetup: () => void
 }) {
-  const { ready, problem, signIn } = useSession()
+  const { ready, problem, signIn, signInWithFinger, signInWithPin } =
+    useSession()
   const { config } = useNodeConfig()
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
   const [busy, setBusy] = useState(false)
   const [finger, setFinger] = useState<string | null>(null)
+  /// Which second way in this node accepts. Null means **not answered yet** —
+  /// which is not the same as `NONE`, and is drawn the same way on purpose: see
+  /// the effect below.
+  const [stepUp, setStepUp] = useState<StepUp | null>(null)
+  const [methods, setMethods] = useState<string | null>(null)
+  const [pin, setPin] = useState("")
+  const [pinNote, setPinNote] = useState<string | null>(null)
+
+  // Asked once, on mount, unauthenticated — a till has to know what it may
+  // offer before anybody stands at it.
+  //
+  // While the answer is outstanding, `stepUp` is null and neither button is
+  // drawn. That is deliberate: a button that appears and then vanishes is worse
+  // than one that arrives late, because the one that vanished was pressed.
+  //
+  // A node that would not answer has said nothing, not `NONE`, and the two are
+  // held apart — both draw no button, and the notice below says which happened,
+  // because only one of them is fixed by looking at the node.
+  useEffect(() => {
+    let alive = true
+    void (async () => {
+      const reply = await authMethods()
+      if (!alive) return
+      if (!reply.ok) {
+        setStepUp(null)
+        setMethods(reply.problem)
+        return
+      }
+      // A node that answered without naming a method accepts no step-up. It
+      // said so; this is not a guess standing in for silence.
+      setStepUp(reply.body?.till_step_up ?? "NONE")
+      setMethods(null)
+    })()
+    return () => {
+      alive = false
+    }
+  }, [])
 
   async function enter(event: FormEvent) {
     event.preventDefault()
@@ -52,6 +101,21 @@ export function LoginScreen({
     // can submit.
     setPassword("")
     if (accepted) onSignedIn()
+  }
+
+  /// Open the counter with a PIN. Same shape as the finger: the node's own
+  /// refusal comes back, or null when the counter is open.
+  async function enterWithPin() {
+    setBusy(true)
+    setPinNote(null)
+    const refusal = await signInWithPin(username, pin)
+    setBusy(false)
+    // Emptied whichever way the node answered, on the same rule as the password
+    // above — a refusal is precisely the moment somebody walks away from the
+    // counter to go and ask, leaving the marks on the screen behind them.
+    setPin("")
+    setPinNote(refusal)
+    if (refusal === null) onSignedIn()
   }
 
   return (
@@ -105,6 +169,54 @@ export function LoginScreen({
             {busy ? "Memeriksa…" : !ready ? "Membaca setelan…" : "Masuk"}
           </button>
 
+          {/* ── the second way in, as far as the node allows one ─────────── */}
+
+          {/* Only when the node said PIN. A PIN is the STAGING method and the
+              notice says so out loud, where the cashier is standing: a till that
+              cannot tell a rehearsal from the real thing is how a rehearsal
+              reaches a customer, and the shape of this screen is the only clue
+              anybody at the counter gets.
+
+              The username is the field above rather than a second one of its
+              own. Two name boxes on one card is two chances to type the name
+              into the one that is not being sent, and the node checks the same
+              name either way. */}
+          {stepUp === "PIN" && (
+            <div style={{ width: "100%", textAlign: "left" }}>
+              <span className="label">Masuk dengan PIN</span>
+              <div className="notice warn" style={{ marginTop: 8 }}>
+                <strong>PIN hanya diterima node latihan (staging).</strong> Node
+                produksi menolak PIN dan meminta sidik jari. Jadi kalau pad ini
+                muncul, terminal ini sedang bicara dengan node latihan — apa pun
+                yang dijual di sini bukan penjualan sungguhan, dan strukmu bukan
+                struk pelanggan. Kata sandi tetap berlaku di node mana pun.
+              </div>
+              <p className="muted" style={{ fontSize: 11.5, marginTop: 6 }}>
+                PIN dipakai bersama nama pengguna di kolom paling atas.
+              </p>
+              <PinPad
+                value={pin}
+                onChange={setPin}
+                onSubmit={() => void enterWithPin()}
+                disabled={busy || !ready || username === ""}
+              />
+              <button
+                className="btn"
+                style={{ width: "100%", marginTop: 8 }}
+                type="button"
+                disabled={busy || !ready || username === "" || pin === ""}
+                onClick={() => void enterWithPin()}
+              >
+                {busy ? "Memeriksa…" : "Masuk dengan PIN"}
+              </button>
+              {pinNote !== null && (
+                <p className="error" style={{ marginTop: 6 }}>
+                  {pinNote}
+                </p>
+              )}
+            </div>
+          )}
+
           {/* The counter signs in with a finger far more often than with a
               keyboard — `pos-electron` does it this way and this counter will
               too. The button is here now, and it tells the truth about why it
@@ -113,33 +225,79 @@ export function LoginScreen({
 
               Two things are missing, and they are different problems: this
               shell has no driver bound yet (`src-tauri/src/device.rs`), and the
-              node has nowhere to keep an enrolled finger — `/api/v1/auth/*` is
-              login · logout · me · change-password, and none of them take one.
-              Matching is meant to happen HERE, against templates the node hands
-              down, so a counter can still be opened when the line is down. */}
-          <button
-            className="btn"
-            style={{ width: "100%" }}
-            type="button"
-            onClick={() => {
-              void (async () => {
-                // No enrolled fingers to match against: the node has no place
-                // to keep one yet. Asked anyway, so the answer on screen is the
-                // shell's own and not this screen's guess about it.
-                const seen = await identifyFinger([])
-                setFinger(
-                  seen.actor_id !== null
-                    ? `Dikenali sebagai ${seen.actor_id}.`
-                    : seen.detail,
-                )
-              })()
-            }}
-          >
-            Masuk dengan sidik jari
-          </button>
-          {finger !== null && (
-            <p className="muted" style={{ fontSize: 11.5, textAlign: "left" }}>
-              {finger}
+              terminal must be paired with the node before it may speak in its
+              own name. Matching happens HERE, against templates the node hands
+              down, so a counter can still be opened when head office is
+              unreachable — and the pairing secret is what stops any other
+              machine on the shop wifi from claiming to be a supervisor.
+
+              Drawn only when the node said FINGERPRINT. It is the production
+              method, and on a node that takes PINs instead the press would be
+              refused there — with the refusal arriving in the words of a
+              fingerprint failure, which is a sentence about a scanner for a node
+              that never wanted one. */}
+          {stepUp === "FINGERPRINT" && (
+            <>
+              <button
+                className="btn"
+                style={{ width: "100%" }}
+                type="button"
+                disabled={busy || !ready}
+                onClick={() => {
+                  void (async () => {
+                    setFinger("Letakkan jari pada pemindai…")
+                    // The refusal shown is whichever came first — this shell
+                    // having no scanner bound, the node having nobody enrolled,
+                    // or the finger simply not matching. They are different
+                    // problems and the cashier is told which one, because only
+                    // one of them is fixed by pressing again.
+                    const refusal = await signInWithFinger()
+                    setFinger(refusal)
+                    if (refusal === null) onSignedIn()
+                  })()
+                }}
+              >
+                Masuk dengan sidik jari
+              </button>
+              {finger !== null && (
+                <p
+                  className="muted"
+                  style={{ fontSize: 11.5, textAlign: "left" }}
+                >
+                  {finger}
+                </p>
+              )}
+            </>
+          )}
+
+          {/* Three states, three different sentences, and none of them is a
+              button. `NONE` is the node's answer and is final; a null `stepUp`
+              with a refusal attached is a node that would not answer, which is
+              worth reading because the address above may be the reason; and a
+              null with no refusal is simply an answer still on its way. */}
+          {stepUp === "NONE" && (
+            <div className="notice" style={{ width: "100%", textAlign: "left" }}>
+              Node ini hanya menerima kata sandi. Tidak ada PIN dan tidak ada
+              sidik jari di sini — bukan disembunyikan oleh terminal, memang
+              ditolak oleh node-nya.
+            </div>
+          )}
+          {stepUp === null && methods !== null && (
+            <div
+              className="notice warn"
+              style={{ width: "100%", textAlign: "left" }}
+            >
+              Node belum menyebut cara masuk selain kata sandi, jadi PIN dan
+              sidik jari tidak ditawarkan di layar ini. Kata sandi tetap bisa
+              dipakai. Kata node: {methods}
+            </div>
+          )}
+          {stepUp === null && methods === null && (
+            <p
+              className="muted"
+              style={{ fontSize: 11.5, width: "100%", textAlign: "left" }}
+            >
+              Menanyakan ke node cara masuk apa yang diterima di sini…
             </p>
           )}
 
@@ -187,6 +345,8 @@ export function SetupScreen({ onDone }: { onDone: () => void }) {
   const [printerHost, setPrinterHost] = useState("")
   const [printerPort, setPrinterPort] = useState("9100")
   const [paper, setPaper] = useState("NARROW")
+  const [pairing, setPairing] = useState<string | null>(null)
+  const [pretend, setPretend] = useState("")
   const [problem, setProblem] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -196,6 +356,7 @@ export function SetupScreen({ onDone }: { onDone: () => void }) {
     if (config === null) return
     setBaseUrl(config.base_url)
     setTerminalId(config.terminal_id)
+    setPretend(config.simulate_fingerprint ?? "")
     setPrinterHost(config.printer_host ?? "")
     setPrinterPort(String(config.printer_port))
     setPaper(config.paper)
@@ -212,6 +373,9 @@ export function SetupScreen({ onDone }: { onDone: () => void }) {
       printer_host: printerHost.trim() === "" ? null : printerHost,
       printer_port: Number(printerPort) || 9100,
       paper,
+      pairing_id: config?.pairing_id ?? null,
+      pairing_secret: null,
+      simulate_fingerprint: pretend.trim() === "" ? null : pretend.trim(),
     })
     setBusy(false)
     setProblem(refusal)
@@ -299,6 +463,88 @@ export function SetupScreen({ onDone }: { onDone: () => void }) {
               </select>
             </label>
           </div>
+
+          {/* Pairing is what lets this machine speak in its own name — ask the
+              node for the fingerprint roster, and say whose finger matched. It
+              is deliberately a separate act from signing in: pairing grants a
+              MACHINE standing, which is why the node asks for an admin to do it
+              and writes down who did.
+
+              The secret is handed over once and never again. It goes to the
+              shell, not to this page. */}
+          <div className="notice">
+            {config?.pairing_id != null ? (
+              <>
+                Terminal ini sudah dipasangkan dengan node (
+                <span className="num">{config.pairing_id}</span>), jadi sidik
+                jari bisa dipakai untuk masuk dan untuk otorisasi supervisor.
+              </>
+            ) : (
+              <>
+                Terminal ini belum dipasangkan. Sampai dipasangkan, sidik jari
+                tidak bisa dipakai — node tidak punya cara memastikan klaimnya
+                datang dari mesin ini.
+              </>
+            )}
+            <div style={{ marginTop: 8 }}>
+              <button
+                className="btn"
+                type="button"
+                onClick={() => {
+                  void (async () => {
+                    setPairing("Meminta kredensial ke node…")
+                    const reply = await pairTerminal(terminalId || "POS")
+                    if (!reply.ok) {
+                      setPairing(reply.problem)
+                      return
+                    }
+                    const paired = reply.body
+                    const saved = await save({
+                      base_url: baseUrl,
+                      terminal_id: terminalId,
+                      printer_host:
+                        printerHost.trim() === "" ? null : printerHost,
+                      printer_port: Number(printerPort) || 9100,
+                      paper,
+                      pairing_id: paired?.terminal_id ?? null,
+                      pairing_secret: paired?.secret ?? null,
+                    })
+                    setPairing(
+                      saved ??
+                        "Terminal dipasangkan. Kredensialnya disimpan di mesin ini dan tidak ditampilkan lagi.",
+                    )
+                  })()
+                }}
+              >
+                {config?.pairing_id != null
+                  ? "Pasangkan ulang"
+                  : "Pasangkan terminal ini"}
+              </button>
+            </div>
+            {pairing !== null && (
+              <p className="muted" style={{ fontSize: 11.5, marginTop: 6 }}>
+                {pairing}
+              </p>
+            )}
+          </div>
+
+          {/* A machine with no scanner can still be walked through the whole
+              thing: the roster coming down, the claim being signed, the grant
+              being spent once and expiring. Only a development build reads
+              this — a release has no code to read it with — and every answer it
+              produces says SIMULASI in the words the cashier sees, because a
+              screen that cannot tell a rehearsal from the real thing is how a
+              rehearsal reaches a customer. */}
+          <label className="field">
+            Simulasikan sidik jari milik (hanya build pengembangan)
+            <input
+              value={pretend}
+              onChange={(event) => setPretend(event.target.value)}
+              placeholder="Kosongkan kalau memakai pemindai sungguhan"
+              autoComplete="off"
+              spellCheck={false}
+            />
+          </label>
 
           {moved && (
             <div className="notice warn">

@@ -56,6 +56,22 @@ export async function edge<T>(
   return invoke<EdgeReply<T>>("edge_call", { method, path, body })
 }
 
+/// Call the node **as this terminal**, not as the person signed into it.
+///
+/// Two calls need this and no others — asking for the fingerprint roster, and
+/// saying whose finger matched — and both happen when nobody is signed in yet,
+/// which is exactly why a bearer token cannot be what carries them. The shell
+/// holds the pairing secret and does the signing; this side never sees it.
+export async function signedEdge<T>(
+  method: "GET" | "POST",
+  path: string,
+  body?: unknown,
+): Promise<EdgeReply<T>> {
+  const invoke = bridge()
+  if (invoke === null) return noShell("node toko")
+  return invoke<EdgeReply<T>>("edge_signed_call", { method, path, body })
+}
+
 export type DeviceState = { readonly bound: boolean; readonly detail: string }
 
 /// Who the finger on the scanner belongs to.

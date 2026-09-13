@@ -350,6 +350,12 @@ toko 07" terlihat sama di map yang jarang dan sangat berbeda bagi akuntan.
 
 ## 9. Peta target — 13 menu, 67 tab, delapan keadaan
 
+> **Digantikan 13 September 2026.** Menu final (37 baris · 12 seksi · satu pintu) ada di
+> [`finance-menu.md`](./finance-menu.md); arsitektur uang (dua pintu, dua tier, Payment
+> Ledger sebagai sekat) di [`erpnext-money.md`](./erpnext-money.md). Amandemen §0: bentuk
+> **sidebar** diambil dari ERPNext v17, isi **layar** tetap dari rancangan 11 September.
+> Bagian di bawah ini dipertahankan sebagai catatan asal, bukan acuan.
+
 Diambil dari C (`demo/share/public/finance.html`, 11 September), yang
 dibangkitkan dari `outputs/finance-menu-20260911/Rancangan_Menu_dan_Tab_Finance.xlsx`.
 Judul menu tampil dalam bahasa Inggris, `id` internalnya bahasa Indonesia.

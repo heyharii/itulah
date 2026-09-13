@@ -72,10 +72,18 @@ async fn inventory_foundation_end_to_end(pool: PgPool) {
     let pool_items = pools["items"]
         .as_array()
         .unwrap_or_else(|| panic!("pool array"));
-    assert_eq!(pool_items.len(), 112);
+    // Ninety-nine live shelves, not the hundred and twelve this seeded estate
+    // carried until `0252`: the thirteen `picked.{store}` pools and the PICKED
+    // stage above them are retired, and the one shared Pick Area they were
+    // standing in for is filed in their place (INVENTORY-V1 INV-05).
+    //
+    // The count is asserted rather than derived because it is the thing the
+    // migration is for. A pool catalogue that grows back on its own is how the
+    // centre acquired thirteen shelves nobody in the warehouse writes to.
+    assert_eq!(pool_items.len(), 99);
     assert_eq!(
         pool_items.iter().filter(|p| p["site_id"] == "dc").count(),
-        73
+        60
     );
     assert_eq!(
         pool_items
@@ -1084,7 +1092,7 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
     let allotment_before_pick = pick_before["allotted_qty"].as_i64().unwrap_or_default();
     let warehouse_before_pick = sku_place_quantity(&pool, pick_sku, "dc.warehouse:on_hand").await;
     let picked_before =
-        sku_place_quantity(&pool, pick_sku, "dc.outbound.picked.store-02:on_hand").await;
+        sku_place_quantity(&pool, pick_sku, "dc.outbound.picking:on_hand").await;
     let facts_before_pick = fact_count(&pool).await;
     let pick_request = ExecuteAllotmentRequest {
         allotment_line_id: store_02_line_id,
@@ -1112,7 +1120,7 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
         warehouse_before_pick - 3
     );
     assert_eq!(
-        sku_place_quantity(&pool, pick_sku, "dc.outbound.picked.store-02:on_hand").await,
+        sku_place_quantity(&pool, pick_sku, "dc.outbound.picking:on_hand").await,
         picked_before + 3
     );
     let availability_after_pick =
@@ -1196,7 +1204,7 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
     assert!(infrastructure::create_manual_movement(
         &pool,
         outbound_move(
-            "dc.outbound.picked.store-02:on_hand",
+            "dc.outbound.picking:on_hand",
             "dc.outbound.packed.store-02:on_hand",
             "outbound-without-allotment-provenance",
             "TEST",
@@ -1206,7 +1214,7 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
     .is_err());
     for (from, to, key) in [
         (
-            "dc.outbound.picked.store-02:on_hand",
+            "dc.outbound.picking:on_hand",
             "dc.outbound.packed.store-02:on_hand",
             "allotment-outbound-packed",
         ),
@@ -2595,7 +2603,7 @@ async fn an_edge_node_shadows_a_pool_only_once_it_has_reported_that_pool(pool: P
     assert!(
         counted(fleet_row(
             &fleet,
-            "dc.outbound.picked.store-01",
+            "dc.outbound.packed.store-01",
             "CLOUD_LEDGER"
         )),
         "a pool the owner does not model is not deleted by its ownership"

@@ -2341,6 +2341,41 @@ async fn apply_one(
                     });
                 }
                 false
+            } else if event_type == crate::edge::attendance::FACT_ATTENDANCE_PUNCH_RECORDED {
+                // **This arm deliberately never blocks, and it is the only one.**
+                //
+                // Every other fact here is a movement of stock or money, and a
+                // stream that stops on one of those is a stream that stops for
+                // a reason an operator must fix. A punch is not that: it is an
+                // observation about a person, and the centre refusing one is a
+                // *business* outcome — the month closed while the unit was
+                // offline, somebody was transferred, the station was revoked —
+                // rather than a protocol fault.
+                //
+                // If it blocked, one punch landing in a settled month would
+                // stop that shop's whole fact lane, sales included, until
+                // somebody noticed. That is a far worse failure than an
+                // attendance day nobody can explain, and the day is not lost
+                // either: the punch stays in `sync_ingest_fact`, the refusal is
+                // warned with its reason, and the fix is a correction — which is
+                // the mechanism that exists for exactly this.
+                match apply_attendance_punch(pool, origin_id, &payload).await {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        tracing::info!(
+                            origin_id,
+                            generation,
+                            seq = next,
+                            "sync apply: attendance punch already recorded"
+                        );
+                    }
+                    Err(error) => {
+                        tracing::warn!(origin_id, generation, seq = next, %error,
+                            "sync apply: attendance punch refused; the stream advances \
+                             because a punch is an observation and not a movement");
+                    }
+                }
+                false
             } else {
                 // Unknown types pass through: the receipt log still holds
                 // them for a future applier that understands them.
@@ -2366,6 +2401,102 @@ async fn apply_one(
         applied_movements: u64::from(applied_movement),
         skipped_facts: u64::from(!applied_movement) + u64::from(paired_progress),
     })
+}
+
+/// Record one punch that arrived on the fact lane.
+///
+/// The whole kernel runs: the station is loaded and must belong to this
+/// origin's place, `attest` refuses a suspended or revoked one, the employment
+/// record and the posting timeline are loaded, the period is loaded, and
+/// `Punch::record` decides. Nothing about a punch is taken on the edge's word
+/// except what the device observed.
+///
+/// `Ok(false)` when this punch was already recorded, which is the ordinary
+/// outcome of a redelivery.
+/// # Why this takes the pool and not the applier's transaction
+///
+/// Its reads are reads, and its one write is idempotent on the punch identity.
+/// So the insert commits on its own, and if the applier's transaction then
+/// rolls back, the watermark does not advance and the punch is redelivered —
+/// where it lands as a no-op. The failure mode runs in the safe direction:
+/// a punch recorded twice is impossible, and a punch lost between the two
+/// commits is impossible.
+async fn apply_attendance_punch(
+    pool: &PgPool,
+    origin_id: &str,
+    payload: &Value,
+) -> Result<bool, AppError> {
+    use crate::cloud::domain::{
+        ClockQuality, DayOffset, MinuteOfDay, Punch, PunchContext, PunchDirection, PunchId,
+        PunchTime,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Wire {
+        punch_id: String,
+        employee_id: String,
+        terminal_id: String,
+        direction: String,
+        business_date: chrono::NaiveDate,
+        #[serde(default)]
+        day_offset: u8,
+        minute: u16,
+        recorded_at: DateTime<Utc>,
+        clock_quality: String,
+    }
+    let wire: Wire = serde_json::from_value(payload.clone())
+        .map_err(|error| AppError::Validation(format!("malformed attendance punch: {error}")))?;
+
+    // The place comes from the ORIGIN, never from the payload. A node cannot
+    // file a punch against another unit, because there is no field it could say
+    // so in that anybody reads.
+    let place = super::place_of_origin(pool, origin_id)
+        .await?
+        .ok_or_else(|| AppError::Conflict(format!("origin {origin_id} is not bound to a place")))?;
+    let terminal = super::load_attendance_terminal(pool, &wire.terminal_id)
+        .await?
+        .ok_or_else(|| {
+            AppError::NotFound(format!("terminal {} is not registered", wire.terminal_id))
+        })?;
+    if terminal.place() != &place {
+        return Err(AppError::Forbidden(format!(
+            "terminal {} is registered at {} and this node is {place}",
+            wire.terminal_id,
+            terminal.place()
+        )));
+    }
+    let record = super::load_employee(pool, &wire.employee_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("employee {}", wire.employee_id)))?;
+    let period = super::period_for(pool, &place, wire.business_date).await?;
+
+    let attestation = terminal
+        .attest(record.employee.id().clone())
+        .map_err(super::attendance_error)?;
+    let punch = Punch::record(
+        PunchId::try_new(&wire.punch_id)
+            .map_err(|error| AppError::Validation(error.to_string()))?,
+        &attestation,
+        PunchDirection::parse(&wire.direction)
+            .map_err(|error| AppError::Validation(error.to_string()))?,
+        PunchTime::new(
+            wire.business_date,
+            DayOffset::try_new(wire.day_offset)
+                .map_err(|error| AppError::Validation(error.to_string()))?,
+            MinuteOfDay::try_new(wire.minute)
+                .map_err(|error| AppError::Validation(error.to_string()))?,
+        ),
+        wire.recorded_at,
+        ClockQuality::parse(&wire.clock_quality)
+            .map_err(|error| AppError::Validation(error.to_string()))?,
+        PunchContext {
+            employee: &record.employee,
+            assignment: &record.assignments,
+            period: &period,
+        },
+    )
+    .map_err(super::attendance_error)?;
+    super::insert_punch(pool, &punch).await
 }
 
 /// Apply device-authenticated Edge evidence without mutating inventory.
@@ -4534,6 +4665,13 @@ fn validate_issued_command(command_type: &str, payload: &Value) -> Result<(), Ap
         }
         INVENTORY_OFFICIAL_COUNT_ACTIVATE_V1 => {
             parse_official_count_activation(payload).map_err(AppError::Validation)?;
+        }
+        crate::cloud::domain::COMMAND_ATTENDANCE_BOOK_REPLACE => {
+            // Refused at the issuing desk rather than at the unit, for the
+            // reason the purchase-order arm above gives: a command the edge
+            // cannot read **blocks its whole command stream**, and the person
+            // who pressed publish is the one who can fix it.
+            crate::cloud::domain::parse_attendance_book(payload).map_err(AppError::Validation)?;
         }
         _ => {}
     }

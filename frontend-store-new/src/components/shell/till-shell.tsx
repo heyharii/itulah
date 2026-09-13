@@ -1,6 +1,8 @@
 import { Outlet, useRouter, useRouterState } from "@tanstack/react-router"
 import { useQuery } from "@tanstack/react-query"
 import {
+  BellRing,
+  Boxes,
   ArrowLeft,
   CalendarCheck,
   HandCoins,
@@ -17,6 +19,8 @@ import {
 } from "lucide-react"
 import { useState } from "react"
 
+import type { NotificationPage } from "@itulah/contract"
+
 import { Mark } from "@/components/shell/mark"
 import { TillSidebar } from "@/components/shell/sidebar"
 import { AppBar } from "@/components/ui/app-bar"
@@ -25,6 +29,7 @@ import { Drawer, DrawerItem, DrawerSection } from "@/components/ui/drawer"
 import { Pill } from "@/components/ui/pill"
 import { TabBar } from "@/components/ui/tab-bar"
 import { sync } from "@/lib/api"
+import { CENTRAL_KEY_PREFIX, cloud, hasCloudToken } from "@/lib/cloud"
 import { useGo } from "@/lib/go"
 import { pushedForPath, tabForPath, tabs, titleForPath } from "@/lib/navigation"
 import { unsentCount, useSaleQueue } from "@/lib/sale-queue"
@@ -76,29 +81,29 @@ export function TillShell() {
 
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <AppBar
-        left={
-          pushed === null ? (
-            <Chip
-              aria-label="Menu"
-              className="md:hidden"
-              onClick={() => setDrawerOpen(true)}
-            >
-              <Menu strokeWidth={1.7} />
-            </Chip>
-          ) : (
-            <Chip aria-label="Back" onClick={goBack}>
-              <ArrowLeft strokeWidth={1.7} />
-            </Chip>
-          )
-        }
-        title={titleForPath(pathname)}
-        right={
-          pushed === null ? (
-            <Chip aria-label="This node" onClick={() => go("/node/sync")}>
-              <UserRound strokeWidth={1.7} />
-            </Chip>
-          ) : undefined
-        }
+          left={
+            pushed === null ? (
+              <Chip
+                aria-label="Menu"
+                className="md:hidden"
+                onClick={() => setDrawerOpen(true)}
+              >
+                <Menu strokeWidth={1.7} />
+              </Chip>
+            ) : (
+              <Chip aria-label="Back" onClick={goBack}>
+                <ArrowLeft strokeWidth={1.7} />
+              </Chip>
+            )
+          }
+          title={titleForPath(pathname)}
+          right={
+            pushed === null ? (
+              <Chip aria-label="This node" onClick={() => go("/node/sync")}>
+                <UserRound strokeWidth={1.7} />
+              </Chip>
+            ) : undefined
+          }
         />
 
         <Outlet />
@@ -148,6 +153,20 @@ function TillDrawer({
   })
 
   const health = backlog.data === undefined ? null : syncHealth(backlog.data)
+
+  // How much head office has said that nobody here has read. Asked only while
+  // the drawer is open — this is the one number in the app that comes from the
+  // centre, and a till that polled Jakarta every few seconds to keep a badge
+  // warm would be spending the shop's line on a decoration. Silent when there
+  // is no head-office session, which is the ordinary state at a counter.
+  const kabar = useQuery({
+    queryKey: [CENTRAL_KEY_PREFIX, "notifications", "count"],
+    queryFn: ({ signal }) =>
+      cloud.get<NotificationPage>("/api/v1/notifications?limit=1", { signal }),
+    enabled: open && hasCloudToken(),
+    staleTime: 30_000,
+  })
+  const news = kabar.data?.unread ?? 0
   const person = identity.data ?? null
 
   // Closed where the navigation happens rather than in an effect watching the
@@ -214,6 +233,24 @@ function TillDrawer({
         icon={<Inbox />}
         label="Leave & overtime"
         onClick={() => leave("/hr/requests")}
+      />
+
+      {/* The shop's own two. Assets is what stands here; Kabar is what head
+          office has said about it — the count is the only place in this app
+          that tells somebody there is something to read, because a badge over
+          the selling screen during a queue is an interruption rather than
+          news. */}
+      <DrawerSection>The shop</DrawerSection>
+      <DrawerItem
+        icon={<BellRing />}
+        label="Kabar"
+        detail={news > 0 ? <Pill tone="info">{news}</Pill> : undefined}
+        onClick={() => leave("/shop/news")}
+      />
+      <DrawerItem
+        icon={<Boxes />}
+        label="Assets"
+        onClick={() => leave("/shop/assets")}
       />
 
       <DrawerSection>Head office</DrawerSection>

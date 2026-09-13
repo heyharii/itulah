@@ -73,6 +73,19 @@ impl Minutes {
     }
 }
 
+/// Nought minutes, which is a measurement and not an absence.
+///
+/// `DayMeasures` derives `Default` so a test — and a fold that has not yet seen
+/// a punch — can start from "nothing measured yet" and add to it, and that
+/// needs this. It does not weaken the rule that absence is never silently
+/// zero: a quantity nobody measured is `Option<Minutes>` and is `None`, which
+/// is a different type from a span that was measured and came to nought.
+impl Default for Minutes {
+    fn default() -> Self {
+        Self::ZERO
+    }
+}
+
 impl fmt::Display for Minutes {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}m", self.0)

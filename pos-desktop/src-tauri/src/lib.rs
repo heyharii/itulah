@@ -69,6 +69,7 @@ pub fn run() {
             edge::node_config,
             edge::set_node_config,
             edge::edge_call,
+            edge::edge_signed_call,
             device::rfid_state,
             device::fingerprint_state,
             device::fingerprint_identify,

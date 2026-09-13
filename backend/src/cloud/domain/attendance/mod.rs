@@ -17,14 +17,29 @@
 //! centrally, punches taken at the edge and synced up. So:
 //!
 //! * [`terminal`] is the authority — a registered, active station is the only
-//!   thing that can attest an identification, and an attestation is the only
-//!   thing that can produce a [`Punch`];
+//!   thing that can attest an identification, and an attestation is one of the
+//!   two things that can produce a [`Punch`];
 //! * [`punch`] is the append-only log of what the devices observed;
 //! * [`day`] derives what a day *means* from `(plan, punches, policy,
 //!   approvals, correction)` — and stores none of it;
 //! * [`correction`] is the append-only overlay, which never edits a punch;
 //! * [`enrolment`] binds a fingerprint to an employment record and keeps the
 //!   sealed template out of every route that is not the terminal sync.
+//!
+//! # There is a second punch source, and it is named rather than blurred
+//!
+//! No reader has been bought, so on 2026-09-13 nobody could clock in anywhere
+//! and none of the five modules above had an input to be exercised against. The
+//! owner asked for attendance in the employee app so the HR month can be walked
+//! end to end before the hardware arrives.
+//!
+//! That is a source the fingerprint decision did not contemplate, so it is
+//! **distinguishable for ever** rather than quietly merged: [`PunchSource`] is a
+//! closed vocabulary on every punch, [`PunchProvenance`] carries the station
+//! only for the source that has one, and a phone punch is produced by a
+//! [`SelfPunchClaim`] — a person's claim, corroborated by nothing — rather than
+//! by an attestation. Both sources go through the same eligibility rules; only
+//! the evidence differs, and every row says which it was.
 //!
 //! What is still deliberately absent: the Tauri shell, and the physical
 //! ZKFinger adapter. The device boundary stays behind the local HTTP and
@@ -64,13 +79,6 @@ pub use ids::{
     CorrectionId, Finger, LeaveRef, OvertimeRef, PunchId, TemplateFormat, TerminalId,
     MAX_ATTENDANCE_ID_LEN,
 };
-pub use punch::{
-    ClockQuality, PersistedPunch, Punch, PunchContext, PunchDirection, PunchLog, PunchTime,
-};
-pub use terminal::{
-    AttendanceTerminal, AttendanceTerminalWire, IdentificationMethod, TerminalAttestation,
-    TerminalEvent, TerminalStatus,
-};
 pub use period::{
     AttendancePeriod, AttendancePeriodWire, CloseReadiness, PeriodEvent, PeriodEventKind,
     PeriodStatus,
@@ -79,8 +87,16 @@ pub use policy::{
     AttendancePolicy, Minutes, PolicyId, PolicyLimits, PolicySchedule, PolicyVersion,
     MAX_DUPLICATE_PUNCH_WINDOW_MINUTES, MAX_LATE_GRACE_MINUTES,
 };
+pub use punch::{
+    ClockQuality, PersistedPunch, Punch, PunchContext, PunchDirection, PunchLog, PunchProvenance,
+    PunchSource, PunchTime, SelfPunchClaim,
+};
 pub use roster::{
     DatedRoster, DayPlan, RosterDay, RosterDayWire, RosterRevision, Shift, ShiftWire,
+};
+pub use terminal::{
+    AttendanceTerminal, AttendanceTerminalWire, IdentificationMethod, TerminalAttestation,
+    TerminalEvent, TerminalStatus,
 };
 pub use time::{
     AttendanceMonth, DayOffset, MinuteOfDay, ShiftId, ShiftPosition, MAX_SHIFT_ID_LEN,

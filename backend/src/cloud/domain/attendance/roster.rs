@@ -28,6 +28,7 @@
 use super::error::AttendanceError;
 use super::period::AttendancePeriod;
 use super::policy::Minutes;
+use super::punch::PunchTime;
 use super::time::{DayOffset, MinuteOfDay, ShiftId, ShiftPosition};
 use crate::cloud::domain::employment::{Authorization, EmployeeId, PlaceId};
 use chrono::{DateTime, NaiveDate, Utc};
@@ -442,6 +443,54 @@ impl DatedRoster {
         &self.days
     }
 
+    /// Which roster day a place-local clock reading answers.
+    ///
+    /// # Why this is the roster's question and not the caller's
+    ///
+    /// A punch names a `business_date` — the roster day it answers — and for an
+    /// overnight shift that is the day the shift *started*. A device delivering
+    /// a punch works this out at the edge, from the book it was given. A phone
+    /// punch has no edge and no book, so something in the centre has to answer
+    /// it, and the honest answerer is the plan: only the roster knows that this
+    /// person's Tuesday shift runs to 02:00 on Wednesday.
+    ///
+    /// The rule, in one sentence: a reading belongs to **yesterday** when
+    /// yesterday's shift is still running at that minute, and to today
+    /// otherwise. Refusing to guess further is deliberate — a reading at 03:00
+    /// on a day whose previous shift ended at midnight is today's, early, and
+    /// filing it against yesterday to be helpful would put a clock-in on a day
+    /// somebody has already been paid for.
+    ///
+    /// Takes the local date and minute rather than an instant, because "which
+    /// day" is a planning fact and a `DateTime<Utc>` here is what lets a
+    /// timezone conversion move it — the same reason `attendance_punch`'s
+    /// `business_date` is a `date` and not a `timestamptz`.
+    ///
+    /// An unrostered reading is not refused: it is filed against today with no
+    /// offset. A punch on a day nobody planned is a real thing — it is counted
+    /// by `unrostered_punch_days_in` and it blocks the period close, which is
+    /// the right place for somebody to notice it, rather than a refusal that
+    /// tells a person standing in a shop that they are not allowed to be there.
+    pub fn business_position(&self, local_date: NaiveDate, local_minute: MinuteOfDay) -> PunchTime {
+        let yesterday = local_date.pred_opt();
+        let overnight_still_running = yesterday.is_some_and(|yesterday| {
+            self.days
+                .iter()
+                .find(|day| day.date == yesterday)
+                .and_then(RosterDay::shift)
+                .is_some_and(|shift| {
+                    shift.end_day_offset() == DayOffset::NEXT_DAY
+                        && local_minute.minutes() < shift.end().minutes()
+                })
+        });
+        match (overnight_still_running, yesterday) {
+            (true, Some(yesterday)) => {
+                PunchTime::new(yesterday, DayOffset::NEXT_DAY, local_minute)
+            }
+            _ => PunchTime::same_day(local_date, local_minute),
+        }
+    }
+
     /// Add one entry, keeping the roster sorted and duplicate-free.
     ///
     /// The `(place, month)` the date falls in must be **open**: a closed
@@ -499,5 +548,130 @@ impl DatedRoster {
         self.days
             .iter()
             .filter(move |day| day.date >= from && day.date <= to)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cloud::domain::employment::actions;
+    use chrono::TimeZone;
+
+    fn date(iso: &str) -> NaiveDate {
+        iso.parse().expect("date")
+    }
+
+    fn authority() -> Authorization {
+        Authorization::try_new(
+            "store07.manager",
+            actions::ROSTER_MANAGE,
+            Utc.with_ymd_and_hms(2026, 9, 1, 8, 0, 0).unwrap(),
+            "jadwal minggu ini",
+        )
+        .expect("authorization")
+    }
+
+    /// 22:00–06:00: the case the whole `day_offset` column exists for.
+    fn night_shift() -> Shift {
+        Shift::try_new(
+            ShiftId::try_new("malam").unwrap(),
+            "Malam",
+            MinuteOfDay::try_new(22 * 60).unwrap(),
+            MinuteOfDay::try_new(6 * 60).unwrap(),
+            DayOffset::NEXT_DAY,
+            Minutes::new(30),
+        )
+        .expect("shift")
+    }
+
+    fn morning_shift() -> Shift {
+        Shift::try_new(
+            ShiftId::try_new("pagi").unwrap(),
+            "Pagi",
+            MinuteOfDay::try_new(8 * 60).unwrap(),
+            MinuteOfDay::try_new(16 * 60).unwrap(),
+            DayOffset::SAME_DAY,
+            Minutes::new(60),
+        )
+        .expect("shift")
+    }
+
+    fn roster(days: Vec<(&str, Shift)>) -> DatedRoster {
+        DatedRoster::try_new(
+            EmployeeId::try_new("emp-1").unwrap(),
+            days.into_iter()
+                .map(|(on, shift)| {
+                    RosterDay::new(
+                        EmployeeId::try_new("emp-1").unwrap(),
+                        PlaceId::try_new("store-07").unwrap(),
+                        date(on),
+                        DayPlan::Scheduled { shift },
+                        authority(),
+                    )
+                    .expect("roster day")
+                })
+                .collect(),
+        )
+        .expect("roster")
+    }
+
+    fn minute(of_day: u16) -> MinuteOfDay {
+        MinuteOfDay::try_new(of_day).expect("minute")
+    }
+
+    /// The ordinary day: a reading is filed against the date on the wall.
+    #[test]
+    fn a_daytime_reading_belongs_to_the_day_it_is_read_on() {
+        let plan = roster(vec![("2026-09-14", morning_shift())]);
+        let at = plan.business_position(date("2026-09-14"), minute(8 * 60 + 3));
+        assert_eq!(at.business_date(), date("2026-09-14"));
+        assert_eq!(at.day_offset(), DayOffset::SAME_DAY);
+        assert_eq!(at.minute(), minute(8 * 60 + 3));
+    }
+
+    /// The case this function exists for: 02:00 on Tuesday, when Monday's
+    /// shift runs to 06:00, answers **Monday** — the day the shift started,
+    /// which is the day the roster planned and the day payroll counts.
+    #[test]
+    fn a_reading_after_midnight_answers_the_shift_that_is_still_running() {
+        let plan = roster(vec![("2026-09-14", night_shift())]);
+        let at = plan.business_position(date("2026-09-15"), minute(2 * 60));
+        assert_eq!(at.business_date(), date("2026-09-14"));
+        assert_eq!(at.day_offset(), DayOffset::NEXT_DAY);
+        // And it lands on the same 0..2879 timeline the shift lives on, so
+        // "how long was the shift" stays subtraction.
+        assert_eq!(at.position().minutes(), 24 * 60 + 2 * 60);
+    }
+
+    /// After that shift has ended, the reading is today's again. A shift that
+    /// finished at 06:00 does not keep collecting punches all morning.
+    #[test]
+    fn a_reading_after_the_overnight_shift_ended_is_todays() {
+        let plan = roster(vec![("2026-09-14", night_shift())]);
+        let at = plan.business_position(date("2026-09-15"), minute(7 * 60));
+        assert_eq!(at.business_date(), date("2026-09-15"));
+        assert_eq!(at.day_offset(), DayOffset::SAME_DAY);
+    }
+
+    /// Yesterday's shift did not run past midnight, so an early reading is an
+    /// early reading and not yesterday's. Filing it against yesterday to be
+    /// helpful would put a clock-in on a day that may already be paid.
+    #[test]
+    fn an_early_reading_after_a_daytime_shift_is_not_filed_against_yesterday() {
+        let plan = roster(vec![("2026-09-14", morning_shift())]);
+        let at = plan.business_position(date("2026-09-15"), minute(3 * 60));
+        assert_eq!(at.business_date(), date("2026-09-15"));
+        assert_eq!(at.day_offset(), DayOffset::SAME_DAY);
+    }
+
+    /// A day nobody planned is not refused. An unrostered punch is a real
+    /// thing — it blocks the period close, which is where somebody should
+    /// notice it, rather than a refusal aimed at a person standing in a shop.
+    #[test]
+    fn an_unrostered_reading_is_filed_against_today_rather_than_refused() {
+        let plan = DatedRoster::new(EmployeeId::try_new("emp-1").unwrap());
+        let at = plan.business_position(date("2026-09-15"), minute(9 * 60));
+        assert_eq!(at.business_date(), date("2026-09-15"));
+        assert_eq!(at.day_offset(), DayOffset::SAME_DAY);
     }
 }

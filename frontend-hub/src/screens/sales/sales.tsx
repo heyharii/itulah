@@ -9,7 +9,7 @@ import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { ButtonGroup } from "@/components/ui/segmented"
 import { Card } from "@/components/ui/card"
 import { EmptyState } from "@/components/ui/states"
-import { money } from "@/lib/format"
+import { count, money } from "@/lib/format"
 import { analyticsKeys, salesSeries } from "@/lib/queries/analytics"
 import { queryState } from "@/lib/query-state"
 import { useSheet, type SheetSearch } from "@/lib/sheets"
@@ -17,6 +17,7 @@ import { SalesChart } from "@/screens/sales/chart"
 import { ComparisonPicker } from "@/screens/sales/comparison"
 import { buildMatrix, type SalesKind } from "@/screens/sales/matrix"
 import { usePeriod } from "@/screens/sales/period"
+import { SaleSheet } from "@/screens/sales/sale-sheet"
 import { SalesTable } from "@/screens/sales/table"
 import { WindowSheet } from "@/screens/sales/window-sheet"
 import {
@@ -29,7 +30,7 @@ import {
   type SalesRange,
 } from "@itulah/contract/reporting"
 
-/// What the shops sold, and which of them sold it.
+/// What the shops sold, day by day, and which of them sold it.
 ///
 /// Until this screen existed here the centre could publish a price and had no
 /// way to ask what it earned. The day report answered that for one shop on one
@@ -38,17 +39,20 @@ import {
 /// Neither is the question head office actually has, which is **"how did the
 /// fleet trade this month, and which branch is the reason"**.
 ///
-/// So the screen is two halves of one answer. The chart is the fleet, stacked
-/// by shop; the table is every shop against every period, with the periods
-/// scrolling under a shop column that stays. They are the same numbers, built
-/// from one index (`matrix.ts`) so they cannot disagree, and one granularity
-/// drives both — two controls that could differ would put two answers to one
-/// question on one screen.
+/// So the screen is two halves of one answer, and both are read down the same
+/// axis: a trading period. The chart is the fleet's line over those periods
+/// with the span before it as a ghost; the table is one row per period carrying
+/// every metric at once, unfolding into the shops that made it. They are the
+/// same numbers, built from one index (`matrix.ts`) so they cannot disagree,
+/// and one granularity drives both — two controls that could differ would put
+/// two answers to one question on one screen.
 ///
 /// **Everything a reader chooses is in the URL.** A span somebody narrowed
 /// down, the shop they focused, the Ramadan they are comparing against and the
 /// cell they opened are all things you send to a colleague, and a reload should
-/// not throw any of them away.
+/// not throw any of them away. Two things are deliberately not: which measure
+/// the line is drawn in, and which days are unfolded. Both are flipped several
+/// times while reading one span, and neither is the question.
 const BUCKETS: readonly { value: SalesBucket; label: string }[] =
   SALES_BUCKETS.map((bucket) => ({ value: bucket, label: bucket }))
 
@@ -58,16 +62,34 @@ export function Sales() {
   // for a site id — see the note on it in `lib/sheets.ts`.
   const focus = useSheet("store")
   const cell = useCellSheet()
+  /// One receipt, opened by `?sale=`. Mounted here since the register screen
+  /// was removed (2026-09-13): a sale is still a record somebody links to from
+  /// a return, from ⌘K and from the day sheet's own list, and a record with no
+  /// screen to open on is a dangling link. It sits on Sales rather than on
+  /// Shop floor because this is where the figure that prompted the question
+  /// was read.
+  const sale = useSheet("sale")
   const { comparison, setComparison } = useComparison(
     period.range,
     period.buckets
   )
 
-  // Which of the three measures is drawn. Deliberately NOT in the URL: it is
-  // the one control on this screen that changes what the chart *is* rather than
-  // what it is about, and a reader flips it three times a minute while reading
-  // one span. The span is the thing worth sending.
+  // Which of the five measures the line is drawn in. Deliberately NOT in the
+  // URL: it changes what the chart *is* rather than what it is about, and a
+  // reader flips it several times while reading one span. The span is the thing
+  // worth sending.
   const [kind, setKind] = useState<SalesKind>("gross_minor")
+
+  // The periods showing their shops. A set rather than one open row: comparing
+  // last Saturday against this one means having both unfolded at once, and a
+  // table that closed one to open the other would make that impossible.
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
+  const toggle = (start: string) =>
+    setExpanded((open) => {
+      const next = new Set(open)
+      if (!next.delete(start)) next.add(start)
+      return next
+    })
 
   const series = useQuery({
     queryKey: analyticsKeys.series(period.range),
@@ -150,7 +172,7 @@ export function Sales() {
         sub={
           series.isPending
             ? "Adding up the tills…"
-            : `${period.range.from} → ${period.range.to} · ${money(matrix.grandTotal("gross_minor"))}`
+            : `${period.range.from} → ${period.range.to} · ${money(matrix.grandTotal("gross_minor"))} over ${count(matrix.grandTotal("sales_count"))} transactions`
         }
       />
 
@@ -227,7 +249,8 @@ export function Sales() {
                   before={before}
                   comparison={comparison}
                   bucket={period.bucket}
-                  kind={kind}
+                  expanded={expanded}
+                  onToggle={toggle}
                   onOpen={cell.open}
                   onFocus={(siteId) =>
                     siteId === focus.value ? focus.close() : focus.open(siteId)
@@ -237,6 +260,8 @@ export function Sales() {
             </>
           ),
       })}
+
+      <SaleSheet id={sale.value ?? null} onClose={sale.close} />
 
       <WindowSheet
         siteId={cell.value?.siteId ?? null}

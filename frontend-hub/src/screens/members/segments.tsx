@@ -9,7 +9,7 @@ import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { Meter } from "@/components/ui/meter"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
-import { MiniCell, MiniRow, MiniTable, SubHead } from "@/components/ui/rows"
+import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
 import { EmptyState } from "@/components/ui/states"
 import { count, day, money } from "@/lib/format"
 import {
@@ -28,7 +28,6 @@ import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { describeDefinition } from "@/screens/members/definition"
 import { SegmentForm } from "@/screens/members/segment-form"
-import { Strays } from "@/screens/members/strays"
 
 /// Segments — the directory, read as six groups instead of a thousand rows.
 ///
@@ -52,19 +51,23 @@ import { Strays } from "@/screens/members/strays"
 /// terms of come from the server with the counts, so this screen never states
 /// a threshold it does not have from the same answer it is drawing.
 ///
-/// # The second half of the screen
+/// # One grid, both kinds
 ///
-/// Below the six sits the other kind: segments somebody wrote down. Those are
-/// the overlapping questions this screen used to refuse — "lapsing, and has
-/// spent at least five million" — and they are kept in their own section,
-/// under their own heading, for one reason that is not tidiness: **the six add
-/// up to the directory and these do not**. Drawn in one grid, the arithmetic
-/// that makes the six checkable would silently stop holding, and a reader
-/// would have no way of telling which numbers they were allowed to add.
+/// Segments somebody wrote down — "lapsing, and has spent at least five
+/// million" — sit in the SAME grid as the six, on the owner's instruction
+/// (2026-09-13). They used to have their own section and their own paragraph
+/// explaining that the six add up to the directory and these do not.
+///
+/// That distinction is real and it is still true; what was wrong was making a
+/// reader learn it before they could read a card. A written card is told apart
+/// by having Edit and Retire on it, which is the difference that matters to
+/// somebody using the screen — and nothing here invites the six to be added
+/// up in the first place, because each card carries a share of the directory
+/// rather than a slice of a pie the page draws.
 ///
 /// What is stored for a written segment is still only its conditions. Who is
 /// in it is worked out on every read, by the same query the directory uses —
-/// so the rule at the top of this file is not weakened by anything below it.
+/// so the rule at the top of this file holds for every card in the grid.
 
 /// Order is fixed by the server's `SEGMENT_ORDER` and the book arrives in it —
 /// newest relationship to oldest, then the two that are not about recency at
@@ -118,7 +121,7 @@ export function Segments() {
       <PageHeader
         crumb="Members"
         title="Segments"
-        sub="The directory read as six groups, by how long since somebody last came in. Worked out on every read, never stored."
+        sub="The directory grouped by how long since somebody last came in, worked out on every read."
         actions={
           <Button variant="primary" onClick={() => editing.open("new")}>
             New segment
@@ -138,16 +141,13 @@ export function Segments() {
               </EmptyState>
             </Card>
           ) : (
-            <Book book={data} />
+            <Book
+              book={data}
+              saved={saved.data ?? []}
+              onEdit={(id) => editing.open(id)}
+            />
           ),
       })}
-
-      <Written
-        saved={saved.data ?? []}
-        loading={saved.isPending}
-        onWrite={() => editing.open("new")}
-        onEdit={(id) => editing.open(id)}
-      />
 
       {(writing || edited !== undefined) && (
         <SegmentForm
@@ -161,97 +161,6 @@ export function Segments() {
         />
       )}
     </PageContent>
-  )
-}
-
-/// Segments somebody wrote down.
-///
-/// Its own section, its own heading, and deliberately not the same grid as the
-/// six above. These overlap each other and do not add up to the directory: a
-/// member can be in three of them or in none, and two counts here cannot be
-/// added the way the six can. A screen that drew both kinds identically would
-/// be inviting exactly that addition.
-function Written({
-  saved,
-  loading,
-  onWrite,
-  onEdit,
-}: {
-  saved: readonly SavedSegment[]
-  loading: boolean
-  onWrite: () => void
-  onEdit: (id: string) => void
-}) {
-  const client = useQueryClient()
-  const catalogue = useCatalogue()
-  const columns = useMemo(
-    () =>
-      catalogue.data?.datasets.find((one) => one.name === "member")
-        ?.dimensions ?? [],
-    [catalogue.data]
-  )
-
-  const retire = useMutation({
-    mutationFn: (id: string) => retireSegment(id),
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: savedSegmentKeys.all })
-    },
-  })
-
-  return (
-    <div className="mt-6">
-      <SubHead aside={loading ? "…" : `${count(saved.length)} written`}>
-        Segments you have written
-      </SubHead>
-      {/* Said once, under the heading, because it is the one thing a reader
-          could get wrong from the layout: these cards look like the six above
-          and do not behave like them. The six divide the directory; these cut
-          across it, so a member can be in several or in none and two of these
-          counts are not addable. */}
-      <p className="-mt-1 mb-3 text-[0.78125rem] leading-relaxed text-mute">
-        These overlap each other and the six above. A member can be in several
-        of them or in none, so unlike the six, these counts do not add up to
-        anything.
-      </p>
-
-      {loading ? (
-        // Not the empty state while the answer is still coming. "You have
-        // written none" and "we have not asked yet" are different sentences,
-        // and flashing the first one invites somebody to write a second copy
-        // of a segment they already have.
-        <Card className="overflow-hidden">
-          <EmptyState>Reading the segments you have written…</EmptyState>
-        </Card>
-      ) : saved.length === 0 ? (
-        <Card className="overflow-hidden">
-          <EmptyState
-            action={
-              <Button variant="soft" onClick={onWrite}>
-                Write one
-              </Button>
-            }
-          >
-            The six above are the whole directory, divided by one question. A
-            written segment answers a different shape of question — "lapsing,
-            and has spent at least five million" — which overlaps them and is
-            nobody's whole population.
-          </EmptyState>
-        </Card>
-      ) : (
-        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-3">
-          {saved.map((one) => (
-            <WrittenCard
-              key={one.segment_id}
-              saved={one}
-              columns={columns}
-              onEdit={() => onEdit(one.segment_id)}
-              onRetire={() => retire.mutate(one.segment_id)}
-              retiring={retire.isPending && retire.variables === one.segment_id}
-            />
-          ))}
-        </div>
-      )}
-    </div>
   )
 }
 
@@ -358,11 +267,30 @@ function WrittenCard({
   )
 }
 
-function Book({ book }: { book: SegmentBook }) {
-  /// Who the last KPI is counting. In the URL like every sheet here, so "look
-  /// at the people we are crediting points to who cannot see them" is a link
-  /// somebody can be sent.
-  const strays = useSheet("strays")
+function Book({
+  book,
+  saved,
+  onEdit,
+}: {
+  book: SegmentBook
+  saved: readonly SavedSegment[]
+  onEdit: (id: string) => void
+}) {
+  const client = useQueryClient()
+  const catalogue = useCatalogue()
+  const columns = useMemo(
+    () =>
+      catalogue.data?.datasets.find((one) => one.name === "member")
+        ?.dimensions ?? [],
+    [catalogue.data]
+  )
+  const retire = useMutation({
+    mutationFn: (id: string) => retireSegment(id),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: savedSegmentKeys.all })
+    },
+  })
+
   const windows = {
     active_days: book.active_days,
     lapsing_days: book.lapsing_days,
@@ -392,42 +320,24 @@ function Book({ book }: { book: SegmentBook }) {
         />
       </KpiStrip>
 
+      {/* One grid, both kinds — see the note at the top of this file. The six
+          come first because they are the whole directory and a written segment
+          is a question asked of it. */}
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-3">
         {book.segments.map((row) => (
           <SegmentCard key={row.key} row={row} book={book} windows={windows} />
         ))}
+        {saved.map((one) => (
+          <WrittenCard
+            key={one.segment_id}
+            saved={one}
+            columns={columns}
+            onEdit={() => onEdit(one.segment_id)}
+            onRetire={() => retire.mutate(one.segment_id)}
+            retiring={retire.isPending && retire.variables === one.segment_id}
+          />
+        ))}
       </div>
-
-      <Card className="mt-4 p-5">
-        <SubHead aside={`${count(book.unenrolled_count)} shoppers`}>
-          Named on a sale, not enrolled
-        </SubHead>
-        {/* Not a seventh segment, and the card is separate so it cannot be
-            read as one: these people are not members, so they are not in the
-            counts above. They are here because leaving them out would make the
-            directory look like the whole customer base — and because they are
-            the only group on this screen with an obvious next action. */}
-        <p className="text-[0.78125rem] leading-relaxed text-body">
-          The till has written these customer numbers onto sales, but no card
-          was ever enrolled against them. They are not members and are not
-          counted above. Between them they have spent{" "}
-          <span className="text-ink tabular-nums">
-            {money(book.unenrolled_spent_minor)}
-          </span>
-          , which is spend the scheme currently cannot see.
-        </p>
-        {book.unenrolled_count > 0 && (
-          <div className="mt-3.5">
-            {/* The action the sentence above has been promising. Enrolling one
-                of these numbers attaches its whole history in the same breath,
-                because a member and their sales are joined on the card number
-                rather than copied together. */}
-            <Button onClick={() => strays.open(true)}>See who they are</Button>
-          </div>
-        )}
-      </Card>
-
-      <Strays open={strays.isOpen} onClose={() => strays.close()} />
     </>
   )
 }

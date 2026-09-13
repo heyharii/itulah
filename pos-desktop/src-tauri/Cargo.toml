@@ -20,3 +20,8 @@ serde_json = "1"
 # waits for it in front of a customer; an async runtime here would buy
 # concurrency nobody at a counter can use, and cost a second scheduler.
 ureq = { version = "2", default-features = false, features = ["json", "tls"] }
+# The terminal signs its own claims. Same construction the RFID lane already
+# uses on the node (`backend/src/edge/rfid.rs`), so the two ends cannot drift:
+# HMAC-SHA256 over method, path, terminal, clock, sequence and body.
+hmac = "0.12"
+sha2 = "0.10"

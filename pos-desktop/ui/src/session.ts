@@ -28,7 +28,8 @@
 
 import { useEffect, useSyncExternalStore } from "react"
 
-import { login, logout, me, type Me } from "@/api"
+import { claimFinger, login, logout, me, roster, type Me } from "@/api"
+import { identifyFinger } from "@/edge"
 
 /// The shell's copy of what this terminal is. Field names are the Rust
 /// struct's — `NodeConfig` in `src-tauri/src/edge.rs` — because they cross the
@@ -43,6 +44,18 @@ export type NodeConfig = {
   readonly printer_port: number
   /// `NARROW` (58mm) or `WIDE` (80mm).
   readonly paper: string
+  /// What this terminal was called when it was paired with the node. Present
+  /// means paired; absent means fingerprints cannot be used here, because the
+  /// node has no way to be sure a claim came from this machine.
+  readonly pairing_id: string | null
+  /// Never read back from the shell — it is handed over once at pairing and
+  /// lives only where the signing happens.
+  readonly pairing_secret: string | null
+  readonly pairing_sequence: number
+  /// Whose finger this terminal pretends matched, while there is no scanner to
+  /// press. Only a development build of the shell reads it; a release compiles
+  /// that code out entirely.
+  readonly simulate_fingerprint: string | null
 }
 
 /// What a person may change. The token is deliberately not in it: the node
@@ -53,6 +66,12 @@ export type NodeEdit = {
   readonly printer_host: string | null
   readonly printer_port: number
   readonly paper: string
+  /// Carried through an ordinary save so editing the printer does not unpair a
+  /// terminal. `pairing_secret` is null on every save but the pairing itself:
+  /// a secret this page does not hold is a secret it cannot leak.
+  readonly pairing_id?: string | null
+  readonly pairing_secret?: string | null
+  readonly simulate_fingerprint?: string | null
 }
 
 /// The same string `NodeConfig::default()` uses in `src-tauri/src/edge.rs`.
@@ -231,6 +250,127 @@ async function signIn(username: string, password: string): Promise<boolean> {
   return true
 }
 
+/// Open the counter with a finger.
+///
+/// Three steps, and the middle one never leaves this machine: ask the node
+/// which fingers may open this shop, match the one on the scanner **here**
+/// against them, then tell the node which enrolment matched and let it decide
+/// what that is worth.
+///
+/// The matching is local because the scanner and its matcher are on the
+/// counter; the node has neither. That is also what lets a till be opened while
+/// head office is unreachable. What stops any machine on the shop wifi from
+/// simply claiming to be a supervisor is the pairing secret the shell signs
+/// with — see `edge_signed_call`.
+async function signInWithFinger(): Promise<string | null> {
+  await open()
+  const config = held.config
+  if (config === null) {
+    return held.problem ?? "Setelan terminal tidak bisa dibaca dari sini."
+  }
+
+  const book = await roster()
+  if (!book.ok) return book.problem
+  const fingers = book.body?.items ?? []
+  if (fingers.length === 0) {
+    return "Belum ada sidik jari terdaftar di toko ini. Daftarkan dulu lewat akun admin."
+  }
+
+  const seen = await identifyFinger(
+    fingers.map((one) => ({
+      actor_id: one.username,
+      template_base64: one.template_base64,
+    })),
+  )
+  if (!seen.bound) return seen.detail
+
+  // A no-match is still reported to the node, and the node writes it down. A
+  // finger tried repeatedly at one terminal late in the evening is the shape a
+  // table of successes could never show.
+  const matched = fingers.find((one) => one.username === seen.actor_id) ?? null
+  const claimed = await claimFinger(
+    matched?.finger_id ?? null,
+    "SESSION",
+    seen.score,
+  )
+  if (!claimed.ok) return claimed.problem
+
+  const token = claimed.body?.token ?? ""
+  if (token === "") {
+    return "Node menerima sidik jari itu tetapi tidak mengirim token."
+  }
+  const saved = await hand({ ...config, token })
+  if (!saved.ok) return saved.problem
+  const who = await me()
+  if (!who.ok) {
+    put({ config: saved.value, problem: who.problem })
+    return who.problem
+  }
+  put({ config: saved.value, me: who.body, problem: null })
+  return null
+}
+
+/// One supervisor authorisation, earned by a finger instead of a password.
+///
+/// Not a sign-in: the cashier stays signed in and a supervisor walks over,
+/// presses a finger, and walks away. What comes back is single-use and expires
+/// in three minutes — long enough to get back to their own counter, short
+/// enough that it is not a spare key left lying on this one.
+export async function supervisorByFinger(): Promise<{
+  readonly authorization: string | null
+  readonly username: string | null
+  readonly problem: string | null
+}> {
+  const book = await roster()
+  if (!book.ok) {
+    return { authorization: null, username: null, problem: book.problem }
+  }
+  const supervisors = (book.body?.items ?? []).filter((one) => one.is_supervisor)
+  if (supervisors.length === 0) {
+    return {
+      authorization: null,
+      username: null,
+      problem:
+        "Belum ada sidik jari supervisor yang terdaftar di toko ini. " +
+        "Gunakan nama pengguna dan kata sandi.",
+    }
+  }
+
+  const seen = await identifyFinger(
+    supervisors.map((one) => ({
+      actor_id: one.username,
+      template_base64: one.template_base64,
+    })),
+  )
+  if (!seen.bound) {
+    return { authorization: null, username: null, problem: seen.detail }
+  }
+
+  const matched =
+    supervisors.find((one) => one.username === seen.actor_id) ?? null
+  const claimed = await claimFinger(
+    matched?.finger_id ?? null,
+    "SUPERVISOR",
+    seen.score,
+  )
+  if (!claimed.ok) {
+    return { authorization: null, username: null, problem: claimed.problem }
+  }
+  const authorization = claimed.body?.authorization ?? null
+  if (authorization === null) {
+    return {
+      authorization: null,
+      username: null,
+      problem: "Node menerima sidik jari itu tetapi tidak memberi otorisasi.",
+    }
+  }
+  return {
+    authorization,
+    username: claimed.body?.username ?? null,
+    problem: null,
+  }
+}
+
 /// Hand the terminal back to nobody.
 async function signOut(): Promise<void> {
   // The node is told first, while the shell still holds the token that says
@@ -300,6 +440,20 @@ async function pointAt(next: NodeEdit): Promise<string | null> {
     printer_host: printer === "" ? null : printer,
     printer_port: port > 0 ? port : 9100,
     paper,
+    // Undefined means "leave it alone": only the pairing screen ever sets these,
+    // and a save that blanked them would unpair a terminal by tidying a printer
+    // address.
+    pairing_id:
+      next.pairing_id !== undefined ? next.pairing_id : config.pairing_id,
+    pairing_secret:
+      next.pairing_secret !== undefined && next.pairing_secret !== null
+        ? next.pairing_secret
+        : config.pairing_secret,
+    pairing_sequence: config.pairing_sequence,
+    simulate_fingerprint:
+      next.simulate_fingerprint !== undefined
+        ? next.simulate_fingerprint
+        : config.simulate_fingerprint,
   })
   if (!saved.ok) return saved.problem
   put({ config: saved.value, me: moved ? null : held.me, problem: null })
@@ -328,6 +482,8 @@ export type Session = {
   readonly problem: string | null
   /// True when the node accepted, which is the only thing that opens a counter.
   readonly signIn: (username: string, password: string) => Promise<boolean>
+  /// Returns the node's own refusal text, or null when the counter is open.
+  readonly signInWithFinger: () => Promise<string | null>
   readonly signOut: () => Promise<void>
 }
 
@@ -344,6 +500,7 @@ export function useSession(): Session {
     ready: now.ready,
     problem: now.problem,
     signIn,
+    signInWithFinger,
     signOut,
   }
 }

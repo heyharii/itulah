@@ -91,7 +91,17 @@ export interface MemberRow {
   readonly transaction_count: number
   readonly spent_minor: number
   readonly saved_minor: number
+  /// Pieces, not receipts. Beside `transaction_count` it is the other half of
+  /// units per transaction — whether this shopper buys one thing or a basket.
+  readonly units_total: number
+  /// Every point ever credited on this card.
   readonly points_earned_total: number
+  /// What is on the card now: earned, less redeemed, less any reversal. May be
+  /// negative — see `0165`, which allows it deliberately when goods that earned
+  /// points go back after the points have been spent.
+  readonly points_balance: number
+  /// What has already been turned into vouchers, as a positive figure.
+  readonly points_spent_total: number
   readonly first_purchase_at: string | null
   readonly last_purchase_at: string | null
   /// `null` for somebody who has never bought — which is not the same as a

@@ -728,6 +728,11 @@ export const commercialKeys = {
   /// the books. One key for the three of them because it is one read — see
   /// `promotionCatalogue`.
   catalogue: () => ["commercial", "catalogue"] as const,
+  /// The campaigns alone, for a screen that wants the posters and not the
+  /// rules underneath them. A key of its own rather than a slice of
+  /// `catalogue()`: that entry is four requests, and a caller that only needs
+  /// this one should not pull three it will not read.
+  campaigns: () => ["commercial", "campaigns"] as const,
   /// Article-level prices. The channel and the moment are part of the key
   /// because a different question has a different answer.
   articlePrices: (
@@ -986,6 +991,43 @@ export async function promotionCatalogue(
     next_version:
       books.reduce((highest, book) => Math.max(highest, book.version), 0) + 1,
   }
+}
+
+/// Every campaign the fleet is carrying, and nothing else.
+///
+/// The same endpoint `promotionCatalogue` reads, called on its own. Campaigns
+/// are de-duplicated in SQL — newest publication wins per `campaign_id`, the
+/// rule `load_campaigns` applies in `pricing.rs` — so a caller gets one row per
+/// campaign and never has to decide which of four books is the live statement
+/// of the Lebaran sale.
+///
+/// It exists because the presentation half of a campaign — banner, headline,
+/// small print — is only in the BOOK. The performance report knows what a
+/// campaign earned and has never heard of its poster.
+export async function campaignCatalogue(
+  signal?: AbortSignal
+): Promise<readonly CampaignRow[]> {
+  const body = await node.get<{
+    rows: (BookCampaign & CarriedRow)[]
+    book_count: number
+  }>(`/api/v1/commercial/campaigns?limit=${CATALOGUE_PAGE}`, { signal })
+  return body.rows.map((row) => ({
+    campaign: {
+      campaign_id: row.campaign_id,
+      name: row.name,
+      status: row.status,
+      valid_from: row.valid_from,
+      valid_to: row.valid_to,
+      budget_minor: row.budget_minor,
+      max_uses: row.max_uses,
+      max_uses_per_customer: row.max_uses_per_customer ?? null,
+      image_url: row.image_url ?? null,
+      headline: row.headline ?? null,
+      terms: row.terms ?? null,
+      site_ids: row.site_ids ?? null,
+    },
+    book: carriedBy(row),
+  }))
 }
 
 // ── writes ─────────────────────────────────────────────────────────────────

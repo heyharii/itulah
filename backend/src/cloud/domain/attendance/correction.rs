@@ -488,7 +488,9 @@ impl CorrectionChain {
 
     /// The next `chain_seq`, so a caller never has to guess one.
     pub fn next_seq(&self) -> u32 {
-        u32::try_from(self.corrections.len()).unwrap_or(u32::MAX).saturating_add(1)
+        u32::try_from(self.corrections.len())
+            .unwrap_or(u32::MAX)
+            .saturating_add(1)
     }
 
     /// File a request onto the chain.
@@ -607,5 +609,369 @@ impl CorrectionChain {
             });
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cloud::domain::attendance::time::{AttendanceMonth, MinuteOfDay};
+    use crate::cloud::domain::attendance::CloseReadiness;
+    use crate::cloud::domain::employment::actions;
+    use chrono::{TimeZone, Utc};
+
+    const DAY: &str = "2026-09-14";
+
+    fn date(iso: &str) -> NaiveDate {
+        iso.parse().expect("date")
+    }
+
+    fn authority(actor: &str, action_key: &str) -> Authorization {
+        Authorization::try_new(
+            actor,
+            action_key,
+            Utc.with_ymd_and_hms(2026, 9, 15, 9, 0, 0).unwrap(),
+            "the reader would not take her thumb on Monday",
+        )
+        .expect("authorization")
+    }
+
+    fn employee() -> EmployeeId {
+        EmployeeId::try_new("emp-1").expect("employee id")
+    }
+
+    fn place() -> PlaceId {
+        PlaceId::try_new("store-07").expect("place id")
+    }
+
+    fn open_period() -> AttendancePeriod {
+        AttendancePeriod::open(place(), AttendanceMonth::try_new(2026, 9).unwrap())
+    }
+
+    fn closed_period() -> AttendancePeriod {
+        let mut period = open_period();
+        period
+            .close(
+                CloseReadiness::CLEAR,
+                authority("hr.officer", actions::ATTENDANCE_PERIOD_CLOSE),
+            )
+            .expect("close");
+        period
+    }
+
+    fn arrival_at(minute: u16) -> CorrectionEffect {
+        CorrectionEffect::Arrival {
+            at: PunchTime::same_day(date(DAY), MinuteOfDay::try_new(minute).unwrap()),
+        }
+    }
+
+    fn request(id: &str, actor: &str, supersedes: Option<&str>) -> Correction {
+        Correction::request(
+            CorrectionId::try_new(id).unwrap(),
+            employee(),
+            place(),
+            date(DAY),
+            arrival_at(8 * 60),
+            supersedes
+                .map(CorrectionId::try_new)
+                .transpose()
+                .expect("lineage"),
+            authority(actor, actions::CORRECTION_REQUEST),
+        )
+        .expect("request")
+    }
+
+    fn chain() -> CorrectionChain {
+        CorrectionChain::new(employee(), place(), date(DAY))
+    }
+
+    #[test]
+    fn an_approved_correction_becomes_the_one_in_force() {
+        let mut chain = chain();
+        let period = open_period();
+        chain
+            .submit(request("cor-1", "manager", None), &period)
+            .expect("submit");
+        assert!(chain.pending().is_some());
+        assert!(chain.effective().is_none(), "a request is not a decision");
+        chain
+            .approve(authority("hr.officer", actions::CORRECTION_DECIDE), &period)
+            .expect("approve");
+        assert!(chain.pending().is_none());
+        assert_eq!(
+            chain.effective().map(|held| held.id().to_string()),
+            Some("cor-1".to_owned())
+        );
+    }
+
+    /// Two people, not one. The rule is added rather than ported, and it is the
+    /// same rule the payroll run carries: a control one person can complete
+    /// alone is a record of a signature.
+    #[test]
+    fn the_requester_may_not_decide_their_own_correction() {
+        let mut chain = chain();
+        let period = open_period();
+        chain
+            .submit(request("cor-1", "manager", None), &period)
+            .expect("submit");
+        assert!(matches!(
+            chain.approve(authority("manager", actions::CORRECTION_DECIDE), &period),
+            Err(AttendanceError::ActionForbidsCorrectionDecision { .. })
+        ));
+        // Somebody else can.
+        assert!(chain
+            .approve(authority("hr.officer", actions::CORRECTION_DECIDE), &period)
+            .is_ok());
+    }
+
+    /// And the rule survives a round trip through storage, which is where a
+    /// rule only the live path enforces would be laundered away.
+    #[test]
+    fn a_stored_correction_signed_once_by_one_person_fails_to_load() {
+        let forged = serde_json::json!({
+            "id": "cor-1",
+            "employee": "emp-1",
+            "place": "store-07",
+            "date": DAY,
+            "effect": { "effect": "ARRIVAL", "at": {
+                "business_date": DAY, "day_offset": 0, "minute": "08:00" } },
+            "supersedes": null,
+            "requested": authority("manager", actions::CORRECTION_REQUEST),
+            "state": { "state": "APPROVED",
+                       "decision": authority("manager", actions::CORRECTION_DECIDE) },
+        });
+        assert!(
+            serde_json::from_value::<Correction>(forged).is_err(),
+            "one name on both halves is not a control"
+        );
+    }
+
+    /// A decision recorded under the key somebody used to ask is the employee
+    /// approving their own correction, wearing the shape of a decision.
+    #[test]
+    fn a_decision_under_the_requesting_key_is_refused() {
+        let mut chain = chain();
+        let period = open_period();
+        chain
+            .submit(request("cor-1", "manager", None), &period)
+            .expect("submit");
+        assert!(matches!(
+            chain.approve(
+                authority("hr.officer", actions::CORRECTION_REQUEST),
+                &period
+            ),
+            Err(AttendanceError::ActionForbidsCorrectionDecision { .. })
+        ));
+    }
+
+    /// A queue of contradictory pending edits to one day has no defined
+    /// meaning, so there is only ever one.
+    #[test]
+    fn only_one_request_may_be_pending_on_a_day() {
+        let mut chain = chain();
+        let period = open_period();
+        chain
+            .submit(request("cor-1", "manager", None), &period)
+            .expect("submit");
+        assert!(matches!(
+            chain.submit(request("cor-2", "manager", None), &period),
+            Err(AttendanceError::AnotherCorrectionIsPending)
+        ));
+    }
+
+    /// Two people correcting the same day cannot silently clobber each other:
+    /// the second must name what the first established.
+    #[test]
+    fn a_second_correction_must_supersede_the_one_in_force() {
+        let mut chain = chain();
+        let period = open_period();
+        chain
+            .submit(request("cor-1", "manager", None), &period)
+            .expect("submit");
+        chain
+            .approve(authority("hr.officer", actions::CORRECTION_DECIDE), &period)
+            .expect("approve");
+        match chain.submit(request("cor-2", "manager", None), &period) {
+            Err(AttendanceError::CorrectionSupersedesTheWrongLink { expected }) => {
+                assert_eq!(expected, "cor-1");
+            }
+            other => panic!("expected a named lineage refusal, got {other:?}"),
+        }
+        assert!(chain
+            .submit(request("cor-2", "manager", Some("cor-1")), &period)
+            .is_ok());
+    }
+
+    /// A refusal is kept. A day whose correction was refused is a day somebody
+    /// looked at, and the chain is where that is answerable.
+    #[test]
+    fn a_rejection_stays_in_the_chain_and_changes_nothing() {
+        let mut chain = chain();
+        let period = open_period();
+        chain
+            .submit(request("cor-1", "manager", None), &period)
+            .expect("submit");
+        chain
+            .reject(authority("hr.officer", actions::CORRECTION_DECIDE), &period)
+            .expect("reject");
+        assert_eq!(chain.corrections().len(), 1);
+        assert!(chain.effective().is_none());
+        assert!(chain.corrections()[0].approved_effect().is_none());
+        // And its lineage is clear, so the next request supersedes nothing.
+        assert!(chain
+            .submit(request("cor-2", "manager", None), &period)
+            .is_ok());
+    }
+
+    /// Withdrawal is the requester's alone. Anybody else rejects it under their
+    /// own name; a third party "withdrawing" it would dispose of the request
+    /// while making the record say the requester changed their mind.
+    #[test]
+    fn only_the_requester_withdraws() {
+        let mut chain = chain();
+        let period = open_period();
+        chain
+            .submit(request("cor-1", "manager", None), &period)
+            .expect("submit");
+        assert!(matches!(
+            chain.withdraw(authority("hr.officer", actions::CORRECTION_REQUEST_OWN)),
+            Err(AttendanceError::CorrectionWithdrawalNotByRequester)
+        ));
+        assert!(chain
+            .withdraw(authority("manager", actions::CORRECTION_REQUEST_OWN))
+            .is_ok());
+        assert!(chain.pending().is_none());
+        assert!(chain.effective().is_none());
+    }
+
+    /// A settled month takes neither a new correction nor a decision on one.
+    #[test]
+    fn a_closed_month_refuses_a_correction_and_a_decision() {
+        let mut chain = chain();
+        assert!(matches!(
+            chain.submit(request("cor-1", "manager", None), &closed_period()),
+            Err(AttendanceError::ClosedPeriodRejectsCorrection { .. })
+        ));
+        // A request filed while the month was open cannot be decided after it
+        // closes either: the facts payroll read are frozen.
+        chain
+            .submit(request("cor-1", "manager", None), &open_period())
+            .expect("submit");
+        assert!(matches!(
+            chain.approve(
+                authority("hr.officer", actions::CORRECTION_DECIDE),
+                &closed_period()
+            ),
+            Err(AttendanceError::ClosedPeriodRejectsCorrection { .. })
+        ));
+    }
+
+    /// Withdrawal needs no open month, deliberately: a pending correction has
+    /// never changed an outcome, so there is nothing for a closed month to
+    /// protect — and refusing it would leave a request stuck in a settled
+    /// period's queue for ever.
+    #[test]
+    fn withdrawal_survives_the_month_closing() {
+        let mut chain = chain();
+        chain
+            .submit(request("cor-1", "manager", None), &open_period())
+            .expect("submit");
+        assert!(chain
+            .withdraw(authority("manager", actions::CORRECTION_REQUEST_OWN))
+            .is_ok());
+    }
+
+    /// The effect cannot state an outcome and cannot state a negative day.
+    #[test]
+    fn a_correction_cannot_state_a_day_that_runs_backwards() {
+        let backwards = Correction::request(
+            CorrectionId::try_new("cor-1").unwrap(),
+            employee(),
+            place(),
+            date(DAY),
+            CorrectionEffect::ArrivalAndDeparture {
+                arrival: PunchTime::same_day(date(DAY), MinuteOfDay::try_new(16 * 60).unwrap()),
+                departure: PunchTime::same_day(date(DAY), MinuteOfDay::try_new(8 * 60).unwrap()),
+            },
+            None,
+            authority("manager", actions::CORRECTION_REQUEST),
+        );
+        assert!(matches!(
+            backwards,
+            Err(AttendanceError::CorrectionArrivalNotBeforeDeparture)
+        ));
+    }
+
+    /// A corrected time filed under another day's business date would silently
+    /// move work from one month to another.
+    #[test]
+    fn a_corrected_time_must_be_on_the_day_it_corrects() {
+        let elsewhere = Correction::request(
+            CorrectionId::try_new("cor-1").unwrap(),
+            employee(),
+            place(),
+            date(DAY),
+            CorrectionEffect::Arrival {
+                at: PunchTime::same_day(date("2026-08-31"), MinuteOfDay::try_new(8 * 60).unwrap()),
+            },
+            None,
+            authority("manager", actions::CORRECTION_REQUEST),
+        );
+        assert!(matches!(
+            elsewhere,
+            Err(AttendanceError::CorrectionTargetMismatch)
+        ));
+    }
+
+    /// A request filed under a key that may not file one is not a request, and
+    /// the check runs on the way in from storage too.
+    #[test]
+    fn a_request_needs_a_requesting_key() {
+        assert!(matches!(
+            Correction::request(
+                CorrectionId::try_new("cor-1").unwrap(),
+                employee(),
+                place(),
+                date(DAY),
+                arrival_at(8 * 60),
+                None,
+                authority("manager", actions::ROSTER_MANAGE),
+            ),
+            Err(AttendanceError::ActionForbidsCorrectionRequest { .. })
+        ));
+    }
+
+    /// A chain holding somebody else's correction is refused rather than
+    /// silently answering the wrong day's question.
+    #[test]
+    fn a_chain_will_not_hold_another_days_correction() {
+        let stray = Correction::request(
+            CorrectionId::try_new("cor-9").unwrap(),
+            employee(),
+            place(),
+            date("2026-09-15"),
+            CorrectionEffect::Arrival {
+                at: PunchTime::same_day(date("2026-09-15"), MinuteOfDay::try_new(8 * 60).unwrap()),
+            },
+            None,
+            authority("manager", actions::CORRECTION_REQUEST),
+        )
+        .expect("request");
+        assert!(matches!(
+            CorrectionChain::try_new(employee(), place(), date(DAY), vec![stray]),
+            Err(AttendanceError::CorrectionChainMismatch)
+        ));
+    }
+
+    /// A stored chain with two pending requests is refused — the unique partial
+    /// index in `0234` says the same thing, and this is the first copy.
+    #[test]
+    fn a_stored_chain_with_two_pending_requests_is_refused() {
+        let first = request("cor-1", "manager", None);
+        let second = request("cor-2", "manager", None);
+        assert!(matches!(
+            CorrectionChain::try_new(employee(), place(), date(DAY), vec![first, second]),
+            Err(AttendanceError::AnotherCorrectionIsPending)
+        ));
     }
 }

@@ -106,7 +106,7 @@ export function useSupplierName(): (
   const suppliers = useSuppliers()
   const bills = useQuery({
     queryKey: financeKeys.bills(null),
-    queryFn: ({ signal }) => listBills({}, signal),
+    queryFn: ({ signal }) => listBills({}, signal).then((page) => page.rows),
     staleTime: 60_000,
   })
 

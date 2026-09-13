@@ -10,7 +10,7 @@ use crate::cloud::{
         SubjectId,
     },
 };
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, TimeZone, Utc};
 use serde_json::{json, Value};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use std::str::FromStr;
@@ -583,12 +583,50 @@ pub async fn get_sale(pool: &PgPool, sale_id: Uuid) -> Result<Value, AppError> {
     }))
 }
 
+/// The register: sales, narrowed by unit, by status and by WINDOW.
+///
+/// See [`SaleQuery`] for why the window is on `created_at`. Both bounds are
+/// optional and independent — "everything since the first" is as ordinary a
+/// question as "that fortnight" — and both are read at the caller's UTC
+/// offset, defaulting to WIB, so a day means the day a shop had.
 pub async fn list_sales(pool: &PgPool, query: SaleQuery) -> Result<Value, AppError> {
     let limit = query.limit.unwrap_or(100).clamp(1, 500);
-    let rows=sqlx::query("SELECT id,sale_number,site_id,channel,status,commercial_version,currency::text currency,total_minor,paid_minor,change_minor,movement_group_id,created_at,completed_at FROM sale WHERE ($1::text IS NULL OR site_id=$1) AND ($2::text IS NULL OR status=$2) ORDER BY created_at DESC LIMIT $3")
-        .bind(query.site_id).bind(query.status.map(|s|s.to_ascii_uppercase())).bind(limit).fetch_all(pool).await?;
-    let items:Vec<Value>=rows.into_iter().map(|row|json!({"id":row.get::<Uuid,_>("id"),"sale_number":row.get::<String,_>("sale_number"),"site_id":row.get::<String,_>("site_id"),"channel":row.get::<String,_>("channel"),"status":row.get::<String,_>("status"),"commercial_version":row.get::<i64,_>("commercial_version"),"currency":row.get::<String,_>("currency").trim(),"total_minor":row.get::<i64,_>("total_minor"),"paid_minor":row.get::<i64,_>("paid_minor"),"change_minor":row.get::<i64,_>("change_minor"),"movement_group_id":row.get::<Option<Uuid>,_>("movement_group_id"),"created_at":row.get::<DateTime<Utc>,_>("created_at"),"completed_at":row.get::<Option<DateTime<Utc>>,_>("completed_at")})).collect();
-    Ok(json!({"items":items,"limit":limit}))
+    let offset_minutes = crate::reporting::offset_of(query.utc_offset_minutes);
+    if let (Some(from), Some(to)) = (query.from, query.to) {
+        if to < from {
+            return Err(AppError::Validation(format!(
+                "the span ends before it starts: {from} to {to}"
+            )));
+        }
+    }
+    let shift = chrono::Duration::minutes(i64::from(offset_minutes));
+    // Half-open at the far end: `to` is INCLUSIVE as a date, which is the
+    // instant the day after it begins. Comparing against midnight of `to`
+    // itself would silently drop that whole day's trade.
+    let start = query
+        .from
+        .map(|day| chrono::Utc.from_utc_datetime(&(day.and_time(chrono::NaiveTime::MIN) - shift)));
+    let end = query.to.map(|day| {
+        chrono::Utc.from_utc_datetime(
+            &((day + chrono::Duration::days(1)).and_time(chrono::NaiveTime::MIN) - shift),
+        )
+    });
+    let rows=sqlx::query("SELECT id,sale_number,site_id,channel,status,commercial_version,currency::text currency,total_minor,paid_minor,change_minor,movement_group_id,customer_id,created_at,completed_at FROM sale WHERE ($1::text IS NULL OR site_id=$1) AND ($2::text IS NULL OR status=$2) AND ($4::timestamptz IS NULL OR created_at >= $4) AND ($5::timestamptz IS NULL OR created_at < $5) ORDER BY created_at DESC LIMIT $3")
+        .bind(query.site_id).bind(query.status.map(|s|s.to_ascii_uppercase())).bind(limit).bind(start).bind(end).fetch_all(pool).await?;
+    let items:Vec<Value>=rows.into_iter().map(|row|json!({"id":row.get::<Uuid,_>("id"),"sale_number":row.get::<String,_>("sale_number"),"site_id":row.get::<String,_>("site_id"),"channel":row.get::<String,_>("channel"),"status":row.get::<String,_>("status"),"commercial_version":row.get::<i64,_>("commercial_version"),"currency":row.get::<String,_>("currency").trim(),"total_minor":row.get::<i64,_>("total_minor"),"paid_minor":row.get::<i64,_>("paid_minor"),"change_minor":row.get::<i64,_>("change_minor"),"movement_group_id":row.get::<Option<Uuid>,_>("movement_group_id"),
+        // Selected by `get_sale` since the column existed and never put on the
+        // list's wire, so no register could say which receipts were a member's.
+        "customer_id":row.get::<Option<String>,_>("customer_id"),"created_at":row.get::<DateTime<Utc>,_>("created_at"),"completed_at":row.get::<Option<DateTime<Utc>>,_>("completed_at")})).collect();
+    Ok(json!({
+        "items":items,
+        "limit":limit,
+        // Echoed back so a caller can see the window it was actually answered
+        // over — the dates are read at an offset, and a screen that assumed UTC
+        // would be a day out for seven hours of every day.
+        "from":query.from,
+        "to":query.to,
+        "utc_offset_minutes":offset_minutes,
+    }))
 }
 
 /// One sale as it happened at a shop, with the promotions that came off it.

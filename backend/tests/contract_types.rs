@@ -813,6 +813,17 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("RecordCountRequest: {e}"));
     inventory_backend::cloud::postgres::PostCountRequest::export_all(&config)
         .unwrap_or_else(|e| panic!("PostCountRequest: {e}"));
+
+    // A day's takings reaching the ledger. `SaleDayPage` pulls `SaleDayRow` in
+    // with it, and it is named here anyway for the reason the comment below
+    // gives: a derive writes nothing until something asks it to.
+    inventory_backend::cloud::postgres::SaleDayRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("SaleDayRow: {e}"));
+    inventory_backend::cloud::postgres::SaleDayPage::export_all(&config)
+        .unwrap_or_else(|e| panic!("SaleDayPage: {e}"));
+    inventory_backend::cloud::postgres::PostSaleDayRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("PostSaleDayRequest: {e}"));
+
     inventory_backend::cloud::postgres::CompanyBankAccount::export_all(&config)
         .unwrap_or_else(|e| panic!("CompanyBankAccount: {e}"));
     inventory_backend::cloud::postgres::DescribeBankAccountRequest::export_all(&config)
@@ -821,6 +832,40 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("BankInstitution: {e}"));
     inventory_backend::cloud::postgres::BookBankLineRequest::export_all(&config)
         .unwrap_or_else(|e| panic!("BookBankLineRequest: {e}"));
+
+    // A shop asking head office to pay something. Named here and not merely
+    // derived: `ts_rs::TS` on the struct generates nothing unless something
+    // asks it to, so a type that is only derived is silently never written and
+    // the screen built against it imports a name that does not exist.
+    //
+    // `InstructionPage` pulls `PaymentInstruction` and `PayableFacet` in with
+    // it through `export_all`; both are named anyway, because a type that
+    // arrives only as somebody else's field disappears the day that field
+    // does.
+    inventory_backend::cloud::postgres::PaymentInstruction::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentInstruction: {e}"));
+    inventory_backend::cloud::postgres::InstructionPage::export_all(&config)
+        .unwrap_or_else(|e| panic!("InstructionPage: {e}"));
+    inventory_backend::cloud::postgres::InstructionFacets::export_all(&config)
+        .unwrap_or_else(|e| panic!("InstructionFacets: {e}"));
+    inventory_backend::cloud::postgres::RaiseInstructionRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("RaiseInstructionRequest: {e}"));
+    inventory_backend::cloud::postgres::DecideInstructionRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("DecideInstructionRequest: {e}"));
+    inventory_backend::cloud::postgres::SettleInstructionRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("SettleInstructionRequest: {e}"));
+
+    // Takings between a drawer and a bank account.
+    inventory_backend::cloud::postgres::StoreDeposit::export_all(&config)
+        .unwrap_or_else(|e| panic!("StoreDeposit: {e}"));
+    inventory_backend::cloud::postgres::DepositPage::export_all(&config)
+        .unwrap_or_else(|e| panic!("DepositPage: {e}"));
+    inventory_backend::cloud::postgres::DepositFacets::export_all(&config)
+        .unwrap_or_else(|e| panic!("DepositFacets: {e}"));
+    inventory_backend::cloud::postgres::RecordDepositRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("RecordDepositRequest: {e}"));
+    inventory_backend::cloud::postgres::LandDepositRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("LandDepositRequest: {e}"));
     // The mail gateway. `settings` is deliberately `Record<string, unknown>`
     // on the wire: the three readers want overlapping but different mappings,
     // and a union that had to be widened every time a bank moved a column is
@@ -878,11 +923,37 @@ fn the_wire_types_are_written_for_the_browser() {
     // guessed the rule would be a second place the bound is decided.
     inventory_backend::cloud::http::employment::ReachView::export_all(&config)
         .unwrap_or_else(|e| panic!("ReachView: {e}"));
-    // Proposed hires. The queue and one request are separate shapes because
-    // they are separate privileges: the summary carries a name, a job and a
-    // date, and the full view carries the NIK and the home address a proposal
-    // has to state. Generating both is what stops a screen reaching for the
-    // second when it only needed the first.
+    // *Karyawan baru*: a shop's request for an employee, and head office's
+    // answer. One root view, because a proposal is read as a whole — its
+    // versions and its steps are what make a returned-then-revised request
+    // legible, and a list of summaries that dropped them would lose the only
+    // thing worth showing.
+    //
+    // The comment that stood here described a proposed-hires feature the owner
+    // decided against on 2026-09-04, and said its view "carries the NIK and the
+    // home address a proposal has to state". The form he approved on 2026-09-13
+    // deliberately carries neither, and there is no column for either: a
+    // candidate who may never be employed here has nothing here but a name.
+    //
+    // The four request bodies are generated rather than left to the browser,
+    // because two of them are where the statutory shape lives:
+    // `contract_ends_on` is required for a PKWT and refused for a PKWTT, and a
+    // hand-written pair of optional fields is how that becomes a runtime
+    // surprise instead of a type error.
+    inventory_backend::cloud::http::hire::HireProposalView::export_all(&config)
+        .unwrap_or_else(|e| panic!("HireProposalView: {e}"));
+    inventory_backend::cloud::http::hire::HireProposalVersionView::export_all(&config)
+        .unwrap_or_else(|e| panic!("HireProposalVersionView: {e}"));
+    inventory_backend::cloud::http::hire::HireProposalStepView::export_all(&config)
+        .unwrap_or_else(|e| panic!("HireProposalStepView: {e}"));
+    inventory_backend::cloud::http::hire::ProposeBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("ProposeBody: {e}"));
+    inventory_backend::cloud::http::hire::ReviseBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("ReviseBody: {e}"));
+    inventory_backend::cloud::http::hire::DecisionBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("DecisionBody: {e}"));
+    inventory_backend::cloud::http::hire::OpenEmploymentBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("OpenEmploymentBody: {e}"));
     // Issuing a login: which tills a person's place is served by, what the
     // request looks like, and what came back. The two rungs — one at the centre
     // and one at the till — are separate fields on the request, and a
@@ -952,10 +1023,84 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("PayrollSlipRow: {e}"));
     inventory_backend::cloud::postgres::RunReconciliation::export_all(&config)
         .unwrap_or_else(|e| panic!("RunReconciliation: {e}"));
+    // The component engine (0250, 0251). Named here rather than left to the
+    // derives, because a derive alone writes nothing — a type has to be
+    // reached from this file or it is silently absent from the browser's
+    // barrel, which is how a screen ends up hand-typing a shape the server
+    // then changes underneath it.
+    //
+    // `SlipLineRow` comes in behind `PayrollSlipRow`'s `export_all`, and it is
+    // the type that matters most on this list: it carries every input a line
+    // was computed from, so a payslip screen can show *why* a figure is what
+    // it is rather than only what it is.
+    //
+    // `PayComponentView` and `ComponentRateView` are the settings screen. Every
+    // number on the rate is `Option`, and a hand-written mirror of that would
+    // sooner or later make one of them required — which would be a screen
+    // asking for an hours divisor on a BPJS percentage.
+    inventory_backend::cloud::http::components::PayComponentView::export_all(&config)
+        .unwrap_or_else(|e| panic!("PayComponentView: {e}"));
+    inventory_backend::cloud::http::components::ComponentRateView::export_all(&config)
+        .unwrap_or_else(|e| panic!("ComponentRateView: {e}"));
+    // What a place filed, and whether it can still take it back. `withdrawable`
+    // is a server fact — it is false once the batch has been submitted — and a
+    // browser that computed it from the run's state would be a second answer
+    // to a question the freeze already decides.
+    inventory_backend::cloud::postgres::PayrollAdjustmentRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("PayrollAdjustmentRow: {e}"));
+    // The crossing to Finance, as the browser has to render it: what was
+    // handed over, and whether Finance has said it is paid. Two different
+    // facts, and the screen must not let "received" read as "paid".
+    inventory_backend::cloud::http::pay::PayrollHandoverView::export_all(&config)
+        .unwrap_or_else(|e| panic!("PayrollHandoverView: {e}"));
     // The attendance policy. One root: `export_all` pulls the version view and
     // `Minutes` in behind it.
     inventory_backend::cloud::http::attendance::PolicyScheduleView::export_all(&config)
         .unwrap_or_else(|e| panic!("PolicyScheduleView: {e}"));
+    // What a punch becomes, and what a terminal is. Named here rather than
+    // left to the derives, because a derive alone writes nothing — the type has
+    // to be reached from this file or it is silently absent from the browser's
+    // barrel, which is how a screen ends up hand-typing a shape the server
+    // then changes underneath it.
+    //
+    // `AttendanceDayView` is the root that pulls `UnderivableDay` in behind it:
+    // a day whose outcome cannot be derived says WHY rather than reporting
+    // zero, and the browser has to be able to render that distinction.
+    inventory_backend::cloud::http::punch::AttendanceDayView::export_all(&config)
+        .unwrap_or_else(|e| panic!("AttendanceDayView: {e}"));
+    inventory_backend::cloud::http::punch::AttendanceRangeView::export_all(&config)
+        .unwrap_or_else(|e| panic!("AttendanceRangeView: {e}"));
+    inventory_backend::cloud::http::punch::TodayView::export_all(&config)
+        .unwrap_or_else(|e| panic!("TodayView: {e}"));
+    // What the employee app gets back when somebody taps in or out. Named here
+    // for the reason the comment above gives — a derive alone writes nothing —
+    // and it matters more than usual for this one: it carries `source`, and the
+    // screen's whole job is to not present a phone tap as a reading. A shape
+    // the browser hand-typed would be a shape that could quietly lose that
+    // field.
+    inventory_backend::cloud::http::punch::PunchRecorded::export_all(&config)
+        .unwrap_or_else(|e| panic!("PunchRecorded: {e}"));
+    // Whether a place can be measured at all yet: a terminal that has never
+    // reported, or a person with no finger on file, is a hole in the month
+    // rather than an absence in it.
+    inventory_backend::cloud::http::punch::PunchReadinessView::export_all(&config)
+        .unwrap_or_else(|e| panic!("PunchReadinessView: {e}"));
+    // Enrolment carries no template and no image — only that somebody has one,
+    // who recorded it and when. The biometric itself is never on this wire.
+    inventory_backend::cloud::http::terminal::EnrolmentView::export_all(&config)
+        .unwrap_or_else(|e| panic!("EnrolmentView: {e}"));
+    inventory_backend::cloud::http::terminal::BookPublished::export_all(&config)
+        .unwrap_or_else(|e| panic!("BookPublished: {e}"));
+    // The two lists those screens are made of. `CorrectionRow` carries the
+    // name as well as the id, because a correction queue whose rows read
+    // `emp_174c7e88…` is a queue nobody can triage; `TerminalRow` carries when
+    // a station last synced and last saw a finger, which is the difference
+    // between "no punches" and "that shop's reader has been unplugged since
+    // Monday".
+    inventory_backend::cloud::postgres::CorrectionRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("CorrectionRow: {e}"));
+    inventory_backend::cloud::postgres::TerminalRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("TerminalRow: {e}"));
     // A shopper's own surface. The pairing code is issued at a till and read
     // out loud, so the cashier's screen and the shopper's app are two
     // different clients of one exchange — which is exactly the shape that goes

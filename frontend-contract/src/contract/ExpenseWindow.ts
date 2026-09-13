@@ -4,6 +4,13 @@ import type { StoreExpenseView } from "./StoreExpenseView";
 
 /**
  * One span of the shop's petty cash book.
+ *
+ * Deliberately NOT carrying the position. The tin is a lifetime figure and
+ * this is a span, and folding one into the other would mean the balance
+ * blinking — refetched, identical, redrawn — every time somebody changed the
+ * span on a screen. The position has a route of its own, cached under a key of
+ * its own, and both writes above answer with it, so a screen never has to ask
+ * twice for a number it just changed.
  */
 export type ExpenseWindow = { from: string, to: string, utc_offset_minutes: number, 
 /**

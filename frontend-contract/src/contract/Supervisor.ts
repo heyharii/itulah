@@ -25,4 +25,17 @@ export type Supervisor = { username: string,
  * Two attempts that differ only in the password are the same action tried
  * twice, which is exactly what an idempotency key is for.
  */
-password: string, };
+password?: string | null, 
+/**
+ * A single-use authorisation earned by pressing a finger on this terminal
+ * (`edge/fingerprint.rs`), offered instead of a password.
+ *
+ * Additive on purpose: the Android till and everything else already in the
+ * field send a password and keep working untouched. A supervisor called to
+ * a counter many times a day is the case this exists for — typing a
+ * password in front of a queue is how it ends up written on a monitor.
+ *
+ * Skipped on the way out for the same reason the password is: it is a
+ * credential, and `request_json` is kept.
+ */
+authorization?: string | null, };

@@ -3,7 +3,14 @@ import type { StatementSection } from "./StatementSection";
 
 export type Statement = { 
 /**
- * `BALANCE_SHEET` or `PROFIT_LOSS`.
+ * `BALANCE_SHEET`, `PROFIT_LOSS` or `CASH_FLOW`.
+ *
+ * On a CASH_FLOW every `amount_minor` below is the CASH effect of that
+ * account — positive means cash came in — and not the account's own
+ * balance movement. It is the one place in this module where the ledger's
+ * "debits positive" convention is deliberately inverted, because a cash
+ * flow statement is read as inflows and outflows and a revenue line
+ * showing negative would be the report arguing with its own title.
  */
 kind: string, from: string | null, to: string, site_id: string | null, sections: Array<StatementSection>, 
 /**
@@ -37,5 +44,30 @@ result_minor: number,
  * side of an entry, not both, so there is nothing for it to be out of
  * balance AGAINST. Income and expenses balance against the assets and
  * liabilities that moved with them, which is the balance sheet's question.
+ *
+ * **On a cash flow** it is `opening_cash + result - closing_cash`, and
+ * zero means the three sections account for every rupiah that moved
+ * through the cash accounts in the window. Non-zero is a real finding and
+ * not a rounding: see [`cash_flow`].
  */
-out_of_balance_minor: number, };
+out_of_balance_minor: number, 
+/**
+ * What the cash accounts held the day before `from`. CASH_FLOW only;
+ * null on the other two, which have no such thing.
+ */
+opening_cash_minor: number | null, 
+/**
+ * And at the end of `to`. CASH_FLOW only.
+ */
+closing_cash_minor: number | null, 
+/**
+ * The accounts this report treated AS cash, in the client's own codes.
+ *
+ * Sent because it is the first question to ask of any cash flow statement
+ * and the one a reader cannot otherwise answer: a figure built over a set
+ * of accounts nobody can see is a figure nobody can check. Empty on the
+ * other two statements, and empty on a cash flow means the account map
+ * names no money account for this unit — which is why the report is
+ * empty, and is fixed on the Account Map screen.
+ */
+cash_accounts: Array<string>, };

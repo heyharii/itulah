@@ -12,7 +12,7 @@
 /// and they belong to the screen or to the outbox — a wrapper that silently
 /// retried a sale would be a wrapper that sold something twice.
 
-import { edge, type EdgeReply } from "@/edge"
+import { edge, signedEdge, type EdgeReply } from "@/edge"
 
 // ── identity ────────────────────────────────────────────────────────────
 
@@ -40,6 +40,78 @@ export type Me = {
 export const me = () => edge<Me>("GET", "/api/v1/auth/me")
 
 export const logout = () => edge<unknown>("POST", "/api/v1/auth/logout")
+
+// ── a finger, instead of a keyboard ─────────────────────────────────────
+
+/// One enrolled finger, as the node hands it down.
+///
+/// The template is the vendor's opaque blob. It is not an image and cannot be
+/// turned back into one, which is the only reason it is acceptable for it to
+/// leave the node at all — and it only leaves to a terminal that has proved its
+/// pairing secret.
+export type RosterEntry = {
+  readonly finger_id: string
+  readonly username: string
+  readonly label: string
+  readonly template_base64: string
+  /// Whether this person may authorise a void or a return, so the till can tell
+  /// a cashier's finger from a supervisor's before it asks for one.
+  readonly is_supervisor: boolean
+}
+
+/// `GET /api/v1/auth/fingerprints/roster` — signed by the terminal.
+export const roster = () =>
+  signedEdge<{ items?: RosterEntry[] }>(
+    "GET",
+    "/api/v1/auth/fingerprints/roster",
+  )
+
+/// `POST /api/v1/auth/fingerprints/claim` — signed by the terminal.
+///
+/// `SESSION` comes back as the same bearer token a password login issues.
+/// `SUPERVISOR` comes back as a one-shot `authorization` to put on a void or a
+/// return instead of a password — a supervisor walking over is a step-up, not
+/// a login.
+export type ClaimReply = {
+  readonly username?: string
+  readonly purpose?: string
+  readonly token?: string
+  readonly expires_at_epoch?: number
+  readonly authorization?: string | null
+  readonly expires_at?: string | null
+}
+
+export const claimFinger = (
+  fingerId: string | null,
+  purpose: "SESSION" | "SUPERVISOR",
+  score: number | null,
+) =>
+  signedEdge<ClaimReply>("POST", "/api/v1/auth/fingerprints/claim", {
+    finger_id: fingerId,
+    purpose,
+    score,
+  })
+
+/// `POST /api/v1/auth/terminals` — pair this machine with the node. Done once,
+/// by somebody with `AuthAdmin`, because pairing grants a machine the standing
+/// to say who is pressing a finger on it.
+export type PairedTerminal = {
+  readonly terminal_id: string
+  readonly secret: string
+  readonly label: string
+  readonly paired_at: string
+}
+
+export const pairTerminal = (label: string) =>
+  edge<PairedTerminal>("POST", "/api/v1/auth/terminals", { label })
+
+/// `POST /api/v1/auth/fingerprints` — record a finger against a user.
+export const enrolFinger = (body: {
+  username: string
+  label: string
+  template_base64: string
+  reader_kind: string
+}) => edge<RosterEntry>("POST", "/api/v1/auth/fingerprints", body)
 
 // ── the price book ──────────────────────────────────────────────────────
 
@@ -177,7 +249,30 @@ export const printReceipt = (
 
 // ── undoing one ─────────────────────────────────────────────────────────
 
-export type Supervisor = { readonly username: string; readonly password: string }
+/// Who authorised an action, and the proof that it was really them.
+///
+/// `Supervisor` in `backend/src/edge/till.rs`. Both halves are optional on the
+/// wire and `verify_supervisor` is satisfied by **either** one: a password
+/// typed at the counter, or a one-shot `authorization` earned by pressing a
+/// finger on this terminal. The authorisation is looked at first and a password
+/// is never read once one arrived, so a caller sends one or the other — and the
+/// username still rides along, because the node checks that the grant it is
+/// spending was earned by the person the caller named.
+///
+/// The authorisation is worth exactly one action. It expires three minutes
+/// after the finger was pressed and is spent inside the transaction it
+/// authorises (`SUPERVISOR_GRANT_SECONDS`, `spend_grant`), so it cannot pay for
+/// two: a second void needs a second finger, and a screen holding one "for the
+/// next one" is holding a key that no longer opens anything.
+///
+/// Neither half is written back out. `#[serde(skip_serializing)]` on both keeps
+/// them out of `idempotency_response.request_json`, which lives in the shop
+/// node's SQLite for as long as the row does.
+export type Supervisor = {
+  readonly username: string
+  readonly password?: string | null
+  readonly authorization?: string | null
+}
 
 /// `POST /api/v1/store/sales/{id}/void` — `VoidSaleRequest { reason,
 /// supervisor, actor_id, idempotency_key }`.

@@ -33,10 +33,17 @@ pub async fn create_manual_movement(
             "manual movement endpoint only accepts NORMAL_MOVE, SALE, or SUPPLIER_RETURN".into(),
         ));
     }
+    // Both spellings of the same exit. `picking` is where an execution lands
+    // now (INVENTORY-V1 INV-05); `picked.{store}` is retired and takes no new
+    // writes, and naming it here says so with an error rather than a foreign
+    // key. Either way the guard is about the counter, not the shelf: a hand
+    // written movement out of DC Warehouse leaves the allotment line claiming
+    // goods that have already gone.
     if cause == MovementCause::NormalMove
         && request.lines.iter().any(|line| {
             line.from == TO_STORE_SOURCE_PLACE_ID
-                && line.to.starts_with("dc.outbound.picked.store-")
+                && (line.to.starts_with("dc.outbound.picking")
+                    || line.to.starts_with("dc.outbound.picked.store-"))
         })
     {
         return Err(AppError::Validation(

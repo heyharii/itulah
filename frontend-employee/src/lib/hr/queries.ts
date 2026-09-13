@@ -205,6 +205,23 @@ export function useAttendance() {
   })
 }
 
+/// Clock in, or out.
+///
+/// Invalidates the fortnight rather than writing the new punch into the cache
+/// by hand. A day is *derived* on the server from five inputs — the plan, the
+/// punches, the policy in force, the approvals and the effective correction —
+/// so this browser cannot work out what the day now amounts to, and a guess
+/// stitched in optimistically would be a lateness figure nobody computed.
+export function usePunch() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (direction: "IN" | "OUT") => hr.punch(direction),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["hr", "attendance"] })
+    },
+  })
+}
+
 export function useCorrections() {
   return useQuery({
     queryKey: key.corrections,

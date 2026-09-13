@@ -4,6 +4,7 @@ import { HelpCircle, LogOut, X } from "lucide-react"
 import { count } from "@/lib/format"
 import {
   domainForPath,
+  flatDomain,
   modulesOfDomain,
   moduleForPath,
   shown,
@@ -56,6 +57,10 @@ export function Sidebar({
   const active = moduleForPath(pathname)
   const domain = domainForPath(pathname)
   const owned = domain ? modulesOfDomain(domain) : [active]
+  // Headings when there are groups to name, and not when the domain is six
+  // one-screen modules whose rows already say what the headings would — see
+  // `flatDomain`.
+  const grouped = owned.length > 1 && !flatDomain(owned)
   const identity = useIdentity()
   const where = useNodeIdentity()
   const signOut = useSignOut()
@@ -122,10 +127,13 @@ export function Sidebar({
         {/* The drawer says what the rail says: the screens of the DOMAIN, not
             of one module inside it. Selling holds three modules, and a drawer
             that showed only the one you happened to be in would hide Store ops
-            and Members from every phone in the company. */}
+            and Members from every phone in the company.
+
+            Whether those modules are drawn as labelled groups or as one flat
+            list is `flatDomain`'s question, not this file's. */}
         {owned.map((module) => (
           <div key={module.id} className="flex flex-col gap-px">
-            {owned.length > 1 && (
+            {grouped && (
               <span className="px-[0.5625rem] pt-4 pb-[0.3125rem] text-section font-semibold tracking-[0.05em] text-mute uppercase">
                 {module.label}
               </span>

@@ -90,17 +90,29 @@ pub enum HireError {
     /// edit, and there is no way to tell which.
     #[error("the history mints {minted} versions and {stored} are stored")]
     VersionCountDisagreesWithHistory { minted: u32, stored: usize },
-    /// The pairing the `hire_proposal_event_names_an_employee_only_when_it_made_one`
-    /// check constraint also enforces: an `OPENED` step names the employment
-    /// record it produced, and no other step names one.
+    /// An `OPENED` step names the employment record it produced, and no other
+    /// step names one.
+    ///
+    /// The pairing has no `CHECK` constraint behind it, and cannot: the steps
+    /// live in `hire_proposal.history` as JSON, exactly as `employee.history`
+    /// does. So this is the only guard, which is why it runs on the way in from
+    /// storage as well as on the live path — a `REJECTED` step carrying an
+    /// employee id would be a refusal that somehow hired somebody, and an
+    /// `OPENED` step carrying none would be a record nobody could find.
     #[error("an {step} step must {expectation} name an employment record")]
     EmploymentNamedWrongly {
         step: &'static str,
         expectation: &'static str,
     },
     /// Asking for two people and opening three records is the one arithmetic
-    /// error an approval could be stretched by, so it is refused on the
-    /// transition and again on the way in from storage.
+    /// error an approval could be stretched by.
+    ///
+    /// The fold refuses it first — the step that fills the last position moves
+    /// the state to `FILLED`, and an `OPENED` step has nothing to follow from
+    /// there, so the refusal a caller actually sees is
+    /// [`Self::NotInState`]. This is the same rule stated in its own words, as
+    /// the arithmetic rather than as a consequence of the transition table,
+    /// because the table is not where somebody looks for it.
     #[error("this proposal asked for {headcount} and {opened} employment records are open on it")]
     MoreOpenedThanAskedFor { headcount: u32, opened: usize },
 }

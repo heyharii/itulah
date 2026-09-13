@@ -104,6 +104,18 @@ pub enum AttendanceError {
     // ── punches ──────────────────────────────────────────────────────────
     #[error("the terminal attested somebody other than this employee")]
     AttestationEmployeeMismatch,
+    /// The self-service claim names somebody other than the record being
+    /// written. Its own variant rather than
+    /// [`Self::AttestationEmployeeMismatch`] because the two say different
+    /// things about what went wrong: a terminal identifying the wrong person is
+    /// a device problem, and a claim about somebody else is a caller reaching
+    /// past their own record.
+    #[error("this claim is about somebody other than the employee being recorded")]
+    ClaimEmployeeMismatch,
+    #[error("action `{action_key}` does not authorize recording your own punch")]
+    ActionForbidsOwnPunch { action_key: String },
+    #[error("`{code}` is not a punch source")]
+    UnreadablePunchSource { code: String },
     #[error("this punch belongs to another place")]
     PunchPlaceMismatch,
     #[error("a punch with this identity is already recorded")]
@@ -213,6 +225,9 @@ impl AttendanceError {
             Self::IllegalTerminalTransition { .. } => "attendance_illegal_terminal_transition",
             Self::TerminalStatusContradictsHistory => "attendance_terminal_status_contradicts",
             Self::AttestationEmployeeMismatch => "attendance_attestation_employee_mismatch",
+            Self::ClaimEmployeeMismatch => "attendance_claim_employee_mismatch",
+            Self::ActionForbidsOwnPunch { .. } => "attendance_action_forbids_own_punch",
+            Self::UnreadablePunchSource { .. } => "attendance_unreadable_punch_source",
             Self::PunchPlaceMismatch => "attendance_punch_place_mismatch",
             Self::DuplicatePunchIdentity => "attendance_duplicate_punch_identity",
             Self::PunchProvenanceMismatch { .. } => "attendance_punch_provenance_mismatch",
@@ -288,6 +303,10 @@ impl AttendanceError {
                 | Self::ActionForbidsCorrectionRequest { .. }
                 | Self::ActionForbidsCorrectionDecision { .. }
                 | Self::ActionForbidsEnrolment { .. }
+                | Self::ActionForbidsOwnPunch { .. }
+                // Reaching past your own record is a refusal about the grant,
+                // not about the shape of the request.
+                | Self::ClaimEmployeeMismatch
                 | Self::CorrectionWithdrawalNotByRequester
         )
     }

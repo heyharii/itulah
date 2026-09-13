@@ -280,8 +280,12 @@ ACCOUNTS = [
     ("bagus", "Bagus Nugroho", "SUPERVISOR", "HO-0003"),
     ("ratih", "Ratih Kusuma", "SUPERVISOR", "HO-0004"),
     ("dimas", "Dimas Saputra", "SUPERVISOR", "HO-0005"),
-    ("yusuf", "Yusuf Ramadhan", "SUPERVISOR", "DC-0001"),
-    ("nina", "Nina Oktaviani", "CASHIER", "DC-0002"),
+    # Warehouse staff, numbered in the HO series since migration 0230 folded
+    # the distribution centre into head office. These bind to `seed-people.py`
+    # by employee code, so the two files have to move together — a login bound
+    # to a code nobody issues is an account belonging to nobody.
+    ("yusuf", "Yusuf Ramadhan", "SUPERVISOR", "HO-0006"),
+    ("nina", "Nina Oktaviani", "CASHIER", "HO-0007"),
     ("maya", "Maya Anggraini", "SUPERVISOR", "ST-0101"),
     ("fajar", "Fajar Setiawan", "CASHIER", "ST-0102"),
 ]

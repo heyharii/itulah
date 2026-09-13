@@ -81,8 +81,12 @@ async fn seed(pool: &PgPool) {
     ];
     for (code, name, parent, is_group, site) in rows {
         sqlx::query(
+            // `ON CONFLICT` since 0243: the chart migration now writes the
+            // group rows itself — `1`, `7`, `10215`, `70102` — and a test that
+            // insisted on inserting them would fail on a database that is
+            // simply up to date. The leaves below are still ours to seed.
             "INSERT INTO ledger_account (account_code, name, parent_code, is_group, site_id)
-             VALUES ($1,$2,$3,$4,$5)",
+             VALUES ($1,$2,$3,$4,$5) ON CONFLICT (account_code) DO NOTHING",
         )
         .bind(code)
         .bind(name)
@@ -119,8 +123,12 @@ async fn seed(pool: &PgPool) {
         ),
     ] {
         sqlx::query(
+            // `ON CONFLICT` since 0243: the chart migration now writes the
+            // group rows itself — `1`, `7`, `10215`, `70102` — and a test that
+            // insisted on inserting them would fail on a database that is
+            // simply up to date. The leaves below are still ours to seed.
             "INSERT INTO ledger_account (account_code, name, parent_code, is_group, site_id)
-             VALUES ($1,$2,$3,$4,$5)",
+             VALUES ($1,$2,$3,$4,$5) ON CONFLICT (account_code) DO NOTHING",
         )
         .bind(code)
         .bind(name)
@@ -219,6 +227,10 @@ async fn an_asset_carries_no_money_until_finance_says_so(pool: PgPool) {
         asset_id,
         &cloud::AssessAssetRequest {
             decision: "CAPITALIZE".into(),
+            category_code: None,
+            rate_bps: None,
+            opening_accumulated_minor: None,
+            opening_through: None,
             capitalized_cost_minor: Some(12_000_000),
             salvage_value_minor: Some(0),
             useful_life_months: Some(12),
@@ -273,6 +285,10 @@ async fn an_assessment_is_appended_and_the_latest_wins(pool: PgPool) {
                 reason: reason.into(),
                 acquired_via_line_id: None,
                 acquired_via_line_ids: None,
+                category_code: None,
+                rate_bps: None,
+                opening_accumulated_minor: None,
+                opening_through: None,
             }
         } else {
             cloud::AssessAssetRequest {
@@ -286,6 +302,10 @@ async fn an_assessment_is_appended_and_the_latest_wins(pool: PgPool) {
                 reason: reason.into(),
                 acquired_via_line_id: None,
                 acquired_via_line_ids: None,
+                category_code: None,
+                rate_bps: None,
+                opening_accumulated_minor: None,
+                opening_through: None,
             }
         };
         cloud::assess_asset(&pool, asset_id, &request, ACTOR)
@@ -323,6 +343,10 @@ async fn a_month_is_charged_once_however_often_it_is_run(pool: PgPool) {
         asset_id,
         &cloud::AssessAssetRequest {
             decision: "CAPITALIZE".into(),
+            category_code: None,
+            rate_bps: None,
+            opening_accumulated_minor: None,
+            opening_through: None,
             capitalized_cost_minor: Some(12_000_000),
             salvage_value_minor: Some(0),
             useful_life_months: Some(12),
@@ -385,6 +409,10 @@ async fn an_unmapped_category_is_named_before_the_run_not_during(pool: PgPool) {
         asset_id,
         &cloud::AssessAssetRequest {
             decision: "CAPITALIZE".into(),
+            category_code: None,
+            rate_bps: None,
+            opening_accumulated_minor: None,
+            opening_through: None,
             capitalized_cost_minor: Some(1_200_000),
             salvage_value_minor: Some(0),
             useful_life_months: Some(12),
@@ -522,6 +550,10 @@ async fn a_purchase_paid_in_several_lines_is_still_one_asset(pool: PgPool) {
         reason: "AC toko, unit dan pemasangan".into(),
         acquired_via_line_id: None,
         acquired_via_line_ids: Some(named),
+        category_code: None,
+        rate_bps: None,
+        opening_accumulated_minor: None,
+        opening_through: None,
     };
 
     // Capitalising at the full 33,390,000 while only the BKK's two asset lines
@@ -652,8 +684,12 @@ async fn seed_operating_equipment(pool: &PgPool) {
     ];
     for (code, name, parent, is_group, site) in rows {
         sqlx::query(
+            // `ON CONFLICT` since 0243: the chart migration now writes the
+            // group rows itself — `1`, `7`, `10215`, `70102` — and a test that
+            // insisted on inserting them would fail on a database that is
+            // simply up to date. The leaves below are still ours to seed.
             "INSERT INTO ledger_account (account_code, name, parent_code, is_group, site_id)
-             VALUES ($1,$2,$3,$4,$5)",
+             VALUES ($1,$2,$3,$4,$5) ON CONFLICT (account_code) DO NOTHING",
         )
         .bind(code)
         .bind(name)
@@ -729,6 +765,10 @@ async fn operating_equipment_accrues_a_reserve_and_leaves_depreciation_alone(poo
         asset_id,
         &cloud::AssessAssetRequest {
             decision: "CAPITALIZE".into(),
+            category_code: None,
+            rate_bps: None,
+            opening_accumulated_minor: None,
+            opening_through: None,
             capitalized_cost_minor: Some(12_000_000),
             salvage_value_minor: Some(0),
             useful_life_months: Some(12),
@@ -806,6 +846,10 @@ async fn an_assessment_that_does_not_say_what_the_charge_is_is_refused(pool: PgP
         asset_id,
         &cloud::AssessAssetRequest {
             decision: "CAPITALIZE".into(),
+            category_code: None,
+            rate_bps: None,
+            opening_accumulated_minor: None,
+            opening_through: None,
             capitalized_cost_minor: Some(12_000_000),
             salvage_value_minor: Some(0),
             useful_life_months: Some(12),
@@ -832,6 +876,11 @@ async fn an_assessment_that_does_not_say_what_the_charge_is_is_refused(pool: PgP
         asset_id,
         &cloud::AssessAssetRequest {
             decision: "EXPENSE".into(),
+
+            category_code: None,
+            rate_bps: None,
+            opening_accumulated_minor: None,
+            opening_through: None,
             capitalized_cost_minor: None,
             salvage_value_minor: None,
             useful_life_months: None,
@@ -860,6 +909,10 @@ async fn the_pair_reported_as_unmapped_is_the_pair_the_asset_actually_charges(po
         asset_id,
         &cloud::AssessAssetRequest {
             decision: "CAPITALIZE".into(),
+            category_code: None,
+            rate_bps: None,
+            opening_accumulated_minor: None,
+            opening_through: None,
             capitalized_cost_minor: Some(12_000_000),
             salvage_value_minor: Some(0),
             useful_life_months: Some(12),
@@ -1017,7 +1070,7 @@ async fn a_bank_line_is_matched_against_our_own_ledger(pool: PgPool) {
     .await
     .unwrap_or_else(|error| panic!("import: {error}"));
 
-    let suggestions = cloud::suggest_matches(&pool, imported.statement_id)
+    let suggestions = cloud::suggest_matches(&pool, imported.statement_id, false)
         .await
         .unwrap_or_else(|error| panic!("suggest: {error}"));
     assert_eq!(suggestions.len(), 1);
@@ -1045,6 +1098,7 @@ async fn a_bank_line_is_matched_against_our_own_ledger(pool: PgPool) {
             score: Some(best.score),
             reasons: best.reasons.clone(),
             automatic: true,
+            allocated_minor: None,
         },
         ACTOR,
     )
@@ -1084,6 +1138,7 @@ async fn a_bank_line_is_matched_against_our_own_ledger(pool: PgPool) {
                 score: None,
                 reasons: Vec::new(),
                 automatic: false,
+                allocated_minor: None,
             },
             ACTOR,
         )
@@ -1091,4 +1146,449 @@ async fn a_bank_line_is_matched_against_our_own_ledger(pool: PgPool) {
         .is_err(),
         "one journal line settles one bank line, and the database says so"
     );
+}
+
+// ---------------------------------------------------------------------------
+// What the old system already charged
+// ---------------------------------------------------------------------------
+//
+// The client's register has a column for depreciation to date and it is empty
+// on all 1,342 rows, while 1,129 of those assets were bought in 2021 or
+// earlier. Migration 0237 is the whole argument; these are the two behaviours
+// it buys.
+
+/// A machine that has been depreciating for nine months somewhere else.
+///
+/// Twelve-month life, a million a month, nine of them already charged by the
+/// ledger this system replaces.
+async fn a_machine_mid_life(pool: &PgPool) -> Uuid {
+    let asset_id = a_machine(pool).await;
+    cloud::assess_asset(
+        pool,
+        asset_id,
+        &cloud::AssessAssetRequest {
+            decision: "CAPITALIZE".into(),
+            capitalized_cost_minor: Some(12_000_000),
+            salvage_value_minor: Some(0),
+            useful_life_months: Some(12),
+            method: Some("STRAIGHT_LINE".into()),
+            charge_kind: Some("DEPRECIATION".into()),
+            in_service_on: Some(date(2025, 4, 1)),
+            reason: "dibawa dari sistem lama".into(),
+            category_code: None,
+            rate_bps: None,
+            opening_accumulated_minor: Some(9_000_000),
+            opening_through: Some(date(2025, 12, 1)),
+            acquired_via_line_id: None,
+            acquired_via_line_ids: None,
+        },
+        ACTOR,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("assess: {error}"));
+    asset_id
+}
+
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn an_asset_that_did_not_start_here_is_charged_from_where_it_left_off(pool: PgPool) {
+    seed(&pool).await;
+    map_machinery(&pool).await;
+    let asset_id = a_machine_mid_life(&pool).await;
+
+    // The carried-in figure counts as accumulated before anything is posted
+    // here, so the asset is already three quarters written down.
+    let before = cloud::asset(&pool, asset_id)
+        .await
+        .unwrap_or_else(|error| panic!("asset: {error}"));
+    assert_eq!(before.opening_accumulated_minor, Some(9_000_000));
+    assert_eq!(before.accumulated_minor, 9_000_000);
+    assert_eq!(before.book_value_minor, Some(3_000_000));
+
+    // A month the old ledger already charged is refused, and says so. Nothing
+    // here would have collided with it: this system has no entry for June.
+    let december = cloud::run_depreciation(&pool, 2025, 12, ACTOR)
+        .await
+        .unwrap_or_else(|error| panic!("run: {error}"));
+    assert_eq!(december.posted_count, 0);
+    assert_eq!(december.skipped_count, 1);
+    assert_eq!(
+        december.lines[0].skipped_because.as_deref(),
+        Some("carried in: the opening figure already covers 2025-12")
+    );
+
+    // The first month this system owns charges the ordinary instalment — not a
+    // sweep of everything that happened before it existed.
+    let january = cloud::run_depreciation(&pool, 2026, 1, ACTOR)
+        .await
+        .unwrap_or_else(|error| panic!("run: {error}"));
+    assert_eq!(january.posted_count, 1);
+    assert_eq!(january.posted_total_minor, 1_000_000);
+
+    // And the schedule counts the life from where the asset actually is: two
+    // instalments left of twelve, not twelve.
+    let schedule = cloud::asset_schedule(&pool, asset_id)
+        .await
+        .unwrap_or_else(|error| panic!("schedule: {error}"));
+    assert_eq!(schedule.opening_accumulated_minor, Some(9_000_000));
+    assert_eq!(schedule.opening_through, Some(date(2025, 12, 1)));
+    assert_eq!(schedule.charged_total_minor, 1_000_000);
+    assert_eq!(schedule.months_remaining, 2);
+    assert_eq!(schedule.remaining_depreciable_minor, 2_000_000);
+
+    // The last instalment sweeps what is genuinely left — two months, because
+    // February was never run — and lands exactly on salvage. Without the
+    // opening figure this month would have charged eleven months at once.
+    let march = cloud::run_depreciation(&pool, 2026, 3, ACTOR)
+        .await
+        .unwrap_or_else(|error| panic!("run: {error}"));
+    assert_eq!(march.posted_count, 1);
+    assert_eq!(march.posted_total_minor, 2_000_000);
+
+    let after = cloud::asset(&pool, asset_id)
+        .await
+        .unwrap_or_else(|error| panic!("asset: {error}"));
+    assert_eq!(after.accumulated_minor, 12_000_000);
+    assert_eq!(after.book_value_minor, Some(0));
+
+    // Only what this system posted is in the client's accounts. The nine
+    // million carried in belongs to the ledger that charged it, and posting it
+    // again here would double it.
+    let accumulated = cloud::account_balance(&pool, "102160400100", None, None)
+        .await
+        .unwrap_or_else(|error| panic!("accumulated: {error}"));
+    assert_eq!(accumulated.balance_minor, -3_000_000);
+}
+
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_carried_in_figure_without_the_month_it_covers_is_refused(pool: PgPool) {
+    seed(&pool).await;
+    map_machinery(&pool).await;
+    let asset_id = a_machine(&pool).await;
+
+    let assess = |opening: Option<i64>, through: Option<NaiveDate>| cloud::AssessAssetRequest {
+        decision: "CAPITALIZE".into(),
+        capitalized_cost_minor: Some(12_000_000),
+        salvage_value_minor: Some(2_000_000),
+        useful_life_months: Some(12),
+        method: Some("STRAIGHT_LINE".into()),
+        charge_kind: Some("DEPRECIATION".into()),
+        in_service_on: Some(date(2026, 1, 1)),
+        reason: "uji".into(),
+        category_code: None,
+        rate_bps: None,
+        opening_accumulated_minor: opening,
+        opening_through: through,
+        acquired_via_line_id: None,
+        acquired_via_line_ids: None,
+    };
+
+    // A figure nobody can check twice.
+    let orphan = cloud::assess_asset(&pool, asset_id, &assess(Some(1_000_000), None), ACTOR)
+        .await
+        .expect_err("a figure with no month should be refused");
+    assert!(
+        orphan.to_string().contains("both or neither"),
+        "the refusal should name what is missing: {orphan}"
+    );
+
+    // More written down than there ever was to write down.
+    let too_much = cloud::assess_asset(
+        &pool,
+        asset_id,
+        &assess(Some(11_000_000), Some(date(2026, 6, 1))),
+        ACTOR,
+    )
+    .await
+    .expect_err("carrying in more than the depreciable amount should be refused");
+    assert!(
+        too_much.to_string().contains("10000000 depreciable"),
+        "the refusal should name both figures: {too_much}"
+    );
+
+    // A month that ends before the asset was in service.
+    let too_early = cloud::assess_asset(
+        &pool,
+        asset_id,
+        &assess(Some(1_000_000), Some(date(2025, 12, 1))),
+        ACTOR,
+    )
+    .await
+    .expect_err("a figure covering a month before service should be refused");
+    assert!(
+        too_early
+            .to_string()
+            .contains("before the asset went into service"),
+        "{too_early}"
+    );
+}
+
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_rehearsal_charges_nothing_and_names_what_would_refuse(pool: PgPool) {
+    seed(&pool).await;
+    // Deliberately unmapped. A run refuses the whole month for this; a
+    // rehearsal has to answer anyway, because the list of assets with nowhere
+    // to charge is most of what somebody looks ahead for.
+    let asset_id = a_machine(&pool).await;
+    cloud::assess_asset(
+        &pool,
+        asset_id,
+        &cloud::AssessAssetRequest {
+            decision: "CAPITALIZE".into(),
+            category_code: None,
+            rate_bps: None,
+            opening_accumulated_minor: None,
+            opening_through: None,
+            capitalized_cost_minor: Some(1_200_000),
+            salvage_value_minor: Some(0),
+            useful_life_months: Some(12),
+            method: Some("STRAIGHT_LINE".into()),
+            charge_kind: Some("DEPRECIATION".into()),
+            in_service_on: Some(date(2026, 1, 1)),
+            reason: "mesin".into(),
+            acquired_via_line_id: None,
+            acquired_via_line_ids: None,
+        },
+        ACTOR,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("assess: {error}"));
+
+    let blocked = cloud::preview_depreciation(&pool, 2026, 1)
+        .await
+        .unwrap_or_else(|error| panic!("preview: {error}"));
+    assert_eq!(blocked.posted_count, 0);
+    assert_eq!(blocked.blocked_count, 1);
+    // The amount is still worked out — what it would charge is the other half
+    // of the answer — and the refusal names the meaning and the qualifier.
+    assert_eq!(blocked.lines[0].amount_minor, Some(100_000));
+    let why = blocked.lines[0]
+        .blocked_because
+        .as_deref()
+        .unwrap_or_default();
+    assert!(why.contains("depreciation_expense"), "{why}");
+    assert!(why.contains("1021504"), "{why}");
+
+    // Map the pair and the same rehearsal changes its mind, still writing
+    // nothing.
+    map_machinery(&pool).await;
+    let ready = cloud::preview_depreciation(&pool, 2026, 1)
+        .await
+        .unwrap_or_else(|error| panic!("preview: {error}"));
+    assert_eq!(ready.blocked_count, 0);
+    assert_eq!(ready.posted_count, 1);
+    assert_eq!(ready.posted_total_minor, 100_000);
+
+    let schedule = cloud::asset_schedule(&pool, asset_id)
+        .await
+        .unwrap_or_else(|error| panic!("schedule: {error}"));
+    assert!(
+        schedule.charged.is_empty(),
+        "a rehearsal writes nothing: {:?}",
+        schedule.charged
+    );
+    assert_eq!(schedule.charged_total_minor, 0);
+
+    // And the month is still there to run for real.
+    let run = cloud::run_depreciation(&pool, 2026, 1, ACTOR)
+        .await
+        .unwrap_or_else(|error| panic!("run: {error}"));
+    assert_eq!(run.posted_count, 1);
+    assert_eq!(run.blocked_count, 0);
+}
+
+// ---------------------------------------------------------------------------
+// Finished work leaving Contract In Progress
+// ---------------------------------------------------------------------------
+
+/// The client's CIP account, which is one per unit and not one per family:
+/// work in progress has not become a kind of thing yet.
+async fn seed_work_in_progress(pool: &PgPool) {
+    for (code, name, parent, is_group, site) in [
+        ("103", "OTHER ASSETS", Some("1"), true, None),
+        (
+            "1031803",
+            "Contract In Progress (CIP)",
+            Some("103"),
+            true,
+            None,
+        ),
+        (
+            "1031803001",
+            "Contract In Progress (CIP)",
+            Some("1031803"),
+            true,
+            None,
+        ),
+        (
+            "103180300100",
+            "Contract In Progress (CIP) HO",
+            Some("1031803001"),
+            false,
+            Some("dc"),
+        ),
+    ] {
+        sqlx::query(
+            // `ON CONFLICT` since 0243: the chart migration now writes the
+            // group rows itself — `1`, `7`, `10215`, `70102` — and a test that
+            // insisted on inserting them would fail on a database that is
+            // simply up to date. The leaves below are still ours to seed.
+            "INSERT INTO ledger_account (account_code, name, parent_code, is_group, site_id)
+             VALUES ($1,$2,$3,$4,$5) ON CONFLICT (account_code) DO NOTHING",
+        )
+        .bind(code)
+        .bind(name)
+        .bind(parent)
+        .bind(is_group)
+        .bind(site)
+        .execute(pool)
+        .await
+        .unwrap_or_else(|error| panic!("{code}: {error}"));
+    }
+    for (key, qualifier, code) in [
+        ("work_in_progress", "1031803001", "103180300100"),
+        ("fixed_asset", "1021504", "102150400100"),
+        ("trade_payable", "", "201200100100"),
+    ] {
+        cloud::set_account_mapping(
+            pool,
+            &cloud::SetAccountMappingRequest {
+                semantic_key: key.into(),
+                site_id: "dc".into(),
+                qualifier: qualifier.into(),
+                account_code: code.into(),
+                note: None,
+            },
+            ACTOR,
+        )
+        .await
+        .unwrap_or_else(|error| panic!("map {key}: {error}"));
+    }
+}
+
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn finished_work_leaves_contract_in_progress_and_the_cost_moves_with_it(pool: PgPool) {
+    seed(&pool).await;
+    map_machinery(&pool).await;
+    seed_work_in_progress(&pool).await;
+
+    let asset_id = cloud::register_asset(
+        &pool,
+        &cloud::RegisterAssetRequest {
+            asset_number: "AST-000009".into(),
+            name: "Renovasi toko".into(),
+            category_code: "1031803001".into(),
+            site_id: "dc".into(),
+            acquired_on: date(2026, 1, 5),
+            serial_number: None,
+            notes: None,
+            quantity: None,
+            acquired_via_line_id: None,
+        },
+        ACTOR,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("register: {error}"))
+    .asset_id;
+
+    let in_progress = cloud::AssessAssetRequest {
+        decision: "IN_PROGRESS".into(),
+        capitalized_cost_minor: Some(5_000_000),
+        salvage_value_minor: None,
+        useful_life_months: None,
+        method: None,
+        charge_kind: None,
+        in_service_on: None,
+        reason: "fit-out berjalan".into(),
+        category_code: None,
+        rate_bps: None,
+        opening_accumulated_minor: None,
+        opening_through: None,
+        acquired_via_line_id: None,
+        acquired_via_line_ids: None,
+    };
+    cloud::assess_asset(&pool, asset_id, &in_progress, ACTOR)
+        .await
+        .unwrap_or_else(|error| panic!("assess: {error}"));
+
+    let finished = cloud::AssessAssetRequest {
+        decision: "CAPITALIZE".into(),
+        capitalized_cost_minor: Some(5_000_000),
+        salvage_value_minor: Some(0),
+        useful_life_months: Some(60),
+        method: Some("STRAIGHT_LINE".into()),
+        charge_kind: Some("DEPRECIATION".into()),
+        in_service_on: Some(date(2026, 2, 1)),
+        reason: "toko dibuka".into(),
+        category_code: Some("1021504".into()),
+        rate_bps: None,
+        opening_accumulated_minor: None,
+        opening_through: None,
+        acquired_via_line_id: None,
+        acquired_via_line_ids: None,
+    };
+
+    // Nothing has put this cost into the client's CIP account, so there is
+    // nothing to take out of it. Refused rather than posted: the credit would
+    // drive their own account negative and call the difference finished work.
+    let empty = cloud::assess_asset(&pool, asset_id, &finished, ACTOR)
+        .await
+        .expect_err("capitalising out of an empty CIP account should be refused");
+    assert!(
+        empty.to_string().contains("103180300100") && empty.to_string().contains("nothing to move"),
+        "the refusal should name the account and the fix: {empty}"
+    );
+
+    // The bill that paid the contractor, landing where the client puts it.
+    let intent = cloud::PostingIntent {
+        posting_date: date(2026, 1, 20),
+        source_kind: "SUPPLIER_INVOICE".into(),
+        source_id: Some(Uuid::new_v4().to_string()),
+        rule_version: "test/1".into(),
+        currency: "IDR".into(),
+        memo: Some("termin kontraktor".into()),
+        lines: vec![
+            cloud::PostingLine::debit("work_in_progress", "dc", 5_000_000)
+                .with_qualifier("1031803001"),
+            cloud::PostingLine::credit("trade_payable", "dc", 5_000_000),
+        ],
+    };
+    let mut tx = pool
+        .begin()
+        .await
+        .unwrap_or_else(|error| panic!("begin: {error}"));
+    cloud::post(&mut tx, &intent, ACTOR)
+        .await
+        .unwrap_or_else(|error| panic!("post: {error}"));
+    tx.commit()
+        .await
+        .unwrap_or_else(|error| panic!("commit: {error}"));
+
+    // Now it can finish, and the cost moves with the decision.
+    let capitalised = cloud::assess_asset(&pool, asset_id, &finished, ACTOR)
+        .await
+        .unwrap_or_else(|error| panic!("capitalise: {error}"));
+    assert_eq!(capitalised.category_code, "1021504");
+    assert_eq!(capitalised.decision.as_deref(), Some("CAPITALIZE"));
+
+    let progress = cloud::account_balance(&pool, "103180300100", None, None)
+        .await
+        .unwrap_or_else(|error| panic!("cip: {error}"));
+    let fixed = cloud::account_balance(&pool, "102150400100", None, None)
+        .await
+        .unwrap_or_else(|error| panic!("fixed: {error}"));
+    assert_eq!(progress.balance_minor, 0, "work in progress is emptied");
+    assert_eq!(
+        fixed.balance_minor, 5_000_000,
+        "and the family it became holds it"
+    );
+
+    // And the move is nameable: its own source kind, pointing at the asset.
+    let kind: String = sqlx::query_scalar(
+        "SELECT source_kind FROM journal_entry WHERE source_id = $1 ORDER BY posting_date DESC LIMIT 1",
+    )
+    .bind(asset_id.to_string())
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("entry: {error}"));
+    assert_eq!(kind, "ASSET_CAPITALIZATION");
 }

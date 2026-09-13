@@ -709,14 +709,14 @@ impl HireProposal {
         use HireProposalStep as Step;
 
         let mut folded: Option<State> = None;
-        // The version head office is deciding, and the actor who filed it.
+        // The version head office is deciding.
         let mut in_force: u32 = 0;
-        let mut proposer: Option<ActorId> = None;
-        // Everybody who has filed a version, not only the latest: the rule a
-        // decision is checked against is [`Self::proposed_by`]'s, and a
-        // colleague's revision must not launder the first proposer into being
-        // allowed to decide.
-        let mut proposers: Vec<&ActorId> = Vec::new();
+        // Everybody who has filed a version, in order, so the last is the
+        // proposer of the version in force. All of them, not only the latest:
+        // the rule a decision is checked against is [`Self::proposed_by`]'s,
+        // and a colleague's revision must not launder the first proposer into
+        // being allowed to decide.
+        let mut proposers: Vec<ActorId> = Vec::new();
         let mut opened: usize = 0;
 
         for event in &wire.history {
@@ -734,8 +734,7 @@ impl HireProposal {
                             found: event.version,
                         });
                     }
-                    proposer = Some(event.authorization.actor().clone());
-                    proposers.push(event.authorization.actor());
+                    proposers.push(event.authorization.actor().clone());
                     in_force = 1;
                     folded = Some(State::Proposed);
                 }
@@ -746,8 +745,7 @@ impl HireProposal {
                             found: event.version,
                         });
                     }
-                    proposer = Some(event.authorization.actor().clone());
-                    proposers.push(event.authorization.actor());
+                    proposers.push(event.authorization.actor().clone());
                     in_force = event.version;
                     folded = Some(State::Proposed);
                 }
@@ -761,7 +759,7 @@ impl HireProposal {
                     // The owner's rule, re-checked here because a row edited
                     // into this shape must fail to load rather than become an
                     // approval the proposer granted themselves.
-                    if proposers.contains(&event.authorization.actor()) {
+                    if proposers.contains(event.authorization.actor()) {
                         return Err(HireError::ProposerDecidedTheirOwnProposal {
                             actor: event.authorization.actor().to_string(),
                         });
@@ -796,10 +794,10 @@ impl HireProposal {
             }
         }
 
-        // Both are `Some` together or `None` together — the only step that sets
-        // either sets both — and destructuring them is what keeps every getter
-        // below free of an `unwrap`.
-        let (Some(folded), Some(proposer)) = (folded, proposer) else {
+        // Both are present together or absent together — the only steps that
+        // set either set both — and destructuring them here is what keeps every
+        // getter below free of an `unwrap`.
+        let (Some(folded), Some(proposer)) = (folded, proposers.pop()) else {
             return Err(HireError::NothingWasProposed);
         };
         // A version row no event minted, or an event minting a version no row
@@ -816,13 +814,15 @@ impl HireProposal {
             return Err(HireError::MoreOpenedThanAskedFor { headcount, opened });
         }
 
-        let mut versions = wire.versions;
-        // Infallible after the length check above, and expressed as a `match`
-        // rather than an index so that a future edit to that check cannot turn
-        // this line into a panic.
-        let Some(original) = versions.drain(..1).next() else {
+        // Split rather than indexed. `versions` cannot be empty after the
+        // length check above, but `versions[0]` and `drain(..1)` both *panic*
+        // when it is — so a future edit to that check would turn one of them
+        // into a panic in a loader, and taking the head off an iterator cannot.
+        let mut remaining = wire.versions.into_iter();
+        let Some(original) = remaining.next() else {
             return Err(HireError::NothingWasProposed);
         };
+        let revisions: Vec<ProposedTerms> = remaining.collect();
 
         if folded != wire.state {
             return Err(HireError::StateDoesNotFollowHistory {
@@ -836,7 +836,7 @@ impl HireProposal {
             state: wire.state,
             proposer,
             original,
-            revisions: versions,
+            revisions,
             history: wire.history,
         })
     }

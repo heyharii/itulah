@@ -30,7 +30,18 @@ decision: string | null, capitalized_cost_minor: number | null, salvage_value_mi
  */
 charge_kind: string | null, in_service_on: string | null, 
 /**
- * Summed from the depreciation entries. Not stored anywhere.
+ * What was already depreciated before this system existed, carried in at
+ * cutover, and the last month that figure covers.
+ *
+ * Absent is the ordinary state for anything bought after the cutover, and
+ * it means nothing was carried in — not that nobody has said. Migration
+ * 0237 has the arithmetic this exists to prevent.
+ */
+opening_accumulated_minor: number | null, opening_through: string | null, 
+/**
+ * Everything ever charged against this asset: what was carried in at
+ * cutover plus every entry this system has posted. Summed on read and
+ * stored nowhere.
  */
 accumulated_minor: number, 
 /**

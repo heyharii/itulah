@@ -1352,6 +1352,92 @@
         "VITE_API_TARGET": "http://127.0.0.1:8094",
         "VITE_EDGE_TARGET": "http://127.0.0.1:8099"
       }
+    },
+    {
+      "name": "finance-final-api",
+      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/cloud",
+      "runtimeArgs": [],
+      "cwd": "backend",
+      "port": 8090,
+      "env": {
+        "DATABASE_URL": "postgresql:///coa_live_probe",
+        "BIND_ADDR": "127.0.0.1:8090",
+        "INVENTORY_NODE_ID": "cloud-primary",
+        "INVENTORY_NODE_ROLE": "CLOUD",
+        "INVENTORY_AUTH_MODE": "disabled",
+        "INVENTORY_ENABLE_TEST_CONTROLS": "true",
+        "INVENTORY_ORIGIN_GENERATION": "1",
+        "RUST_LOG": "inventory_backend=info,tower_http=warn"
+      }
+    },
+    {
+      "name": "finance-final-hub",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5274",
+        "--strictPort"
+      ],
+      "cwd": "frontend-hub",
+      "port": 5274,
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8090"
+      }
+    },
+    {
+      "name": "floor-served",
+      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/dc",
+      "runtimeArgs": [],
+      "cwd": "demo/dc",
+      "port": 8092,
+      "env": {
+        "SYNC_UPLOAD_URL": "",
+        "RUST_LOG": "inventory_backend=info",
+        "FRONTEND_DIR": "/Users/hari/itulah/frontend-floor/dist"
+      }
+    },
+    {
+      "name": "e2e-cloud",
+      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/cloud",
+      "runtimeArgs": [],
+      "cwd": "backend",
+      "port": 8150,
+      "env": {
+        "DATABASE_URL": "postgresql:///inventory_e2e",
+        "BIND_ADDR": "127.0.0.1:8150",
+        "INVENTORY_NODE_ID": "cloud-primary",
+        "INVENTORY_NODE_ROLE": "CLOUD",
+        "INVENTORY_AUTH_MODE": "disabled",
+        "INVENTORY_ENABLE_TEST_CONTROLS": "true",
+        "INVENTORY_ORIGIN_GENERATION": "1",
+        "FRONTEND_DIR": "/Users/hari/itulah/frontend-hub/dist",
+        "RUST_LOG": "inventory_backend=info,tower_http=warn"
+      }
+    },
+    {
+      "name": "e2e-dc",
+      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/dc",
+      "runtimeArgs": [],
+      "cwd": "demo/e2e",
+      "port": 8092,
+      "env": {
+        "INVENTORY_NODE_ID": "dc-01-edge",
+        "INVENTORY_SITE_ID": "dc-01",
+        "INVENTORY_NODE_ROLE": "DC",
+        "INVENTORY_DATABASE_PATH": "./dc-edge.sqlite3",
+        "INVENTORY_ORIGIN_GENERATION": "1",
+        "BIND_ADDR": "127.0.0.1:8092",
+        "INVENTORY_AUTH_MODE": "disabled",
+        "FRONTEND_DIR": "/Users/hari/itulah/frontend-floor/dist",
+        "SYNC_UPLOAD_URL": "http://127.0.0.1:8150",
+        "SYNC_UPLOAD_KEY": "e2e-dc01-ingest-key-0123456789abcdef",
+        "SYNC_INTERVAL_SECONDS": "5",
+        "SYNC_BATCH_LIMIT": "100",
+        "RUST_LOG": "inventory_backend=info"
+      }
     }
   ]
 }

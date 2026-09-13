@@ -457,6 +457,92 @@ Not ported: the component engine, `basis.rs`, `policy.rs` and the conservation
 identity that goes with them. They are the arithmetic this backend declines to
 do.
 
+## The run, reworked: the place asks and head office decides
+
+Owner's decisions, 2026-09-13. They reverse the formulation the section above
+was written to, so both readings are recorded rather than one overwriting the
+other.
+
+Destination: `backend/src/cloud/domain/pay/{run.rs,handover.rs,error.rs}`,
+`domain/employment/audit.rs`, `postgres/pay.rs`, `http/pay.rs`, migration
+`backend/migrations/postgres/0231_a_payroll_is_asked_for_by_the_place_and_decided_at_head_office.sql`.
+
+What changed, and why each change is a change rather than a rename:
+
+- **The place submits the batch, and sees the figures** — its staff's base pay
+  included. This was argued against twice and reaffirmed twice. It is the
+  reason the rest of the rework follows: a signature on a batch somebody cannot
+  see is not a signature, so making the store sign is only worth doing if the
+  store can read what it is signing. `people.pay.read` is the new key, at the
+  supervisor rung and bounded by `Reach`; the bound that replaces the one given
+  up is the place, not the rung.
+- **The place opens the run**, for its own unit, once that unit's attendance
+  period is closed. The closed-period gate is unchanged and is now the same
+  place's signature on both sides of it.
+- **`VERIFIED` is gone, and it is not the same act as `SUBMITTED`.** Verifying
+  was head office checking figures head office would then approve — one opinion
+  recorded twice. Submitting is a place standing behind figures somebody else
+  will decide. The state is migrated rather than dropped, because every stored
+  `VERIFIED` *is* a first signature; the step code and the action key inside
+  `payroll_run.history` are rewritten with it.
+- **`SEALED` is gone.** Approval is final, and a state whose only content is
+  "and we mean it" cannot be told from the one before it. The migration
+  **refuses** rather than rewrites: folding a sealed run into `APPROVED` would
+  silently unlock a month somebody deliberately locked, so it names what it
+  found and stops. Same shape as `0230`.
+- **The two-person rule survives in the shape the work has.** Submitter is not
+  approver, compared on the *actor*, refused on the transition and again while
+  folding a stored history. What is new is that the two keys are no longer at
+  the same rung — which is the version of this control that means something,
+  because the two signatures are no longer both head office's.
+- **A reopen may undo an approval Finance has already booked.** The owner
+  accepted that explicitly, so there is no guard. The reopen clears both
+  signatures and goes into the history with its actor and reason; what makes it
+  survivable is that the handover snapshots its own breakdown.
+- **`verified_by` was never a column.** The rename the plan asked for is on the
+  wire — `PayrollRunView.verified_by` became `submitted_by`, and gained
+  `approved_by` beside it. The run's signatures have only ever lived inside
+  `history`.
+
+### The handover to Finance, and the one thing it deliberately does not do
+
+`payroll_handover` plus `payroll_handover_line`: one gross liability per place
+per month, with its per-employee breakdown, idempotent per (place, period) so
+sending twice cannot double what the company owes. The header-agrees-with-its-
+lines rule is a deferred constraint trigger, copied from `journal_entry`'s and
+for the same reason 0051 gives.
+
+**It is not a ledger posting, and that is a decision this lane refused to make
+on Finance's behalf.** Every other module that owes Finance money calls
+`poster::post` in its own transaction. A `journal_line` must name a
+`site NOT NULL`; `org_place.site_id` is `NULL` for kind `HO` by its own check
+constraint; and head office's payroll is the whole reason a run is keyed by
+`org_place` rather than by a store (`0105`). So the one run the key exists for
+is the one run with no site to post to. `ledger::book_locations` hints that head
+office *is* the DC site — the client's codes suffix head office `00` — but no
+function in the estate performs that mapping, and deciding it here would decide
+which location thirteen shops' worth of salary expense lands in. That is an
+owner-and-accountant question.
+
+So the crossing records the liability honestly and Finance books it. There is
+deliberately **no `journal_entry_id` column**: the convention for one —
+`0052`'s nullable FK tied to status by `CHECK` — is right for a module that
+posts, and a column nothing can write is a promise nothing keeps. When the site
+question is answered, that column and its check are a two-line migration, and
+`journal_entry.source_kind` needs `'PAYROLL'` adding to its allowlist at the
+same time.
+
+**Gross means base plus standing allowances**, the slip's
+`statutory_base_minor`. Nothing else on a slip is money: overtime is minutes and
+leave is days, and this backend holds no overtime rate and no daily rate
+anywhere, so valuing them would be inventing the multiplier. Nothing statutory
+is netted off, for the reason `0105` gives at length.
+
+**Settling is Finance's own key.** `people.payroll.settle` is disjoint from
+`people.payroll.hand_to_finance`, because a grant that could hand a liability
+over *and* declare it paid would be one person closing the loop on their own
+request.
+
 ## A gate that was one rung too high
 
 `domain::auth::required_role(method, path)` derives a minimum rung from the
@@ -490,3 +576,303 @@ deliberate rather than a missing file. Renumbering is not available: `0101` is
 applied to the dev database, and changing an applied migration's number changes
 its checksum and stops the node for every lane.
 
+
+## The hire proposal — written here, not ported
+
+Destination: `backend/src/cloud/domain/hire/`, `postgres/hire.rs`,
+`http/hire.rs`, migration
+`backend/migrations/postgres/0232_a_shop_asks_for_a_new_employee_and_head_office_answers.sql`.
+
+**Neither donor has this.** `fresh/crates` and the retail backend both begin at
+an employment record that already exists; the act of a shop *asking* for one
+appears in neither, because in both of them head office is the only party that
+ever creates a person. So this module borrows shape rather than code, and the
+shapes it borrows are named where they are used:
+
+- **The fold** is `employee.rs`'s. `hire_proposal.state` is denormalised from
+  `history`, and `HireProposal::try_new` replays every step and refuses a row
+  whose claimed state that history does not produce.
+- **The two-actor rule** is `pay/run.rs`'s. Verify and approve are disjoint keys
+  there so the domain has two *names* to compare; proposing and deciding are
+  disjoint here for the same reason. The owner's rule — the proposer may not
+  decide their own proposal, head office's own HR included — cannot be a rung,
+  because every store manager holds the same one and HR holds the deciding key.
+- **The reach bound** is the Directory's. The unit a proposal names is fenced by
+  `Reach`, so for a bounded caller the only value that passes is their own
+  posting.
+- **The action keys** join the one space in `domain::employment::audit`, and
+  opening an employment record against an approved proposal reuses
+  `people.employee.create` rather than inventing a key: it is the same act as
+  creating a candidate directly, which is what "two ways in, one employee record
+  out" means.
+
+### This is not `0100` returning
+
+`0100` was a proposed-hires *pipeline* — applicants, a queue, and a view whose
+own comment in `tests/contract_types.rs` said it "carries the NIK and the home
+address a proposal has to state". The owner rejected that on 2026-09-04 and
+approved a narrow form on 2026-09-13. The difference is not size:
+
+- It stops at a candidate head office accepted. No applicants, no interview
+  stages, no CV store, no shortlist, no offer letter.
+- **It stores no personal data at all beyond a name**, and there is no column
+  for any: under UU 27/2022 the identity documents of somebody who may never be
+  employed here have no business on a form that may be refused. They start
+  existing at `employee_profile`, behind `people.profile.read`, when the person
+  is actually hired.
+
+`0100` stays unreused, for the reason above: `0101` is applied and renumbering
+an applied migration changes its checksum. The stale comment in
+`contract_types.rs` was replaced when this landed, because a note saying a
+proposal carries a NIK is worse than no note.
+
+## The payroll component engine
+
+Source: the reference HRMS payroll module at
+`hrms/payroll/doctype/{salary_component,salary_detail,additional_salary,salary_slip,salary_structure,salary_structure_assignment}`.
+
+Destination: `backend/src/cloud/domain/component/`, `postgres/components.rs`,
+`http/components.rs`, migrations
+`backend/migrations/postgres/0250_a_payroll_component_is_one_of_five_shapes_and_its_rate_is_ratified.sql`
+and `0251_a_slip_says_what_was_taken_off_and_what_it_could_not_work_out.sql`.
+
+**Why this exists after the refusal above.** The section *"Pay, payroll
+identity, and the run"* records that the retail donor's component engine —
+PPh 21 brackets, BPJS rates — was deliberately not ported, and `0105` held the
+same line by giving `payroll_slip` no deduction column at all: *"nothing can
+quietly acquire a zero that reads as 'nothing was owed'."* The owner then asked
+for four things the absence made impossible: a deduction, a valued minute of
+overtime, a one-off figure the place can add to its own batch, and a net.
+
+So a component engine arrives. What the earlier refusal was protecting against
+was **two** things, and both are still protected against.
+
+### What the refusal was protecting against, and how each is still refused
+
+**1. An expression language fed by a database row.** The reference stores
+`condition` and `formula` as `Code` fields an operator types, and
+`salary_slip.py` hands them to `_safe_eval(formula, whitelisted_globals, data)`.
+In Python that is a sandbox somebody has to keep winning at; in Rust it would be
+an interpreter for a second language, reachable by anybody who can write to a
+table.
+
+There is no expression type anywhere in `domain::component`, and no column one
+could be written into. A component's arithmetic is one of **five shapes**:
+
+| Shape | What it is for |
+|---|---|
+| `FIXED_AMOUNT` | a flat figure every period |
+| `SHARE_OF_BASE` | basis points of a named base, optionally capped — **this is how BPJS works** |
+| `RATE_PER_UNIT` | money per counted unit: a transport or meal allowance per day |
+| `FRACTION_OF_BASE_PER_UNIT` | a named base ÷ a ratified divisor of hours × a ratified multiplier × counted hours — Kepmenaker 102/2004 art. 8 and PP 35/2021 art. 31 |
+| `PER_OCCASION` | no standing figure at all; its figure arrives one person and one month at a time |
+
+A shape not in that enum cannot be constructed, stored, or sent. And **no
+component may name another component** — `ComponentBasis::compute` takes only
+`SlipFacts`, which is the pay agreement the slip already copied plus the counts
+the slip already carries. With a component-to-component reference would come an
+evaluation order, then a dependency graph, then a cycle check, and the engine
+would be back; without it every line is computable in any order and a cycle is
+unrepresentable rather than detected.
+
+The one named base that would have broken that is `GROSS` — a deduction as a
+share of the month's earnings — and it is deliberately absent. No rule this
+estate implements needs it: an Indonesian statutory base is *upah*, not the
+month's takings. The day one does, it is a new variant and a migration, which
+is a visible act.
+
+**2. Inventing statutory arithmetic.** PPh 21 is still nowhere near this code:
+no brackets, no PTKP lookup, no annualisation. The owner's decision stands —
+gross first, deductions at Finance. `Income Tax Slab`, `Taxable Salary Slab`,
+the four `Employee Tax Exemption *` doctypes, `Gratuity` and the
+`Employee Benefit *` family are not ported and have no destination here.
+
+What changed is that BPJS is now *expressible*. **No rate is seeded.** There is
+no BPJS percentage and no overtime multiplier written anywhere in this
+repository; an operator states them through `pay_component_rate`, exactly as
+`overtime_policy` makes an operator state the caps. A component with a standing
+shape and no ratified rate makes every slip built under it refuse to report a
+deduction total — **naming the component** — rather than report nought.
+
+### Adaptations
+
+- **A definition and a rate are two rows under two keys.** The reference keeps
+  the amount, the formula and the condition on the `Salary Component` itself.
+  Splitting them buys two things the design needs. It makes *"defined and
+  nobody has priced it"* a state this system can name, which is the whole
+  mechanism above. And it makes the rate **effective-dated**, so a BPJS rate
+  that changes by regulation in January cannot rewrite what December was
+  deducted — the reason `employee_pay` is a history rather than a column. The
+  rate timeline is forward-only for the same reason `PayTimeline::append` is.
+- **`people.pay_component.define` and `people.pay_component.ratify` are
+  disjoint keys.** Inventing a line item decides what a payslip may say; its
+  percentage decides what comes out of every wage. The same split
+  `OVERTIME_POLICY_SET` makes against `OVERTIME_ORDER`, and for the same
+  reason: a deployment that wants the figure in fewer hands than the
+  vocabulary cannot say so with one key.
+- **Reading the catalogue and the rates needs no key at all.** The position the
+  attendance policy and the holiday calendar already take, and it has more
+  force here: a rate that decides what comes out of somebody's wage is exactly
+  the rule they are entitled to read, and a deduction kept from the person
+  paying it is a trap. Nothing on those two routes is about a named person. The
+  one-offs, which are, sit behind `people.pay.read` and `Reach`.
+- **`Salary Structure` and `Salary Structure Assignment` are not ported.** The
+  reference assigns each employee a structure listing their components, so one
+  company has as many component sets as it has structures, and each assignment
+  can drift from the pay agreement beside it. Here the standing agreement is
+  `employee_pay` (0105), the catalogue is the **company's** — no `place_id`
+  anywhere, because a place-scoped component is thirteen answers to what BPJS
+  costs — and everything that varies per person per month is a
+  `payroll_adjustment`. No assignment table, and nothing to drift.
+- **`Employer Contribution` is not a kind.** The reference's `type` has three
+  values. What the employer pays on top of a wage changes neither gross nor
+  net, and putting it on a payslip is how a person comes to read a number that
+  was never theirs. Two kinds, `EARNING` and `DEDUCTION`, and amounts are
+  positive under both — which way a line points is its kind, so one typo cannot
+  turn a deduction into a pay rise. The reference makes the same choice about
+  signs.
+- **The overtime rate is ratified configuration, and the bands are the
+  statutory table's own axes.** PP 35/2021 art. 31 pays the first hour of an
+  ordinary working day at one multiplier and the hours after it at another, and
+  rest days and public holidays at their own. `overtime_order.day_kind` already
+  records which table applies, so the banding is a `GROUP BY` over agreed
+  orders rather than a derivation — and the first-hour band is per **day**, not
+  per order, because two orders on one evening are one evening.
+
+  The divisor (173) and every multiplier are rows an operator ratifies. **No row
+  means no rate means overtime is reported in minutes and valued nowhere**,
+  which is precisely today's behaviour — so the absence of configuration
+  changes no existing answer, and `payroll_integration`'s
+  `a_slip_carries_the_agreement_and_the_facts_and_no_invented_deductions`
+  proves it on a deployment where nothing is defined.
+- **Overtime is counted in whole minutes and priced by the hour.** Leave is
+  hundredths of a day here, and the obvious move was hundredths of an hour. It
+  is worse: the count on a slip line is then a *conversion* of
+  `overtime_order.planned_minutes` and the two can disagree, and twenty minutes
+  is not a terminating decimal of an hour. So `CountedUnit::per_whole` is 60 for
+  the overtime bands, the stored count is the same integer the order holds, and
+  `rate_minor × units / 60` reproduces the line exactly.
+- **What is deliberately NOT banded**: the ladder *within* a rest day or
+  holiday — art. 31's 2× for the first eight hours, 3× for the ninth, 4× for
+  the tenth and eleventh. Every rest-day minute lands in one unit, so an
+  operator ratifying a single rest-day multiplier **understates a very long
+  holiday shift**. Naming the limit is the point of writing it here and in
+  `0250`; closing it is three more `CountedUnit` variants and a migration,
+  which is a visible act rather than a formula somebody types.
+- **`ROSTERED_DAY` is days planned, not days worked.** There is no punch source
+  in this estate, so a unit called `DayWorked` would be a claim the slip cannot
+  support — `payroll_run.incomplete_because` already says so. A `RATE_PER_UNIT`
+  allowance therefore pays nothing for somebody nobody rostered, and that is a
+  real risk rather than a theoretical one: the line is written with `units = 0`
+  rather than omitted, and `RunReconciliation::lines_that_counted_nothing`
+  counts them, because "26 days at nil" and "nil days at 20.000" are two
+  different explanations of the same missing money.
+- **A cap bounds the base, not the contribution.** BPJS Kesehatan caps the
+  *wage* a percentage is taken of. Capping the answer instead gives the same
+  figure for one rate and a different one for every other — the sort of fault
+  that only becomes wrong after a regulation changes — so `SHARE_OF_BASE`
+  applies the cap to the base and the line records the capped base it used.
+- **`Additional Salary` becomes `payroll_adjustment`, keyed by (place, month)
+  and with no state machine of its own.** The reference keys it by a free
+  `payroll_date`; a run here is one place and one month, so that is the key.
+  Deliberately **not** keyed by `run_id`: a run may only be opened once the
+  attendance period is closed, so a run-keyed adjustment could not be filed in
+  the month it was earned.
+
+  The brief for this work asked that filing go through the same decide-and-
+  return path the payroll submission does, *or say why not*. It goes through
+  exactly that path, and it carries no second one: an adjustment is writable
+  while its month has no run or a `DRAFT` one and **frozen by the place's
+  submission**, so the decision on it is head office's `people.payroll.approve`
+  on the batch carrying it, and the way back is the reopen that already exists
+  and already clears both signatures. Its own `PROPOSED → APPROVED/RETURNED`
+  machine — `hire_proposal`'s shape — was rejected because it would ask head
+  office to approve one figure twice, and two approvals of one number is how two
+  screens come to disagree about whether something was decided. `hire_proposal`
+  needs its own machine because nothing else carries a candidate; an adjustment
+  has a batch to ride.
+- **A one-off may only name a `PER_OCCASION` component.** The reference lets an
+  `Additional Salary` *overwrite* a structure component's amount
+  (`overwrite_salary_structure_amount`, plus a validation and a `msgprint` when
+  the component turns out not to be in the structure). Here one component cannot
+  produce two figures at all: the rule is a `basis = 'PER_OCCASION'` CHECK plus
+  a composite foreign key onto `pay_component (code, basis)`, so no line on any
+  slip is ever the answer to "which of these two won".
+- **Duplicates are refused by the key, not by application code.** The reference
+  has `validate_duplicate_additional_salary`; here it is
+  `UNIQUE (place_id, period, employee_id, component_code)`. Two incentives for
+  one person in one month are one incentive of the sum, or two components, and
+  either way somebody has to say which. Correcting a figure is a withdrawal and
+  a new filing, each under its own reason.
+- **Filing and withdrawing are one key**, unlike `PAYROLL_SUBMIT` and
+  `PAYROLL_REOPEN`. Those are two because a reopen undoes work somebody has
+  signed for; nothing here is signed while the batch is a draft, and a grant
+  that could add a figure but not take it back would be a grant to make a
+  mistake permanent. Withdrawal is `POST .../withdrawal` rather than `DELETE`,
+  matching `/attendance-corrections/{id}/withdrawal`: taking a figure back needs
+  a reason and a `DELETE` has nowhere to put one.
+- **Absence is three states on a slip, not two.** `0251` adds the columns `0105`
+  refused, and keeps the guarantee by making them nullable:
+
+  | | `deduction_total_minor` | `net_minor` |
+  |---|---|---|
+  | nobody has defined a deduction | `null` | `null` |
+  | a DEDUCTION component has no ratified rate | `null` | `null` |
+  | an EARNING component has no ratified rate | `Some` | `null` |
+  | everything is ratified | `Some` | `Some` |
+
+  The third row is the one worth having: an unratified earning leaves the
+  deduction total perfectly knowable and the net not, because the gross it
+  would be subtracted from is short. `components_incomplete_because` carries the
+  sentence naming the components, the discipline `CloseReadiness`'s
+  `Option<u32>` and `payroll_run.incomplete_because` already follow.
+
+  A deduction total of nought needs at least one defined deduction, because a
+  company that has defined an incentive and nothing else has said nothing about
+  deductions at all. `RunReconciliation` sums the two `Option` totals
+  all-or-nothing rather than over the slips that happen to have a figure — a
+  total that silently leaves people out looks like an answer — and counts
+  `slips_with_unworkable_components` and `slips_with_negative_net` so head
+  office sees both before approving.
+- **Every number is an integer.** Money in the smallest unit, percentages and
+  statutory multipliers in **basis points**, overtime in whole minutes. No `f64`
+  in the module or the two migrations. 1.5 happens to be exactly representable
+  in binary floating point and 1.05 is not, which is the kind of luck that hides
+  a rounding fault for a year. Division is half-up, once per step, stated in one
+  place because a payslip is checked by hand.
+- **A line is a snapshot with its working shown.** `payroll_slip_line` stores
+  the amount as computed **and every input it was computed from** — the base
+  after any cap, the basis points, the cap, the divisor, the multiplier, the
+  unit, the count, the per-unit rate. So a rate ratified next January cannot
+  change what December's slip said, and any line reproduces from itself without
+  joining to anything that may since have moved. This is also the answer to a
+  fault this estate has already had: a computation that derives more than it
+  keeps leaves a figure nobody can explain, and the explanation is needed
+  exactly when somebody disputes their payslip.
+- **Retire, never delete a component.** The rule the other four master lists
+  follow. A slip line naming a deleted component would point at nothing, and the
+  slips it produced are still the record of what somebody was paid. A retired
+  component produces no new standing line, but an adjustment filed against it
+  while it was live is still honoured — head office withdrawing a code should
+  not silently cancel a figure a place is waiting to see approved.
+- **The handover to Finance now crosses `payroll_slip.gross_minor`.** `0231`
+  crossed `statutory_base_minor` and said why: *"no rate for either exists
+  anywhere in this estate, so neither becomes money here."* One now can, so the
+  crossing includes valued overtime and the one-off earnings the place filed.
+  Still **gross** — nothing statutory netted off, and deliberately not the net,
+  which is `null` whenever a deduction was not assessed and a liability of
+  unknown is not a liability Finance can book. `0251` corrects `0231`'s column
+  comment rather than leaving it to contradict the query.
+- **Migration numbers.** This lane was assigned `0235` and `0236` and found both
+  taken by the floor-delivery and org-place lanes by the time it had finished
+  reading, so it took `0250` and `0251` — a distant block, the convention
+  `tests/migration_hygiene.rs` exists to record. The gap below them is claimed
+  in that file's `RESERVED`.
+
+Not ported: `Payroll Entry` (the estate's `payroll_run` predates it and is
+shaped by the owner's submit/approve decision), `Salary Withholding`,
+`Retention Bonus`, `Arrear`, `Payroll Correction`, and the reference's
+`round_to_the_nearest_integer` / `do_not_include_in_total` /
+`statistical_component` flags — every one of them is a way for a component to be
+on a slip and not in its totals, which is the shape that makes a payslip stop
+adding up.

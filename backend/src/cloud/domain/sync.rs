@@ -1265,6 +1265,109 @@ pub const COMMAND_CATALOG_CHUNK: &str = "catalog.snapshot.chunk";
 /// snapshot; it never observes a half-updated user/device set.
 pub const COMMAND_AUTH_POLICY_REPLACE: &str = "auth.policy.replace";
 
+/// The employee and roster slice one unit's punch station runs on.
+///
+/// It rides the same signed, ordered lane and is replaced wholesale for the
+/// same reason `auth.policy.replace` is: a delta would need a way to say "and
+/// forget this person", and a forgotten deletion is somebody who left the
+/// company still being greeted by name at the reader and still counted on a
+/// roster. An edge either keeps its last-known-good book or activates this
+/// whole one.
+///
+/// Deliberately carries **no templates**. Matching happens on the reader and
+/// the hardware agent holds the loaded set, which it pulls from the cloud over
+/// the node's own credential; copying regulated biometric data into thirteen
+/// shops' SQLite files as well would widen the exposure without buying
+/// anything the agent's loaded set does not already give.
+pub const COMMAND_ATTENDANCE_BOOK_REPLACE: &str = "attendance.book.replace";
+
+/// One person posted to this unit.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct BookEmployee {
+    pub employee_id: String,
+    pub code: String,
+    pub display_name: String,
+}
+
+/// One planned day.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct BookRosterDay {
+    pub employee_id: String,
+    pub on_date: chrono::NaiveDate,
+    /// `SCHEDULED`, `REST_DAY` or `PUBLIC_HOLIDAY`.
+    pub plan: String,
+    pub shift_id: Option<String>,
+    pub shift_name: Option<String>,
+    /// Minutes since local midnight, 0..=1439.
+    pub start_minute: Option<u16>,
+    pub end_minute: Option<u16>,
+    /// 1 when the shift ends the next day.
+    pub end_day_offset: Option<u8>,
+    pub unpaid_break_min: Option<u32>,
+}
+
+/// One registered station.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct BookTerminal {
+    pub terminal_id: String,
+    pub name: String,
+    /// `ACTIVE`, `SUSPENDED` or `REVOKED`.
+    pub status: String,
+}
+
+/// The whole book, as the cloud publishes it.
+///
+/// Replaced in full on every delivery, never merged — see the migration for
+/// why a merge would leave somebody who has left the company still on a roster.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct AttendanceBook {
+    pub place_id: String,
+    /// When the CLOUD published it. Stamped there, never here: a receive time
+    /// would read as freshness the data does not have.
+    pub published_at: DateTime<Utc>,
+    pub employees: Vec<BookEmployee>,
+    pub roster: Vec<BookRosterDay>,
+    pub terminals: Vec<BookTerminal>,
+}
+
+/// Parse a delivered book, refusing one this box cannot act on.
+///
+/// Refused at the edge of the command applier rather than after it is written,
+/// because an unreadable command **blocks this node's whole command stream** —
+/// which is the right behaviour and the reason to be precise about what
+/// "unreadable" means.
+pub fn parse_attendance_book(payload: &serde_json::Value) -> Result<AttendanceBook, String> {
+    let book: AttendanceBook =
+        serde_json::from_value(payload.clone()).map_err(|error| error.to_string())?;
+    if book.place_id.trim().is_empty() {
+        return Err("an attendance book must name the place it is for".to_owned());
+    }
+    for day in &book.roster {
+        let scheduled = day.plan == "SCHEDULED";
+        let has_shift = day.shift_id.is_some()
+            && day.start_minute.is_some()
+            && day.end_minute.is_some()
+            && day.end_day_offset.is_some();
+        if scheduled != has_shift {
+            return Err(format!(
+                "roster day {} for {} says {} and its shift columns disagree",
+                day.on_date, day.employee_id, day.plan
+            ));
+        }
+        if !matches!(
+            day.plan.as_str(),
+            "SCHEDULED" | "REST_DAY" | "PUBLIC_HOLIDAY"
+        ) {
+            return Err(format!("`{}` is not a day plan", day.plan));
+        }
+    }
+    Ok(book)
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct AuthPolicyUser {
     pub user_id: Uuid,

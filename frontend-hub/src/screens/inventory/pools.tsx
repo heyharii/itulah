@@ -234,14 +234,20 @@ function poolColumns(open: {
             >
               {row.original.label}
             </span>
-            {/* Two markers, and they say different things. A rollup is a sum of
-              the rows beneath it — real stock, deliberately not added again, so
-              the fleet is not doubled. A dispute is two sources that do not
-              agree about the same shelf, which no fold may resolve silently.
-              Neither is "nobody has counted this", which the Last count column
-              says on its own. */}
-            {!site && !row.original.counted && (
-              <span className="shrink-0 text-[0.625rem] text-mute">rollup</span>
+            {/* Two markers, and they say different things. `sum` is a stage
+              total: the rows beneath it are what it is made of, so it is
+              deliberately left out of the fleet total and the reader is told
+              why its children add up to it rather than on top of it. A dispute
+              is two sources that do not agree about the same shelf, which no
+              fold may resolve silently. Neither is "nobody has counted this",
+              which the Last count column says on its own.
+
+              The flag is the server's `is_rollup`, not `!counted`. They are not
+              the same set: a shelf whose owner has gone quiet is uncounted too,
+              and calling that a sum said something false about a number that
+              was merely stale. */}
+            {row.original.pool?.is_rollup === true && (
+              <span className="shrink-0 text-[0.625rem] text-mute">sum</span>
             )}
             {row.original.disputed !== null && (
               <span
@@ -532,11 +538,19 @@ export function PoolsBody() {
             /// same noise as the label this fold replaced. Rollups are excluded
             /// for a different reason: the two sides derive them over different
             /// leaves, so their numbers are not the same question.
+            ///
+            /// And a shadowed row is not a rival either. Shadowing is the
+            /// centre conceding the shelf to the node standing in front of it:
+            /// the Cloud figure is then a ledger nobody feeds, not a second
+            /// opinion. Marking it disputed put a warning on every DC base pool
+            /// the moment the node reported, which is the one case where the
+            /// two numbers are *expected* to differ.
             const rival = sources.find(
               (item) =>
                 item !== lead &&
                 item.stock !== lead.stock &&
                 !item.authority.derived &&
+                item.authority.shadowed_by_origin_id === null &&
                 item.sync_status !== "WAITING"
             )
             return {
@@ -567,6 +581,53 @@ export function PoolsBody() {
               a.pool!.display_order - b.pool!.display_order ||
               a.key.localeCompare(b.key)
           )
+
+        /// An outbound stage and its shops are a parent and its children, not
+        /// a list that happens to hold both.
+        ///
+        /// The server sends the stage total as a row of its own — `is_rollup`,
+        /// and left out of the fleet total precisely because the rows beneath
+        /// it already carry the goods. Drawn flat, it landed between the very
+        /// leaves it sums: "In Transit 120" directly above "In Transit /
+        /// Store 08 7", which reads as stock counted twice by anyone who has
+        /// not memorised which rows the total leaves out. Nesting says what the
+        /// number is without a footnote — open Shipment to see which shops it
+        /// is shipping to, and the parts visibly add up to the whole.
+        ///
+        /// Only for display. Every sum below still folds the flat list, so a
+        /// leaf counts towards its site exactly once whether it is drawn under
+        /// a stage or beside it.
+        const stageRollup = new Map<string, PoolRow>()
+        for (const child of children) {
+          const stage = child.pool?.outbound_stage
+          if (child.pool?.is_rollup === true && stage != null) {
+            stageRollup.set(stage, child)
+          }
+        }
+        const leavesByStage = new Map<string, PoolRow[]>()
+        const topLevel: PoolRow[] = []
+        for (const child of children) {
+          const stage = child.pool?.outbound_stage
+          const parent =
+            child.pool?.is_outbound_leaf === true && stage != null
+              ? stageRollup.get(stage)
+              : undefined
+          if (parent === undefined || stage == null) {
+            topLevel.push(child)
+            continue
+          }
+          const siblings = leavesByStage.get(stage)
+          if (siblings) siblings.push(child)
+          else leavesByStage.set(stage, [child])
+        }
+        const displayed = topLevel.map((child) => {
+          const stage = child.pool?.outbound_stage
+          const leaves =
+            child.pool?.is_rollup === true && stage != null
+              ? leavesByStage.get(stage)
+              : undefined
+          return leaves === undefined ? child : { ...child, subRows: leaves }
+        })
 
         const counted = children.filter((child) => child.counted)
         const sum = (pick: (row: PoolRow) => number) =>
@@ -615,7 +676,7 @@ export function PoolsBody() {
           // A site is a heading over shelves of several kinds, not a shelf.
           group: null,
           disputed: null,
-          subRows: children,
+          subRows: displayed,
         }
       })
   }, [fleet.data, lastCounts])
@@ -770,7 +831,16 @@ export function PoolsBody() {
 /// pool nobody has ever stood in front of is a number nobody has ever checked.
 function fleetKpis(tree: readonly PoolRow[]) {
   if (tree.length === 0) return undefined
-  const pools = tree.flatMap((site) => site.subRows ?? [])
+  /// Every shelf under a site, however deep it is drawn. Outbound leaves sit
+  /// one level further down than the rest now, and a flat read of the site's
+  /// own children would count a stage total as one pool and its thirteen
+  /// shops as none — which is exactly the miscount the nesting exists to
+  /// prevent, moved into the tiles above it.
+  const shelves = (row: PoolRow): PoolRow[] =>
+    row.subRows === undefined
+      ? [row]
+      : row.subRows.flatMap((child) => shelves(child))
+  const pools = tree.flatMap((site) => site.subRows?.flatMap(shelves) ?? [])
   const never = pools.filter((one) => one.last_count === null).length
   return [
     { label: "Sites", value: count(tree.length) },
@@ -913,7 +983,7 @@ function PoolSheet({
             <div className="flex flex-wrap gap-1.5">
               <Tag>{pool.summary.group}</Tag>
               <Tag>{pool.summary.pool_code}</Tag>
-              {pool.summary.is_rollup && <Tag tone="warn">ROLLUP</Tag>}
+              {pool.summary.is_rollup && <Tag tone="warn">SUM OF ITS SHOPS</Tag>}
             </div>
 
             <Facts>

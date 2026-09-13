@@ -209,6 +209,32 @@ pub mod actions {
     /// ADMIN because the honest reading of "no rung grants this" is the highest
     /// rung, never the lowest.
     pub const ATTENDANCE_PUNCH_RECORD: &str = "people.attendance_punch.record";
+    /// Record your **own** arrival or departure, from the employee app.
+    ///
+    /// The cashier rung, like asking for your own leave and answering an
+    /// overtime order about your own evening, and bounded by the *record*
+    /// rather than by the rung: the handler serves this key only for the
+    /// caller's own employment record, so a cashier who holds it cannot punch
+    /// for a colleague.
+    ///
+    /// # Why this key exists at all, given the decision above it
+    ///
+    /// [`ATTENDANCE_PUNCH_RECORD`] is deliberately nobody's: a punch's
+    /// authority is a *device*, and no session can reach the route that carries
+    /// device punches. That is still true. This is a second source, asked for
+    /// by the owner on 2026-09-13 because no reader has been bought yet and the
+    /// HR month therefore has no input at all — the roster, the derivation, the
+    /// corrections and the close cannot be walked end to end against nothing.
+    ///
+    /// It is a **separate key** rather than a rung on the first for the reason
+    /// [`LEAVE_REQUEST_OWN`] is separate from [`LEAVE_REQUEST`]: "may record
+    /// their own arrival" and "may record an arrival" are different grants, and
+    /// one key covering both is how a self-service app becomes a way to clock a
+    /// colleague in. Being separate is also what lets the owner retire this
+    /// source later by refusing this key, while everything the device path does
+    /// keeps working and every row already stored stays readable — the punch
+    /// itself carries which source produced it (migration `0239`).
+    pub const ATTENDANCE_PUNCH_RECORD_OWN: &str = "people.attendance_punch.record_own";
     /// Ratify the overtime caps.
     ///
     /// Head office's, and its own key rather than a mode of
@@ -294,6 +320,55 @@ pub mod actions {
     /// when the run does.
     pub const PAYROLL_REOPEN: &str = "people.payroll.reopen";
 
+    // ── the component engine ─────────────────────────────────────────────
+    //
+    // What a payroll line IS, what it is WORTH, and the one-off figures a
+    // place asks for. Three keys, because they are three decisions taken by
+    // different people for different reasons. See `domain::component`.
+
+    /// Define a payroll component, or retire one.
+    ///
+    /// Head office's. A structural decision — "there is a line called
+    /// BPJS_KESEHATAN and it is a capped share of the statutory base" — which
+    /// should never change again once taken, and which decides what the
+    /// company's payslips can say at all.
+    pub const PAY_COMPONENT_DEFINE: &str = "people.pay_component.define";
+    /// Ratify what a component is worth.
+    ///
+    /// Head office's, and its own key rather than a mode of
+    /// [`PAY_COMPONENT_DEFINE`] — the same split, for the same reason, as
+    /// [`OVERTIME_POLICY_SET`] against [`OVERTIME_ORDER`]. Inventing a line
+    /// item and stating its percentage are different acts: the first says what
+    /// a payslip may contain, the second decides what comes out of everybody's
+    /// wages at once, and a deployment that wants the second held by fewer
+    /// hands than the first cannot say so with one key.
+    ///
+    /// **Nothing is seeded under it.** No BPJS rate and no overtime multiplier
+    /// exists in this repository; until somebody exercises this key a slip
+    /// refuses to report a deduction total, naming the component.
+    pub const PAY_COMPONENT_RATIFY: &str = "people.pay_component.ratify";
+    /// File a one-off figure for one person in one month — an incentive, a
+    /// *kasbon* instalment, a bonus — or withdraw one not yet submitted.
+    ///
+    /// **The place's**, bounded by `super::reach::Reach` to their own posting.
+    /// This is the key that makes the owner's decision of 2026-09-13 mean
+    /// something: the place submits the whole batch and sees the figures, and
+    /// without a way to add a figure it could only resend numbers head office
+    /// had already fixed.
+    ///
+    /// Filing and withdrawing are **one** key rather than two, unlike
+    /// [`PAYROLL_SUBMIT`] and [`PAYROLL_REOPEN`]. Those are two because a
+    /// reopen undoes work somebody has signed for; nothing here is signed —
+    /// an adjustment is writable only while its batch is still a draft — and a
+    /// grant that could add a figure but not take it back would be a grant to
+    /// make a mistake permanent.
+    ///
+    /// There is no separate key for *deciding* one, and that is the design:
+    /// the adjustment rides its batch, so the decision on it is head office's
+    /// [`PAYROLL_APPROVE`] on the run carrying it. See
+    /// `domain::component::adjustment` for why a second chain was rejected.
+    pub const PAYROLL_ADJUSTMENT_FILE: &str = "people.payroll_adjustment.file";
+
     // ── asking for somebody who is not employed yet ──────────────────────
     //
     // *Karyawan baru*: a shop proposes a candidate, head office decides. The
@@ -372,6 +447,17 @@ pub mod actions {
     /// The keys that may send one back. Its own, because it undoes work
     /// somebody has signed for.
     pub const PAYROLL_REOPENING: &[&str] = &[PAYROLL_REOPEN];
+    /// The keys that may define or retire a payroll component.
+    pub const PAY_COMPONENT_DEFINING: &[&str] = &[PAY_COMPONENT_DEFINE];
+    /// The keys that may state what one is worth. **Disjoint from
+    /// [`PAY_COMPONENT_DEFINING`]**, so a deployment can hold the rate in
+    /// fewer hands than the vocabulary.
+    pub const PAY_COMPONENT_RATIFYING: &[&str] = &[PAY_COMPONENT_RATIFY];
+    /// The keys that may file or withdraw a one-off adjustment. **Disjoint
+    /// from [`PAYROLL_APPROVING`]**, which is what decides it: the place asks
+    /// and head office answers, and one grant doing both would be a place
+    /// paying itself a bonus.
+    pub const PAYROLL_ADJUSTMENT_FILING: &[&str] = &[PAYROLL_ADJUSTMENT_FILE];
     /// The keys that may plan or revise a roster.
     ///
     /// A plan is upstream of money — an absence only exists against one — so
@@ -394,6 +480,15 @@ pub mod actions {
     /// The keys that may bind a fingerprint to an employment record, replace
     /// one, or withdraw one.
     pub const ENROLLING: &[&str] = &[FINGERPRINT_ENROL];
+    /// The keys under which somebody may record their **own** punch.
+    ///
+    /// **Deliberately does not contain [`ATTENDANCE_PUNCH_RECORD`]**, and the
+    /// disjointness is the whole rule. That key is the device's act, and a
+    /// device holds no session; this one is a person's act about themselves. A
+    /// slice holding both would make a supervisor's grant over a shop's
+    /// attendance into a grant to clock its staff in from a phone, which is
+    /// the shape `domain::attendance::terminal` exists to refuse.
+    pub const OWN_PUNCH_RECORDING: &[&str] = &[ATTENDANCE_PUNCH_RECORD_OWN];
     /// The keys that may file an attendance correction — a manager on
     /// somebody's behalf, or a person about their own day.
     pub const CORRECTION_REQUESTING: &[&str] = &[CORRECTION_REQUEST, CORRECTION_REQUEST_OWN];
@@ -476,7 +571,18 @@ pub fn required_role(action_key: &str) -> Role {
         // not here**: it falls through to Admin below, which is the whole
         // shape of the feature.
         | actions::HIRE_PROPOSAL_READ
-        | actions::HIRE_PROPOSAL_PROPOSE => Role::Supervisor,
+        | actions::HIRE_PROPOSAL_PROPOSE
+        // Filing a one-off figure — an incentive, a *kasbon* instalment — is
+        // the place's, bounded by `Reach` to its own posting. It is the other
+        // half of the owner's decision of 2026-09-13: a place that submits a
+        // batch and cannot add a figure to it can only resend numbers head
+        // office already fixed.
+        //
+        // **Defining a component and ratifying its rate are NOT here.** They
+        // fall through to Admin below, which is the shape of the feature: the
+        // place asks for one figure for one person for one month, and head
+        // office decides both what a payslip may say and what it costs.
+        | actions::PAYROLL_ADJUSTMENT_FILE => Role::Supervisor,
         // Everybody signed in may ask for their own leave. The bound is the
         // record rather than the rung — the handler serves this key only for
         // the caller's own employment record — because a cashier who could not
@@ -491,9 +597,15 @@ pub fn required_role(action_key: &str) -> Role {
         // not take is the difference between a day worked and a day absent. A
         // person who could not report that would have to find their manager
         // before the month closed.
+        // Recording your own arrival is the same shape again, and it is the
+        // one the owner asked for on 2026-09-13 so the HR month has any input
+        // at all before a reader exists. The rung is everybody's because
+        // everybody clocks in; the bound is the record, applied by the handler,
+        // so this grant reaches the caller's own day and no colleague's.
         actions::LEAVE_REQUEST_OWN
         | actions::OVERTIME_CONSENT_OWN
-        | actions::CORRECTION_REQUEST_OWN => Role::Cashier,
+        | actions::CORRECTION_REQUEST_OWN
+        | actions::ATTENDANCE_PUNCH_RECORD_OWN => Role::Cashier,
         _ => Role::Admin,
     }
 }
@@ -642,6 +754,29 @@ impl Authorization {
         actions::PAYROLL_REOPENING.contains(&self.action_key.as_str())
     }
 
+    /// May this authority define or retire a payroll component?
+    ///
+    /// Re-checked on decode like every gate above: a component stored under a
+    /// key that never permitted it must not become a line on everybody's
+    /// payslip by way of a row.
+    pub fn authorizes_pay_component_define(&self) -> bool {
+        actions::PAY_COMPONENT_DEFINING.contains(&self.action_key.as_str())
+    }
+
+    /// May this authority state what a component is worth?
+    ///
+    /// The gate that keeps a rate from being recorded under the key somebody
+    /// used to invent the line item — which is the version of this control
+    /// that means something, because the figure is what comes out of wages.
+    pub fn authorizes_pay_component_ratify(&self) -> bool {
+        actions::PAY_COMPONENT_RATIFYING.contains(&self.action_key.as_str())
+    }
+
+    /// May this authority file a one-off adjustment?
+    pub fn authorizes_payroll_adjustment(&self) -> bool {
+        actions::PAYROLL_ADJUSTMENT_FILING.contains(&self.action_key.as_str())
+    }
+
     /// May this authority plan or revise a roster?
     ///
     /// Re-checked on decode, because a stored day whose plan nobody was allowed
@@ -693,6 +828,20 @@ impl Authorization {
     /// holding, which is a worse position than not holding it.
     pub fn authorizes_enrolment(&self) -> bool {
         actions::ENROLLING.contains(&self.action_key.as_str())
+    }
+
+    /// May this authority record a punch about the holder's own day?
+    ///
+    /// The gate on the second punch source. A punch taken by a station needs
+    /// no authority at all — it needs a
+    /// [`TerminalAttestation`](crate::cloud::domain::TerminalAttestation),
+    /// which only a registered active device produces — so this is not a
+    /// loosening of that rule but the separate, narrower door beside it: the
+    /// only way to obtain a
+    /// [`SelfPunchClaim`](crate::cloud::domain::SelfPunchClaim) is an
+    /// authorization that answers `true` here.
+    pub fn authorizes_own_punch(&self) -> bool {
+        actions::OWN_PUNCH_RECORDING.contains(&self.action_key.as_str())
     }
 
     /// May this authority file an attendance correction?
@@ -818,6 +967,53 @@ mod tests {
         assert_ne!(actions::PAY_READ, actions::PAY_CHANGE);
     }
 
+    /// The component engine's three keys. The place asks for one figure for one
+    /// person for one month; head office decides both what a payslip may say
+    /// and what it costs.
+    #[test]
+    fn a_place_asks_for_a_figure_and_head_office_decides_what_a_payslip_may_say() {
+        assert_eq!(
+            required_role(actions::PAYROLL_ADJUSTMENT_FILE),
+            Role::Supervisor
+        );
+        for key in [actions::PAY_COMPONENT_DEFINE, actions::PAY_COMPONENT_RATIFY] {
+            assert_eq!(required_role(key), Role::Admin, "{key}");
+        }
+
+        let at = DateTime::from_timestamp(1_780_000_000, 0).unwrap_or_else(|| panic!("instant"));
+        let define = Authorization::try_new(
+            "hr.dewi",
+            actions::PAY_COMPONENT_DEFINE,
+            at,
+            "komponen BPJS",
+        )
+        .unwrap_or_else(|error| panic!("authorization: {error}"));
+        assert!(define.authorizes_pay_component_define());
+        // Inventing the line item is not stating what it costs. The same
+        // disjointness `OVERTIME_POLICY_SET` has from `OVERTIME_ORDER`.
+        assert!(!define.authorizes_pay_component_ratify());
+        assert!(!define.authorizes_payroll_adjustment());
+
+        let ratify =
+            Authorization::try_new("hr.budi", actions::PAY_COMPONENT_RATIFY, at, "1% upah")
+                .unwrap_or_else(|error| panic!("authorization: {error}"));
+        assert!(ratify.authorizes_pay_component_ratify());
+        assert!(!ratify.authorizes_pay_component_define());
+
+        let file = Authorization::try_new(
+            "bu.rina",
+            actions::PAYROLL_ADJUSTMENT_FILE,
+            at,
+            "insentif lembur toko",
+        )
+        .unwrap_or_else(|error| panic!("authorization: {error}"));
+        assert!(file.authorizes_payroll_adjustment());
+        // The place asks; it does not decide. A grant that could do both would
+        // be a place paying itself a bonus.
+        assert!(!file.authorizes_payroll_approve());
+        assert!(!file.authorizes_pay_component_ratify());
+    }
+
     /// The steps a run's history can hold, each under its own grant. A
     /// signature recorded under the key for a different step is the wrong
     /// person's signature wearing the right shape.
@@ -867,6 +1063,57 @@ mod tests {
         assert_ne!(actions::ACCOUNT_PROVISION, actions::ACCOUNT_LINK);
     }
 
+    /// The second punch source, as rungs and as grants.
+    ///
+    /// Everybody clocks themselves in, so the rung is the lowest; nobody clocks
+    /// anybody else in from a browser, so the device key stays at the highest.
+    /// The two keys are disjoint, which is what lets the app's claim and the
+    /// station's attestation stay two different kinds of evidence rather than
+    /// one grant wearing two names.
+    #[test]
+    fn recording_your_own_punch_is_not_the_same_grant_as_recording_a_punch() {
+        assert_eq!(
+            required_role(actions::ATTENDANCE_PUNCH_RECORD_OWN),
+            Role::Cashier
+        );
+        assert_eq!(
+            required_role(actions::ATTENDANCE_PUNCH_RECORD),
+            Role::Admin,
+            "a punch's authority is a device; the honest rung for `nobody by \
+             rung` is the highest one"
+        );
+        assert_ne!(
+            actions::ATTENDANCE_PUNCH_RECORD,
+            actions::ATTENDANCE_PUNCH_RECORD_OWN
+        );
+
+        let at = DateTime::from_timestamp(1_780_000_000, 0).unwrap_or_else(|| panic!("instant"));
+        let own = Authorization::try_new(
+            "store07.kasir",
+            actions::ATTENDANCE_PUNCH_RECORD_OWN,
+            at,
+            "masuk kerja",
+        )
+        .unwrap_or_else(|error| panic!("authorization: {error}"));
+        assert!(own.authorizes_own_punch());
+
+        // The device key does NOT open the self-service door, and neither does
+        // anything a supervisor holds over a shop's attendance.
+        for key in [
+            actions::ATTENDANCE_PUNCH_RECORD,
+            actions::CORRECTION_REQUEST,
+            actions::CORRECTION_REQUEST_OWN,
+            actions::ROSTER_MANAGE,
+        ] {
+            let other = Authorization::try_new("hr.dewi", key, at, "alasan")
+                .unwrap_or_else(|error| panic!("authorization: {error}"));
+            assert!(
+                !other.authorizes_own_punch(),
+                "{key} must not mint a self-service punch"
+            );
+        }
+    }
+
     /// A key nobody taught this function about must not be a way in.
     #[test]
     fn an_unknown_action_key_admits_nobody_below_admin() {
@@ -900,10 +1147,7 @@ mod tests {
     /// decision of 2026-09-13, stated here as the rungs it implies.
     #[test]
     fn a_shop_proposes_a_hire_and_head_office_decides_it() {
-        for key in [
-            actions::HIRE_PROPOSAL_READ,
-            actions::HIRE_PROPOSAL_PROPOSE,
-        ] {
+        for key in [actions::HIRE_PROPOSAL_READ, actions::HIRE_PROPOSAL_PROPOSE] {
             assert_eq!(required_role(key), Role::Supervisor, "{key}");
         }
         assert_eq!(required_role(actions::HIRE_PROPOSAL_DECIDE), Role::Admin);

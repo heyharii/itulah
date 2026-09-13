@@ -59,30 +59,31 @@ export interface EmploymentContract {
 }
 
 
-export type AttendanceStatus =
-  "PRESENT" | "LATE" | "INCOMPLETE" | "ABSENT" | "LEAVE" | "HOLIDAY" | "REST"
-
-/// One day, as attendance has it.
+/// The derived day now comes from the server, and this file no longer names it.
 ///
-/// Called "basis" by the phone app because it is the basis payroll works from,
-/// not a raw clock log: the day already carries its schedule, its leave and
-/// its holiday, so a missing punch on a public holiday reads as a holiday
-/// rather than an absence.
-export interface AttendanceDay {
-  readonly date: IsoDate
-  readonly status: AttendanceStatus
-  readonly scheduled_from: string | null
-  readonly scheduled_to: string | null
-  readonly first_in: IsoInstant | null
-  readonly last_out: IsoInstant | null
-  readonly worked_minutes: number
-  readonly late_minutes: number
-  readonly place_name: string | null
-  readonly source: "KIOSK" | "RFID" | "MANUAL" | null
-  /// True when a correction for this day is already waiting on a decision, so
-  /// the screen offers to show it rather than to file a second one.
-  readonly correction_pending: boolean
-}
+/// It used to declare an `AttendanceDay` with a `status` of PRESENT / LATE /
+/// INCOMPLETE / ABSENT / LEAVE / HOLIDAY / REST, a `worked_minutes`, and a
+/// `source` of KIOSK / RFID / MANUAL. Every one of those three guesses was
+/// wrong in a way worth recording, because each of them is the sort of thing a
+/// hand-written wire type gets wrong:
+///
+/// * **a day has no single status.** The server derives an outcome *set* —
+///   `LATE` and `AGREED_OVERTIME` are both true of the same evening — and
+///   contradictory ones are not representable. One field could not hold that,
+///   so it would have had to pick, and the one it picked would be the one the
+///   screen showed.
+/// * **a day can be underivable**, and that is not an outcome. "No policy
+///   covers this date" is a statement about the inputs and head office's to
+///   fix; as a status it would read as something the employee did.
+/// * **the sources were invented.** There was never a kiosk and never an RFID
+///   punch. There are exactly two real ones — a registered fingerprint station,
+///   and this app — and the difference between them is the difference between a
+///   reading and a claim.
+///
+/// So the screens read `AttendanceRangeView`, `AttendanceDayView` and
+/// `UnderivableDay` from `@itulah/contract`, generated from the structs the
+/// server actually serialises. This is what the note at the top of the file
+/// meant by these names becoming `contract/` files as each route lands.
 
 export interface AttendanceCorrection {
   readonly correction_id: string

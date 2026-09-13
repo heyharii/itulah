@@ -19,6 +19,8 @@ import { day } from "@/lib/format"
 import {
   awaitingOvertime,
   boundedTo,
+  listCorrections,
+  punchKeys,
   decideLeave,
   leaveKeys,
   overtimeKeys,
@@ -30,16 +32,22 @@ import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { AppLink } from "@/components/ui/app-link"
-import type { LeaveRequestView, OvertimeOrderView } from "@itulah/contract"
+import type {
+  CorrectionRow,
+  LeaveRequestView,
+  OvertimeOrderView,
+} from "@itulah/contract"
 
 /// One queue, not three.
 ///
 /// A manager does not have a "leave task" and a "correction task" and an
 /// "overtime task" — they have five minutes and a list of things waiting on
 /// them. Three screens each holding two rows is how all three stop being
-/// opened. Leave is what this queue holds today; overtime consent and
-/// attendance corrections join it as they land, which is why the empty state
-/// says *requests* rather than *leave requests*.
+/// opened. Leave is the table; overtime consent and attendance corrections
+/// are the two banners above it — both landed 2026-09-13, which is the day the
+/// empty state's promise of *requests* rather than *leave requests* came due.
+/// Neither is a second table, and the reason is the same for both: what a
+/// decider needs in order to judge one does not fit a column.
 ///
 /// The list is bounded by the caller's own posting, on the server. A manager
 /// posted to store-07 is served store-07's requests and nothing else, and head
@@ -172,16 +180,8 @@ export function Requests() {
         }
       />
 
-      {/* Honest about what this queue does not yet hold, so nobody reads an
-          empty list as "nothing is waiting". Attendance corrections wait on a
-          punch source, which is an open product question — see
-          `PEOPLE-BRIEF.md`. */}
-      <Banner tone="info" className="mb-4">
-        Leave and overtime. Attendance corrections join this queue when there is
-        a punch source to correct against.
-      </Banner>
-
       <AwaitingConsent />
+      <PendingCorrections place={boundedTo(reach.data)} />
 
       <Toolbar>
         <FilterPanel model={filters} table={table} />
@@ -347,6 +347,57 @@ function AwaitingConsent() {
       waiting on the people they were given to — {readMinutesSpan(minutes)} in
       all, authorizing nothing until they answer.{" "}
       <AppLink to="/people/overtime">See them</AppLink>.
+    </Banner>
+  )
+}
+
+/// Attendance corrections waiting on a decision.
+///
+/// # Why they are here at all
+///
+/// `PEOPLE-BRIEF.md` promised one queue rather than three, and said this one
+/// would say *requests* rather than *leave requests* for exactly this day. The
+/// corrections routes landed today, so the promise comes due.
+///
+/// # Why a banner and not a second table
+///
+/// Because a correction is decided against a **day**, not against a row. What
+/// a decider needs is the plan, the punches the reader did see, and what the
+/// correction claims instead — and none of that fits a column. So this says how
+/// many are waiting and sends the reader to the screen that can show a day.
+/// A table of correction rows with no way to judge one is a table people learn
+/// to approve without reading, which is worse than no table.
+///
+/// # Why this matters more than it looks
+///
+/// Fingerprint is the only way in, by the owner's decision — no PIN, no card.
+/// So a correction is the *only* route by which a real day of work the reader
+/// failed to see becomes a real day of work again. An unanswered one is
+/// somebody's day quietly missing from the month their pay is built on.
+function PendingCorrections({ place }: { place: string | null }) {
+  const queue = useQuery({
+    queryKey: punchKeys.corrections(place, true),
+    queryFn: ({ signal }) =>
+      listCorrections({ place: place ?? undefined, pending: true }, signal),
+  })
+  const rows: CorrectionRow[] = queue.data ?? []
+  if (rows.length === 0) return null
+
+  const oldest = rows.reduce(
+    (earliest, row) =>
+      row.business_date < earliest ? row.business_date : earliest,
+    rows[0]!.business_date
+  )
+
+  return (
+    <Banner tone="warn" className="mb-4">
+      {rows.length === 1
+        ? "One attendance correction is"
+        : `${rows.length} attendance corrections are`}{" "}
+      waiting on a decision, the oldest for {day(oldest)}. Until one is
+      answered, that day counts as the reader saw it — and fingerprint is the
+      only way in.{" "}
+      <AppLink to="/people/attendance-days">Open attendance</AppLink>.
     </Banner>
   )
 }

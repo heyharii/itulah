@@ -4,6 +4,9 @@ mod auth;
 mod bank_match;
 mod commercial;
 mod commitment;
+/// The payroll component engine: five shapes, no expression evaluation, and
+/// nothing statutory invented. See `component`.
+mod component;
 mod count;
 mod depreciation;
 mod employment;
@@ -31,6 +34,7 @@ pub use auth::*;
 pub use bank_match::*;
 pub use commercial::*;
 pub use commitment::*;
+pub use component::*;
 pub use count::*;
 pub use depreciation::*;
 pub use employment::*;

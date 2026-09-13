@@ -20,13 +20,16 @@ use crate::cloud::{
         self as infrastructure, AccountBalance, AccountMapPage, AccountPage, AcquisitionGap,
         AssessAssetRequest, AssetPage, AssetRow, AssetSchedule, BalanceMatrix, BankInstitution,
         BankStatementLineRow, BankStatementPage, BillPage, BookBankLineRequest, CashCountRow,
-        CompanyBankAccount, ConfirmMatchRequest, DepreciationRun, DescribeBankAccountRequest,
-        DisposeAssetRequest, GeneralLedger, ImportOutcome, ImportStatementRequest,
-        JournalEntryDetail, JournalPage, LedgerAccount, LineSuggestions, MoneyOverview,
-        PayablesAging, PaymentPage, PeriodPage, PostCountRequest, PostingIntent, PostingLine,
-        RecordBillRequest, RecordCountRequest, RecordPaymentRequest, RegisterAssetRequest,
-        SetAccountMappingRequest, Statement, SupplierBill, SupplierPayment, TransferAssetRequest,
-        TrialBalance, UnbilledReceipt, UpdateBankLineRequest,
+        CompanyBankAccount, ConfirmMatchRequest, DecideInstructionRequest, DepositPage,
+        DepreciationRun, DescribeBankAccountRequest, DisposeAssetRequest, GeneralLedger,
+        ImportOutcome, ImportStatementRequest, InstructionPage, JournalEntryDetail, JournalPage,
+        LandDepositRequest, LedgerAccount, LineSuggestions, MoneyOverview, PayablesAging,
+        PaymentInstruction, PaymentPage, PeriodPage, PostCountRequest, PostSaleDayRequest,
+        PostingIntent, PostingLine, RaiseInstructionRequest, RecordBillRequest, RecordCountRequest,
+        RecordDepositRequest, RecordPaymentRequest, RegisterAssetRequest, SaleDayPage, SaleDayRow,
+        SetAccountMappingRequest, SettleInstructionRequest, Statement, StoreDeposit, SupplierBill,
+        SupplierPayment, TransferAssetRequest, TrialBalance, UnbilledReceipt,
+        UpdateBankLineRequest,
     },
 };
 use axum::{
@@ -618,13 +621,19 @@ pub async fn balances(
 
 #[derive(Debug, Deserialize)]
 pub struct StatementQuery {
-    /// `BALANCE_SHEET` or `PROFIT_LOSS`.
+    /// `BALANCE_SHEET`, `PROFIT_LOSS` or `CASH_FLOW`.
     pub kind: Option<String>,
     pub from: Option<NaiveDate>,
     pub to: Option<NaiveDate>,
     pub site: Option<String>,
 }
 
+/// A statement of the books: the position, the result, or where the money went.
+///
+/// `CASH_FLOW` is the DIRECT method and says so — see
+/// `postgres::statements::cash_flow_section` for why the indirect one is not
+/// available to us. It is a window like a profit and loss, so it takes the same
+/// default: the year so far.
 pub async fn statement(
     State(state): State<AppState>,
     Query(query): Query<StatementQuery>,
@@ -632,9 +641,13 @@ pub async fn statement(
     let to = query.to.unwrap_or_else(|| Utc::now().date_naive());
     let kind = query.kind.unwrap_or_else(|| "BALANCE_SHEET".into());
     // A profit and loss with no start is the year so far, which is what
-    // somebody opening it without choosing a window almost always means.
+    // somebody opening it without choosing a window almost always means. A
+    // cash flow is a window too, and takes the same default for the same
+    // reason — it is the one statement that REFUSES without a start rather
+    // than quietly reporting since inception, because "all the cash that ever
+    // moved" is not a question anybody came to ask.
     let from = query.from.or_else(|| {
-        (kind == "PROFIT_LOSS")
+        (kind == "PROFIT_LOSS" || kind == "CASH_FLOW")
             .then(|| NaiveDate::from_ymd_opt(to.year(), 1, 1))
             .flatten()
     });
@@ -1043,6 +1056,31 @@ pub async fn run_depreciation(
     ))
 }
 
+/// What that month would charge, asset by asset, without charging any of it.
+///
+/// Two differences from the run, and both are the point.
+///
+/// It writes nothing. The first real run on this client's register posts
+/// against 683 capitalised assets at once, into their own books; looking first
+/// is not a luxury there.
+///
+/// And it does NOT refuse when a category has no accounts mapped. The run does,
+/// because it would otherwise stop halfway through and leave a month half
+/// charged — but a preview that declines to answer until everything is mapped
+/// is a preview of nothing. It reports the assets that have nowhere to charge,
+/// on the line for each, which is the list somebody needs in order to fix them.
+pub async fn preview_depreciation(
+    State(state): State<AppState>,
+    Json(request): Json<PeriodRequest>,
+) -> Result<Json<DepreciationRun>, AppError> {
+    if !(1..=12).contains(&request.month) {
+        return Err(AppError::Validation("month must be 1..12".into()));
+    }
+    Ok(Json(
+        infrastructure::preview_depreciation(&state.db, request.year, request.month as u32).await?,
+    ))
+}
+
 // ---------------------------------------------------------------------------
 // Cash and bank
 // ---------------------------------------------------------------------------
@@ -1365,4 +1403,321 @@ pub async fn book_bank_line(
         "total_minor": booked.total_minor,
         "matched": true,
     })))
+}
+
+// ---------------------------------------------------------------------------
+// Payment instructions
+// ---------------------------------------------------------------------------
+
+/// The instruction queue: searched, filtered, sorted and paged.
+///
+/// The envelope `GET /bills` and `GET /payments` answer in — see the note on
+/// `bills` for why all three are one shape.
+///
+/// # Query parameters
+///
+/// `q` searches the instruction number, the payee and what it is for. `status`
+/// and `site` filter, and each of them repeats or takes a comma list: two
+/// `status=` parameters is how a panel with two boxes ticked spells itself,
+/// which is why this reads the query string as pairs rather than into a struct.
+/// `sort` is one of `needed`, `raised`, `amount`, with `dir=desc`; anything
+/// else is the house order — what is needed soonest, first, with asks that
+/// named no date behind those that did. `cursor` and `limit` page.
+pub async fn payment_instructions(
+    State(state): State<AppState>,
+    Query(params): Query<Vec<(String, String)>>,
+) -> Result<Json<InstructionPage>, AppError> {
+    refuse_unknown_parameters(&params, &[&PAGING[..], &["status", "site"]].concat())?;
+    Ok(Json(
+        infrastructure::instruction_page(
+            &state.db,
+            infrastructure::InstructionScope {
+                needle: single_value(&params, "q"),
+                statuses: facet_values(&params, "status"),
+                sites: facet_values(&params, "site"),
+                sort: single_value(&params, "sort"),
+                desc: single_value(&params, "dir").as_deref() == Some("desc"),
+                cursor: single_value(&params, "cursor"),
+                limit: limit_value(&params)?,
+            },
+        )
+        .await?,
+    ))
+}
+
+pub async fn payment_instruction(
+    State(state): State<AppState>,
+    Path(instruction_id): Path<Uuid>,
+) -> Result<Json<PaymentInstruction>, AppError> {
+    Ok(Json(
+        infrastructure::instruction(&state.db, instruction_id).await?,
+    ))
+}
+
+/// Raise one. Nothing is posted, now or ever — see the note at the top of
+/// `postgres::payment_instructions`.
+pub async fn raise_payment_instruction(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Extension(acted_on): Extension<DeclaredSubject>,
+    Json(request): Json<RaiseInstructionRequest>,
+) -> Result<Json<PaymentInstruction>, AppError> {
+    let raised =
+        infrastructure::raise_instruction(&state.db, &request, &principal.username).await?;
+    acted_on.set(
+        RecordKind::PaymentInstruction,
+        raised.instruction_id.to_string(),
+    );
+    Ok(Json(raised))
+}
+
+/// Send a draft. The ask becomes head office's to answer.
+pub async fn submit_payment_instruction(
+    State(state): State<AppState>,
+    Path(instruction_id): Path<Uuid>,
+) -> Result<Json<PaymentInstruction>, AppError> {
+    Ok(Json(
+        infrastructure::submit_instruction(&state.db, instruction_id).await?,
+    ))
+}
+
+/// Head office's yes or no, with the vendor the payee turned out to be.
+pub async fn decide_payment_instruction(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(instruction_id): Path<Uuid>,
+    Json(request): Json<DecideInstructionRequest>,
+) -> Result<Json<PaymentInstruction>, AppError> {
+    Ok(Json(
+        infrastructure::decide_instruction(
+            &state.db,
+            instruction_id,
+            &request,
+            &principal.username,
+        )
+        .await?,
+    ))
+}
+
+/// The shop takes its own ask back.
+pub async fn withdraw_payment_instruction(
+    State(state): State<AppState>,
+    Path(instruction_id): Path<Uuid>,
+) -> Result<Json<PaymentInstruction>, AppError> {
+    Ok(Json(
+        infrastructure::withdraw_instruction(&state.db, instruction_id).await?,
+    ))
+}
+
+/// Bind the bill and the payment the ask became. Posts nothing: the payment
+/// was posted by `POST /finance/payments/{id}/post` before this was called,
+/// which is why PAID is a fact rather than a click.
+pub async fn settle_payment_instruction(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(instruction_id): Path<Uuid>,
+    Json(request): Json<SettleInstructionRequest>,
+) -> Result<Json<PaymentInstruction>, AppError> {
+    Ok(Json(
+        infrastructure::settle_instruction(
+            &state.db,
+            instruction_id,
+            &request,
+            &principal.username,
+        )
+        .await?,
+    ))
+}
+
+// ---------------------------------------------------------------------------
+// Deposits
+// ---------------------------------------------------------------------------
+
+/// The deposit register: searched, filtered, sorted and paged.
+///
+/// # Query parameters
+///
+/// `q` searches the deposit number, the slip reference and who carried it.
+/// `status` and `site` filter, each repeatable. `sort` is one of `banked`,
+/// `amount`, with `dir=desc`; anything else is the house order, most recently
+/// banked first. `cursor` and `limit` page.
+///
+/// `in_transit_minor` on the envelope is the figure the Deposits screen used to
+/// estimate by filtering ledger rows in the browser. It is the sum of the
+/// documents, and it agrees with the `cash_in_transit` balance.
+pub async fn deposits(
+    State(state): State<AppState>,
+    Query(params): Query<Vec<(String, String)>>,
+) -> Result<Json<DepositPage>, AppError> {
+    refuse_unknown_parameters(&params, &[&PAGING[..], &["status", "site"]].concat())?;
+    Ok(Json(
+        infrastructure::deposit_page(
+            &state.db,
+            infrastructure::DepositScope {
+                needle: single_value(&params, "q"),
+                statuses: facet_values(&params, "status"),
+                sites: facet_values(&params, "site"),
+                sort: single_value(&params, "sort"),
+                desc: single_value(&params, "dir").as_deref() == Some("desc"),
+                cursor: single_value(&params, "cursor"),
+                limit: limit_value(&params)?,
+            },
+        )
+        .await?,
+    ))
+}
+
+pub async fn deposit(
+    State(state): State<AppState>,
+    Path(deposit_id): Path<Uuid>,
+) -> Result<Json<StoreDeposit>, AppError> {
+    Ok(Json(infrastructure::deposit(&state.db, deposit_id).await?))
+}
+
+/// Write the slip down. Posts nothing unless `bank_now` says the bag has
+/// already gone.
+pub async fn record_deposit(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Extension(acted_on): Extension<DeclaredSubject>,
+    Json(request): Json<RecordDepositRequest>,
+) -> Result<Json<StoreDeposit>, AppError> {
+    let recorded = infrastructure::record_deposit(&state.db, &request, &principal.username).await?;
+    // The drawer is the record, the same choice a cash count makes: "this till
+    // banked 12.000.000 on the 13th" belongs on the account's own history.
+    acted_on.set(RecordKind::Account, recorded.drawer_account_code.clone());
+    Ok(Json(recorded))
+}
+
+/// The bag leaves the till: credit the drawer, debit cash in transit, on the
+/// day it was banked.
+pub async fn bank_deposit(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Extension(acted_on): Extension<DeclaredSubject>,
+    Path(deposit_id): Path<Uuid>,
+) -> Result<Json<StoreDeposit>, AppError> {
+    let banked = infrastructure::bank_deposit(&state.db, deposit_id, &principal.username).await?;
+    acted_on.set(RecordKind::Account, banked.drawer_account_code.clone());
+    Ok(Json(banked))
+}
+
+/// The bank credited it: debit the bank, credit cash in transit, on the bank's
+/// own date. This is the posting a statement line agrees with.
+pub async fn land_deposit(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Extension(acted_on): Extension<DeclaredSubject>,
+    Path(deposit_id): Path<Uuid>,
+    Json(request): Json<LandDepositRequest>,
+) -> Result<Json<StoreDeposit>, AppError> {
+    let landed =
+        infrastructure::land_deposit(&state.db, deposit_id, &request, &principal.username).await?;
+    acted_on.set(RecordKind::Account, landed.drawer_account_code.clone());
+    Ok(Json(landed))
+}
+
+// ---------------------------------------------------------------------------
+// A day's takings
+// ---------------------------------------------------------------------------
+
+/// Which days took money, and which of them are in the book.
+///
+/// Built from the SALES and not from the postings. A list of what has been
+/// posted cannot answer the question this screen exists for, which is what has
+/// NOT been — and that question had no answer at all until now: `SALE_DAY` was
+/// a source kind the schema allowed and nothing ever wrote.
+///
+/// # Query parameters
+///
+/// `site` filters and repeats or takes a comma list, the way every other
+/// filter in this module does. `from` and `to` are TRADING days, not instants.
+/// `posted=true` or `posted=false` narrows to one side of the gap; leaving it
+/// off shows both, which is what a person opening the screen wants to see.
+/// `offset` is the day boundary in minutes east of UTC and defaults to WIB —
+/// the same default every sales report uses, so a day here and a day there are
+/// the same day.
+pub async fn sale_days(
+    State(state): State<AppState>,
+    Query(params): Query<Vec<(String, String)>>,
+) -> Result<Json<SaleDayPage>, AppError> {
+    refuse_unknown_parameters(
+        &params,
+        &["site", "from", "to", "posted", "offset", "cursor", "limit"],
+    )?;
+    let date = |name: &str| -> Result<Option<NaiveDate>, AppError> {
+        single_value(&params, name)
+            .map(|raw| {
+                raw.parse::<NaiveDate>().map_err(|_| {
+                    AppError::Validation(format!("{name} {raw:?} is not a date (YYYY-MM-DD)"))
+                })
+            })
+            .transpose()
+    };
+    let posted = match single_value(&params, "posted").as_deref() {
+        None => None,
+        Some("true") => Some(true),
+        Some("false") => Some(false),
+        Some(other) => {
+            return Err(AppError::Validation(format!(
+                "posted is true or false, not {other:?}"
+            )))
+        }
+    };
+    let utc_offset_minutes = single_value(&params, "offset")
+        .map(|raw| {
+            raw.parse::<i32>()
+                .map_err(|_| AppError::Validation(format!("offset {raw:?} is not a number")))
+        })
+        .transpose()?;
+    Ok(Json(
+        infrastructure::sale_days(
+            &state.db,
+            infrastructure::SaleDayScope {
+                sites: facet_values(&params, "site"),
+                from: date("from")?,
+                to: date("to")?,
+                posted,
+                utc_offset_minutes,
+                cursor: single_value(&params, "cursor"),
+                limit: limit_value(&params)?,
+            },
+        )
+        .await?,
+    ))
+}
+
+/// Put one unit's day in the book.
+///
+/// The same two-step shape as `POST /finance/bills/{id}/post`: the fact is
+/// already recorded — the till recorded it — and this is somebody deciding it
+/// belongs in the ledger.
+///
+/// **Calling it twice books it once.** The second call answers with the first
+/// call's entry rather than refusing, because re-posting a day is what a
+/// retry, a double click and a script re-run all look like, and each of them
+/// wants the same answer: here is the entry for that day. The guarantee is the
+/// primary key of `sale_day_posting`, held inside the same transaction as the
+/// entry — see `postgres::sale_day::post_sale_day`.
+pub async fn post_sale_day(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Extension(acted_on): Extension<DeclaredSubject>,
+    Path((site_id, trading_day)): Path<(String, NaiveDate)>,
+    Json(request): Json<PostSaleDayRequest>,
+) -> Result<Json<SaleDayRow>, AppError> {
+    let day = infrastructure::post_sale_day(
+        &state.db,
+        &site_id,
+        trading_day,
+        &request,
+        &principal.username,
+    )
+    .await?;
+    // Filed against the journal entry, which is the record somebody opens when
+    // they ask what this day did to the books.
+    if let Some(entry_id) = day.entry_id {
+        acted_on.set(RecordKind::Journal, entry_id.to_string());
+    }
+    Ok(Json(day))
 }

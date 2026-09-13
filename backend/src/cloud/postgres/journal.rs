@@ -650,7 +650,29 @@ pub struct GeneralLedgerRow {
     pub posting_date: NaiveDate,
     pub source_kind: String,
     pub source_id: Option<String>,
+    /// The account this LINE landed on, which is not always the account that
+    /// was asked for.
+    ///
+    /// The code is matched by PREFIX — that is how "what happened in CASH this
+    /// month" is asked without knowing cash is fourteen leaves — so under a
+    /// heading the rows come from several accounts and a row that could not
+    /// name its own was unreadable. Filling that column meant opening every
+    /// voucher, one request per row, to find out which leaf the line was on.
+    pub account_code: String,
+    /// The client's own name for that account, never translated.
+    pub account_name: String,
     pub site_id: String,
+    /// Who the other side was, when the posting named one.
+    ///
+    /// `journal_line.supplier_id` is the sub-ledger dimension the payables
+    /// ageing is projected over (0051), so it is the party on every bill and
+    /// every payment line. Null on a sales entry, a depreciation charge or a
+    /// hand-written correction, which have no party and must not pretend to.
+    pub supplier_id: Option<String>,
+    /// The supplier's name, looked up best-effort. Null when the line carries
+    /// no party, and also when it names one no longer in the register — the id
+    /// is the record and the name is the courtesy.
+    pub supplier_name: Option<String>,
     pub memo: Option<String>,
     pub debit_minor: i64,
     pub credit_minor: i64,
@@ -744,7 +766,8 @@ impl LedgerCursor {
 /// ledger in the order the ledger means.
 const LEDGER_WINDOW: &str = "
     SELECT l.line_id, e.entry_id, e.entry_number, e.posting_date, e.source_kind,
-           e.source_id, l.site_id, COALESCE(l.memo, e.memo) AS memo,
+           e.source_id, l.site_id, l.account_code, l.supplier_id,
+           COALESCE(l.memo, e.memo) AS memo,
            l.debit_minor, l.credit_minor,
            (m.journal_line_id IS NOT NULL) AS reconciled,
            -- A line is one-sided — the table's own CHECK says so — so adding
@@ -860,15 +883,32 @@ pub async fn general_ledger(
     // pushed through. Materialised, this reads the whole table and sorts it
     // to hand back one page; inlined, it seeks the index. See
     // `postgres::audit::list_audit`, where the difference was measured.
+    // The two names are joined OUTSIDE the page, against the handful of rows
+    // the limit left, rather than inside `LEDGER_WINDOW` — which the facet
+    // counts and the window totals also read, and which would then pay for a
+    // join per row of the whole month to label rows nobody is looking at.
+    //
+    // The supplier id is `text` on `journal_line` and a `uuid` on `supplier`
+    // (0051 left it undeclared on purpose: a line's party is a dimension, not
+    // a reference). The cast is on the supplier's side so a line carrying
+    // something that is not a uuid comes back with no name instead of failing
+    // the whole read.
     let sql = format!(
         "WITH windowed AS NOT MATERIALIZED ({LEDGER_WINDOW}),
               searched AS NOT MATERIALIZED ({LEDGER_SEARCH}),
-              kept AS NOT MATERIALIZED ({LEDGER_FILTERS})
-         SELECT * FROM kept
-          WHERE $8::uuid IS NULL
-             OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE line_id = $8)
-          ORDER BY {order}
-          LIMIT $9"
+              kept AS NOT MATERIALIZED ({LEDGER_FILTERS}),
+              page AS NOT MATERIALIZED (
+                SELECT * FROM kept
+                 WHERE $8::uuid IS NULL
+                    OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE line_id = $8)
+                 ORDER BY {order}
+                 LIMIT $9
+              )
+         SELECT page.*, account.name AS account_name, party.name AS supplier_name
+           FROM page
+           LEFT JOIN ledger_account account ON account.account_code = page.account_code
+           LEFT JOIN supplier party ON party.supplier_id::text = page.supplier_id
+          ORDER BY {order}"
     );
     let rows = sqlx::query(&sql)
         .bind(account_code)
@@ -902,7 +942,16 @@ pub async fn general_ledger(
             posting_date: row.try_get("posting_date")?,
             source_kind: row.try_get("source_kind")?,
             source_id: row.try_get("source_id")?,
+            account_code: row.try_get("account_code")?,
+            // The chart is the authority on an account's name, but a line can
+            // outlive the row that named it — an account retired after it was
+            // posted to still has its history. The code is the record.
+            account_name: row
+                .try_get::<Option<String>, _>("account_name")?
+                .unwrap_or_default(),
             site_id: row.try_get("site_id")?,
+            supplier_id: row.try_get("supplier_id")?,
+            supplier_name: row.try_get("supplier_name")?,
             memo: row.try_get("memo")?,
             debit_minor: row.try_get("debit_minor")?,
             credit_minor: row.try_get("credit_minor")?,

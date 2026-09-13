@@ -159,6 +159,25 @@ pub fn required_role(method: &str, path: &str) -> Role {
     {
         return Role::Supervisor;
     }
+    // Hiring requests, before the blanket GET rule below, and for the reason
+    // finance and purchasing sit above it: that rule makes every read a CASHIER
+    // read, which is right for stock and quite wrong here. A hire proposal
+    // names a candidate and the base pay a shop is asking to offer, and holding
+    // a till token is not a reason to see either.
+    //
+    // It matters twice. The route itself re-checks `people.hire_proposal.read`
+    // in the handler, so this gate grants nothing there — but
+    // `/api/v1/records/{kind}/{id}/…` derives its rung by delegating to this
+    // function for the record's read path, and without this arm a cashier could
+    // read a proposal's comments and history through that surface.
+    //
+    // Only the reads are named here. The writes fall through to SUPERVISOR at
+    // the bottom, which is right: filing a proposal is a place manager's act,
+    // and the one write that is head office's — the decision — is held there by
+    // its own action key rather than by the path.
+    if path.starts_with("/api/v1/hire-proposals") && method.eq_ignore_ascii_case("GET") {
+        return Role::Supervisor;
+    }
     if method.eq_ignore_ascii_case("GET") {
         return Role::Cashier;
     }

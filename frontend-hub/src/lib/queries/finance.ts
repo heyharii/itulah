@@ -13,6 +13,7 @@ import type {
   BalanceMatrix,
   BankStatementLineRow,
   BankStatementPage,
+  BillPage,
   BookBankLineRequest,
   BankInstitution,
   CashCountRow,
@@ -35,10 +36,20 @@ import type {
   LineSuggestions,
   MoneyOverview,
   PayablesAging,
+  PaymentPage,
   PeriodPage,
+  DecideInstructionRequest,
+  DepositPage,
+  InstructionPage,
+  LandDepositRequest,
+  PaymentInstruction,
+  RaiseInstructionRequest,
   RecordBillRequest,
+  RecordDepositRequest,
   RecordPaymentRequest,
   RegisterAssetRequest,
+  SettleInstructionRequest,
+  StoreDeposit,
   SetAccountMappingRequest,
   Statement,
   SupplierBill,
@@ -92,14 +103,46 @@ export const financeKeys = {
     ["finance", "accounts", "children", parent, inactive] as const,
   accountSearch: (needle: string, inactive: boolean) =>
     ["finance", "accounts", "search", needle, inactive] as const,
-  account: (code: string, asOf: string | null) =>
-    ["finance", "accounts", "detail", code, asOf] as const,
+  /// `site` is part of the key because `accountDetail` takes it and the
+  /// balance it fetches is a DIFFERENT balance for each one — "cash at
+  /// Cikupa" is not a filtered view of "cash". Without it two units collided
+  /// on one entry and the second to ask was served the first one's figure.
+  ///
+  /// Optional with a null default, so every existing caller keys exactly as
+  /// it did.
+  account: (code: string, asOf: string | null, site: string | null = null) =>
+    ["finance", "accounts", "detail", code, asOf, site] as const,
+  /// Every argument that changes the ANSWER, and not only the ones that
+  /// change the window.
+  ///
+  /// `q`, `kind` and `limit` narrow the rows the server sends, so two
+  /// searches of the same account over the same month are two different
+  /// answers — and they were being held under one key, where the first to
+  /// arrive was served to the second. The window totals are unaffected by
+  /// any of them (see `GeneralLedger`), which is exactly why the collision
+  /// was invisible: the headline figures agreed while the rows did not.
   ledger: (
     code: string,
     site: string | null,
     from: string | null,
-    to: string | null
-  ) => ["finance", "ledger", code, site, from, to] as const,
+    to: string | null,
+    narrowing: {
+      readonly q?: string | null
+      readonly kind?: string | null
+      readonly limit?: number | null
+    } = {}
+  ) =>
+    [
+      "finance",
+      "ledger",
+      code,
+      site,
+      from,
+      to,
+      narrowing.q ?? null,
+      narrowing.kind ?? null,
+      narrowing.limit ?? null,
+    ] as const,
 
   trialBalance: (asOf: string | null, site: string | null) =>
     ["finance", "trial-balance", asOf, site] as const,
@@ -129,7 +172,12 @@ export const financeKeys = {
   ) => ["finance", "journal", from, to, kind, site] as const,
   entry: (id: string) => ["finance", "journal", "entry", id] as const,
 
-  bills: (status: string | null) => ["finance", "bills", status] as const,
+  /// The bill register. `site` is part of the key for the same reason
+  /// `payments` already keys on one: `GET /finance/bills` has always taken it
+  /// and narrows on the server, so a unit-filtered list is a different answer
+  /// and not a slice of a wider one held here.
+  bills: (status: string | null, site: string | null = null) =>
+    ["finance", "bills", status, site] as const,
   /// One bill with what it was for. Its own key and not a slice of the list:
   /// the list deliberately sends `lines: null` — one query per row to draw a
   /// table is how a list gets slow without anybody being able to point at the
@@ -166,7 +214,14 @@ export const financeKeys = {
   /// Where the money sits, as at a date, at one location or all of them.
   money: (asOf: string | null, site: string | null) =>
     ["finance", "money", asOf, site] as const,
-  bankStatements: () => ["finance", "bank-statements"] as const,
+  /// What the bank has told us, for one unit or for all of them.
+  ///
+  /// `listBankStatements` takes `site` and narrows on the server, so the unit
+  /// belongs in the key: without it a screen showing Store 03's statements and
+  /// one showing the chain's were writing to the same entry, and whichever
+  /// asked second read the other's rows.
+  bankStatements: (site: string | null = null) =>
+    ["finance", "bank-statements", site] as const,
   bankLines: (statementId: string) =>
     ["finance", "bank-statements", statementId, "lines"] as const,
   /// Counts of one drawer, or of all of them.
@@ -179,6 +234,20 @@ export const financeKeys = {
     ["finance", "cash-counts", account, site] as const,
   bankSuggestions: (statementId: string, exact = true) =>
     ["finance", "bank-statements", statementId, "suggestions", exact] as const,
+
+  /// The instruction queue. Both filters are the server's, so a narrowed list
+  /// is a narrowed request and never a slice of a wider answer held in the
+  /// browser — and both are in the key, because a key carrying neither would
+  /// let one shop's queue overwrite the company's under the same entry.
+  paymentInstructions: (status: string | null, site: string | null) =>
+    ["finance", "payment-instructions", status, site] as const,
+  paymentInstruction: (id: string) =>
+    ["finance", "payment-instructions", "detail", id] as const,
+
+  /// Deposits, narrowed on the server the same way.
+  deposits: (status: string | null, site: string | null) =>
+    ["finance", "deposits", status, site] as const,
+  deposit: (id: string) => ["finance", "deposits", "detail", id] as const,
 }
 
 /// Query string from whatever is actually set. An absent option and an empty
@@ -381,11 +450,26 @@ export function setAccountMapping(
 ///
 /// The month is sent rather than left to the server: this browser's month is
 /// the operator's month, and the node keeps UTC.
+/// Only `month_not_open` is about the month that was asked for. The other two
+/// are STANDING counts — every bill late today, every gap in the account map as
+/// it stands — and the server now says so in `scopes` rather than leaving the
+/// shape of the request to imply that all three move with the month.
 export interface FinanceAttention {
   readonly overdue_bills: number
   readonly unmapped_pairs: number
   readonly month_not_open: number
   readonly attention: number
+  /// The month the badge was asked about, echoed back.
+  readonly year: number
+  readonly month: number
+  /// The day the STANDING counts were taken on, `YYYY-MM-DD`.
+  readonly as_of: string
+  /// `MONTH` or `STANDING`, per count.
+  readonly scopes: {
+    readonly overdue_bills: "STANDING"
+    readonly unmapped_pairs: "STANDING"
+    readonly month_not_open: "MONTH"
+  }
 }
 
 export function financeAttention(
@@ -579,11 +663,27 @@ export function balanceMatrix(
   )
 }
 
-export type StatementKind = "BALANCE_SHEET" | "PROFIT_LOSS"
+export type StatementKind = "BALANCE_SHEET" | "PROFIT_LOSS" | "CASH_FLOW"
 
-/// The balance sheet, or the profit and loss, from the client's own root
-/// classes. Figures come back as the ledger holds them — debits positive — and
-/// the screen decides how a credit-natured class should read.
+/// The balance sheet, the profit and loss, or the cash flow.
+///
+/// The first two are built from the client's own root classes and come back as
+/// the ledger holds them — debits positive — with the screen deciding how a
+/// credit-natured class should read.
+///
+/// `CASH_FLOW` is a different report and says so on the wire. It is the DIRECT
+/// method: the accounts the account map calls money are read, every entry that
+/// touched one in the window is opened, and the cash is attributed to the other
+/// side of that entry. Nothing is added back to a profit figure, because the
+/// per-account operating/investing/financing classification the indirect method
+/// needs is data this chart does not carry.
+///
+/// Two consequences for a screen drawing it. `amount_minor` is the CASH effect
+/// and positive means money came in — the opposite of the sign convention on
+/// the other two, deliberately. And `out_of_balance_minor` is a real check
+/// rather than always zero: `opening_cash + result - closing_cash`, non-zero
+/// when cash moved in a way the sections do not explain, which is worth showing
+/// rather than hiding.
 export function statement(
   kind: StatementKind,
   options: { from?: string; to?: string; site?: string } = {},
@@ -599,41 +699,45 @@ export function statement(
 // Supplier bills
 // ---------------------------------------------------------------------------
 
-/// The page the bill register now answers with.
-///
-/// Only the field this app reads is declared. The server exports the whole
-/// envelope — `next_cursor`, `total`, `total_minor`, `outstanding_minor` and
-/// the status facet counts — as `BillPage`, and this local shape is here only
-/// because `make contract` has not been run for it yet. Delete it and import
-/// the generated type when it has; a structural subset means the swap cannot
-/// change what compiles.
-type BillPageRows = { rows: SupplierBill[] }
-
 /// The bill register.
 ///
 /// `GET /finance/bills` grew a search, a sort, a keyset cursor and facet
-/// counts, and with them an envelope: `{ rows, next_cursor, total, … }` rather
-/// than the bare array it used to answer with. This app reads lists, sums them
-/// and bins them; it does not page. So it unwraps here, in one place, rather
-/// than at the ten call sites — a new screen that wants the page reads it from
-/// the server's own shape instead of through this.
+/// counts, and with them an envelope: `{ rows, next_cursor, total,
+/// total_minor, outstanding_minor, facets }` rather than the bare array it
+/// used to answer with.
+///
+/// This used to unwrap to `rows` behind a hand-written `{ rows: SupplierBill[]
+/// }`, declared here because `make contract` had not been run for the
+/// envelope. It has: `BillPage` is generated from the server's own struct. The
+/// unwrap went with the local type, because the four fields it was throwing
+/// away are the four a screen cannot compute — `total` is how many the server
+/// has, and a browser that adds up a capped list to get `total_minor` or
+/// `outstanding_minor` is reporting the size of its own page.
+///
+/// `site` is forwarded. The endpoint has always taken it and narrows on the
+/// server; nothing here sent it, so a unit-filtered bill list was a
+/// possibility the wrapper quietly withheld.
 ///
 /// `limit` defaults to 200 and did not used to have to: the server's default
 /// was 200 and is now "everything, unpaged", because a caller that asks for a
 /// whole list and adds it up must not silently be answered with the first
 /// page. Every screen behind this function is such a caller AND draws a table,
 /// so the old ceiling is kept here deliberately — moving it is a decision about
-/// a screen, not about a wrapper.
+/// a screen, not about a wrapper. `rows.length < total` is now how a screen
+/// can see that it was capped.
 export function listBills(
-  options: { status?: string; supplier?: string; limit?: number } = {},
+  options: {
+    status?: string
+    supplier?: string
+    site?: string
+    limit?: number
+  } = {},
   signal?: AbortSignal
-): Promise<SupplierBill[]> {
-  return node
-    .get<BillPageRows>(
-      `/api/v1/finance/bills${search({ limit: 200, ...options })}`,
-      { signal }
-    )
-    .then((page) => page.rows)
+): Promise<BillPage> {
+  return node.get<BillPage>(
+    `/api/v1/finance/bills${search({ limit: 200, ...options })}`,
+    { signal }
+  )
 }
 
 /// One bill, and what it was for.
@@ -723,10 +827,9 @@ export function payablesAging(
 /// `supplier` narrows on the *allocations* rather than on the payment: one
 /// bank line settling two suppliers is an ordinary Friday, so a payment does
 /// not have a supplier of its own.
-/// The page the register now answers with; see `BillPageRows`, which says why
-/// this is declared here rather than imported.
-type PaymentPageRows = { rows: SupplierPayment[] }
-
+///
+/// Answers in the server's own envelope — see `listBills`, which says why the
+/// hand-written `{ rows }` and the unwrap behind it are both gone.
 export function listPayments(
   options: {
     status?: string
@@ -735,13 +838,11 @@ export function listPayments(
     limit?: number
   } = {},
   signal?: AbortSignal
-): Promise<SupplierPayment[]> {
-  return node
-    .get<PaymentPageRows>(
-      `/api/v1/finance/payments${search({ limit: 200, ...options })}`,
-      { signal }
-    )
-    .then((page) => page.rows)
+): Promise<PaymentPage> {
+  return node.get<PaymentPage>(
+    `/api/v1/finance/payments${search({ limit: 200, ...options })}`,
+    { signal }
+  )
 }
 
 export function payment(
@@ -1261,5 +1362,178 @@ export function saveGiroPrintTemplate(
         "If-Match": `"${version}"`,
       },
     }
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Payment instructions
+// ---------------------------------------------------------------------------
+
+/// The queue of asks: what shops have sent head office, and what happened to
+/// each.
+///
+/// Answers the envelope `GET /finance/bills` and `GET /finance/payments`
+/// answer in, and this one is NOT unwrapped here. The screen wants
+/// `open_minor` and the status facet counts — a queue that could only say how
+/// many rows it drew would be a queue nobody could work from — so the whole
+/// page comes through.
+///
+/// `limit` is deliberately not sent: without one the server answers the whole
+/// matched set unpaged, which is what a screen that adds a column up needs.
+export function listPaymentInstructions(
+  options: { status?: string; site?: string; sort?: string } = {},
+  signal?: AbortSignal
+): Promise<InstructionPage> {
+  return node.get<InstructionPage>(
+    `/api/v1/finance/payment-instructions${search(options)}`,
+    { signal }
+  )
+}
+
+export function paymentInstruction(
+  instructionId: string,
+  signal?: AbortSignal
+): Promise<PaymentInstruction> {
+  return node.get<PaymentInstruction>(
+    `/api/v1/finance/payment-instructions/${encodeURIComponent(instructionId)}`,
+    { signal }
+  )
+}
+
+/// Raise one. `submit: true` sends it in the same act that writes it.
+///
+/// Nothing here reaches the ledger, now or at any later rung: the accounting
+/// happens in the bill and the payment the ask becomes.
+export function raisePaymentInstruction(
+  request: RaiseInstructionRequest,
+  signal?: AbortSignal
+): Promise<PaymentInstruction> {
+  return node.post<PaymentInstruction>(
+    "/api/v1/finance/payment-instructions",
+    request,
+    { signal }
+  )
+}
+
+/// Send a draft. The ask becomes head office's to answer.
+export function submitPaymentInstruction(
+  instructionId: string,
+  signal?: AbortSignal
+): Promise<PaymentInstruction> {
+  return node.post<PaymentInstruction>(
+    `/api/v1/finance/payment-instructions/${encodeURIComponent(instructionId)}/submit`,
+    {},
+    { signal }
+  )
+}
+
+/// Head office's yes or no.
+///
+/// Approving means naming the vendor the payee turned out to be; the server
+/// refuses without one, because until the payee is a vendor the ask cannot
+/// become a payable anybody can age.
+export function decidePaymentInstruction(
+  instructionId: string,
+  request: DecideInstructionRequest,
+  signal?: AbortSignal
+): Promise<PaymentInstruction> {
+  return node.post<PaymentInstruction>(
+    `/api/v1/finance/payment-instructions/${encodeURIComponent(instructionId)}/decide`,
+    request,
+    { signal }
+  )
+}
+
+/// The shop takes its own ask back. Not a refusal — that is a decision head
+/// office made, and one status could not tell the two apart afterwards.
+export function withdrawPaymentInstruction(
+  instructionId: string,
+  signal?: AbortSignal
+): Promise<PaymentInstruction> {
+  return node.post<PaymentInstruction>(
+    `/api/v1/finance/payment-instructions/${encodeURIComponent(instructionId)}/withdraw`,
+    {},
+    { signal }
+  )
+}
+
+/// Bind the bill and the payment the ask became. The payment must already be
+/// posted, which is what makes Paid a fact rather than a click.
+export function settlePaymentInstruction(
+  instructionId: string,
+  request: SettleInstructionRequest,
+  signal?: AbortSignal
+): Promise<PaymentInstruction> {
+  return node.post<PaymentInstruction>(
+    `/api/v1/finance/payment-instructions/${encodeURIComponent(instructionId)}/settle`,
+    request,
+    { signal }
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Deposits
+// ---------------------------------------------------------------------------
+
+/// Takings on their way from a drawer to a bank account.
+///
+/// The envelope comes through whole for `in_transit_minor`, which is the one
+/// figure this list exists to report and the one a browser must not compute:
+/// it is what the unit has in the air, not what the visible rows add up to, so
+/// filtering to LANDED leaves it unchanged.
+export function listDeposits(
+  options: { status?: string; site?: string; sort?: string } = {},
+  signal?: AbortSignal
+): Promise<DepositPage> {
+  return node.get<DepositPage>(`/api/v1/finance/deposits${search(options)}`, {
+    signal,
+  })
+}
+
+export function depositDetail(
+  depositId: string,
+  signal?: AbortSignal
+): Promise<StoreDeposit> {
+  return node.get<StoreDeposit>(
+    `/api/v1/finance/deposits/${encodeURIComponent(depositId)}`,
+    { signal }
+  )
+}
+
+/// Write the slip down. Posts nothing unless `bank_now` says the bag has
+/// already gone.
+export function recordDeposit(
+  request: RecordDepositRequest,
+  signal?: AbortSignal
+): Promise<StoreDeposit> {
+  return node.post<StoreDeposit>("/api/v1/finance/deposits", request, {
+    signal,
+  })
+}
+
+/// The bag leaves the till: credit the drawer, debit cash in transit, on the
+/// day it was banked.
+export function bankDeposit(
+  depositId: string,
+  signal?: AbortSignal
+): Promise<StoreDeposit> {
+  return node.post<StoreDeposit>(
+    `/api/v1/finance/deposits/${encodeURIComponent(depositId)}/bank`,
+    {},
+    { signal }
+  )
+}
+
+/// The bank credited it: debit the bank, credit cash in transit, on the bank's
+/// own date. This is the posting a statement line agrees with.
+export function landDeposit(
+  depositId: string,
+  request: LandDepositRequest,
+  signal?: AbortSignal
+): Promise<StoreDeposit> {
+  return node.post<StoreDeposit>(
+    `/api/v1/finance/deposits/${encodeURIComponent(depositId)}/land`,
+    request,
+    { signal }
   )
 }

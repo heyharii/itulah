@@ -1,4 +1,5 @@
 import { BAND_NEUTRAL, BAND_TONES } from "@/lib/chart-bands"
+import { count, money } from "@/lib/format"
 import type {
   SalesSeries,
   SalesSeriesCell,
@@ -15,17 +16,79 @@ import type {
 
 /// Which number a cell is showing.
 ///
-/// Three measures of the same trade, and they disagree in ways worth being
+/// Five measures of the same trade, and they disagree in ways worth being
 /// able to see: a shop can take more money on fewer sales (it sold dearer
 /// things) or make more sales for less money (it discounted). One chart
-/// showing whichever the reader asked for, rather than three axes to re-read.
-export type SalesKind = "gross_minor" | "sales_count" | "units_sold"
+/// showing whichever the reader asked for, rather than five axes to re-read.
+///
+/// **Three are counted and two are divided**, and the difference is the only
+/// thing in this file worth being careful about. Takings, sales and units are
+/// additive: a fortnight is the sum of its days and the fleet is the sum of
+/// its shops. Average basket and units per sale are NOT — the fleet's average
+/// basket is not the average of thirteen shops' averages, it is the fleet's
+/// takings over the fleet's sales. So every accessor below adds the two parts
+/// first and divides once, at the level it is being asked about. Summing a
+/// ratio is the single easiest way to put a plausible wrong number on a
+/// dashboard, and it is wrong in the direction that flatters small shops.
+export type SalesKind =
+  | "gross_minor"
+  | "sales_count"
+  | "units_sold"
+  | "average_minor"
+  | "items_per_sale"
 
-export const SALES_KINDS: readonly { kind: SalesKind; label: string }[] = [
-  { kind: "gross_minor", label: "Takings" },
-  { kind: "sales_count", label: "Sales" },
-  { kind: "units_sold", label: "Units" },
+/// The additive three, which are the only fields the server actually sends.
+type Counted = "gross_minor" | "sales_count" | "units_sold"
+
+/// The divided two, as the pair of counted fields they are the ratio of.
+const RATIO: Partial<Record<SalesKind, readonly [Counted, Counted]>> = {
+  average_minor: ["gross_minor", "sales_count"],
+  items_per_sale: ["units_sold", "sales_count"],
+}
+
+/// A measure worked out over whatever `sum` adds up — one cell, one shop's
+/// span, one bucket's fleet, or the whole grid. The caller decides the scope
+/// by what its `sum` walks; this decides the arithmetic.
+function measure(kind: SalesKind, sum: (field: Counted) => number): number {
+  const pair = RATIO[kind]
+  if (pair === undefined) return sum(kind as Counted)
+  const denominator = sum(pair[1])
+  return denominator === 0 ? 0 : sum(pair[0]) / denominator
+}
+
+export const SALES_KINDS: readonly {
+  kind: SalesKind
+  label: string
+  /// What the tile says under the figure when there is room. Retail's own
+  /// names for these, because that is what the people reading them call them.
+  hint: string
+}[] = [
+  { kind: "gross_minor", label: "Takings", hint: "Gross, tax in" },
+  { kind: "sales_count", label: "Transactions", hint: "Completed sales" },
+  { kind: "average_minor", label: "Avg transaction", hint: "ATV" },
+  { kind: "units_sold", label: "Units", hint: "Pieces sold" },
+  { kind: "items_per_sale", label: "Units per sale", hint: "UPT" },
 ]
+
+/// A measure, in the units it is measured in.
+///
+/// Here rather than in each screen so the chart's tooltip, the tiles and every
+/// cell of the table cannot format the same number two ways — and so the two
+/// divided measures are rounded in exactly one place. Money to the rupiah, a
+/// basket size to one decimal: "2 units a sale" and "2,4 units a sale" are
+/// different findings and the second is the true one.
+export function showSales(kind: SalesKind, value: number): string {
+  if (kind === "gross_minor" || kind === "average_minor") {
+    return money(Math.round(value))
+  }
+  if (kind === "items_per_sale") {
+    return value.toLocaleString("id-ID", {
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 1,
+    })
+  }
+  return count(value)
+}
 
 /// How many shops get a hue of their own.
 ///
@@ -107,13 +170,19 @@ export function buildMatrix(
   const cellOf = (siteId: string, bucket: string) =>
     cells.get(`${siteId}|${bucket}`)
 
+  /// One shop's counted field in one bucket. The floor everything else adds up.
+  const counted = (siteId: string, bucket: string, field: Counted) =>
+    cellOf(siteId, bucket)?.[field] ?? 0
+
   const siteValue = (siteId: string, bucket: string, kind: SalesKind) =>
-    cellOf(siteId, bucket)?.[kind] ?? 0
+    measure(kind, (field) => counted(siteId, bucket, field))
 
   const siteTotal = (siteId: string, kind: SalesKind) =>
-    series.buckets.reduce(
-      (sum, bucket) => sum + siteValue(siteId, bucket, kind),
-      0
+    measure(kind, (field) =>
+      series.buckets.reduce(
+        (sum, bucket) => sum + counted(siteId, bucket, field),
+        0
+      )
     )
 
   // Biggest first, so the bands that carry the column sit at its foot where
@@ -180,19 +249,38 @@ export function buildMatrix(
     cellOf,
     siteValue,
     siteTotal,
+    // Each of these adds the counted parts over its own scope and divides
+    // once, rather than adding up whatever `siteValue` returned. For the three
+    // counted measures that is the same arithmetic; for the two divided ones
+    // it is the difference between the fleet's average basket and the average
+    // of the shops' averages, which are not the same number.
     bucketTotal: (bucket, kind) =>
-      rows.reduce(
-        (sum, site) => sum + siteValue(site.site_id, bucket, kind),
-        0
+      measure(kind, (field) =>
+        rows.reduce(
+          (sum, site) => sum + counted(site.site_id, bucket, field),
+          0
+        )
       ),
     grandTotal: (kind) =>
-      rows.reduce((sum, site) => sum + siteTotal(site.site_id, kind), 0),
+      measure(kind, (field) =>
+        rows.reduce(
+          (sum, site) =>
+            sum +
+            series.buckets.reduce(
+              (inner, bucket) => inner + counted(site.site_id, bucket, field),
+              0
+            ),
+          0
+        )
+      ),
     bandValue: (bandKey, bucket, kind) => {
       const band = bandOf.get(bandKey)
       if (band === undefined) return 0
-      return band.siteIds.reduce(
-        (sum, siteId) => sum + siteValue(siteId, bucket, kind),
-        0
+      return measure(kind, (field) =>
+        band.siteIds.reduce(
+          (sum, siteId) => sum + counted(siteId, bucket, field),
+          0
+        )
       )
     },
   }

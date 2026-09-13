@@ -2,9 +2,9 @@
 //!
 //! # The rule this module makes structural
 //!
-//! **Only a registered, active terminal at a place can create a punch there.**
-//! A phone cannot. The employee app cannot. A browser session at head office
-//! cannot. Nothing that is not a device standing in a unit can.
+//! **Only a registered, active terminal at a place can create a punch there
+//! *that claims a finger was read*.** A phone cannot. A browser session at head
+//! office cannot. Nothing that is not a device standing in a unit can.
 //!
 //! In the implementation the reference replaced, the punch endpoint took
 //! `source` as free text from the request body and *defaulted it to
@@ -14,11 +14,24 @@
 //! authority model.
 //!
 //! Here the authority is a type. [`super::Punch`] cannot be built from raw
-//! fields at all: it needs a [`TerminalAttestation`], whose fields are private,
-//! which has no public constructor, no `Deserialize` and exactly one production
-//! path — [`AttendanceTerminal::attest`], on a terminal whose status is
-//! [`TerminalStatus::Active`]. No amount of caller creativity produces one from
-//! a request body, because there is no function that does it.
+//! fields at all: a terminal punch needs a [`TerminalAttestation`], whose fields
+//! are private, which has no public constructor, no `Deserialize` and exactly
+//! one production path — [`AttendanceTerminal::attest`], on a terminal whose
+//! status is [`TerminalStatus::Active`]. No amount of caller creativity produces
+//! one from a request body, because there is no function that does it.
+//!
+//! # The employee app is a second source, and it borrows none of this
+//!
+//! This module's doc used to say the employee app could not produce a punch at
+//! all. Since 2026-09-13 it can, because no reader has been bought and the HR
+//! month had no input whatsoever; the sentence above is narrowed rather than
+//! deleted, because what it was protecting is still protected. A phone punch is
+//! built from a [`super::SelfPunchClaim`] and carries
+//! [`super::PunchSource::EmployeeApp`], so it names **no terminal and no
+//! method** — the columns a fingerprint reading fills are null, `0239`'s check
+//! constraint makes the halfway row unstorable, and nothing this module hands
+//! out is reachable from that path. The old defect was a phone punch that could
+//! *look* biometric; that remains impossible.
 //!
 //! # Registering one is an audited act, not an insert
 //!
@@ -323,10 +336,7 @@ impl AttendanceTerminal {
     ) -> Result<(), AttendanceError> {
         Self::require_administering(&authorization)?;
         self.status = Self::advance(self.status, to)?;
-        self.history.push(TerminalEvent {
-            to,
-            authorization,
-        });
+        self.history.push(TerminalEvent { to, authorization });
         Ok(())
     }
 

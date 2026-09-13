@@ -1080,6 +1080,38 @@ pub trait EdgeInventory: Send + Sync {
         query: super::petty::ExpenseWindowQuery,
     ) -> Result<super::petty::ExpenseWindow, EdgeError>;
 
+    // ── The unit's punch station ────────────────────────────────────────
+    //
+    // Three reads and one write, and the write is the only thing this node
+    // decides. Employment, the roster, the policy, the corrections and the
+    // templates are all the centre's; what is here is what the reader saw,
+    // plus enough of the published book to greet somebody by name and refuse a
+    // stranger with the line down. See `attendance.rs`.
+    //
+    // On BOTH node roles, deliberately. The DC has staff, shifts and a door
+    // like every shop does, so `require_store` is not called on any of these —
+    // a warehouse whose people could not clock in would be a warehouse whose
+    // payroll had no basis.
+
+    /// Record a punch the reader produced, and queue it for the centre in the
+    /// same transaction. Refuses a stale or missing book, a station the centre
+    /// has suspended, and a person not posted to this unit.
+    fn record_punch(
+        &self,
+        request: super::attendance::PunchRequest,
+    ) -> Result<super::attendance::Punched, EdgeError>;
+    /// What one person is on today, and what they have punched. The station's
+    /// own screen, answerable with no uplink.
+    fn attendance_today(
+        &self,
+        employee_id: &str,
+        business_date: Option<chrono::NaiveDate>,
+    ) -> Result<super::attendance::TodayForEmployee, EdgeError>;
+    /// How fresh this box's published book is, and how much of it there is.
+    /// A box with no book answers rather than erroring: the station has to be
+    /// able to draw "waiting for head office" on its own screen.
+    fn attendance_book_status(&self) -> Result<super::attendance::BookStatus, EdgeError>;
+
     /// Render it and put it on the shop's own printer. The drawer kick rides
     /// the same socket.
     fn print_sale_receipt(

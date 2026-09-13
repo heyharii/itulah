@@ -2,6 +2,6 @@
 
 export type RunEventView = { 
 /**
- * `VERIFIED`, `APPROVED`, `SEALED` or `REOPENED`.
+ * `SUBMITTED`, `APPROVED` or `REOPENED`.
  */
 step: string, actor: string, at: string, reason: string, };

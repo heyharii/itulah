@@ -61,7 +61,7 @@ export function FinanceOverview() {
   })
   const bills = useQuery({
     queryKey: financeKeys.bills(null),
-    queryFn: ({ signal }) => listBills({}, signal),
+    queryFn: ({ signal }) => listBills({}, signal).then((page) => page.rows),
   })
   const balance = useQuery({
     queryKey: financeKeys.trialBalance(null, null),

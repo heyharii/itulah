@@ -245,23 +245,54 @@ pub async fn sales_series(pool: &PgPool, query: SalesSeriesQuery) -> Result<Valu
     }))
 }
 
-/// One shop over one span: the totals, the tenders, and the receipts.
+/// One shop over one span: the totals, the tenders, and the receipts — or the
+/// whole chain, when no shop is named.
 ///
 /// Deliberately the same shape as the daily report's `sales`, `tenders`,
 /// `returns` and `cash` blocks. A day is a span of one, and a screen that
 /// showed one set of words for a day and another for a week would be teaching
 /// two vocabularies for one thing.
 ///
+/// # Why the unit is a filter and not an argument
+///
+/// It used to be required, and it was the only read in finance where the unit
+/// was not optional — so the Sales Register could draw one shop and could not
+/// draw the chain, which is the first question head office asks. Absent now
+/// means every unit: the totals, the tenders and the returns are summed across
+/// the fleet, `site_id` and `site_name` come back null, and every receipt in
+/// `transactions` names the shop it rang at so a mixed list is still readable.
+///
+/// The name is the unit's own — head office is `HO` in the books and `dc` in
+/// this system's site table — so it is read through `org_place`, which is the
+/// finance unit domain, and falls back to the site's when no place is bridged
+/// to it.
+///
 /// `average_minor` is here rather than left to the caller because there is one
 /// wrong way to compute it — dividing by a count that includes voided sales —
 /// and a caller reading `count` from a different block would take it.
 pub async fn sales_window(pool: &PgPool, query: SalesWindowQuery) -> Result<Value, AppError> {
-    let site_id = query.site_id.trim().to_ascii_lowercase();
-    let site = sqlx::query("SELECT id,name FROM site WHERE id=$1")
-        .bind(&site_id)
-        .fetch_optional(pool)
-        .await?
-        .ok_or_else(|| AppError::NotFound("site".into()))?;
+    // `None` is the fleet. Bound as NULL into every `$1::text IS NULL OR …`
+    // below, so one set of queries answers both questions rather than two sets
+    // that can drift apart.
+    let site_id = match query.site_id.as_deref().map(str::trim) {
+        Some(raw) if !raw.is_empty() => Some(raw.to_ascii_lowercase()),
+        _ => None,
+    };
+    let site_name: Option<String> = match site_id.as_deref() {
+        Some(id) => Some(
+            sqlx::query(
+                "SELECT COALESCE(p.name, s.name) AS name
+                   FROM site s LEFT JOIN org_place p ON p.site_id = s.id
+                  WHERE s.id = $1",
+            )
+            .bind(id)
+            .fetch_optional(pool)
+            .await?
+            .ok_or_else(|| AppError::NotFound("site".into()))?
+            .get("name"),
+        ),
+        None => None,
+    };
 
     let offset_minutes = offset_of(query.utc_offset_minutes);
     let (start, end) = crate::reporting::window_of(query.from, query.to, offset_minutes)
@@ -275,7 +306,7 @@ pub async fn sales_window(pool: &PgPool, query: SalesWindowQuery) -> Result<Valu
          COALESCE(SUM(total_minor),0)::bigint gross_minor,\
          COALESCE(SUM(paid_minor),0)::bigint paid_minor,\
          COALESCE(SUM(change_minor),0)::bigint change_minor \
-         FROM sale WHERE site_id=$1 AND status='COMPLETED' \
+         FROM sale WHERE ($1::text IS NULL OR site_id=$1) AND status='COMPLETED' \
          AND completed_at >= $2 AND completed_at < $3",
     )
     .bind(&site_id)
@@ -287,7 +318,7 @@ pub async fn sales_window(pool: &PgPool, query: SalesWindowQuery) -> Result<Valu
     let units: i64 = sqlx::query(
         "SELECT COALESCE(SUM(l.quantity),0)::bigint units \
          FROM sale_line l JOIN sale s ON s.id=l.sale_id \
-         WHERE s.site_id=$1 AND s.status='COMPLETED' \
+         WHERE ($1::text IS NULL OR s.site_id=$1) AND s.status='COMPLETED' \
          AND s.completed_at >= $2 AND s.completed_at < $3",
     )
     .bind(&site_id)
@@ -300,7 +331,7 @@ pub async fn sales_window(pool: &PgPool, query: SalesWindowQuery) -> Result<Valu
     let tenders = sqlx::query(
         "SELECT p.method,COALESCE(SUM(p.amount_minor),0)::bigint amount_minor,COUNT(*)::bigint tender_count \
          FROM sale_payment p JOIN sale s ON s.id=p.sale_id \
-         WHERE s.site_id=$1 AND s.status='COMPLETED' \
+         WHERE ($1::text IS NULL OR s.site_id=$1) AND s.status='COMPLETED' \
          AND s.completed_at >= $2 AND s.completed_at < $3 \
          GROUP BY p.method ORDER BY p.method",
     )
@@ -312,7 +343,8 @@ pub async fn sales_window(pool: &PgPool, query: SalesWindowQuery) -> Result<Valu
 
     let voided: i64 = sqlx::query(
         "SELECT COALESCE(COUNT(*),0)::bigint count FROM sale \
-         WHERE site_id=$1 AND status='VOIDED' AND voided_at >= $2 AND voided_at < $3",
+         WHERE ($1::text IS NULL OR site_id=$1) AND status='VOIDED' \
+         AND voided_at >= $2 AND voided_at < $3",
     )
     .bind(&site_id)
     .bind(start)
@@ -324,7 +356,8 @@ pub async fn sales_window(pool: &PgPool, query: SalesWindowQuery) -> Result<Valu
     let returns = sqlx::query(
         "SELECT COALESCE(COUNT(*),0)::bigint return_count,\
          COALESCE(SUM(refund_total_minor),0)::bigint refund_total_minor \
-         FROM sale_return WHERE site_id=$1 AND created_at >= $2 AND created_at < $3",
+         FROM sale_return WHERE ($1::text IS NULL OR site_id=$1) \
+         AND created_at >= $2 AND created_at < $3",
     )
     .bind(&site_id)
     .bind(start)
@@ -335,7 +368,8 @@ pub async fn sales_window(pool: &PgPool, query: SalesWindowQuery) -> Result<Valu
     let refunds_by_method = sqlx::query(
         "SELECT p.method,COALESCE(SUM(p.amount_minor),0)::bigint amount_minor \
          FROM sale_return_payment p JOIN sale_return r ON r.id=p.return_id \
-         WHERE r.site_id=$1 AND r.created_at >= $2 AND r.created_at < $3 \
+         WHERE ($1::text IS NULL OR r.site_id=$1) \
+         AND r.created_at >= $2 AND r.created_at < $3 \
          GROUP BY p.method ORDER BY p.method",
     )
     .bind(&site_id)
@@ -350,7 +384,7 @@ pub async fn sales_window(pool: &PgPool, query: SalesWindowQuery) -> Result<Valu
     // opens this list to find.
     let transactions = sqlx::query(
         "WITH selected_sales AS (\
-             SELECT * FROM sale WHERE site_id=$1 AND status='COMPLETED' \
+             SELECT * FROM sale WHERE ($1::text IS NULL OR site_id=$1) AND status='COMPLETED' \
               AND completed_at >= $2 AND completed_at < $3 \
              ORDER BY completed_at DESC LIMIT $4\
          ), line_totals AS (\
@@ -361,9 +395,9 @@ pub async fn sales_window(pool: &PgPool, query: SalesWindowQuery) -> Result<Valu
              FROM sale_payment payment JOIN selected_sales sale ON sale.id=payment.sale_id \
              GROUP BY payment.sale_id\
          ) \
-         SELECT s.id,s.sale_number,s.channel,s.currency::text currency,\
+         SELECT s.id,s.sale_number,s.site_id,s.channel,s.currency::text currency,\
          s.net_minor,s.tax_minor,s.total_minor,s.paid_minor,s.change_minor,\
-         s.actor_id,s.completed_at,\
+         s.actor_id,s.customer_id,s.completed_at,\
          COALESCE(lines.line_count,0)::bigint line_count,\
          COALESCE(lines.units,0)::bigint units,\
          COALESCE(payments.methods,ARRAY[]::text[]) methods \
@@ -395,8 +429,10 @@ pub async fn sales_window(pool: &PgPool, query: SalesWindowQuery) -> Result<Valu
     let average_minor = if count == 0 { 0 } else { gross / count };
 
     Ok(json!({
+        // Null on a fleet-wide read, and the two are different answers: a null
+        // means "every unit", never "a unit we could not name".
         "site_id": site_id,
-        "site_name": site.get::<String,_>("name"),
+        "site_name": site_name,
         "from": query.from,
         "to": query.to,
         "utc_offset_minutes": offset_minutes,
@@ -434,6 +470,10 @@ pub async fn sales_window(pool: &PgPool, query: SalesWindowQuery) -> Result<Valu
         "transactions": transactions.iter().map(|row| json!({
             "id": row.get::<Uuid,_>("id"),
             "sale_number": row.get::<String,_>("sale_number"),
+            // On every row, not only on the fleet-wide read. A receipt that
+            // says which shop rang it is readable in both lists; one that says
+            // so only sometimes is a column a screen has to guess about.
+            "site_id": row.get::<String,_>("site_id"),
             "channel": row.get::<String,_>("channel"),
             "currency": row.get::<String,_>("currency").trim(),
             "net_minor": row.get::<i64,_>("net_minor"),
@@ -445,6 +485,10 @@ pub async fn sales_window(pool: &PgPool, query: SalesWindowQuery) -> Result<Valu
             "units": row.get::<i64,_>("units"),
             "methods": row.get::<Vec<String>,_>("methods"),
             "actor_id": row.get::<String,_>("actor_id"),
+            // The column has always been on `sale` and the detail read has
+            // always selected it; it was simply never put on this wire, so a
+            // register could not say which receipts were a member's.
+            "customer_id": row.get::<Option<String>,_>("customer_id"),
             "completed_at": row.get::<Option<DateTime<Utc>>,_>("completed_at"),
         })).collect::<Vec<_>>(),
         // Said plainly rather than left to be inferred from a length: a list

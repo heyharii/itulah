@@ -110,8 +110,18 @@ pub struct AssetRow {
     /// expense: an expensed asset has no monthly charge to name.
     pub charge_kind: Option<String>,
     pub in_service_on: Option<NaiveDate>,
+    /// What was already depreciated before this system existed, carried in at
+    /// cutover, and the last month that figure covers.
+    ///
+    /// Absent is the ordinary state for anything bought after the cutover, and
+    /// it means nothing was carried in — not that nobody has said. Migration
+    /// 0237 has the arithmetic this exists to prevent.
+    pub opening_accumulated_minor: Option<i64>,
+    pub opening_through: Option<NaiveDate>,
 
-    /// Summed from the depreciation entries. Not stored anywhere.
+    /// Everything ever charged against this asset: what was carried in at
+    /// cutover plus every entry this system has posted. Summed on read and
+    /// stored nowhere.
     pub accumulated_minor: i64,
     /// Cost less accumulated. Derived on read for the same reason.
     pub book_value_minor: Option<i64>,
@@ -216,6 +226,19 @@ pub struct AssessAssetRequest {
     /// rule choosing accounts from a client account code — see 0159.
     pub charge_kind: Option<String>,
     pub in_service_on: Option<NaiveDate>,
+    /// What the old system had already depreciated, and the last month that
+    /// figure covers.
+    ///
+    /// Both or neither. The client's register carries a column for this and
+    /// leaves it empty on all 1,342 rows, so the figure comes from the ledger
+    /// being replaced rather than from the file — and until it does, leaving
+    /// these out is the honest state. Migration 0237.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub opening_accumulated_minor: Option<i64>,
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub opening_through: Option<NaiveDate>,
     /// Why. Required on both decisions — an expensed asset with no reason is
     /// the one somebody queries a year later.
     pub reason: String,
@@ -247,8 +270,10 @@ const ASSET_BASE: &str = "a.asset_id, a.asset_number, a.name, a.category_code,
      a.disposed_on, a.disposal_method, a.disposal_proceeds_minor, a.disposal_journal_entry_id,
      k.decision, k.capitalized_cost_minor, k.salvage_value_minor, k.useful_life_months,
      k.method, k.charge_kind, k.in_service_on,
-     COALESCE((SELECT SUM(d.amount_minor) FROM asset_depreciation_entry d
-                WHERE d.asset_id = a.asset_id), 0)::bigint AS accumulated,
+     k.opening_accumulated_minor, k.opening_through,
+     (COALESCE(k.opening_accumulated_minor, 0)
+      + COALESCE((SELECT SUM(d.amount_minor) FROM asset_depreciation_entry d
+                   WHERE d.asset_id = a.asset_id), 0))::bigint AS accumulated,
      (SELECT MAX(d.period_month) FROM asset_depreciation_entry d
        WHERE d.asset_id = a.asset_id) AS last_depreciated_month";
 
@@ -294,6 +319,8 @@ fn to_asset(row: &sqlx::postgres::PgRow) -> Result<AssetRow, AppError> {
         method: row.try_get("method")?,
         charge_kind: row.try_get("charge_kind")?,
         in_service_on: row.try_get("in_service_on")?,
+        opening_accumulated_minor: row.try_get("opening_accumulated_minor")?,
+        opening_through: row.try_get("opening_through")?,
         accumulated_minor: accumulated,
         book_value_minor: cost.map(|c| c - accumulated),
         last_depreciated_month: row.try_get("last_depreciated_month")?,
@@ -988,12 +1015,64 @@ pub async fn assess_asset(
         _ => None,
     };
 
+    // What was carried in from the old system, checked here so the refusal is
+    // a sentence rather than the name of a CHECK constraint.
+    //
+    // The pair is the point. A figure with no month cannot be checked twice and
+    // cannot stop a run from charging a period the old ledger already charged;
+    // a month with no figure says a cutover happened and declines to say what
+    // it carried.
+    match (request.opening_accumulated_minor, request.opening_through) {
+        (Some(_), None) | (None, Some(_)) => {
+            return Err(AppError::Validation(
+                "carried-in depreciation needs both the figure and the month it covers; \
+                 send both or neither"
+                    .into(),
+            ))
+        }
+        (Some(opening), Some(through)) => {
+            if !capitalising {
+                return Err(AppError::Validation(
+                    "only a capitalised asset has a basis to carry anything into".into(),
+                ));
+            }
+            if opening < 0 {
+                return Err(AppError::Validation(
+                    "carried-in depreciation cannot be negative".into(),
+                ));
+            }
+            let depreciable = request.capitalized_cost_minor.unwrap_or_default()
+                - request.salvage_value_minor.unwrap_or_default();
+            if opening > depreciable {
+                return Err(AppError::Validation(format!(
+                    "the old system cannot have written down more than there was to write \
+                     down: {opening} carried in against {depreciable} depreciable"
+                )));
+            }
+            if through.day() != 1 {
+                return Err(AppError::Validation(
+                    "the month a carried-in figure covers is named by its first day".into(),
+                ));
+            }
+            if let Some(in_service) = request.in_service_on {
+                if through < month_of(in_service) {
+                    return Err(AppError::Validation(
+                        "a carried-in figure cannot cover a month before the asset went into \
+                         service"
+                            .into(),
+                    ));
+                }
+            }
+        }
+        (None, None) => {}
+    }
+
     // Where it is filed now, and what its last assessment said. Both are
     // needed before anything is written: a re-filing is only legitimate out of
     // work in progress, and the answer to "is this asset in progress" is the
     // latest assessment rather than a column.
     let standing = sqlx::query(
-        "SELECT a.category_code,
+        "SELECT a.category_code, a.site_id,
                 (SELECT x.decision FROM asset_capitalization x
                   WHERE x.asset_id = a.asset_id
                   ORDER BY x.sequence DESC LIMIT 1) AS decision
@@ -1005,6 +1084,7 @@ pub async fn assess_asset(
     .ok_or_else(|| AppError::NotFound("asset".into()))?;
     let was: Option<String> = standing.try_get("decision")?;
     let filed_under: String = standing.try_get("category_code")?;
+    let site: String = standing.try_get("site_id")?;
 
     // Finished work has to say what it became. Capitalising something filed
     // under Contract In Progress and leaving it there would put a building's
@@ -1084,8 +1164,8 @@ pub async fn assess_asset(
         "INSERT INTO asset_capitalization
            (capitalization_id, asset_id, sequence, decision, capitalized_cost_minor,
             salvage_value_minor, useful_life_months, method, charge_kind, in_service_on,
-            reason, assessed_by, rate_bps)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
+            reason, assessed_by, rate_bps, opening_accumulated_minor, opening_through)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)",
     )
     .bind(Uuid::new_v4())
     .bind(asset_id)
@@ -1100,6 +1180,8 @@ pub async fn assess_asset(
     .bind(request.reason.trim())
     .bind(actor)
     .bind(rate_bps)
+    .bind(request.opening_accumulated_minor)
+    .bind(request.opening_through)
     .execute(&mut *tx)
     .await?;
 
@@ -1115,22 +1197,72 @@ pub async fn assess_asset(
             .await?;
     }
 
-    // Finished work becomes what it was built into. In the same transaction as
-    // the assessment that capitalised it, because the two are one act: an
-    // asset re-filed without an assessment would be a cost that moved family
-    // for no stated reason, and an assessment without the re-filing would
-    // depreciate a building against the work-in-progress account.
+    // Finished work becomes what it was built into, and the cost moves with
+    // it. In the same transaction as the assessment that capitalised it,
+    // because the three are one act: an asset re-filed without an assessment
+    // would be a cost that moved family for no stated reason, an assessment
+    // without the re-filing would depreciate a building against the
+    // work-in-progress account, and either without the journal would leave the
+    // client's `1031803*` carrying a shop that has been open for months.
     //
-    // What this does NOT do is post the move. In this system nothing has put
-    // the cost into `1031803` — the import brought values, not entries — so
-    // there is no balance to move yet. The day expense bills start landing
-    // against work in progress, the journal belongs here.
+    // 0215 deliberately posted nothing here; 0242 is why that changed.
     if let Some(code) = refiled {
         sqlx::query("UPDATE fixed_asset SET category_code = $2 WHERE asset_id = $1")
             .bind(asset_id)
-            .bind(code)
+            .bind(&code)
             .execute(&mut *tx)
             .await?;
+
+        let cost = request.capitalized_cost_minor.unwrap_or_default();
+        let in_service = request.in_service_on.ok_or_else(|| {
+            AppError::Validation("finished work has to say when it went into service".into())
+        })?;
+        let kind = charge_kind
+            .and_then(ChargeKind::parse)
+            .unwrap_or(ChargeKind::Depreciation);
+
+        // What this entry will credit, and what is actually in it. The balance
+        // is checked rather than assumed: every row imported from the client's
+        // register has a cost their old ledger holds and this one does not, and
+        // crediting it here would take the client's own account negative and
+        // call the difference finished work.
+        let progress_account =
+            resolve_account(&mut *tx, "work_in_progress", &site, &filed_under).await?;
+        let held: i64 = sqlx::query(
+            "SELECT COALESCE(SUM(l.debit_minor - l.credit_minor), 0)::bigint AS held
+               FROM journal_line l
+              WHERE l.account_code = $1 AND l.site_id = $2",
+        )
+        .bind(&progress_account)
+        .bind(&site)
+        .fetch_one(&mut *tx)
+        .await?
+        .try_get("held")?;
+        if held < cost {
+            return Err(AppError::Validation(format!(
+                "{progress_account} holds {held} and this capitalises {cost}: the work in \
+                 progress was never posted here, so there is nothing to move out. Carry the \
+                 opening balance in first — crediting it now would drive the client's own \
+                 account negative."
+            )));
+        }
+
+        let intent = PostingIntent {
+            posting_date: in_service,
+            source_kind: "ASSET_CAPITALIZATION".into(),
+            source_id: Some(asset_id.to_string()),
+            rule_version: "asset_capitalization/1".into(),
+            currency: "IDR".into(),
+            memo: Some(format!(
+                "Reklas CIP {in_service} — {} menjadi {code}",
+                filed_under
+            )),
+            lines: vec![
+                PostingLine::debit(kind.cost_key(), &site, cost).with_qualifier(&code),
+                PostingLine::credit("work_in_progress", &site, cost).with_qualifier(&filed_under),
+            ],
+        };
+        post(&mut tx, &intent, actor).await?;
     }
     tx.commit().await?;
     asset(pool, asset_id).await
@@ -1148,15 +1280,27 @@ pub struct DepreciationLine {
     /// a run report that says "nothing" without saying why is a report somebody
     /// has to re-derive by hand.
     pub skipped_because: Option<String>,
+    /// Only ever set by a preview: this asset has a charge to make and no
+    /// account to make it into.
+    ///
+    /// A real run cannot report this, because it stops at the first asset it
+    /// cannot resolve — which is why the preview exists. Absent in a run, and
+    /// absent in a preview for every asset that would post.
+    pub blocked_because: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct DepreciationRun {
     pub period_month: NaiveDate,
+    /// In a preview these two are what WOULD post, and nothing has been
+    /// written. In a run they are what did.
     pub posted_count: i64,
     pub posted_total_minor: i64,
     pub skipped_count: i64,
+    /// Assets a preview found with a charge to make and no account to make it
+    /// into. Always zero in a run.
+    pub blocked_count: i64,
     pub lines: Vec<DepreciationLine>,
 }
 
@@ -1184,11 +1328,40 @@ fn months_between(from: NaiveDate, to: NaiveDate) -> i32 {
 /// Idempotent by construction: the unique index on (asset, period) refuses a
 /// second entry, so re-running a month posts nothing and reports every asset as
 /// already done rather than doubling the charge.
+/// Charge one month, for real.
 pub async fn run_depreciation(
     pool: &PgPool,
     year: i32,
     month: u32,
     actor: &str,
+) -> Result<DepreciationRun, AppError> {
+    charge_month(pool, year, month, Some(actor)).await
+}
+
+/// What charging that month would do, without doing any of it.
+///
+/// The run it previews posts asset by asset and stops at the first account it
+/// cannot resolve, which is the right behaviour for a run and useless for
+/// looking ahead: the operator learns about one refusal and nothing about the
+/// other four hundred. So a preview resolves both legs per asset and REPORTS
+/// what would refuse instead of raising it.
+///
+/// It writes nothing, which is the whole point on a register carrying 683
+/// capitalised assets whose first real run posts into the client's books.
+pub async fn preview_depreciation(
+    pool: &PgPool,
+    year: i32,
+    month: u32,
+) -> Result<DepreciationRun, AppError> {
+    charge_month(pool, year, month, None).await
+}
+
+/// One month, posted when an actor is given and rehearsed when none is.
+async fn charge_month(
+    pool: &PgPool,
+    year: i32,
+    month: u32,
+    posting: Option<&str>,
 ) -> Result<DepreciationRun, AppError> {
     let period = NaiveDate::from_ymd_opt(year, month, 1)
         .ok_or_else(|| AppError::Validation("not a month".into()))?;
@@ -1196,9 +1369,10 @@ pub async fn run_depreciation(
     let rows = sqlx::query(
         "SELECT a.asset_id, a.asset_number, a.name, a.category_code, a.site_id,
                 k.capitalized_cost_minor, k.salvage_value_minor, k.useful_life_months,
-                k.method, k.charge_kind, k.in_service_on,
-                COALESCE((SELECT SUM(d.amount_minor) FROM asset_depreciation_entry d
-                           WHERE d.asset_id = a.asset_id), 0)::bigint AS accumulated,
+                k.method, k.charge_kind, k.in_service_on, k.opening_through,
+                (COALESCE(k.opening_accumulated_minor, 0)
+                 + COALESCE((SELECT SUM(d.amount_minor) FROM asset_depreciation_entry d
+                              WHERE d.asset_id = a.asset_id), 0))::bigint AS accumulated,
                 EXISTS (SELECT 1 FROM asset_depreciation_entry d
                          WHERE d.asset_id = a.asset_id AND d.period_month = $1) AS already
            FROM fixed_asset a
@@ -1219,6 +1393,7 @@ pub async fn run_depreciation(
     let mut posted_count = 0i64;
     let mut posted_total = 0i64;
     let mut skipped = 0i64;
+    let mut blocked = 0i64;
 
     for row in &rows {
         let asset_id: Uuid = row.try_get("asset_id")?;
@@ -1232,7 +1407,29 @@ pub async fn run_depreciation(
                 asset_number,
                 name,
                 amount_minor: None,
+                blocked_because: None,
                 skipped_because: Some("already charged for this month".into()),
+            });
+            continue;
+        }
+
+        // A month the system this one replaced already charged. Nothing here
+        // would collide with it — this system has no entry for that month — so
+        // without the cutover date the charge would simply be made twice, once
+        // in each ledger, and the second one would look ordinary.
+        let opening_through: Option<NaiveDate> = row.try_get("opening_through")?;
+        if matches!(opening_through, Some(through) if period <= through) {
+            skipped += 1;
+            lines.push(DepreciationLine {
+                asset_id,
+                asset_number,
+                name,
+                amount_minor: None,
+                blocked_because: None,
+                skipped_because: Some(format!(
+                    "carried in: the opening figure already covers {}",
+                    period.format("%Y-%m")
+                )),
             });
             continue;
         }
@@ -1265,6 +1462,7 @@ pub async fn run_depreciation(
                     asset_number,
                     name,
                     amount_minor: None,
+                    blocked_because: None,
                     skipped_because: Some(skip_label(reason).into()),
                 });
             }
@@ -1310,6 +1508,34 @@ pub async fn run_depreciation(
                             .with_qualifier(&category),
                     ],
                 };
+                let Some(actor) = posting else {
+                    // A rehearsal. Both legs are resolved so the report can
+                    // name the asset that has nowhere to charge — the run
+                    // itself cannot, because the first such asset ends it.
+                    let mut refusal = None;
+                    for key in kind.charge_keys() {
+                        if let Err(error) = resolve_account(pool, key, &site, &category).await {
+                            refusal = Some(error.to_string());
+                            break;
+                        }
+                    }
+                    if refusal.is_some() {
+                        blocked += 1;
+                    } else {
+                        posted_count += 1;
+                        posted_total += amount;
+                    }
+                    lines.push(DepreciationLine {
+                        asset_id,
+                        asset_number,
+                        name,
+                        amount_minor: Some(amount),
+                        blocked_because: refusal,
+                        skipped_because: None,
+                    });
+                    continue;
+                };
+
                 let mut tx = pool.begin().await?;
                 let posted = post(&mut tx, &intent, actor).await?;
                 sqlx::query(
@@ -1334,6 +1560,7 @@ pub async fn run_depreciation(
                     asset_number,
                     name,
                     amount_minor: Some(amount),
+                    blocked_because: None,
                     skipped_because: None,
                 });
             }
@@ -1345,6 +1572,7 @@ pub async fn run_depreciation(
         posted_count,
         posted_total_minor: posted_total,
         skipped_count: skipped,
+        blocked_count: blocked,
         lines,
     })
 }
@@ -1870,6 +2098,12 @@ pub struct AssetSchedule {
     pub salvage_value_minor: Option<i64>,
     pub useful_life_months: Option<i32>,
     pub in_service_on: Option<NaiveDate>,
+    /// What the old system had already charged when this one took over, and
+    /// the last month it covers. The schedule shows it as its own line rather
+    /// than folding it into `charged_total_minor`: one is a figure somebody
+    /// carried in, the other is a list of journals this system can name.
+    pub opening_accumulated_minor: Option<i64>,
+    pub opening_through: Option<NaiveDate>,
 
     /// What was actually posted, month by month, oldest first.
     ///
@@ -1938,8 +2172,13 @@ pub async fn asset_schedule(pool: &PgPool, asset_id: Uuid) -> Result<AssetSchedu
     };
     let months_remaining = match (depreciable && remaining > 0, row.in_service_on) {
         (true, Some(in_service)) => {
+            // Where the next instalment falls: after the last month this system
+            // charged, or — when it has charged nothing yet — after the month
+            // the carried-in figure covers. Without the second, an asset that
+            // arrived mid-life would be reported as having its whole life left.
             let next = row
                 .last_depreciated_month
+                .or(row.opening_through)
                 .map(|last| months_between(in_service, last) + 1)
                 .unwrap_or(0);
             (row.useful_life_months.unwrap_or_default() - next).max(0)
@@ -1957,6 +2196,8 @@ pub async fn asset_schedule(pool: &PgPool, asset_id: Uuid) -> Result<AssetSchedu
         salvage_value_minor: row.salvage_value_minor,
         useful_life_months: row.useful_life_months,
         in_service_on: row.in_service_on,
+        opening_accumulated_minor: row.opening_accumulated_minor,
+        opening_through: row.opening_through,
         charged,
         charged_total_minor: charged_total,
         last_depreciated_month: row.last_depreciated_month,

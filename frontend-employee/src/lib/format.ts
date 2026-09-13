@@ -143,3 +143,24 @@ export function isUpcoming(isoDate: string): boolean {
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
   return atMidnight(isoDate).getTime() >= today.getTime()
 }
+
+/// A punch time as the server writes it, shown as the clock alone.
+///
+/// The wire form is `2026-09-14 08:32`, or `2026-09-14 02:10+1` when the
+/// reading falls after midnight on the same shift. Split rather than parsed
+/// into a `Date`: the business date and the clock reading are two separate
+/// facts on that wire — which day the punch answers is a planning fact, and the
+/// minute is place-local — so `new Date(...)` would fuse them into one instant
+/// and then shift it by whatever timezone the phone is set to. A handset on the
+/// wrong timezone would show somebody a different arrival time from the one
+/// their manager is looking at.
+export function punchClock(at: string | null): string {
+  if (at === null) {
+    return "—"
+  }
+  const clock = at.split(" ")[1] ?? at
+  // `(+1)` is kept, not dropped. A clock-out at 02:10 on an overnight shift is
+  // the *next* day's clock against yesterday's rota, and a bare `02:10` in a
+  // row dated Tuesday reads as somebody arriving in the middle of the night.
+  return clock.endsWith("+1") ? `${clock.slice(0, -2)} (+1)` : clock
+}

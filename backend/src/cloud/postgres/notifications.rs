@@ -236,18 +236,38 @@ pub async fn recipients_with_role_at(
     place: &str,
 ) -> Result<Vec<String>, AppError> {
     let roles: Vec<String> = roles.iter().map(|role| (*role).to_owned()).collect();
+    // `place` may arrive spelled three ways, because three tables name where
+    // something is and they were written years apart: a site is `dc`, an
+    // organisational place is `ho`, and a node calls itself `dc-01`. The owner
+    // settled what they mean on 2026-09-13 — head office IS the cloud, and
+    // `dc` and `dc-01` are one warehouse — so the spellings are reconciled
+    // here rather than guessed at each call site.
+    //
+    // The node suffix is trimmed first (`dc-01` is site `dc`'s node), and then
+    // a posting matches either directly or through `org_place.site_id`, the
+    // bridge 0060 built between the organisation and its sites and 0236
+    // finally crossed for head office.
+    let site = place.rsplit_once('-').map_or(place, |(head, tail)| {
+        if tail.chars().all(|c| c.is_ascii_digit()) {
+            head
+        } else {
+            place
+        }
+    });
+
     Ok(sqlx::query_scalar(
         "SELECT u.username FROM app_user u
           WHERE u.active AND u.role = ANY($1)
             AND (u.role = 'ADMIN'
                  OR EXISTS (SELECT 1 FROM employee_assignment a
+                             LEFT JOIN org_place p ON p.id = a.place_id
                              WHERE a.employee_id = u.employee_id
                                AND a.valid_to IS NULL
-                               AND a.place_id = $2))
+                               AND (a.place_id = $2 OR p.site_id = $2)))
           ORDER BY u.username",
     )
     .bind(&roles)
-    .bind(place)
+    .bind(site)
     .fetch_all(&mut **tx)
     .await?)
 }
@@ -334,6 +354,7 @@ pub async fn raise_notification(
 /// Returns how many were raised, which is zero on almost every pass.
 pub async fn sweep_ageing_work(pool: &PgPool) -> Result<u64, AppError> {
     const AGEING: &str = "asset.assessment.overdue";
+    const ARRIVING: &str = "purchase.delivery.due_soon";
 
     let mut tx = pool.begin().await?;
     // Registered a week ago and still nobody has said what it is worth. The
@@ -356,14 +377,116 @@ pub async fn sweep_ageing_work(pool: &PgPool) -> Result<u64, AppError> {
     .fetch_all(&mut *tx)
     .await?;
 
+    let mut raised = 0;
+
+    // ── A delivery is nearly due ─────────────────────────────────────────
+    //
+    // The supplier promised a date per line, and nothing in this estate fires
+    // when that date approaches. Three days is the warning the warehouse asked
+    // for: long enough to clear a receiving bay and put somebody on the rota,
+    // short enough that it is still the same week.
+    //
+    // Told to the people at the DESTINATION, not to everybody: a delivery
+    // landing at store-07 is store-07's morning. This is the second caller of
+    // `recipients_with_role_at` and the one that pays for it — a PO warning
+    // fanned out to fourteen units would be thirteen interruptions and one
+    // notice.
+    //
+    // Anything already past its date is left alone. "It should have arrived
+    // yesterday" is a standing condition and belongs to the receiving screen's
+    // count, not to a notice that would repeat every hour until somebody
+    // closed the order.
+    let arriving: Vec<(Uuid, String, String, String, chrono::NaiveDate)> = sqlx::query_as(
+        "SELECT o.purchase_order_id, o.po_number, o.supplier_name, o.destination_site_id,
+                min(l.promised_date) AS due
+           FROM purchase_order o
+           JOIN purchase_order_line l ON l.purchase_order_id = o.purchase_order_id
+          WHERE o.order_status = 'ISSUED'
+            AND l.promised_date IS NOT NULL
+            AND NOT EXISTS (SELECT 1 FROM notification n
+                             WHERE n.kind = $1
+                               AND n.subject_id = o.purchase_order_id::text)
+          GROUP BY o.purchase_order_id, o.po_number, o.supplier_name, o.destination_site_id
+         HAVING min(l.promised_date) BETWEEN CURRENT_DATE AND CURRENT_DATE + 3
+          ORDER BY due
+          LIMIT 50",
+    )
+    .bind(ARRIVING)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    for (order_id, number, supplier, site, due) in arriving {
+        let days = (due - chrono::Utc::now().date_naive()).num_days();
+        let when = match days {
+            0 => "hari ini".to_owned(),
+            1 => "besok".to_owned(),
+            other => format!("dalam {other} hari"),
+        };
+        // Three vocabularies name a place in this system and they do not
+        // agree: a site is `dc`, a posting is at `ho`, and a purchase order is
+        // destined for `dc-01`. So the scoped lookup can legitimately match
+        // nobody, and an audience of nobody makes `raise_notification` a
+        // silent no-op — the worst possible outcome for a warning.
+        //
+        // Rather than guessing a mapping here, which is how a notification
+        // ends up at the wrong shop, the notice falls back to head office and
+        // says out loud that it could not find anybody local. Somebody is
+        // always told; the log says when the addressing was the reason.
+        let audience = recipients_with_role_at(&mut tx, &["ADMIN", "SUPERVISOR"], &site).await?;
+
+        // Whether anybody LOCAL was found, which is not the same question as
+        // whether the audience is empty — an Admin reaches everywhere, so the
+        // list is never empty while one exists and the miss would be silent.
+        // Measured by asking who was found without the rung that ignores
+        // place.
+        //
+        // It matters because this estate is where the three names for a place
+        // meet: the site is `dc`, the posting is at `ho`, and this order is
+        // destined for `dc-01`. Nothing maps one to another, so the warehouse
+        // supervisors — the people who would actually clear a bay — match
+        // nothing and only head office is told. Guessing a mapping here is how
+        // a delivery notice arrives at the wrong unit, so the notice goes out
+        // and the log says plainly that its audience was narrower than it
+        // should have been.
+        let local = recipients_with_role_at(&mut tx, &["SUPERVISOR"], &site).await?;
+        if local.is_empty() {
+            tracing::warn!(
+                %site,
+                %number,
+                "no posting matches this delivery's destination, so nobody local was told"
+            );
+        }
+        raise_notification(
+            &mut tx,
+            NewNotification {
+                kind: ARRIVING,
+                title: format!("{number} dijanjikan tiba {when}"),
+                body: format!(
+                    "{supplier} menjanjikan {due} untuk {site}. Siapkan penerimaan dan \
+                     penandaan sebelum barangnya berdiri di lantai."
+                ),
+                subject: Some(("purchase_order", order_id.to_string())),
+                origin_id: None,
+                payload: serde_json::json!({
+                    "purchase_order_id": order_id,
+                    "site_id": site,
+                    "promised_date": due,
+                }),
+            },
+            &audience,
+        )
+        .await?;
+        raised += 1;
+    }
+
     if stale.is_empty() {
-        return Ok(0);
+        tx.commit().await?;
+        return Ok(raised);
     }
 
     // Head office decides what an asset is worth wherever it stands, so this
     // one is not narrowed by place.
     let audience = recipients_with_role(&mut tx, &["ADMIN"]).await?;
-    let mut raised = 0;
     for (asset_id, number, name, site) in stale {
         raise_notification(
             &mut tx,

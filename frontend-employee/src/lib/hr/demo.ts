@@ -2,7 +2,6 @@ import { longDate } from "@/lib/format"
 import type { EmploymentProfileView } from "@itulah/contract"
 import type {
   AttendanceCorrection,
-  AttendanceDay,
   DeviceSession,
   EmploymentContract,
   HolidayCalendar,
@@ -77,75 +76,12 @@ export const demoContract: EmploymentContract = {
 
 
 
-/// Fourteen days back from today, with the shape of a real fortnight in it:
-/// a rest day a week, one late morning, one missing clock-out, one national
-/// holiday.
-export const demoAttendance: AttendanceDay[] = Array.from(
-  { length: 14 },
-  (_, index) => {
-    const back = 13 - index
-    const date = new Date(today().getTime() - back * MS_DAY)
-    const weekday = date.getDay()
-    const day = isoDate(date)
-
-    if (weekday === 1) {
-      return {
-        date: day,
-        status: "REST",
-        scheduled_from: null,
-        scheduled_to: null,
-        first_in: null,
-        last_out: null,
-        worked_minutes: 0,
-        late_minutes: 0,
-        place_name: null,
-        source: null,
-        correction_pending: false,
-      } satisfies AttendanceDay
-    }
-
-    const common = {
-      date: day,
-      scheduled_from: "09:00",
-      scheduled_to: "18:00",
-      place_name: "Itulah Kemang",
-      source: "KIOSK",
-    } as const
-
-    if (back === 4) {
-      return {
-        ...common,
-        status: "INCOMPLETE",
-        first_in: instantOffset(-back, 8, 56),
-        last_out: null,
-        worked_minutes: 0,
-        late_minutes: 0,
-        correction_pending: false,
-      } satisfies AttendanceDay
-    }
-    if (back === 8) {
-      return {
-        ...common,
-        status: "LATE",
-        first_in: instantOffset(-back, 9, 34),
-        last_out: instantOffset(-back, 18, 6),
-        worked_minutes: 512,
-        late_minutes: 34,
-        correction_pending: false,
-      } satisfies AttendanceDay
-    }
-    return {
-      ...common,
-      status: "PRESENT",
-      first_in: instantOffset(-back, 8, 52),
-      last_out: instantOffset(-back, 18, 4),
-      worked_minutes: 552,
-      late_minutes: 0,
-      correction_pending: false,
-    } satisfies AttendanceDay
-  }
-)
-
+/// The fortnight used to be here, and it is gone.
+///
+/// `/api/v1/employees/{id}/attendance` exists, so the screens read it. A
+/// stand-in kept behind a live route is how a wrong shape reaches a render — it
+/// never fires when the route answers, and it rots silently until the day it
+/// does fire and shows somebody a fortnight nobody worked.
 export const demoCorrections: AttendanceCorrection[] = []
 
 export const demoHolidays: HolidayCalendar = {

@@ -20,8 +20,10 @@ import { queryState } from "@/lib/query-state"
 /// that reason, and Store ops opens the same sheet.
 ///
 /// Every receipt here is a centre `sale`, so each one crosses to its own record
-/// on the sales list. That is not decoration: a figure somebody disputes is
-/// only settled by the receipt underneath it.
+/// — which since 2026-09-13 is a SHEET on the Sales screen rather than a row on
+/// a register, because the register was removed. That crossing is not
+/// decoration: a figure somebody disputes is only settled by the receipt
+/// underneath it.
 export function WindowSheet({
   siteId,
   from,
@@ -48,17 +50,6 @@ export function WindowSheet({
       onOpenChange={(open) => !open && onClose()}
       id={spanText}
       title={window.data?.site_name ?? siteId ?? "Shop"}
-      actions={
-        siteId !== null ? (
-          <AppLink
-            to="/storeops/sales"
-            sheet={{ key: "store", value: siteId }}
-            className="inline-flex h-[1.625rem] shrink-0 items-center rounded-full bg-soft-2 px-2.5 text-[0.71875rem] font-medium text-text transition-colors hover:bg-hairline"
-          >
-            Receipts
-          </AppLink>
-        ) : undefined
-      }
     >
       {queryState(window, {
         loading: "Reading the shop's trade…",
@@ -177,7 +168,7 @@ export function WindowSheet({
                   <tr key={sale.id} className="border-t border-hairline">
                     <td className="py-2 pr-2">
                       <AppLink
-                        to="/storeops/sales"
+                        to="/sales"
                         sheet={{ key: "sale", value: sale.id }}
                         className="block font-mono text-[0.65625rem] text-accent hover:underline"
                       >

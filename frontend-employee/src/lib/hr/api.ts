@@ -1,6 +1,7 @@
 import { node } from "@/lib/api"
 import { ApiError } from "@itulah/contract/client"
 import type {
+  AttendanceRangeView,
   EmploymentProfileView,
   LeaveBalanceRow,
   LeaveRequestView,
@@ -8,13 +9,13 @@ import type {
   OvertimeOrderView,
   PayrollIdentityView,
   PayrollSlipRow,
+  PunchRecorded,
   Notification as ContractNotification,
   NotificationPage,
 } from "@itulah/contract"
 import * as demo from "./demo"
 import type {
   AttendanceCorrection,
-  AttendanceDay,
   DeviceSession,
   EmploymentContract,
   HolidayCalendar,
@@ -333,16 +334,58 @@ export function answerOvertime(
     { agreed, reason }
   )
 }
+// ── attendance: live, and honest about what produced each day ─────
+//
+// The route landed, and it is `/attendance` rather than the `/attendance/basis`
+// this app used to ask for. It answers `AttendanceRangeView` — days DERIVED on
+// the request from the plan, the punches, the policy version in force on that
+// date, the approvals and the effective correction. There is no stored outcome
+// anywhere, which is why re-reading a fortnight can legitimately change it.
+//
+// # There is no stand-in below, and removing the old one was the point
+//
+// `read`'s fallback fires on a 404 and hands back `demo.ts` instead. That is
+// right for a route the server has not grown; it is dangerous for one it has,
+// because a stand-in shaped like last month's guess renders happily behind a
+// live route and nobody finds out until a figure is wrong. This app has already
+// been bitten twice that way — `/notifications` returned a page where a list was
+// expected, and `/holiday-calendars` an index where a calendar was — and both
+// times the fallback was innocent and the hand-written shape was not.
+//
+// So these two call the node directly. A 404 here means the route moved, and
+// this app should say so rather than quietly show a fortnight nobody worked.
+
+/// This person's own derived fortnight.
+///
+/// `punch_source_connected` is about *readers*, not about whether anything can
+/// be recorded: since 2026-09-13 a unit with no reader can still have a
+/// fortnight of phone taps, and each day's `punch_sources` says which produced
+/// it.
 export function attendance(
   from: string,
   to: string,
   signal?: AbortSignal
-): Promise<readonly AttendanceDay[]> {
-  return read(
-    `/api/v1/employees/${SELF}/attendance/basis?from=${from}&to=${to}`,
-    () => demo.demoAttendance,
-    signal
+): Promise<AttendanceRangeView> {
+  return node.get<AttendanceRangeView>(
+    `/api/v1/employees/${SELF}/attendance?from=${from}&to=${to}`,
+    { signal }
   )
+}
+
+/// Clock in, or clock out.
+///
+/// The body carries the direction and nothing else. Not the time — the server
+/// stamps its own clock, because an instant this phone chose is an instant this
+/// phone could choose; not the date — the server resolves which roster day the
+/// reading answers, which for a shift running past midnight is yesterday; not
+/// the place — that is the posting HR recorded. And not an id: the server
+/// derives one from the punch's own content, so a double tap, a retry on a lost
+/// connection, or a thumb resting on the button all land once. `newly_recorded`
+/// is `false` when that happened, which is information rather than a failure.
+export function punch(direction: "IN" | "OUT"): Promise<PunchRecorded> {
+  return node.post<PunchRecorded>(`/api/v1/employees/${SELF}/punches`, {
+    direction,
+  })
 }
 
 export function corrections(
@@ -374,15 +417,10 @@ export function requestCorrection(
         decided_at: null,
       }
       demo.demoCorrections.unshift(created)
-      const index = demo.demoAttendance.findIndex(
-        (day) => day.date === correction.date
-      )
-      if (index >= 0) {
-        demo.demoAttendance[index] = {
-          ...demo.demoAttendance[index],
-          correction_pending: true,
-        }
-      }
+      // The day itself is no longer this file's to patch: it comes from the
+      // live `/attendance` route above, which derives it. A stand-in that
+      // reached across and edited real data's neighbour is exactly the kind of
+      // half-real state that makes a screen impossible to reason about.
       return created
     }
   )

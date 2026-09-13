@@ -25,9 +25,10 @@
 
 use crate::cloud::application::AppError;
 use crate::cloud::domain::{
-    AllowanceCode, AttendanceMonth, Authorization, BankAccount, FixedAllowance, HandoverState,
-    IdentityAmendment, PayError, PayRecord, PayTimeline, PayrollHandover, PayrollHandoverLine,
-    PayrollHandoverWire, PayrollIdentity, PayrollRun, PayrollRunWire, PlaceId, RunEvent, RunState,
+    AllowanceCode, AttendanceMonth, Authorization, BankAccount, ComponentBase, ComponentBasis,
+    CountedUnit, FixedAllowance, HandoverState, IdentityAmendment, PayError, PayRecord,
+    PayTimeline, PayrollHandover, PayrollHandoverLine, PayrollHandoverWire, PayrollIdentity,
+    PayrollRun, PayrollRunWire, PlaceId, RunEvent, RunState, SlipComputation, SlipFacts, SlipLine,
 };
 use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use pricing_engine::Money;
@@ -241,14 +242,164 @@ pub struct PayrollSlipRow {
     pub statutory_base_minor: i64,
     /// Facts, not money. What this system actually recorded.
     pub leave_days_taken: i32,
+    /// Every agreed minute in the month. The sum of the overtime bands on
+    /// `earnings`, when anything values them — the two are computed from one
+    /// query, so they cannot disagree.
     pub overtime_minutes: i32,
     pub rostered_days: i32,
+    /// What was added on top of the agreement, and what came off. Two lists
+    /// because a payslip has two columns, and each line carries every input it
+    /// was computed from.
+    pub earnings: Vec<SlipLineRow>,
+    pub deductions: Vec<SlipLineRow>,
+    /// The statutory base plus every earning line. Never a guess: every figure
+    /// in it is on this slip.
+    pub gross_minor: i64,
+    /// `null` when a deduction was not assessed — **not nought**. Nought is
+    /// what a system reports after somebody has looked.
+    pub deduction_total_minor: Option<i64>,
+    /// `gross - deductions`, and `null` whenever anything on this slip could
+    /// not be worked out.
+    pub net_minor: Option<i64>,
+    /// The sentence to show instead of a net. Naming the components nobody has
+    /// ratified a rate for, so the screen says which decision is missing.
+    pub components_incomplete_because: Option<String>,
     /// Whether the person can be paid at all — an account number that is
     /// missing fails the whole payment file, not just their line.
     pub payable: bool,
     /// The last four digits, behind dots. Never the number.
     pub bank_account_masked: Option<String>,
 }
+
+/// One computed line of a slip, with every input behind it.
+///
+/// The inputs travel with the amount so a line can be reproduced from itself:
+/// `base_of_minor × rate_bp / 10000` for a capped share, `rate_minor × units /
+/// 60` for an hour of overtime, `rate_minor × units` for a day of anything.
+/// A screen that could only show the amount would be a screen that cannot
+/// answer the one question somebody disputing a payslip asks.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct SlipLineRow {
+    /// `EARNING` or `DEDUCTION`. Amounts are positive on both; this says which
+    /// way the line points.
+    pub kind: String,
+    pub component_code: String,
+    /// As the component was called when the slip was built, copied.
+    pub label: String,
+    /// One of the five shapes. `PER_OCCASION` is a one-off the place filed.
+    pub basis: String,
+    pub base_ref: Option<String>,
+    /// The figure the share was taken of — after any cap.
+    pub base_of_minor: Option<i64>,
+    pub rate_bp: Option<i32>,
+    pub cap_minor: Option<i64>,
+    pub hours_divisor: Option<i32>,
+    pub multiplier_bp: Option<i32>,
+    pub unit: Option<String>,
+    /// Minutes for the overtime bands, days for the rest. Nought is a real
+    /// count and is shown rather than hidden.
+    pub units: Option<i32>,
+    /// Money per hour for overtime, per day otherwise.
+    pub rate_minor: Option<i64>,
+    pub amount_minor: i64,
+}
+
+const SLIP_LINE_COLUMNS: &str = "l.run_id, l.employee_id, l.line_no, l.kind, l.component_code, \
+     l.label, l.basis, l.base_ref, l.base_of_minor, l.rate_bp, l.cap_minor, l.hours_divisor, \
+     l.multiplier_bp, l.unit, l.units, l.rate_minor, l.amount_minor";
+
+/// `(run_id, employee_id, line)`, so one query's rows can be attached to the
+/// slips they belong to without a query per slip.
+fn slip_line_row(row: &sqlx::postgres::PgRow) -> Result<(String, String, SlipLineRow), AppError> {
+    Ok((
+        row.try_get("run_id")?,
+        row.try_get("employee_id")?,
+        SlipLineRow {
+            kind: row.try_get("kind")?,
+            component_code: row.try_get("component_code")?,
+            label: row.try_get("label")?,
+            basis: row.try_get("basis")?,
+            base_ref: row.try_get("base_ref")?,
+            base_of_minor: row.try_get("base_of_minor")?,
+            rate_bp: row.try_get("rate_bp")?,
+            cap_minor: row.try_get("cap_minor")?,
+            hours_divisor: row.try_get("hours_divisor")?,
+            multiplier_bp: row.try_get("multiplier_bp")?,
+            unit: row.try_get("unit")?,
+            units: row.try_get("units")?,
+            rate_minor: row.try_get("rate_minor")?,
+            amount_minor: row.try_get("amount_minor")?,
+        },
+    ))
+}
+
+/// The lines of a set of slips, keyed so each slip can pick out its own.
+type SlipLines = Vec<(String, String, SlipLineRow)>;
+
+/// Build one slip row, taking its lines out of the batch read beside it.
+///
+/// The lines are *drained* rather than copied, so a line can only ever belong
+/// to one slip — a line attached twice would double a total somebody reads.
+fn slip_row(
+    row: &sqlx::postgres::PgRow,
+    lines: &mut SlipLines,
+) -> Result<PayrollSlipRow, AppError> {
+    let account: Option<String> = row.try_get("bank_account")?;
+    let allowances = decode_allowances(row.try_get("fixed_allowances")?)?;
+    let run_id: String = row.try_get("run_id")?;
+    let employee_id: String = row.try_get("employee_id")?;
+
+    let mut earnings = Vec::new();
+    let mut deductions = Vec::new();
+    let mut remaining = Vec::with_capacity(lines.len());
+    for (line_run, line_employee, line) in lines.drain(..) {
+        if line_run == run_id && line_employee == employee_id {
+            if line.kind == "DEDUCTION" {
+                deductions.push(line);
+            } else {
+                earnings.push(line);
+            }
+        } else {
+            remaining.push((line_run, line_employee, line));
+        }
+    }
+    *lines = remaining;
+
+    Ok(PayrollSlipRow {
+        run_id,
+        employee_id,
+        employee_code: row.try_get("employee_code")?,
+        full_name: row.try_get("full_name")?,
+        base_minor: row.try_get("base_minor")?,
+        fixed_allowances: allowances
+            .iter()
+            .map(|allowance| AllowanceLine {
+                code: allowance.code().to_string(),
+                minor: allowance.amount().minor,
+            })
+            .collect(),
+        statutory_base_minor: row.try_get("statutory_base_minor")?,
+        leave_days_taken: row.try_get("leave_days_taken")?,
+        overtime_minutes: row.try_get("overtime_minutes")?,
+        rostered_days: row.try_get("rostered_days")?,
+        earnings,
+        deductions,
+        gross_minor: row.try_get("gross_minor")?,
+        deduction_total_minor: row.try_get("deduction_total_minor")?,
+        net_minor: row.try_get("net_minor")?,
+        components_incomplete_because: row.try_get("components_incomplete_because")?,
+        payable: account.is_some(),
+        // Masked here rather than in the view, so no caller can reach the whole
+        // number by asking a different layer.
+        bank_account_masked: account.as_deref().map(mask),
+    })
+}
+
+const SLIP_COLUMNS: &str = "s.run_id, s.employee_id, e.code AS employee_code, p.full_name, \
+     s.base_minor, s.fixed_allowances, s.statutory_base_minor, s.leave_days_taken, \
+     s.overtime_minutes, s.rostered_days, s.gross_minor, s.deduction_total_minor, \
+     s.net_minor, s.components_incomplete_because, i.bank_account";
 
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
@@ -257,17 +408,162 @@ pub struct AllowanceLine {
     pub minor: i64,
 }
 
+/// The month's agreed overtime, banded the way the statutory table bands it.
+///
+/// PP 35/2021 art. 31 pays the first hour of an ordinary working day at one
+/// multiplier and the hours after it at another, and a rest day and a public
+/// holiday at their own. `overtime_order.day_kind` already records which table
+/// applies — it is the operator's statement, cross-checked against the holiday
+/// calendar when the order was placed — so the banding is a group-by rather
+/// than a derivation.
+///
+/// The first-hour band is per **day**, not per order: two orders on one evening
+/// are one evening, and paying the first hour twice would be paying it twice.
+/// So minutes are summed per day before `least(…, 60)` splits them.
+///
+/// What is deliberately not banded is the ladder *within* a rest day — art.
+/// 31's 2× for the first eight hours, 3× for the ninth, 4× beyond. Every
+/// rest-day minute lands in one band, so an operator with a single rest-day
+/// multiplier understates a very long holiday shift. `0250` names the limit
+/// where somebody will read it.
+async fn overtime_bands(
+    tx: &mut Transaction<'_, Postgres>,
+    employee_id: &str,
+    first_day: NaiveDate,
+) -> Result<(i64, i64, i64, i64), AppError> {
+    let row = sqlx::query(
+        "WITH agreed AS (
+             SELECT on_date, day_kind, sum(planned_minutes)::bigint AS minutes
+               FROM overtime_order
+              WHERE employee_id = $1 AND state = 'AGREED'
+                AND on_date >= $2::date AND on_date < ($2::date + interval '1 month')
+              GROUP BY on_date, day_kind
+         )
+         SELECT
+             COALESCE(sum(CASE WHEN day_kind = 'WORKING'
+                               THEN least(minutes, 60) ELSE 0 END), 0)::bigint AS first_hour,
+             COALESCE(sum(CASE WHEN day_kind = 'WORKING'
+                               THEN greatest(minutes - 60, 0) ELSE 0 END), 0)::bigint AS later,
+             COALESCE(sum(CASE WHEN day_kind = 'REST'
+                               THEN minutes ELSE 0 END), 0)::bigint AS rest_day,
+             COALESCE(sum(CASE WHEN day_kind = 'HOLIDAY'
+                               THEN minutes ELSE 0 END), 0)::bigint AS holiday
+           FROM agreed",
+    )
+    .bind(employee_id)
+    .bind(first_day)
+    .fetch_one(&mut **tx)
+    .await?;
+
+    Ok((
+        row.try_get("first_hour")?,
+        row.try_get("later")?,
+        row.try_get("rest_day")?,
+        row.try_get("holiday")?,
+    ))
+}
+
+/// Write one slip's component lines, replacing whatever was there.
+///
+/// Deleted and re-inserted rather than upserted: a rebuild of a draft run may
+/// produce *fewer* lines than last time — a component retired, an adjustment
+/// withdrawn — and an upsert would leave the old ones behind, so the slip would
+/// carry a line its own totals do not include.
+async fn write_slip_lines(
+    tx: &mut Transaction<'_, Postgres>,
+    run_id: &str,
+    employee_id: &str,
+    lines: &[SlipLine],
+) -> Result<(), AppError> {
+    sqlx::query("DELETE FROM payroll_slip_line WHERE run_id = $1 AND employee_id = $2")
+        .bind(run_id)
+        .bind(employee_id)
+        .execute(&mut **tx)
+        .await?;
+
+    for (index, line) in lines.iter().enumerate() {
+        let (rate_bp, cap, divisor, multiplier) = match line.basis() {
+            Some(ComponentBasis::ShareOfBase { rate_bp, cap, .. }) => (
+                i32::try_from(rate_bp).ok(),
+                cap.map(|cap| cap.minor),
+                None,
+                None,
+            ),
+            Some(ComponentBasis::FractionOfBasePerUnit {
+                hours_divisor,
+                multiplier_bp,
+                ..
+            }) => (
+                None,
+                None,
+                i32::try_from(hours_divisor).ok(),
+                i32::try_from(multiplier_bp).ok(),
+            ),
+            _ => (None, None, None, None),
+        };
+        sqlx::query(
+            "INSERT INTO payroll_slip_line
+                 (run_id, employee_id, line_no, kind, component_code, label, basis,
+                  base_ref, base_of_minor, rate_bp, cap_minor, hours_divisor,
+                  multiplier_bp, unit, units, rate_minor, amount_minor)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)",
+        )
+        .bind(run_id)
+        .bind(employee_id)
+        .bind(i32::try_from(index + 1).unwrap_or(i32::MAX))
+        .bind(line.kind().code())
+        .bind(line.code().as_str())
+        .bind(line.label())
+        .bind(line.shape().code())
+        .bind(
+            line.basis()
+                .and_then(|basis| basis.base())
+                .map(ComponentBase::code),
+        )
+        .bind(line.base_of().map(|base| base.minor))
+        .bind(rate_bp)
+        .bind(cap)
+        .bind(divisor)
+        .bind(multiplier)
+        .bind(line.unit().map(CountedUnit::code))
+        .bind(
+            line.units()
+                .map(|units| i32::try_from(units).unwrap_or(i32::MAX)),
+        )
+        .bind(line.unit_rate().map(|rate| rate.minor))
+        .bind(line.amount().minor)
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(())
+}
+
 /// Build the slips for a run from what the month actually holds.
 ///
 /// Everything here is copied rather than joined, because a slip is what was
 /// true when the run was built. The facts are the ones this system records:
-/// approved leave, agreed overtime, and rostered days. Nothing statutory is
-/// computed, and there is no column for it to land in.
+/// approved leave, agreed overtime banded as the statutory table bands it, and
+/// rostered days.
+///
+/// # What the component engine adds, and what it still refuses
+///
+/// The catalogue is read **once** for the whole run, and every figure on a slip
+/// resolves from that catalogue plus the facts above — never from another
+/// component, and never from an expression. See `domain::component`.
+///
+/// Nothing statutory is invented: PPh 21 is nowhere near this function, and no
+/// rate is seeded anywhere. A component nobody has priced leaves
+/// `deduction_total_minor` and `net_minor` NULL with a sentence naming it, so a
+/// slip cannot quietly acquire a nought that reads as "nothing was owed" — the
+/// guarantee `0105` held by having no columns at all.
 pub async fn build_slips(
     tx: &mut Transaction<'_, Postgres>,
     run: &PayrollRun,
     first_day: NaiveDate,
 ) -> Result<usize, AppError> {
+    // Once for the run, not once per person: the catalogue is the company's.
+    let catalogue = super::components::catalogue_for_run(tx, first_day).await?;
+
     let people = sqlx::query(
         "SELECT a.employee_id FROM employee_assignment a
            JOIN employee e ON e.id = a.employee_id
@@ -316,15 +612,12 @@ pub async fn build_slips(
         .fetch_one(&mut **tx)
         .await?;
 
-        let overtime: Option<i64> = sqlx::query_scalar(
-            "SELECT sum(planned_minutes) FROM overtime_order
-              WHERE employee_id = $1 AND state = 'AGREED'
-                AND on_date >= $2::date AND on_date < ($2::date + interval '1 month')",
-        )
-        .bind(&employee_id)
-        .bind(first_day)
-        .fetch_one(&mut **tx)
-        .await?;
+        // Banded, because the statutory table is banded — and the total is the
+        // sum of the bands rather than a second query, so `overtime_minutes`
+        // and the lines that value it cannot disagree.
+        let (first_hour, later, rest_day, holiday) =
+            overtime_bands(tx, &employee_id, first_day).await?;
+        let overtime = first_hour + later + rest_day + holiday;
 
         let rostered: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM roster_day
@@ -336,29 +629,60 @@ pub async fn build_slips(
         .fetch_one(&mut **tx)
         .await?;
 
+        let leave_days = leave_days.unwrap_or(0);
+        let facts = SlipFacts {
+            base: Money::new(base),
+            statutory_base: Money::new(statutory_base),
+            overtime_workday_first_hour: first_hour,
+            overtime_workday_later: later,
+            overtime_rest_day: rest_day,
+            overtime_holiday: holiday,
+            rostered_days: rostered,
+            leave_days_taken: leave_days,
+        };
+        let adjustments =
+            super::components::adjustments_for_run(tx, run.place(), first_day, &employee_id)
+                .await?;
+        let computed =
+            SlipComputation::compute(Money::new(statutory_base), &facts, &catalogue, &adjustments)
+                .map_err(super::components::component_error)?;
+
         sqlx::query(
             "INSERT INTO payroll_slip
                  (run_id, employee_id, base_minor, fixed_allowances, statutory_base_minor,
-                  leave_days_taken, overtime_minutes, rostered_days)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                  leave_days_taken, overtime_minutes, rostered_days,
+                  gross_minor, deduction_total_minor, net_minor,
+                  components_incomplete_because)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
              ON CONFLICT (run_id, employee_id) DO UPDATE SET
                 base_minor = EXCLUDED.base_minor,
                 fixed_allowances = EXCLUDED.fixed_allowances,
                 statutory_base_minor = EXCLUDED.statutory_base_minor,
                 leave_days_taken = EXCLUDED.leave_days_taken,
                 overtime_minutes = EXCLUDED.overtime_minutes,
-                rostered_days = EXCLUDED.rostered_days",
+                rostered_days = EXCLUDED.rostered_days,
+                gross_minor = EXCLUDED.gross_minor,
+                deduction_total_minor = EXCLUDED.deduction_total_minor,
+                net_minor = EXCLUDED.net_minor,
+                components_incomplete_because = EXCLUDED.components_incomplete_because",
         )
         .bind(run.id())
         .bind(&employee_id)
         .bind(base)
         .bind(serde_json::to_value(&allowances)?)
         .bind(statutory_base)
-        .bind(i32::try_from(leave_days.unwrap_or(0)).unwrap_or(i32::MAX))
-        .bind(i32::try_from(overtime.unwrap_or(0)).unwrap_or(i32::MAX))
+        .bind(i32::try_from(leave_days).unwrap_or(i32::MAX))
+        .bind(i32::try_from(overtime).unwrap_or(i32::MAX))
         .bind(i32::try_from(rostered).unwrap_or(i32::MAX))
+        .bind(computed.gross().minor)
+        .bind(computed.deduction_total().map(|total| total.minor))
+        .bind(computed.net().map(|net| net.minor))
+        .bind(computed.incomplete_because())
         .execute(&mut **tx)
         .await?;
+
+        // After the slip, because the lines point at it.
+        write_slip_lines(tx, run.id(), &employee_id, computed.lines()).await?;
         written += 1;
     }
     Ok(written)
@@ -414,102 +738,75 @@ pub async fn save_run(pool: &PgPool, run: &PayrollRun) -> Result<(), AppError> {
 }
 
 pub async fn run_slips(pool: &PgPool, run_id: &str) -> Result<Vec<PayrollSlipRow>, AppError> {
-    let rows = sqlx::query(
-        "SELECT s.run_id, s.employee_id, e.code AS employee_code, p.full_name,
-                s.base_minor, s.fixed_allowances, s.statutory_base_minor,
-                s.leave_days_taken, s.overtime_minutes, s.rostered_days,
-                i.bank_account
+    let rows = sqlx::query(&format!(
+        "SELECT {SLIP_COLUMNS}
            FROM payroll_slip s
            JOIN employee e ON e.id = s.employee_id
            LEFT JOIN employee_profile p ON p.employee_id = s.employee_id
            LEFT JOIN payroll_identity i ON i.employee_id = s.employee_id
           WHERE s.run_id = $1
-          ORDER BY e.code",
-    )
+          ORDER BY e.code"
+    ))
     .bind(run_id)
     .fetch_all(pool)
     .await?;
 
-    rows.iter()
-        .map(|row| {
-            let account: Option<String> = row.try_get("bank_account")?;
-            let allowances = decode_allowances(row.try_get("fixed_allowances")?)?;
-            Ok(PayrollSlipRow {
-                run_id: row.try_get("run_id")?,
-                employee_id: row.try_get("employee_id")?,
-                employee_code: row.try_get("employee_code")?,
-                full_name: row.try_get("full_name")?,
-                base_minor: row.try_get("base_minor")?,
-                fixed_allowances: allowances
-                    .iter()
-                    .map(|allowance| AllowanceLine {
-                        code: allowance.code().to_string(),
-                        minor: allowance.amount().minor,
-                    })
-                    .collect(),
-                statutory_base_minor: row.try_get("statutory_base_minor")?,
-                leave_days_taken: row.try_get("leave_days_taken")?,
-                overtime_minutes: row.try_get("overtime_minutes")?,
-                rostered_days: row.try_get("rostered_days")?,
-                payable: account.is_some(),
-                // Masked here rather than in the view, so no caller can reach
-                // the whole number by asking a different layer.
-                bank_account_masked: account.as_deref().map(mask),
-            })
-        })
-        .collect()
+    // One query for every line on the run rather than one per slip: a batch
+    // screen shows a whole shop at once, and a query per person is the shape
+    // that makes a payroll page slow enough that nobody checks it.
+    let line_rows = sqlx::query(&format!(
+        "SELECT {SLIP_LINE_COLUMNS} FROM payroll_slip_line l
+          WHERE l.run_id = $1 ORDER BY l.employee_id, l.line_no"
+    ))
+    .bind(run_id)
+    .fetch_all(pool)
+    .await?;
+    let mut lines: SlipLines = line_rows
+        .iter()
+        .map(slip_line_row)
+        .collect::<Result<_, AppError>>()?;
+
+    rows.iter().map(|row| slip_row(row, &mut lines)).collect()
 }
 
 /// One person's own slips, across runs — the payslip route.
 pub async fn slips_of(pool: &PgPool, employee_id: &str) -> Result<Vec<PayrollSlipRow>, AppError> {
-    let rows = sqlx::query(
-        "SELECT s.run_id, s.employee_id, e.code AS employee_code, p.full_name,
-                s.base_minor, s.fixed_allowances, s.statutory_base_minor,
-                s.leave_days_taken, s.overtime_minutes, s.rostered_days,
-                i.bank_account, r.period
+    // Only what head office has actually decided. A draft is a working figure
+    // and a submitted run is a request nobody has answered; showing either to
+    // the person it is about invites them to plan around a number that is
+    // still moving.
+    let rows = sqlx::query(&format!(
+        "SELECT {SLIP_COLUMNS}, r.period
            FROM payroll_slip s
            JOIN payroll_run r ON r.id = s.run_id
            JOIN employee e ON e.id = s.employee_id
            LEFT JOIN employee_profile p ON p.employee_id = s.employee_id
            LEFT JOIN payroll_identity i ON i.employee_id = s.employee_id
-          WHERE s.employee_id = $1
-            -- Only what head office has actually decided. A draft is a working
-            -- figure and a submitted run is a request nobody has answered;
-            -- showing either to the person it is about invites them to plan
-            -- around a number that is still moving.
-            AND r.state = 'APPROVED'
-          ORDER BY r.period DESC",
-    )
+          WHERE s.employee_id = $1 AND r.state = 'APPROVED'
+          ORDER BY r.period DESC"
+    ))
     .bind(employee_id)
     .fetch_all(pool)
     .await?;
 
-    rows.iter()
-        .map(|row| {
-            let account: Option<String> = row.try_get("bank_account")?;
-            let allowances = decode_allowances(row.try_get("fixed_allowances")?)?;
-            Ok(PayrollSlipRow {
-                run_id: row.try_get("run_id")?,
-                employee_id: row.try_get("employee_id")?,
-                employee_code: row.try_get("employee_code")?,
-                full_name: row.try_get("full_name")?,
-                base_minor: row.try_get("base_minor")?,
-                fixed_allowances: allowances
-                    .iter()
-                    .map(|allowance| AllowanceLine {
-                        code: allowance.code().to_string(),
-                        minor: allowance.amount().minor,
-                    })
-                    .collect(),
-                statutory_base_minor: row.try_get("statutory_base_minor")?,
-                leave_days_taken: row.try_get("leave_days_taken")?,
-                overtime_minutes: row.try_get("overtime_minutes")?,
-                rostered_days: row.try_get("rostered_days")?,
-                payable: account.is_some(),
-                bank_account_masked: account.as_deref().map(mask),
-            })
-        })
-        .collect()
+    // The same state bound as above, restated on the lines. Reading them
+    // without it would serve the breakdown of a draft slip to the person it is
+    // about — the leak the bound exists to close, one join further down.
+    let line_rows = sqlx::query(&format!(
+        "SELECT {SLIP_LINE_COLUMNS} FROM payroll_slip_line l
+           JOIN payroll_run r ON r.id = l.run_id
+          WHERE l.employee_id = $1 AND r.state = 'APPROVED'
+          ORDER BY l.run_id, l.line_no"
+    ))
+    .bind(employee_id)
+    .fetch_all(pool)
+    .await?;
+    let mut lines: SlipLines = line_rows
+        .iter()
+        .map(slip_line_row)
+        .collect::<Result<_, AppError>>()?;
+
+    rows.iter().map(|row| slip_row(row, &mut lines)).collect()
 }
 
 /// What a run adds up to, and what stands in its way.
@@ -525,6 +822,30 @@ pub struct RunReconciliation {
     pub statutory_base_total_minor: i64,
     pub overtime_minutes_total: i64,
     pub leave_days_total: i64,
+    /// Base, standing allowances, valued overtime and the one-offs the place
+    /// filed. Always a real sum of what is on the slips.
+    pub gross_total_minor: i64,
+    /// `null` if **any** slip could not assess its deductions. Not a partial
+    /// total: a figure that quietly omits the people it could not compute is
+    /// worse than an absent one, because it looks like an answer.
+    pub deduction_total_minor: Option<i64>,
+    /// `null` if any slip has no net, for the same reason.
+    pub net_total_minor: Option<i64>,
+    /// Slips whose deductions or net could not be worked out, because a
+    /// component in force has no ratified rate — or because nobody has defined
+    /// a deduction at all. **The thing to fix before approving**, and the
+    /// reason it is a count here and a sentence on each slip.
+    pub slips_with_unworkable_components: usize,
+    /// Slips where the deductions came to more than the month earned. Real
+    /// rather than impossible — a *kasbon* instalment set too high does it —
+    /// and head office should see it before approving rather than after
+    /// somebody is paid a negative wage.
+    pub slips_with_negative_net: usize,
+    /// Lines that counted nothing: a per-day allowance for somebody nobody
+    /// rostered. Not an error and not silence — the line is on the slip saying
+    /// "nil days" — but worth a number on the screen, because it is usually a
+    /// missing roster rather than a genuine nought.
+    pub lines_that_counted_nothing: usize,
     /// People on the run with no bank account recorded. **A blocker**: a
     /// payment file that fails at the bank fails for everybody in it.
     pub unpayable: usize,
@@ -553,6 +874,14 @@ pub async fn reconcile(
     .fetch_one(pool)
     .await?;
 
+    // All-or-nothing rather than a sum over the slips that happen to have a
+    // figure. `Iterator::sum` over `Option` is exactly that rule, and it is
+    // the rule `CloseReadiness` follows: a total that silently leaves people
+    // out looks like an answer.
+    let deduction_total_minor: Option<i64> =
+        slips.iter().map(|slip| slip.deduction_total_minor).sum();
+    let net_total_minor: Option<i64> = slips.iter().map(|slip| slip.net_minor).sum();
+
     Ok(RunReconciliation {
         slips: slips.len(),
         base_total_minor: slips.iter().map(|slip| slip.base_minor).sum(),
@@ -565,6 +894,22 @@ pub async fn reconcile(
             .iter()
             .map(|slip| i64::from(slip.leave_days_taken))
             .sum(),
+        gross_total_minor: slips.iter().map(|slip| slip.gross_minor).sum(),
+        deduction_total_minor,
+        net_total_minor,
+        slips_with_unworkable_components: slips
+            .iter()
+            .filter(|slip| slip.components_incomplete_because.is_some())
+            .count(),
+        slips_with_negative_net: slips
+            .iter()
+            .filter(|slip| slip.net_minor.is_some_and(|net| net < 0))
+            .count(),
+        lines_that_counted_nothing: slips
+            .iter()
+            .flat_map(|slip| slip.earnings.iter().chain(slip.deductions.iter()))
+            .filter(|line| line.units == Some(0))
+            .count(),
         unpayable: slips.iter().filter(|slip| !slip.payable).count(),
         without_agreement: usize::try_from(without_agreement).unwrap_or(0),
     })
@@ -741,18 +1086,27 @@ pub async fn load_handover(
 
 /// The breakdown a run would cross with, read off its slips.
 ///
-/// Gross is `statutory_base_minor` — base plus the standing allowances — and
-/// nothing else on a slip is money. Overtime is minutes and leave is days, and
-/// no rate for either exists anywhere in this estate, so neither is turned into
-/// rupiah here. A slip whose figure is not positive is **refused rather than
-/// skipped**: leaving somebody out of a liability quietly is worse than
-/// stopping and saying which slip cannot be crossed.
+/// Gross is `payroll_slip.gross_minor`: base, the standing allowances, valued
+/// overtime, and the one-off earnings the place filed. `0231` read
+/// `statutory_base_minor` here and said why — *"no rate for either exists
+/// anywhere in this estate"* — and `0250` lets an operator ratify the rate that
+/// values a minute of overtime, so the crossing follows.
+///
+/// It is still **gross**. Nothing statutory is netted off, because nothing here
+/// computes PPh 21 or BPJS for the authorities and a figure this backend
+/// invented is a figure somebody would file with them. Crossing the *net*
+/// would also cross a column that is `NULL` whenever a deduction was not
+/// assessed, and a liability of unknown is not a liability Finance can book.
+///
+/// A slip whose figure is not positive is **refused rather than skipped**:
+/// leaving somebody out of a liability quietly is worse than stopping and
+/// saying which slip cannot be crossed.
 pub async fn handover_lines_of(
     pool: &PgPool,
     run_id: &str,
 ) -> Result<Vec<PayrollHandoverLine>, AppError> {
     let rows = sqlx::query(
-        "SELECT employee_id, statutory_base_minor FROM payroll_slip
+        "SELECT employee_id, gross_minor FROM payroll_slip
           WHERE run_id = $1 ORDER BY employee_id",
     )
     .bind(run_id)
@@ -762,7 +1116,7 @@ pub async fn handover_lines_of(
         .map(|row| {
             PayrollHandoverLine::try_new(
                 row.try_get::<String, _>("employee_id")?,
-                row.try_get::<i64, _>("statutory_base_minor")?,
+                row.try_get::<i64, _>("gross_minor")?,
             )
             .map_err(pay_error)
         })

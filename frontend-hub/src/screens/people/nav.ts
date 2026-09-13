@@ -3,9 +3,14 @@ import {
   CalendarCheck,
   CalendarClock,
   CalendarRange,
+  ChartColumn,
   Clock4,
+  Fingerprint,
   Inbox,
+  LayoutGrid,
   Receipt,
+  ScanFace,
+  UserPlus,
   Users,
 } from "lucide-react"
 
@@ -52,11 +57,49 @@ export const peopleNav: AppModule = {
   id: "people",
   label: "People",
   icon: Users,
-  home: "/people",
+  home: "/people/overview",
   useAudience: usePeopleAudience,
   sections: [
     {
-      items: [{ path: "/people", label: "Directory", icon: Users }],
+      items: [
+        {
+          /// The front door, above the groups, because it is what somebody
+          /// opens when they do not yet know what they are looking for. Both
+          /// HR prototypes lead with it and Finance puts its own Overview in
+          /// exactly this position.
+          ///
+          /// It does not displace the Directory's claim to being opened daily
+          /// — it answers a different question. The Directory is "tell me
+          /// about this person"; this is "tell me what is waiting".
+          path: "/people/overview",
+          label: "Overview",
+          icon: LayoutGrid,
+        },
+        { path: "/people", label: "Directory", icon: Users },
+        {
+          /// Ungrouped, beside the other front doors. It sat under **Setup**
+          /// and was the only row there without an `audience`, which dragged
+          /// that whole heading into a place manager's sidebar for the sake of
+          /// one report — a group label promising rules they may not set.
+          /// Reading is not setup.
+          path: "/people/reports",
+          label: "Reports",
+          icon: ChartColumn,
+        },
+        {
+          /// Asking for somebody, and head office answering. Beside the
+          /// Directory rather than in Work, because it is the front of the
+          /// same lifecycle the Directory holds the rest of — and because
+          /// `APPROVED` here is not a person yet: the employment record is
+          /// opened afterwards and starts as a candidate.
+          ///
+          /// No `audience`: a shop asks and head office decides, so both
+          /// faces open it and each is offered only the acts it may take.
+          path: "/people/hire",
+          label: "New employees",
+          icon: UserPlus,
+        },
+      ],
     },
     {
       /// What is on somebody's desk this week. A place manager decides here
@@ -90,6 +133,20 @@ export const peopleNav: AppModule = {
           icon: CalendarRange,
         },
         {
+          /// What the days amounted to. Between the roster and the close, in
+          /// the order the work happens: the plan is written, the days are
+          /// worked, the month is signed off.
+          ///
+          /// The path is `/people/attendance-days` and not `/people/attendance`
+          /// because the second now names the *policy* panel inside Time
+          /// policy. Two screens cannot share an address, and the rules a
+          /// month is judged against are a different question from what a
+          /// month contained.
+          path: "/people/attendance-days",
+          label: "Attendance",
+          icon: Fingerprint,
+        },
+        {
           /// Signing the month off. The place closes; head office reopens —
           /// the screen offers whichever the caller may actually do.
           path: "/people/periods",
@@ -111,10 +168,21 @@ export const peopleNav: AppModule = {
           audience: "employer",
         },
         {
+          /// **No `audience`.** Hari's decision of 2026-09-13 reversed the one
+          /// this module was built to: a place no longer merely closes its
+          /// attendance period — it opens its own payroll, reads the figures,
+          /// and submits the batch. `domain::employment::audit` says so in as
+          /// many words and puts `people.payroll.{open,submit}` and
+          /// `people.pay.read` at the Supervisor rung, bounded by `Reach`.
+          ///
+          /// So hiding this row from a place manager was not a cautious
+          /// default — it was the app withholding the one screen that decision
+          /// gave them. Approving, reopening and handing to Finance stay head
+          /// office's, enforced on the server and reflected by the screen,
+          /// which offers a place only the step it may take.
           path: "/people/payroll",
           label: "Payroll runs",
           icon: Receipt,
-          audience: "employer",
         },
       ],
     },
@@ -133,6 +201,18 @@ export const peopleNav: AppModule = {
           path: "/people/policy",
           label: "Time policy",
           icon: CalendarClock,
+          audience: "employer",
+        },
+        {
+          /// The fingerprint stations, and whose fingers each unit's station
+          /// knows. Head office's, because binding a biometric to an
+          /// employment record is the employer's act even though the finger
+          /// is on a reader in the shop — and because a template held
+          /// centrally is what lets somebody transfer without enrolling
+          /// again.
+          path: "/people/terminals",
+          label: "Punch stations",
+          icon: ScanFace,
           audience: "employer",
         },
       ],

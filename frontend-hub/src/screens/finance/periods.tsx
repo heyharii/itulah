@@ -153,8 +153,15 @@ export function Periods() {
     // The server answers with the whole list precisely so the screen does not
     // have to guess what changed, so it is written straight into the cache
     // rather than invalidated and refetched.
-    onSuccess: (list) => {
-      client.setQueryData(financeKeys.periods(), list)
+    //
+    // `page.rows`, not the page. Every reader of this key holds a
+    // `FiscalPeriod[]` — `listPeriods` unwraps the envelope before caching it —
+    // so writing the envelope here replaced an array with an object, and the
+    // next reader to call `.filter` on it threw. `setQueryData` is untyped for
+    // this key, so the compiler could not see it and only pressing the button
+    // could.
+    onSuccess: (page) => {
+      client.setQueryData(financeKeys.periods(), page.rows)
       setReceipt(`${monthLabel(year, month)} is open for posting.`)
     },
   })
@@ -462,7 +469,7 @@ function Checklist({ period }: { period: FiscalPeriod }) {
   })
   const bills = useQuery({
     queryKey: financeKeys.bills(null),
-    queryFn: ({ signal }) => listBills({}, signal),
+    queryFn: ({ signal }) => listBills({}, signal).then((page) => page.rows),
   })
   const statements = useQuery({
     queryKey: financeKeys.bankStatements(),

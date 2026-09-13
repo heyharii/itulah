@@ -1441,6 +1441,7 @@ dependencies = [
  "regex",
  "reqwest",
  "retail-tax",
+ "ring",
  "rqrr",
  "rusqlite",
  "rust_decimal",

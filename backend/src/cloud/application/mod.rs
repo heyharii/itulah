@@ -881,10 +881,33 @@ pub struct AddSalePaymentRequest {
     pub idempotency_key: String,
 }
 
+/// What a caller is asking the sale list for.
+///
+/// # Why there is a window at all
+///
+/// Because there was not one, and the list could therefore not answer "the
+/// sales in this window" — the register's whole question. It took a unit, a
+/// status and a ceiling, so the only way to ask about a month was to pull the
+/// last N sales and hope the month was inside them.
+///
+/// The window is on `created_at` and not on `completed_at`, deliberately: this
+/// list carries OPEN and VOIDED sales too, and those have no completion. It is
+/// also the column the list is already ordered by, so the window and the order
+/// are the same axis. `GET /reports/sales/window` is the other question —
+/// takings, over a shop's own business day at a UTC offset — and it stays on
+/// `completed_at` because only completed sales are takings.
 #[derive(Clone, Debug, Deserialize)]
 pub struct SaleQuery {
     pub site_id: Option<String>,
     pub status: Option<String>,
+    /// First day in the window, inclusive. Absent means no lower bound.
+    pub from: Option<NaiveDate>,
+    /// Last day in the window, INCLUSIVE — a caller asking for "1 to 30
+    /// September" means the thirtieth to be in it, as everywhere else here.
+    pub to: Option<NaiveDate>,
+    /// Minutes east of UTC the two dates are read in; defaults to WIB
+    /// (UTC+7 = 420), like every other dated read in this module.
+    pub utc_offset_minutes: Option<i32>,
     pub limit: Option<i64>,
 }
 
@@ -1318,14 +1341,21 @@ pub struct SalesSeriesQuery {
     pub utc_offset_minutes: Option<i32>,
 }
 
-/// One shop over one span, with the receipts.
+/// One shop over one span, with the receipts — or the whole chain.
 ///
 /// The counterpart to a cell in the series: the series says a shop took
 /// nineteen million on Tuesday, this says across how many sales, in what
 /// tenders, and which receipts they were.
 #[derive(Clone, Debug, Deserialize)]
 pub struct SalesWindowQuery {
-    pub site_id: String,
+    /// One unit, or ABSENT for every unit.
+    ///
+    /// Optional since the Sales Register asked for a chain-wide view and could
+    /// not have one: this was the only read in finance where the unit was a
+    /// required argument rather than a filter, so "the fleet this week" was a
+    /// question the endpoint could not be asked. Every existing caller sends
+    /// one and is unaffected.
+    pub site_id: Option<String>,
     pub from: NaiveDate,
     /// Inclusive, as in `SalesSeriesQuery`.
     pub to: NaiveDate,

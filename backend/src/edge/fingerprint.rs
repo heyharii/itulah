@@ -605,6 +605,132 @@ pub fn claim(
     Ok(accepted)
 }
 
+/// The same claim, made with a PIN instead of a finger.
+///
+/// Shares everything that matters with [`claim`] — the terminal's proof, the
+/// claim record, the grant — and differs in the one place that counts: the node
+/// checks the secret itself rather than believing the terminal's word that a
+/// finger matched. A PIN cannot be asserted past this function.
+///
+/// It still rides the terminal-signed channel, so a supervisor's grant stays
+/// bound to the till the supervisor actually walked up to.
+pub fn pin_claim(
+    connection: &mut Connection,
+    proof: &TerminalProof,
+    username: &str,
+    pin: &str,
+    purpose: &str,
+    path: &str,
+    body_sha256: &str,
+) -> Result<ClaimAccepted, EdgeError> {
+    let purpose = purpose.trim().to_ascii_uppercase();
+    if !matches!(purpose.as_str(), "SESSION" | "SUPERVISOR") {
+        return Err(EdgeError::Validation(
+            "a claim is either SESSION or SUPERVISOR".into(),
+        ));
+    }
+
+    let tx = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(db)?;
+    let terminal_id = verify_terminal(&tx, proof, "POST", path, body_sha256)?;
+
+    // What this node accepts is this node's decision. A production shop refuses
+    // a PIN here rather than relying on its tills not to offer one: a method
+    // hidden in an interface and still accepted at the door is the weakest
+    // thing in the building, and it is weakest where nobody is looking.
+    let accepts = crate::edge::pin::step_up(&tx)?;
+    if accepts != "PIN" {
+        return Err(EdgeError::Unauthorized(
+            "this shop's node does not accept a PIN; use a fingerprint or a password".into(),
+        ));
+    }
+
+    let now = Utc::now();
+    let record = |tx: &Transaction<'_>,
+                  who: Option<&str>,
+                  accepted: bool,
+                  refusal: Option<&str>|
+     -> Result<(), EdgeError> {
+        tx.execute(
+            "INSERT INTO edge_fingerprint_claim
+               (claim_id,device_id,finger_id,username,purpose,accepted,refusal,score,claimed_at,method)
+             VALUES (?1,?2,NULL,?3,?4,?5,?6,NULL,?7,'PIN')",
+            params![
+                Uuid::new_v4().to_string(),
+                terminal_id,
+                who,
+                purpose,
+                i64::from(accepted),
+                refusal,
+                now.to_rfc3339()
+            ],
+        )
+        .map_err(db)?;
+        Ok(())
+    };
+
+    let verified = match crate::edge::pin::verify(&tx, username, pin) {
+        Ok(verified) => verified,
+        Err(error) => {
+            // Written down before the refusal leaves, so a run of wrong PINs at
+            // one terminal late in the evening is visible as the shape it is.
+            record(&tx, Some(username.trim()), false, Some("PIN refused"))?;
+            tx.commit().map_err(db)?;
+            return Err(error);
+        }
+    };
+
+    if purpose == "SUPERVISOR" {
+        let role: String = tx
+            .query_row(
+                "SELECT role FROM edge_user WHERE username=?1",
+                params![verified],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        if !matches!(role.as_str(), "SUPERVISOR" | "ADMIN") {
+            record(&tx, Some(&verified), false, Some("not a supervisor"))?;
+            tx.commit().map_err(db)?;
+            return Err(EdgeError::Unauthorized(
+                "supervisor authorisation refused".into(),
+            ));
+        }
+        let grant = security::random_token();
+        let expires_at = now + chrono::Duration::seconds(SUPERVISOR_GRANT_SECONDS);
+        tx.execute(
+            "INSERT INTO edge_supervisor_grant
+               (grant_token_sha256,username,terminal_id,issued_at,expires_at,spent_at)
+             VALUES (?1,?2,?3,?4,?5,NULL)",
+            params![
+                security::sha256_hex(&grant),
+                verified,
+                terminal_id,
+                now.to_rfc3339(),
+                expires_at.to_rfc3339()
+            ],
+        )
+        .map_err(db)?;
+        record(&tx, Some(&verified), true, None)?;
+        tx.commit().map_err(db)?;
+        return Ok(ClaimAccepted {
+            username: verified,
+            purpose,
+            authorization: Some(grant),
+            expires_at: Some(expires_at.to_rfc3339()),
+        });
+    }
+
+    record(&tx, Some(&verified), true, None)?;
+    tx.commit().map_err(db)?;
+    Ok(ClaimAccepted {
+        username: verified,
+        purpose,
+        authorization: None,
+        expires_at: None,
+    })
+}
+
 /// Spend a supervisor's authorisation, or refuse it.
 ///
 /// Single use, and marked spent inside the caller's own transaction so a void

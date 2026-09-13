@@ -17,6 +17,7 @@ import type {
   OvertimePolicyView,
   PayRecordView,
   PayrollIdentityView,
+  PayrollHandoverView,
   PayrollRunView,
   PayrollSlipRow,
   PeriodView,
@@ -27,6 +28,14 @@ import type {
   PolicyScheduleView,
   ProvisionedAccount,
   ReachView,
+  AttendanceRangeView,
+  BookPublished,
+  CorrectionRow,
+  EnrolmentView,
+  HireProposalView,
+  PunchReadinessView,
+  TerminalRow,
+  TodayView,
 } from "@itulah/contract"
 
 /// Who works here, under what contract, and where they are posted — plus the
@@ -1169,6 +1178,8 @@ export function reopenPeriod(
 export const payKeys = {
   runs: () => ["people", "payroll", "runs"] as const,
   slips: (runId: string) => ["people", "payroll", runId, "slips"] as const,
+  handover: (runId: string) =>
+    ["people", "payroll", runId, "handover"] as const,
   reconciliation: (runId: string) =>
     ["people", "payroll", runId, "reconciliation"] as const,
   pay: (employeeId: string) => ["people", "pay", employeeId] as const,
@@ -1260,13 +1271,60 @@ export function openRun(
 
 /// One route per step, not one with a verb. They are four different
 /// authorities, and the two-person rule compares the actors on two of them.
+/// Move a run along. Three steps, not five.
+///
+/// `verify` and `seal` are gone by the owner's decision of 2026-09-13: the
+/// first act moved to the place as `submission`, and approval is final — a
+/// state whose only content is "and we mean it" cannot be told from the one
+/// before it. The path segment for submitting is `submission` rather than
+/// `submit`, because it is the thing rather than the verb.
 export function stepRun(
   runId: string,
-  step: "verify" | "approve" | "seal" | "reopen",
+  step: "submission" | "approve" | "reopen",
   reason: string
 ): Promise<PayrollRunView> {
   return node.post<PayrollRunView>(
     `/api/v1/payroll/runs/${encodeURIComponent(runId)}/${step}`,
+    { reason }
+  )
+}
+
+/// What crossed to Finance, and whether Finance says it is paid.
+///
+/// Its own route rather than a field on the run: a list of runs must not pay
+/// for every employee line in every month, and nothing should ever serve an
+/// empty breakdown beside a real figure — which reads as "nobody is in it".
+export function readHandover(
+  runId: string,
+  signal?: AbortSignal
+): Promise<PayrollHandoverView | null> {
+  return node.get<PayrollHandoverView | null>(
+    `/api/v1/payroll/runs/${encodeURIComponent(runId)}/finance-handover`,
+    { signal }
+  )
+}
+
+/// Hand an approved run over. Idempotent per (place, period) on the server, so
+/// sending it twice cannot double what the company owes.
+export function handOverRun(
+  runId: string,
+  reason: string
+): Promise<PayrollHandoverView> {
+  return node.post<PayrollHandoverView>(
+    `/api/v1/payroll/runs/${encodeURIComponent(runId)}/finance-handover`,
+    { reason }
+  )
+}
+
+/// Finance's own statement that it has been paid, under its own key — a grant
+/// that could hand a liability over and then declare it settled would be one
+/// person closing the loop on their own request.
+export function settleHandover(
+  runId: string,
+  reason: string
+): Promise<PayrollHandoverView> {
+  return node.post<PayrollHandoverView>(
+    `/api/v1/payroll/runs/${encodeURIComponent(runId)}/finance-handover/settlement`,
     { reason }
   )
 }
@@ -1292,17 +1350,345 @@ export function runReconciliation(
 }
 
 /// What a run's state means in a sentence.
+///
+/// Three states, since the owner's decision of 2026-09-13 removed both `verify`
+/// and `seal`: the place builds it, the place sends it, head office answers.
+/// The two-person rule did not go with them — it moved, and is now *submitter
+/// is not approver*, which is why the sentences name who is waiting rather
+/// than which button is next.
 export function runStateLabel(state: string): string {
   switch (state) {
     case "DRAFT":
-      return "Waiting to be checked"
-    case "VERIFIED":
-      return "Checked, waiting on a second signature"
+      return "Being built by the place"
+    case "SUBMITTED":
+      return "Waiting on head office"
     case "APPROVED":
       return "Approved"
-    case "SEALED":
-      return "Sealed"
     default:
       return state
   }
+}
+
+/// What a handover's state means. `null` handover means nobody has sent it.
+export function handoverLabel(state: string): string {
+  switch (state) {
+    case "HANDED_OVER":
+      return "With Finance"
+    case "SETTLED":
+      return "Paid"
+    default:
+      return state
+  }
+}
+
+// ── asking for a new employee ──────────────────────────────────────────────
+
+export const hireKeys = {
+  all: ["people", "hire"] as const,
+  list: (place?: string) => ["people", "hire", place ?? "all"] as const,
+  one: (id: string) => ["people", "hire", "proposal", id] as const,
+}
+
+export function listHireProposals(
+  signal?: AbortSignal
+): Promise<HireProposalView[]> {
+  return node.get<HireProposalView[]>("/api/v1/hire-proposals", { signal })
+}
+
+export function readHireProposal(
+  id: string,
+  signal?: AbortSignal
+): Promise<HireProposalView> {
+  return node.get<HireProposalView>(
+    `/api/v1/hire-proposals/${encodeURIComponent(id)}`,
+    { signal }
+  )
+}
+
+/// What a shop states when it asks for somebody.
+///
+/// Deliberately no NIK, no address, no contact detail — the schema has no
+/// column for any of them. A candidate is somebody who may never work here,
+/// and personal data starts existing when they actually do.
+export interface HireTerms {
+  readonly position: string
+  readonly headcount: number
+  /// `REPLACEMENT` or `ADDITION`.
+  readonly need: string
+  readonly candidateName: string
+  readonly startOn: string
+  /// `PKWT` or `PKWTT`. A fixed term must name its end date; a permanent one
+  /// has nowhere to put one.
+  readonly contractKind: string
+  readonly contractEndsOn?: string
+  readonly basePayMinor: number
+  readonly reason: string
+}
+
+/// The terms, plus the unit. Only a *proposal* carries one.
+export interface HireAsk extends HireTerms {
+  readonly placeId: string
+}
+
+/// Everything a revision may change — which is everything except where.
+///
+/// `ReviseBody` on the server is `deny_unknown_fields` and has no `place_id`,
+/// deliberately: *"a proposal that changed shops would be a different
+/// proposal"*. So sending one is not a harmless extra field, it is a rejected
+/// request — and the shape here says so rather than leaving the caller to find
+/// out from a 422.
+function termsBody(terms: HireTerms) {
+  return {
+    position: terms.position,
+    headcount: terms.headcount,
+    need: terms.need,
+    candidate_name: terms.candidateName,
+    start_on: terms.startOn,
+    contract_kind: terms.contractKind,
+    contract_ends_on: terms.contractEndsOn ?? null,
+    base_pay_minor: terms.basePayMinor,
+    reason: terms.reason,
+  }
+}
+
+export function proposeHire(ask: HireAsk): Promise<HireProposalView> {
+  return node.post<HireProposalView>("/api/v1/hire-proposals", {
+    place_id: ask.placeId,
+    ...termsBody(ask),
+  })
+}
+
+/// A revision is a new version, and the one it replaced stays readable with
+/// the reason it was returned.
+export function reviseHire(
+  id: string,
+  terms: HireTerms
+): Promise<HireProposalView> {
+  return node.post<HireProposalView>(
+    `/api/v1/hire-proposals/${encodeURIComponent(id)}/revision`,
+    termsBody(terms)
+  )
+}
+
+export function decideHire(
+  id: string,
+  decision: "APPROVE" | "RETURN" | "REJECT",
+  reason: string
+): Promise<HireProposalView> {
+  return node.post<HireProposalView>(
+    `/api/v1/hire-proposals/${encodeURIComponent(id)}/decision`,
+    { decision, reason }
+  )
+}
+
+/// Opening the employment record an approval permits.
+///
+/// It creates a **candidate**, not a working employee: the `HIRE` event is
+/// recorded on the day somebody actually starts, through the Directory. So
+/// "approved" is never rendered as "hired".
+export function openHiredEmployment(
+  id: string,
+  employeeCode: string,
+  reason: string
+): Promise<HireProposalView> {
+  return node.post<HireProposalView>(
+    `/api/v1/hire-proposals/${encodeURIComponent(id)}/employment`,
+    { employee_code: employeeCode, reason }
+  )
+}
+
+// ── what a day amounted to ─────────────────────────────────────────────────
+
+export const punchKeys = {
+  all: ["people", "attendance"] as const,
+  today: (place: string, date: string) =>
+    ["people", "attendance", "today", place, date] as const,
+  of: (employeeId: string, from: string, to: string) =>
+    ["people", "attendance", "employee", employeeId, from, to] as const,
+  corrections: (place: string | null, pending: boolean) =>
+    ["people", "attendance", "corrections", place ?? "all", pending] as const,
+  readiness: (place: string, period: string) =>
+    ["people", "attendance", "readiness", place, period] as const,
+  terminals: (place: string | null) =>
+    ["people", "attendance", "terminals", place ?? "all"] as const,
+  enrolment: (employeeId: string) =>
+    ["people", "attendance", "fingerprints", employeeId] as const,
+}
+
+/// One place, one day. `punch_source_connected` is the field to read FIRST:
+/// false means no station has ever reported, and every zero under it is an
+/// absence of evidence rather than evidence of absence.
+export function readToday(
+  place: string,
+  date?: string,
+  signal?: AbortSignal
+): Promise<TodayView> {
+  const params = new URLSearchParams({ place })
+  if (date) params.set("date", date)
+  return node.get<TodayView>(`/api/v1/attendance/today?${params.toString()}`, {
+    signal,
+  })
+}
+
+export function readAttendance(
+  employeeId: string,
+  from: string,
+  to: string,
+  signal?: AbortSignal
+): Promise<AttendanceRangeView> {
+  const params = new URLSearchParams({ from, to })
+  return node.get<AttendanceRangeView>(
+    `/api/v1/employees/${encodeURIComponent(employeeId)}/attendance?${params.toString()}`,
+    { signal }
+  )
+}
+
+export function punchReadiness(
+  place: string,
+  period: string,
+  signal?: AbortSignal
+): Promise<PunchReadinessView> {
+  const params = new URLSearchParams({ place, period })
+  return node.get<PunchReadinessView>(
+    `/api/v1/attendance/punch-readiness?${params.toString()}`,
+    { signal }
+  )
+}
+
+// ── a correction sits on top of a punch, never over it ─────────────────────
+
+export function listCorrections(
+  options: { place?: string; pending?: boolean } = {},
+  signal?: AbortSignal
+): Promise<CorrectionRow[]> {
+  const params = new URLSearchParams()
+  if (options.place) params.set("place", options.place)
+  params.set("pending", String(options.pending ?? false))
+  return node.get<CorrectionRow[]>(
+    `/api/v1/attendance-corrections?${params.toString()}`,
+    { signal }
+  )
+}
+
+export interface CorrectionAsk {
+  readonly businessDate: string
+  /// What the correction claims: the server's vocabulary, not the screen's.
+  readonly effect: string
+  readonly arrival?: string
+  readonly departure?: string
+  readonly arrivalDayOffset?: number
+  readonly departureDayOffset?: number
+  readonly reason: string
+}
+
+export function fileCorrection(
+  employeeId: string,
+  ask: CorrectionAsk
+): Promise<CorrectionRow> {
+  return node.post<CorrectionRow>(
+    `/api/v1/employees/${encodeURIComponent(employeeId)}/attendance-corrections`,
+    {
+      business_date: ask.businessDate,
+      effect: ask.effect,
+      arrival: ask.arrival ?? null,
+      departure: ask.departure ?? null,
+      arrival_day_offset: ask.arrivalDayOffset ?? 0,
+      departure_day_offset: ask.departureDayOffset ?? 0,
+      reason: ask.reason,
+    }
+  )
+}
+
+/// Approve or refuse. The requester and the decider must be different actors,
+/// and the server refuses the same one — this is not a screen-level rule.
+export function decideCorrection(
+  id: string,
+  approve: boolean,
+  reason: string
+): Promise<CorrectionRow> {
+  return node.post<CorrectionRow>(
+    `/api/v1/attendance-corrections/${encodeURIComponent(id)}/decision`,
+    { approve, reason }
+  )
+}
+
+export function withdrawCorrection(
+  id: string,
+  reason: string
+): Promise<CorrectionRow> {
+  return node.post<CorrectionRow>(
+    `/api/v1/attendance-corrections/${encodeURIComponent(id)}/withdrawal`,
+    { reason }
+  )
+}
+
+// ── the stations, and whose fingers they know ──────────────────────────────
+
+export function listTerminals(
+  place?: string,
+  signal?: AbortSignal
+): Promise<TerminalRow[]> {
+  const suffix = place ? `?place=${encodeURIComponent(place)}` : ""
+  return node.get<TerminalRow[]>(`/api/v1/attendance-terminals${suffix}`, {
+    signal,
+  })
+}
+
+export function registerTerminal(body: {
+  terminalId: string
+  placeId: string
+  name: string
+  reason: string
+}): Promise<TerminalRow[]> {
+  return node.post<TerminalRow[]>("/api/v1/attendance-terminals", {
+    terminal_id: body.terminalId,
+    place_id: body.placeId,
+    name: body.name,
+    reason: body.reason,
+  })
+}
+
+export function setTerminalStatus(
+  id: string,
+  status: string,
+  reason: string
+): Promise<TerminalRow[]> {
+  return node.post<TerminalRow[]>(
+    `/api/v1/attendance-terminals/${encodeURIComponent(id)}/status`,
+    { status, reason }
+  )
+}
+
+/// Which fingers somebody has on file — **never the template**. The bytes live
+/// in a type with no `Serialize`, so no browser can ask for them however it
+/// phrases the request.
+export function readEnrolment(
+  employeeId: string,
+  signal?: AbortSignal
+): Promise<EnrolmentView> {
+  return node.get<EnrolmentView>(
+    `/api/v1/employees/${encodeURIComponent(employeeId)}/fingerprints`,
+    { signal }
+  )
+}
+
+export function withdrawFinger(
+  employeeId: string,
+  finger: string,
+  reason: string
+): Promise<EnrolmentView> {
+  return node.post<EnrolmentView>(
+    `/api/v1/employees/${encodeURIComponent(employeeId)}/fingerprints/${encodeURIComponent(finger)}/withdrawal`,
+    { reason }
+  )
+}
+
+/// Push a unit's roster and its people down to that unit's station, so a
+/// terminal with the line down still greets by name and knows the shift.
+export function publishEmployeeBook(
+  placeId: string
+): Promise<BookPublished> {
+  return node.post<BookPublished>("/api/v1/attendance/employee-book", {
+    place_id: placeId,
+  })
 }

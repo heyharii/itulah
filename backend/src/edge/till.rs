@@ -556,16 +556,62 @@ pub struct Supervisor {
     /// Two attempts that differ only in the password are the same action tried
     /// twice, which is exactly what an idempotency key is for.
     #[serde(skip_serializing)]
-    pub password: String,
+    #[serde(default)]
+    pub password: Option<String>,
+    /// A single-use authorisation earned by pressing a finger on this terminal
+    /// (`edge/fingerprint.rs`), offered instead of a password.
+    ///
+    /// Additive on purpose: the Android till and everything else already in the
+    /// field send a password and keep working untouched. A supervisor called to
+    /// a counter many times a day is the case this exists for — typing a
+    /// password in front of a queue is how it ends up written on a monitor.
+    ///
+    /// Skipped on the way out for the same reason the password is: it is a
+    /// credential, and `request_json` is kept.
+    #[serde(skip_serializing)]
+    #[serde(default)]
+    pub authorization: Option<String>,
 }
 
 pub fn verify_supervisor(
-    connection: &Connection,
+    connection: &Transaction<'_>,
     supervisor: Option<&Supervisor>,
 ) -> Result<String, EdgeError> {
     let supervisor = supervisor.ok_or_else(|| {
         EdgeError::Validation("this action needs a supervisor's authorisation".into())
     })?;
+
+    // A finger, if one was pressed. Spent inside the caller's transaction, so a
+    // void that fails after this point does not burn the grant for nothing —
+    // and one grant can never pay for two voids.
+    if let Some(token) = supervisor
+        .authorization
+        .as_deref()
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+    {
+        let granted_to = crate::edge::fingerprint::spend_grant(connection, token)?;
+        // If the caller also named somebody, the two must be the same person.
+        // A grant earned by one supervisor and filed under another's name would
+        // put the wrong signature on the row that needed it.
+        let claimed = supervisor.username.trim();
+        if !claimed.is_empty() {
+            let claimed =
+                crate::security::normalize_username(claimed).map_err(EdgeError::Validation)?;
+            if claimed != granted_to {
+                return Err(EdgeError::Unauthorized(
+                    "supervisor authorisation refused".into(),
+                ));
+            }
+        }
+        return Ok(granted_to);
+    }
+
+    let Some(password) = supervisor.password.as_deref() else {
+        return Err(EdgeError::Validation(
+            "a supervisor must authorise this with a password or a fingerprint".into(),
+        ));
+    };
     let username =
         crate::security::normalize_username(&supervisor.username).map_err(EdgeError::Validation)?;
     let row: Option<(String, String, i64)> = connection
@@ -584,7 +630,7 @@ pub fn verify_supervisor(
     if active == 0 || !matches!(role.as_str(), "SUPERVISOR" | "ADMIN") {
         return Err(refuse());
     }
-    if !crate::security::password_matches(&password_hash, &supervisor.password) {
+    if !crate::security::password_matches(&password_hash, password) {
         return Err(refuse());
     }
     Ok(username)

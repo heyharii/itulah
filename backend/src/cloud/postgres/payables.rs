@@ -200,7 +200,14 @@ pub struct UnbilledReceipt {
     pub receipt_id: Uuid,
     pub receipt_number: String,
     pub supplier_id: String,
+    /// The CENTRE's name for the unit — `dc`, `store-07` — which is the
+    /// spelling every other finance read answers in and the one the unit
+    /// pickers and `org_place` are keyed on.
     pub site_id: String,
+    /// What the node that minted this receipt calls itself — `dc-01` at the
+    /// distribution centre, and the same as `site_id` everywhere else. It is
+    /// inside `receipt_number`, so it is what somebody reads off the paper.
+    pub origin_site_id: String,
     pub arrived_at: DateTime<Utc>,
     /// What the DC recorded off the paper that came with the goods, when it
     /// came with any. Evidence, not a bookable figure.
@@ -1043,23 +1050,54 @@ pub async fn post_bill(
 /// Valued at the ordered price times the accepted quantity, because that is
 /// what the supplier has agreed to charge. It is an estimate of an exposure,
 /// not a balance, and it is labelled as one wherever it is shown.
+///
+/// # The unit is respelled into the centre's own name
+///
+/// A goods receipt is minted at the DC and carries the DC's name for ITSELF —
+/// `dc-01`, because the Edge parameterises its ids by the site it runs as,
+/// while the centre has exactly one distribution centre and spells it `dc`
+/// (see `sync::pool_id_for_site`, which closes the same gap for pool ids).
+/// Every other finance read answers in the centre's spelling, so this one
+/// answered in a vocabulary the unit pickers and the name lookups do not
+/// have — and the screens fell back to printing the raw id.
+///
+/// The edge's own spelling is not thrown away: it comes back as
+/// `origin_site_id`, because it is what is printed on the receipt number and
+/// what somebody standing in the warehouse will quote.
 pub async fn unbilled_receipts(
     pool: &PgPool,
     limit: i64,
 ) -> Result<Vec<UnbilledReceipt>, AppError> {
     let rows = sqlx::query(
-        "SELECT r.receipt_id, r.receipt_number, r.supplier_id, r.site_id, r.arrived_at,
+        "SELECT r.receipt_id, r.receipt_number, r.supplier_id, r.arrived_at,
+                r.site_id AS origin_site_id,
+                COALESCE(
+                    -- Already the centre's name for it: every store spells
+                    -- itself the same on both sides, so this is the whole
+                    -- fleet bar the DC and costs one index probe.
+                    (SELECT s.id FROM site s WHERE s.id = r.site_id),
+                    -- A DC node calling itself something else. The centre has
+                    -- one distribution centre; `LIMIT 1` says so rather than
+                    -- multiplying the row if that ever stops being true.
+                    CASE WHEN o.node_role = 'DC'
+                         THEN (SELECT s.id FROM site s WHERE s.kind = 'DC'
+                                ORDER BY s.id LIMIT 1) END,
+                    -- Nothing we can resolve. The raw id, which is at least
+                    -- the truth about what arrived.
+                    r.site_id
+                ) AS site_id,
                 r.invoice_number, r.invoice_total_minor,
                 COALESCE(SUM(rl.quantity * pl.unit_price_minor), 0)::bigint AS value_at_order_price,
                 COUNT(rl.receipt_line_id)::bigint AS line_count,
                 (CURRENT_DATE - r.arrived_at::date)::int AS days_waiting
            FROM goods_receipt r
+           LEFT JOIN sync_origin_credential o ON o.origin_id = r.origin_id
            LEFT JOIN goods_receipt_line rl ON rl.receipt_id = r.receipt_id
            LEFT JOIN purchase_order_line pl ON pl.po_line_id = rl.po_line_id
           WHERE NOT EXISTS (
                     SELECT 1 FROM supplier_invoice_receipt sir
                      WHERE sir.receipt_id = r.receipt_id)
-          GROUP BY r.receipt_id
+          GROUP BY r.receipt_id, o.node_role
           ORDER BY r.arrived_at
           LIMIT $1",
     )
@@ -1073,6 +1111,7 @@ pub async fn unbilled_receipts(
                 receipt_number: row.try_get("receipt_number")?,
                 supplier_id: row.try_get("supplier_id")?,
                 site_id: row.try_get("site_id")?,
+                origin_site_id: row.try_get("origin_site_id")?,
                 arrived_at: row.try_get("arrived_at")?,
                 invoice_number: row.try_get("invoice_number")?,
                 invoice_total_minor: row.try_get("invoice_total_minor")?,

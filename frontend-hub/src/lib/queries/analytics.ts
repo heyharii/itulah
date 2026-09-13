@@ -62,6 +62,9 @@ export interface SaleTenderTotal {
 export interface WindowTransaction {
   readonly id: string
   readonly sale_number: string
+  /// Which shop rang it. On every row, not only on a fleet-wide read — a
+  /// column a screen has to guess about is worse than one it always has.
+  readonly site_id: string
   readonly channel: string
   readonly currency: string
   readonly net_minor: number
@@ -75,6 +78,10 @@ export interface WindowTransaction {
   /// which is the row a supervisor opens this list to find.
   readonly methods: readonly string[]
   readonly actor_id: string
+  /// The member the receipt was rung against, when there was one. The column
+  /// has always been on the sale; it simply was not on this wire, so no
+  /// register could say which receipts were a member's.
+  readonly customer_id: string | null
   readonly completed_at: string | null
 }
 
@@ -110,8 +117,10 @@ export interface CashTotals {
 }
 
 export interface SalesWindow {
-  readonly site_id: string
-  readonly site_name: string
+  /// Null on a chain-wide read, and the two are different answers: null means
+  /// "every unit", never "a unit we could not name".
+  readonly site_id: string | null
+  readonly site_name: string | null
   readonly from: string
   readonly to: string
   readonly utc_offset_minutes: number
@@ -155,8 +164,16 @@ export const analyticsKeys = {
   /// stale answer for October, it is a different question.
   series: (range: SalesRange) =>
     ["analytics", "series", range.from, range.to, range.bucket] as const,
-  window: (siteId: string, from: string, to: string) =>
-    ["analytics", "window", siteId, from, to] as const,
+  /// `limit` is in the key because it changes the ANSWER: it is how many
+  /// receipts come back beside the totals, so a summary asked for with
+  /// `limit: 1` and a register asked for with two hundred are two different
+  /// answers and must not share an entry. `siteId` empty is the whole chain.
+  window: (
+    siteId: string,
+    from: string,
+    to: string,
+    limit: number | null = null
+  ) => ["analytics", "window", siteId, from, to, limit] as const,
   daily: (siteId: string, date: string) =>
     ["analytics", "daily", siteId, date] as const,
 }
@@ -174,19 +191,34 @@ export function salesSeries(range: SalesRange, signal?: AbortSignal) {
   })
 }
 
+/// One shop over one span, or the whole chain when `siteId` is omitted.
+///
+/// `limit` is the server's own — how many receipts come back with the totals —
+/// and it was being dropped, so every caller paid for up to two hundred
+/// receipts whether or not it drew one. A fleet-wide read multiplies that by
+/// the number of shops, which is why it is spelled here rather than left to a
+/// default nobody can see: a caller that wants only the summary sends `limit:
+/// 1` and the totals are unaffected, because the server computes them over the
+/// whole span regardless.
 export function salesWindow(
   scope: {
-    readonly siteId: string
+    /// Absent is every unit. The server treats the unit as a filter now, not
+    /// as an argument.
+    readonly siteId?: string
     readonly from: string
     readonly to: string
+    readonly limit?: number
   },
   signal?: AbortSignal
 ) {
   const query = new URLSearchParams({
-    site_id: scope.siteId,
     from: scope.from,
     to: scope.to,
   })
+  if (scope.siteId !== undefined && scope.siteId !== "") {
+    query.set("site_id", scope.siteId)
+  }
+  if (scope.limit !== undefined) query.set("limit", String(scope.limit))
   return node.get<SalesWindow>(`/api/v1/reports/sales/window?${query}`, {
     signal,
   })

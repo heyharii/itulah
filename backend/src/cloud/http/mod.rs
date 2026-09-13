@@ -26,6 +26,9 @@ pub mod campaigns;
 pub mod catalogue;
 pub mod chat;
 pub mod colours;
+/// The payroll component catalogue, its ratified rates, and the one-off
+/// figures a place files. See `domain::component`.
+pub mod components;
 pub mod coupons;
 pub mod customer;
 pub mod discussion;
@@ -34,6 +37,7 @@ pub mod employment;
 pub mod files;
 pub mod finance;
 pub mod giro_print;
+pub mod hire;
 pub mod holiday;
 pub mod leave;
 pub mod letters;
@@ -42,6 +46,7 @@ pub mod notifications;
 pub mod overtime;
 pub mod pay;
 pub mod performance;
+pub mod punch;
 pub mod records;
 pub mod reports;
 pub mod roster;
@@ -49,6 +54,7 @@ pub mod statement_intake;
 pub mod supplier_banks;
 pub mod suppliers;
 pub mod sync_health;
+pub mod terminal;
 pub mod vocabulary;
 pub mod vouchers;
 
@@ -933,6 +939,13 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/finance/depreciation/run",
             post(finance::run_depreciation),
         )
+        // The same month, rehearsed. Writes nothing, and unlike the run it
+        // answers even when a category has no accounts mapped: naming those
+        // assets is most of why anybody looks first.
+        .route(
+            "/api/v1/finance/depreciation/preview",
+            post(finance::preview_depreciation),
+        )
         // Where the money is. One row per mapped money account per location,
         // beside the last statement imported for it — the list a treasurer
         // opens. `bank-statements` below is the drill-in from a row of it.
@@ -1006,6 +1019,62 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/finance/cash-counts/{id}/post",
             post(finance::post_cash_count),
+        )
+        // A day's takings. The list is built from the SALES, so it can say
+        // which days are NOT in the book — which is the question, and which a
+        // list of postings cannot answer. The post is keyed by unit and
+        // trading day because that is what a day IS; calling it twice books it
+        // once and answers with the first entry.
+        .route("/api/v1/finance/sale-days", get(finance::sale_days))
+        .route(
+            "/api/v1/finance/sale-days/{site}/{day}/post",
+            post(finance::post_sale_day),
+        )
+        // A shop asking head office to pay something. Six routes and not one
+        // of them posts: the document is a lifecycle with no accounting
+        // consequence until head office acts, and the bill and the payment it
+        // becomes already carry the rules. See
+        // `postgres::payment_instructions`.
+        .route(
+            "/api/v1/finance/payment-instructions",
+            get(finance::payment_instructions).post(finance::raise_payment_instruction),
+        )
+        .route(
+            "/api/v1/finance/payment-instructions/{id}",
+            get(finance::payment_instruction),
+        )
+        .route(
+            "/api/v1/finance/payment-instructions/{id}/submit",
+            post(finance::submit_payment_instruction),
+        )
+        .route(
+            "/api/v1/finance/payment-instructions/{id}/decide",
+            post(finance::decide_payment_instruction),
+        )
+        .route(
+            "/api/v1/finance/payment-instructions/{id}/withdraw",
+            post(finance::withdraw_payment_instruction),
+        )
+        .route(
+            "/api/v1/finance/payment-instructions/{id}/settle",
+            post(finance::settle_payment_instruction),
+        )
+        // Takings between a drawer and a bank. Two postings on two dates —
+        // `/bank` when the bag leaves, `/land` when the statement agrees — so
+        // the money in between is a ledger position rather than a subtraction
+        // a screen performs.
+        .route(
+            "/api/v1/finance/deposits",
+            get(finance::deposits).post(finance::record_deposit),
+        )
+        .route("/api/v1/finance/deposits/{id}", get(finance::deposit))
+        .route(
+            "/api/v1/finance/deposits/{id}/bank",
+            post(finance::bank_deposit),
+        )
+        .route(
+            "/api/v1/finance/deposits/{id}/land",
+            post(finance::land_deposit),
         )
         .route(
             "/api/v1/finance/account-map",
@@ -1236,6 +1305,120 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/attendance-periods/{place}/{period}/reopening",
             post(roster::reopen_period),
         )
+        // ── fingerprint attendance ──────────────────────────────────────
+        //
+        // The punch source, answered 2026-09-13: a fingerprint station per
+        // unit, ZKTeco readers, templates held centrally, punches taken at the
+        // edge and synced up. `frontend-hub/PEOPLE-BRIEF.md` recorded the
+        // question; `docs/hr-port-provenance.md` records what was adapted.
+        //
+        // The stations. Registering one *creates* attendance authority — a row
+        // in ACTIVE is the only thing that can produce a punch — so it is head
+        // office's and audited, while reading them needs only a session,
+        // because somebody whose only way through the door is a reader is
+        // entitled to know whether anybody has suspended it.
+        .route(
+            "/api/v1/attendance-terminals",
+            get(terminal::list_terminals).post(terminal::register_terminal),
+        )
+        .route(
+            "/api/v1/attendance-terminals/{id}/status",
+            post(terminal::set_terminal_status),
+        )
+        // Enrolment is HR's even though the capture happens at the store: the
+        // finger is on the reader in the shop and binding a biometric to an
+        // employment record is head office's. Reading which fingers somebody
+        // has enrolled is roster-grade — a manager needs it to know why a
+        // person keeps appearing absent — and carries no template, because the
+        // bytes live in a type with no `Serialize`.
+        .route(
+            "/api/v1/employees/{id}/fingerprints",
+            get(terminal::read_enrolment).post(terminal::enrol_finger),
+        )
+        // Withdrawal deletes the template and keeps the evidence. A
+        // retired-but-present biometric is regulated data still held without a
+        // purpose.
+        .route(
+            "/api/v1/employees/{id}/fingerprints/{finger}/withdrawal",
+            post(terminal::withdraw_finger),
+        )
+        // Push the plan down to a unit's station. The roster key, because what
+        // travels is the roster — the manager who built next week's is the one
+        // who wants it on the reader.
+        .route(
+            "/api/v1/attendance/employee-book",
+            post(terminal::publish_book),
+        )
+        // The two routes a unit's node reaches, authenticated by its own
+        // `x-sync-key` rather than by a session — see `http::auth::is_public`
+        // for why that is the enforcement of the privacy decision and not a
+        // shortcut. Nothing a browser holds opens either.
+        .route(
+            "/api/v1/attendance/terminal-sync",
+            post(terminal::sync_templates),
+        )
+        .route("/api/v1/attendance/punches", post(terminal::ingest_punches))
+        // The second punch source, and the door it does NOT come through is
+        // the one above. That route is a node's, behind `x-sync-key`, and
+        // widening it to sessions would undo the privacy decision it enforces
+        // — so the employee app gets its own route, session-authenticated,
+        // bounded to the caller's own record by `Access::own` and carrying its
+        // own action key at the cashier rung.
+        //
+        // It exists because no reader has been bought: on 2026-09-13 nobody
+        // could clock in anywhere, so the roster, the derivation, the
+        // corrections and the close had nothing to be exercised against. Every
+        // row it writes says `source = 'EMPLOYEE_APP'` (migration `0239`) and
+        // names no terminal, so when the readers arrive nobody has to guess
+        // which readings came from a finger — and retiring this source means
+        // refusing one key, with no history to unpick.
+        //
+        // There is deliberately no on-behalf-of form. A manager who knows
+        // somebody was at work files an attendance *correction*, which another
+        // person decides.
+        .route(
+            "/api/v1/employees/{id}/punches",
+            post(punch::record_own_punch),
+        )
+        // What a day amounted to. Derived on every request from the plan, the
+        // punches, the policy version, the approvals and the effective
+        // correction — there is no stored outcome and no column one could go
+        // in.
+        .route("/api/v1/attendance/today", get(punch::read_today))
+        .route(
+            "/api/v1/employees/{id}/attendance",
+            get(punch::read_attendance),
+        )
+        // The two punch-derived counts the period close used to report as
+        // `null` because there was no punch source. They are numbers now
+        // wherever a unit has a station, and still `null` where one has none —
+        // "the checks passed" and "there was nothing to check" are different
+        // facts and only one of them is a zero.
+        .route(
+            "/api/v1/attendance/punch-readiness",
+            get(punch::read_punch_readiness),
+        )
+        // Corrections: an append-only overlay that never edits a punch. The
+        // only route by which a real day of work the reader failed to see
+        // becomes a real day of work again — which matters because fingerprint
+        // is the only way in. Filing and deciding are disjoint keys, and the
+        // requester and the decider must be different actors.
+        .route(
+            "/api/v1/attendance-corrections",
+            get(punch::list_corrections),
+        )
+        .route(
+            "/api/v1/employees/{id}/attendance-corrections",
+            post(punch::file_correction),
+        )
+        .route(
+            "/api/v1/attendance-corrections/{id}/decision",
+            post(punch::decide_correction),
+        )
+        .route(
+            "/api/v1/attendance-corrections/{id}/withdrawal",
+            post(punch::withdraw_correction),
+        )
         // Pay and payroll. Owner's decision of 2026-09-13: the place asks for
         // its own payroll and sees the figures, and head office decides it. So
         // the reads here are reach-bounded rather than head office's alone —
@@ -1294,6 +1477,58 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/payroll/runs/{id}/finance-handover/settlement",
             post(pay::settle_handover),
+        )
+        // The component engine. `0250` and `0251`, and the four gaps they
+        // close: deductions exist at all, overtime becomes money, a place can
+        // file a one-off, and a slip has a net.
+        //
+        // Reading the catalogue and the rates needs NO key, deliberately —
+        // the position the attendance policy and the holiday calendar already
+        // take, and it has more force here: a rate that decides what comes out
+        // of somebody's wage is exactly the rule they are entitled to read.
+        // Nothing on these two routes is about a named person.
+        //
+        // Defining a component and stating what it is worth are two head
+        // office keys, not one. Inventing a line item decides what a payslip
+        // may say; its percentage decides what comes out of every wage, and a
+        // deployment that wants the second in fewer hands cannot say so with
+        // one key. The same split `overtime_policy` makes.
+        .route(
+            "/api/v1/payroll/components",
+            get(components::catalogue).post(components::define),
+        )
+        .route(
+            "/api/v1/payroll/components/{code}/retirement",
+            post(components::retire),
+        )
+        // Retire, never delete: a slip line naming a deleted component would
+        // point at nothing, and the slips it produced are still the record of
+        // what somebody was paid.
+        .route(
+            "/api/v1/payroll/components/{code}/rates",
+            get(components::rates).post(components::ratify),
+        )
+        // The one-offs: an incentive, a *kasbon* instalment, a bonus. **The
+        // place's**, bounded by its own posting, and the other half of the
+        // owner's decision of 2026-09-13 — a place that submits a batch and
+        // cannot add a figure to it can only resend numbers head office
+        // already fixed.
+        //
+        // There is no decide route. A one-off rides the batch carrying it:
+        // writable while that month's run is absent or DRAFT, frozen by the
+        // place's submission, and decided by head office's approval of the
+        // run. A second approval chain would ask head office to approve one
+        // figure twice.
+        .route(
+            "/api/v1/payroll/adjustments",
+            get(components::adjustments).post(components::file),
+        )
+        // `POST .../withdrawal` rather than a DELETE, matching
+        // `/attendance-corrections/{id}/withdrawal`: taking a figure back
+        // needs a reason, and a DELETE has nowhere to put one.
+        .route(
+            "/api/v1/payroll/adjustments/{id}/withdrawal",
+            post(components::withdraw),
         )
         .route("/api/v1/notifications", get(notifications::list))
         .route(
@@ -1367,6 +1602,36 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/comments/{id}",
             patch(records::edit).delete(records::remove),
+        )
+        // *Karyawan baru*: a shop asks for an employee it does not have, and
+        // head office answers. Two ways in, one employee record out — the
+        // owner's decision of 2026-09-13, and a form rather than the hiring
+        // menu he rejected on 2026-09-04. `POST /api/v1/employees` above is
+        // the other way in and is untouched.
+        //
+        // Filing is a place manager's act, bounded by their own posting;
+        // deciding is head office's, and the one rule a rung cannot express —
+        // the proposer may not decide their own proposal — is enforced on the
+        // actor in `domain::hire`.
+        .route(
+            "/api/v1/hire-proposals",
+            get(hire::list).post(hire::propose),
+        )
+        .route("/api/v1/hire-proposals/{id}", get(hire::detail))
+        // A revision is a NEW version, and the returned one stays readable —
+        // which is why this is not a PATCH of the proposal.
+        .route("/api/v1/hire-proposals/{id}/revision", post(hire::revise))
+        // Approve, return for revision, or reject: one decision with three
+        // answers, each needing a reason. Three routes would be three places
+        // to forget to ask for one.
+        .route("/api/v1/hire-proposals/{id}/decision", post(hire::decide))
+        // What an approval buys. It opens a CANDIDATE and posts them to the
+        // unit that asked; the HIRE event that makes somebody an active
+        // employee is still `POST /employees/{id}/employment`, because
+        // "Approved" is not "working here".
+        .route(
+            "/api/v1/hire-proposals/{id}/employment",
+            post(hire::open_employment),
         )
         .route("/metrics", get(metrics))
         .fallback_service(ServeDir::new(frontend).append_index_html_on_directories(true))

@@ -189,6 +189,24 @@ fn key(key: &str, label: &str, expects: &str, qualified: bool, needed_for: &str)
 /// page of bills — whatever the list endpoint's limit handed it — so a house
 /// with more unpaid bills than that page held was told a smaller number than
 /// the truth.
+///
+/// # Only one of the three is about the month, and the answer now says so
+///
+/// The endpoint takes a `year` and a `month` and looked, from its shape, like
+/// three counts about that month. It never was: `overdue_bills` is every bill
+/// late TODAY, and `unmapped_pairs` is every gap in the map as it stands — the
+/// account map has no dates in it at all. Only `month_not_open` reads the
+/// arguments.
+///
+/// Scoping all three to the month was considered and is wrong for both. A bill
+/// that fell due in July and is still unpaid is late now, and dropping it from
+/// September's badge would be the badge hiding the oldest debt in the house. A
+/// meaning nobody has mapped is not mapped in any month. So the two stay
+/// STANDING and the response labels them: `scopes` says which reading each
+/// number has, and `as_of` is the day the standing ones were counted on.
+///
+/// The numbers and their names are unchanged, so no reader of this badge has
+/// to be touched for the labels to arrive.
 pub async fn finance_attention_counts(
     pool: &PgPool,
     year: i32,
@@ -242,6 +260,22 @@ pub async fn finance_attention_counts(
         "unmapped_pairs": unmapped_pairs,
         "month_not_open": i64::from(!month_open),
         "attention": overdue + unmapped_pairs + i64::from(!month_open),
+        // The month that was asked about, echoed so a badge drawn from a stale
+        // answer can tell it is stale.
+        "year": year,
+        "month": month,
+        // The day the STANDING counts were taken on. `CURRENT_DATE` on the
+        // node, which is what `supplier_invoice_standing.overdue` is computed
+        // against — said out loud rather than left for a reader to assume.
+        "as_of": chrono::Utc::now().date_naive(),
+        // Which reading each count has. `MONTH` means it is about `year`/
+        // `month`; `STANDING` means it is about the books as they stand today
+        // and does not move when the month does.
+        "scopes": {
+            "overdue_bills": "STANDING",
+            "unmapped_pairs": "STANDING",
+            "month_not_open": "MONTH",
+        },
     }))
 }
 
@@ -271,11 +305,28 @@ pub struct BookLocation {
 /// question: a shop that stops receiving stock still has a ledger, and a chart
 /// imported for thirteen locations out of fourteen should say so here rather
 /// than look complete.
+///
+/// The NAME comes from `org_place`, not from `site`, and that is the whole of
+/// the unit-domain decision taken on 2026-09-13. Accounting's fourteen units
+/// are head office and thirteen shops — suffix `00` is HO in the client's own
+/// codes — while `site` is the fourteen places STOCK sits, which has a DC and
+/// no head office. The two lists coincide only because HO and the DC share a
+/// building, and `org_place.site_id` has recorded that all along: `ho → dc`,
+/// under a unique index, so the bridge is total and one-to-one.
+///
+/// Reading `site.name` here is what made every finance screen print "DC" where
+/// the books, the chart and this function's own comment all mean head office.
+/// `COALESCE` rather than an inner join: a site with no place row is a fault
+/// worth seeing as itself rather than as a missing row.
 pub async fn book_locations(pool: &PgPool) -> Result<Vec<BookLocation>, AppError> {
     let rows = sqlx::query(
-        "SELECT s.id AS site_id, s.name, s.kind,
+        "SELECT s.id AS site_id,
+                COALESCE(p.name, s.name) AS name,
+                COALESCE(p.kind, s.kind) AS kind,
                 (SELECT COUNT(*) FROM ledger_account a WHERE a.site_id = s.id)::bigint AS account_count
-           FROM site s ORDER BY (s.kind <> 'DC'), s.id",
+           FROM site s
+           LEFT JOIN org_place p ON p.site_id = s.id
+          ORDER BY (s.kind <> 'DC'), s.id",
     )
     .fetch_all(pool)
     .await?;
@@ -357,6 +408,24 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
             false,
             "Cash & Bank",
         ),
+        // Where takings sit between a drawer and a bank. Unqualified, unlike
+        // the two bank keys below it: a bag of notes is in transit to one
+        // place at a time and the unit is already the dimension on the line,
+        // so there is nothing left for a qualifier to narrow.
+        //
+        // The client's IMPORTED chart had no account for this —
+        // `docs/coa-final.md` §8.7 named it as one of exactly two the
+        // simplified chart had to add — and 0243 minted it. Until somebody
+        // points this key at it, recording a deposit is allowed and banking one
+        // is refused BY NAME, the way a cash count is recorded without
+        // `cash_variance` and cannot be posted without it.
+        key(
+            "cash_in_transit",
+            "Deposits in transit",
+            "1011005001 Setoran Dalam Perjalanan",
+            false,
+            "Cash & Bank",
+        ),
         key(
             "bank_savings",
             "Bank — savings",
@@ -385,6 +454,23 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
             false,
             "Cash & Bank",
         ),
+        // Where a drawer that does not agree with the books is explained.
+        //
+        // `cash_counts.rs` has named this meaning since 0216 and it was never
+        // declared here — which is worse than an unmapped key, because an
+        // unmapped key at least SHOWS on this screen as unset. This one did
+        // not: the Account Map never listed it, nobody was ever asked to set
+        // it, Period close reported the map complete, and the first person to
+        // book a short drawer met a refusal naming a meaning they had never
+        // seen. 0238 seeds the binding as well, so the refusal is gone rather
+        // than merely explained.
+        key(
+            "cash_variance",
+            "Cash count difference",
+            "8010110007 Pendapatan (Biaya) Lain-Lain",
+            false,
+            "Cash & Bank",
+        ),
         key(
             "card_receivable_credit",
             "Credit card receivable",
@@ -405,6 +491,104 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
             "6010110002 Biaya Credit Card",
             false,
             "Receivables",
+        ),
+        // The three the counter takes that the client's chart never answered
+        // for, and the one it answers for too many times.
+        //
+        // A card sale has had two receivables and a fee account since the
+        // chart was imported. QRIS settles exactly the same way — the money
+        // reaches the bank a day or two later, net of a fee — and had nothing
+        // at all, so it could not be followed from the till to the statement.
+        // 0238 adds the accounts; these are the meanings that reach them.
+        //
+        // 0244 then collapsed the chart against a fixture derived before 0238
+        // existed, which knew no QRIS meaning and folded both of these onto
+        // `1011101002 Piutang Kartu Debit` — so for six days a QRIS sale and a
+        // debit-card sale were the same row in the ledger. 0248 gives each its
+        // own account again, ONE account and not fourteen leaves: the unit is
+        // `journal_line.site_id` now.
+        key(
+            "qris_clearing",
+            "QRIS taken, not yet settled",
+            "1011101003 Piutang QRIS",
+            false,
+            "Receivables",
+        ),
+        // There is no TRANSFER tender, so a transfer made at the counter
+        // arrives as OTHER. It goes to a clearing account of its own rather
+        // than into cash: money nobody has named is money that has to stay
+        // visible until somebody names it, and a drawer that was credited with
+        // it would reconcile against a count it can never match.
+        key(
+            "other_tender_clearing",
+            "Other tender, not yet settled",
+            "1011101004 Piutang Tender Lain-Lain",
+            false,
+            "Receivables",
+        ),
+        // What the counter sold. QUALIFIED, and the qualifier is the tender.
+        //
+        // The client's chart splits sales by tender — `4010110` Tunai,
+        // `4010111` Kartu Debit per bank, `4010112` Kartu Kredit per scheme —
+        // and whether this estate should follow it that far is an open owner
+        // decision (`docs/finance-menu.md` §6, decision 2). So the day's rule
+        // asks rather than decides: bind `revenue` per tender here —
+        // `CASH`, `CARD_DEBIT`, `CARD_CREDIT`, `QRIS`, `VOUCHER`, `OTHER` —
+        // and the credit splits to match; leave only the plain binding and it
+        // is one line. Either way the TENDER SPLIT is on the debits beside it,
+        // which is where it reconciles to the bank.
+        key(
+            "revenue",
+            "Counter sales",
+            "4010114001* Penjualan Barang Dagangan",
+            true,
+            "Sales",
+        ),
+        // The tax that was already inside the price, and is not revenue.
+        //
+        // Indonesian retail prices are tax-INCLUSIVE: the shelf price is what
+        // the customer pays and the PPN is part of it, so the day's takings
+        // are `net + tax` and the split is a SUBTRACTION from the credit, not
+        // an addition to the debit. `sale.tax_minor` has carried that figure
+        // since the pricing engine started quoting and `reports::sales_window`
+        // has reported it all along; until 0249 there was no meaning pointing
+        // at an account, so `sale_day/1` credited the whole gross to revenue
+        // and the liability was never recognised at all — income overstated by
+        // exactly the tax, and nothing owed to anybody for it.
+        //
+        // Declared here and not only mapped, which is the lesson 0238 wrote
+        // down about `cash_variance`: an unmapped meaning is a gap the Account
+        // Map shows, an undeclared one is a gap nobody is ever asked about.
+        //
+        // Nothing was missing from either chart, and nothing is invented for
+        // this: `2012101003` is the CLIENT'S own account and the name below is
+        // theirs verbatim, double space and all. Our collapsed chart currently
+        // shows it as `Hutang PPN Keluaran` — one of the 139 renames the
+        // owner's audit of 2026-09-14 found and put on the list to reverse —
+        // so this line is the client's spelling and the chart is the one that
+        // is wrong, not this.
+        key(
+            "output_tax",
+            "Output VAT (PPN Keluaran)",
+            "2012101003 Hutang  VAT PPN Keluaran",
+            false,
+            "Sales",
+        ),
+        // A voucher presented at the counter is not money arriving. The money
+        // arrived when the card was sold, possibly at another shop, possibly
+        // last year; this is the liability being settled.
+        //
+        // The other half of that liability — issuing a voucher — has no poster
+        // yet, so until it does, settling one drives `205001` debit rather
+        // than back towards zero. That is a visible wrong in the right place,
+        // which is better than a day that refuses to post or a voucher booked
+        // as takings the shop never received.
+        key(
+            "voucher_liability",
+            "Vouchers outstanding",
+            "205001 Uang Muka - Penjualan",
+            false,
+            "Sales",
         ),
         key(
             "affiliate_receivable",
@@ -499,6 +683,18 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         // Intangibles. A separate cost meaning because an intangible's cost is
         // the one asset cost that does not sit under `10215`, so
         // `fixed_asset` cannot answer for it — and disposal credits the cost.
+        // Where a cost sits while the thing it is paying for is still being
+        // built. The client keeps one account per unit — `1031803001` plus the
+        // unit suffix — and not one per family, because work in progress has
+        // not become a kind of thing yet. That is exactly why capitalising it
+        // has to say what it became.
+        key(
+            "work_in_progress",
+            "Work in progress",
+            "1031803001* Contract In Progress (CIP)",
+            true,
+            "Fixed assets",
+        ),
         key(
             "intangible_asset",
             "Intangible asset",
@@ -2229,13 +2425,61 @@ async fn period_facets(
     ))
 }
 
+/// Open a month for posting.
+///
+/// # Why it refuses rather than doing nothing
+///
+/// This was `INSERT … ON CONFLICT DO NOTHING`, so opening a CLOSED month
+/// answered 200 having changed nothing at all — the screen showed the list
+/// back, the month still said CLOSED, and there was no way to tell that from
+/// a successful open of a month that was already open. A silent no-op that
+/// looks like success is worse than either outcome: the one person it fools is
+/// the one who just tried to reopen a sealed month and now believes they did.
+///
+/// So the three cases are separated and only one of them is quiet:
+///
+///   * the month does not exist — it is created, OPEN, which is what this
+///     endpoint is for;
+///   * the month exists and is OPEN — nothing to do, and saying so is honest
+///     because the state the caller asked for is the state it is in;
+///   * the month exists and is CLOSED — refused, 409, naming the month.
+///
+/// Reopening a closed month is deliberately NOT what this does. A close seals
+/// entries (`close_period`), and undoing that is a decision with a reason
+/// attached — `fiscal_period` carries `reopened_by` and `reopen_reason`
+/// columns for exactly that act, and this is not it.
 pub async fn open_period(pool: &PgPool, year: i32, month: i32) -> Result<(), AppError> {
-    sqlx::query("INSERT INTO fiscal_period (year, month) VALUES ($1,$2) ON CONFLICT DO NOTHING")
-        .bind(year as i16)
-        .bind(month as i16)
-        .execute(pool)
-        .await?;
-    Ok(())
+    // One statement, so a concurrent close cannot land between a look and an
+    // insert. `RETURNING` fires only on a real insert; on a conflict nothing
+    // comes back and the existing row is read on the next line.
+    let inserted = sqlx::query(
+        "INSERT INTO fiscal_period (year, month) VALUES ($1,$2)
+         ON CONFLICT (year, month) DO NOTHING
+         RETURNING status",
+    )
+    .bind(year as i16)
+    .bind(month as i16)
+    .fetch_optional(pool)
+    .await?;
+    if inserted.is_some() {
+        return Ok(());
+    }
+
+    let status: Option<String> = sqlx::query_scalar(
+        "SELECT status FROM fiscal_period WHERE year = $1 AND month = $2 FOR SHARE",
+    )
+    .bind(year as i16)
+    .bind(month as i16)
+    .fetch_optional(pool)
+    .await?;
+    match status.as_deref() {
+        // Already what was asked for.
+        Some("OPEN") | None => Ok(()),
+        _ => Err(AppError::Conflict(format!(
+            "period {year}-{month:02} is closed; opening it again would be a \
+             reopening, which is a decision with a reason attached and not this"
+        ))),
+    }
 }
 
 /// Close a month, and say what it contained.

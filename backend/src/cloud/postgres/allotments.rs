@@ -1912,10 +1912,18 @@ fn execution_transition(
                 && identity.source_pool_id == DEFAULT_SOURCE_POOL_ID
                 && identity.destination_type == DestinationType::Store =>
         {
-            let destination_store = SiteId::new(&identity.destination_id)
+            // The destination is still validated and still carried — by the
+            // allotment line, which is where a promise belongs. What it no
+            // longer does is name the shelf: executing a TO_STORE line fetches
+            // goods to the pick area, and which piece serves which shop is
+            // settled when it goes into a carton (INVENTORY-V1 INV-05).
+            //
+            // Writing `picked.{store}` here was the centre's whole reason for
+            // having thirteen pools the DC node has never written to.
+            SiteId::new(&identity.destination_id)
                 .map_err(|error| AppError::Conflict(error.to_string()))?;
             let destination = Place::Operational {
-                pool: OperationalPool::DcOutboundPicked(destination_store),
+                pool: OperationalPool::DcOutboundPicking,
                 state: InventoryState::Normal,
             };
             Ok((MovementCause::NormalMove, destination.id()))

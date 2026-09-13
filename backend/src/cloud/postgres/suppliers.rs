@@ -310,8 +310,6 @@ fn supplier_item_from_row(row: PgRow) -> Result<SupplierItem, AppError> {
             .unwrap_or_default()
             .unwrap_or_default(),
         status: SupplierStatus::from_str(&status).map_err(validation)?,
-        category: row.try_get("category")?,
-        expense_account_code: row.try_get("expense_account_code")?,
         version: row.try_get("version")?,
         created_by: row.try_get("created_by")?,
         created_at: row.try_get("created_at")?,

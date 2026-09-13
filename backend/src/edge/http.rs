@@ -389,11 +389,45 @@ fn common_router() -> Router<EdgeState> {
         .route("/api/v1/auth/me", get(me))
         .route("/api/v1/auth/logout", post(logout))
         .route("/api/v1/auth/change-password", post(change_password))
+        // A finger opens a till and authorises a void. Three of these are
+        // people-facing and signed in normally; two are spoken by a paired
+        // terminal and signed with its own credential, because the matching
+        // happens on the counter and a claim is only worth what stands behind
+        // it. See `edge/fingerprint.rs`.
+        .route("/api/v1/auth/terminals", post(pair_terminal))
+        .route("/api/v1/auth/fingerprints", post(enrol_fingerprint))
+        .route(
+            "/api/v1/auth/fingerprints/{finger_id}/retire",
+            post(retire_fingerprint),
+        )
+        .route("/api/v1/auth/fingerprints/roster", get(fingerprint_roster))
+        .route("/api/v1/auth/fingerprints/claim", post(fingerprint_claim))
+        // A PIN is what a staging shop uses while there is no scanner to press.
+        // Which of the two a node accepts is the node's decision, and it is
+        // enforced here rather than trusted to the tills — see `edge/pin.rs`.
+        .route(
+            "/api/v1/auth/methods",
+            get(auth_methods).post(set_auth_method),
+        )
+        .route("/api/v1/auth/pins", post(set_user_pin))
+        .route("/api/v1/auth/pins/{username}/clear", post(clear_user_pin))
+        .route("/api/v1/auth/pin/claim", post(pin_claim))
         .route(RFID_OBSERVATION_PATH, post(rfid_observations))
         .route("/api/v1/inventory/pools", get(pools))
         .route("/api/v1/inventory/movements", get(movements))
         .route("/api/v1/sync/status", get(sync_status))
         .route("/api/v1/sync/trigger", post(sync_trigger))
+        // ── the unit's punch station ────────────────────────────────────
+        //
+        // Common to both node roles: a DC has staff and a door like every shop
+        // does. `/punches` is the durable write — a row plus a sync fact in one
+        // transaction, which is where the offline property comes from —
+        // `/today` is the screen the reader draws after it recognises somebody,
+        // and `/book` is the status line that says how fresh the centre's
+        // published roster is.
+        .route("/api/v1/attendance/punches", post(attendance_punch))
+        .route("/api/v1/attendance/today", get(attendance_today))
+        .route("/api/v1/attendance/book", get(attendance_book))
 }
 
 async fn health(State(state): State<EdgeState>) -> Json<Value> {
@@ -466,7 +500,7 @@ fn edge_pool_metadata(
         // Off the racks, not yet in a box, and not yet anyone's. It sorts
         // before the destination-scoped leaves because that is the order the
         // goods actually pass through.
-        DcOutboundPicking { .. } => ("OUTBOUND", "PICKING", "Picking", 40, None),
+        DcOutboundPicking { .. } => ("OUTBOUND", "PICKING", "Pick Area", 40, None),
         DcOutboundPicked { .. } => ("OUTBOUND", "PICKED", "Picked", 41, Some("PICKED")),
         DcOutboundPacked { .. } => ("OUTBOUND", "PACKED", "Packed", 51, Some("PACKED")),
         DcOutboundShipment { .. } => ("OUTBOUND", "SHIPMENT", "Shipment", 61, Some("SHIPMENT")),
@@ -1566,6 +1600,82 @@ async fn store_record_expense(
     Ok((StatusCode::CREATED, Json(serde_json::to_value(recorded)?)))
 }
 
+// ── the unit's punch station ────────────────────────────────────────────────
+//
+// On `common_router` rather than the store's, because a DC has staff, shifts
+// and a door like every shop does. A warehouse whose people could not clock in
+// would be a warehouse whose payroll had no basis.
+//
+// Nothing here talks to a reader. The hardware agent owns the device boundary
+// and exposes local HTTP plus a bounded event cursor; the shell polls that
+// cursor and calls these routes with an employee the agent says it identified.
+// That split is unchanged from the donor so the shell is a separate port — and
+// it is why matching is fail-closed without this file knowing anything about
+// it: in mock mode the agent identifies nobody, so nothing arrives here to be
+// admitted.
+
+/// Record a punch the reader produced.
+///
+/// `StoreSale` is the gate — the cashier rung, which is what somebody opening
+/// a shop holds — and it is about the *station*, not about whose day it is: the
+/// employee comes from the agent's identification, never from a person typing.
+/// The actor is overwritten from the principal like every other write on this
+/// node, because an actor from a request body is an actor anybody can claim.
+async fn attendance_punch(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Json(mut request): Json<crate::edge::attendance::PunchRequest>,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    if let Some(principal) = require_permission(&state, principal, EdgePermission::StoreSale)? {
+        request.actor_id = principal.username;
+    }
+    let punched = run_blocking(move || state.inventory.record_punch(request)).await?;
+    Ok((StatusCode::CREATED, Json(serde_json::to_value(punched)?)))
+}
+
+/// What one person is on today, and what they have punched.
+///
+/// Answerable with no uplink, which is the whole reason the employee slice is
+/// on this box.
+async fn attendance_today(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Query(query): Query<AttendanceTodayQuery>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::StoreSale)?;
+    let day = run_blocking(move || {
+        state
+            .inventory
+            .attendance_today(&query.employee_id, query.date)
+    })
+    .await?;
+    Ok(Json(serde_json::to_value(day)?))
+}
+
+/// How fresh this box's published book is.
+///
+/// `InventoryRead` rather than `StoreSale`: it is the station's status line and
+/// a manager checking why the reader is refusing people should not need the
+/// till's grant to read it.
+async fn attendance_book(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    let status = run_blocking(move || state.inventory.attendance_book_status()).await?;
+    Ok(Json(serde_json::to_value(status)?))
+}
+
+#[derive(Debug, Deserialize)]
+struct AttendanceTodayQuery {
+    employee_id: String,
+    /// `YYYY-MM-DD`. Defaults to today, and is explicit for the one case that
+    /// needs it: an overnight shift's clock-out belongs to the day the shift
+    /// started.
+    #[serde(default)]
+    date: Option<chrono::NaiveDate>,
+}
+
 /// What is in the tin: handed over, spent, left.
 async fn store_petty_cash(
     State(state): State<EdgeState>,
@@ -2224,6 +2334,339 @@ async fn require_auth(
     }
     request.extensions_mut().insert(principal);
     Ok(next.run(request).await)
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// A finger opens a till, and authorises a void
+// ════════════════════════════════════════════════════════════════════════════
+
+/// Read a terminal's proof off the headers.
+///
+/// Header-borne rather than in the body, for the same reason the RFID lane does
+/// it: the signature covers the body, so it cannot live inside what it signs.
+fn terminal_proof(
+    headers: &HeaderMap,
+) -> Result<crate::edge::fingerprint::TerminalProof, ApiError> {
+    let bad = |what: &str| ApiError(EdgeError::Unauthorized(format!("invalid terminal {what}")));
+    Ok(crate::edge::fingerprint::TerminalProof {
+        terminal_id: required_header(headers, "x-terminal-id")?,
+        timestamp: required_header(headers, "x-terminal-timestamp")?
+            .parse::<i64>()
+            .map_err(|_| bad("timestamp"))?,
+        sequence: required_header(headers, "x-terminal-sequence")?
+            .parse::<i64>()
+            .map_err(|_| bad("sequence"))?,
+        signature: required_header(headers, "x-terminal-signature")?,
+    })
+}
+
+/// Pair a counter terminal with this node.
+///
+/// `AuthAdmin`, and nothing less: pairing grants a machine the standing to say
+/// who is pressing a finger on it. That is the same weight as creating a user,
+/// and it is done once, by whoever installs the till.
+async fn pair_terminal(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Json(request): Json<serde_json::Value>,
+) -> Result<Json<Value>, ApiError> {
+    let principal = require_permission(&state, principal, EdgePermission::AuthAdmin)?;
+    let actor = principal.map(|who| who.username).unwrap_or_default();
+    let label = request
+        .get("label")
+        .and_then(|value| value.as_str())
+        .unwrap_or_default()
+        .to_string();
+    let connection = state.auth.connection();
+    let paired = run_blocking(move || {
+        let guard = connection
+            .lock()
+            .map_err(|_| EdgeError::Persistence("edge connection is poisoned".into()))?;
+        crate::edge::fingerprint::pair_terminal(&guard, &label, &actor)
+    })
+    .await?;
+    Ok(Json(serde_json::to_value(paired).map_err(|error| {
+        ApiError(EdgeError::Persistence(error.to_string()))
+    })?))
+}
+
+/// Record a finger against a user.
+///
+/// `AuthAdmin` as well. An enrolment is an authorisation to open a till, and a
+/// shop where a cashier can enrol their own supervisor's finger is a shop with
+/// no supervisor.
+async fn enrol_fingerprint(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Json(request): Json<crate::edge::fingerprint::EnrolRequest>,
+) -> Result<Json<Value>, ApiError> {
+    let principal = require_permission(&state, principal, EdgePermission::AuthAdmin)?;
+    let actor = principal.map(|who| who.username).unwrap_or_default();
+    let connection = state.auth.connection();
+    let enrolled = run_blocking(move || {
+        let guard = connection
+            .lock()
+            .map_err(|_| EdgeError::Persistence("edge connection is poisoned".into()))?;
+        crate::edge::fingerprint::enrol(&guard, request, &actor)
+    })
+    .await?;
+    Ok(Json(serde_json::to_value(enrolled).map_err(|error| {
+        ApiError(EdgeError::Persistence(error.to_string()))
+    })?))
+}
+
+async fn retire_fingerprint(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Path(finger_id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    require_permission(&state, principal, EdgePermission::AuthAdmin)?;
+    let connection = state.auth.connection();
+    run_blocking(move || {
+        let guard = connection
+            .lock()
+            .map_err(|_| EdgeError::Persistence("edge connection is poisoned".into()))?;
+        crate::edge::fingerprint::retire(&guard, &finger_id)
+    })
+    .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// The fingers that may open this shop's tills.
+///
+/// Answered to a terminal's own credential and to nothing else — not to a
+/// signed-in person. That is the point: this is the call a till makes *before*
+/// anybody has signed in, and a bearer session is exactly what it does not have.
+async fn fingerprint_roster(
+    State(state): State<EdgeState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ApiError> {
+    let proof = terminal_proof(&headers)?;
+    let connection = state.auth.connection();
+    // A GET signs the empty body, so both ends agree on what "no body" hashes
+    // to rather than one of them inventing a placeholder.
+    let digest = crate::security::sha256_hex(b"");
+    let entries = run_blocking(move || {
+        let mut guard = connection
+            .lock()
+            .map_err(|_| EdgeError::Persistence("edge connection is poisoned".into()))?;
+        crate::edge::fingerprint::roster(
+            &mut guard,
+            &proof,
+            "/api/v1/auth/fingerprints/roster",
+            &digest,
+        )
+    })
+    .await?;
+    Ok(Json(serde_json::json!({ "items": entries })))
+}
+
+/// What a till says it found on the scanner, and what the node makes of it.
+///
+/// `SESSION` opens a till and comes back as the same bearer token a password
+/// login issues — one kind of session, so everything downstream is already
+/// right about it. `SUPERVISOR` comes back as a single-use authorisation
+/// instead, because a supervisor walking over is a step-up and not a login.
+async fn fingerprint_claim(
+    State(state): State<EdgeState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, ApiError> {
+    let proof = terminal_proof(&headers)?;
+    let digest = crate::security::sha256_hex(&body);
+    let request: crate::edge::fingerprint::ClaimRequest = serde_json::from_slice(&body)
+        .map_err(|error| ApiError(EdgeError::Validation(format!("invalid claim: {error}"))))?;
+    let purpose = request.purpose.trim().to_ascii_uppercase();
+
+    let connection = state.auth.connection();
+    let accepted = run_blocking(move || {
+        let mut guard = connection
+            .lock()
+            .map_err(|_| EdgeError::Persistence("edge connection is poisoned".into()))?;
+        crate::edge::fingerprint::claim(
+            &mut guard,
+            &proof,
+            request,
+            "/api/v1/auth/fingerprints/claim",
+            &digest,
+        )
+    })
+    .await?;
+
+    if purpose != "SESSION" {
+        return Ok(Json(serde_json::to_value(accepted).map_err(|error| {
+            ApiError(EdgeError::Persistence(error.to_string()))
+        })?));
+    }
+
+    let auth = state.auth.clone();
+    let username = accepted.username.clone();
+    let issued = run_blocking(move || auth.issue_for_fingerprint(&username)).await?;
+    Ok(Json(serde_json::json!({
+        "username": accepted.username,
+        "purpose": accepted.purpose,
+        "token": issued.token,
+        "token_type": "Bearer",
+        "expires_at_epoch": issued.expires_at.timestamp(),
+    })))
+}
+
+/// What this shop's node accepts besides a password.
+///
+/// Deliberately unauthenticated: a till has to know what to draw on its own
+/// sign-in screen, and that is precisely the moment nobody has signed in. It
+/// leaks one word about the shop's configuration, which is worth less than a
+/// till that guesses and shows a PIN box a production node would refuse.
+async fn auth_methods(State(state): State<EdgeState>) -> Result<Json<Value>, ApiError> {
+    let connection = state.auth.connection();
+    let method = run_blocking(move || {
+        let guard = connection
+            .lock()
+            .map_err(|_| EdgeError::Persistence("edge connection is poisoned".into()))?;
+        crate::edge::pin::step_up(&guard)
+    })
+    .await?;
+    Ok(Json(serde_json::json!({ "till_step_up": method })))
+}
+
+/// Change it. One row, and every till in the shop follows on its next look.
+async fn set_auth_method(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Json(request): Json<serde_json::Value>,
+) -> Result<Json<Value>, ApiError> {
+    let principal = require_permission(&state, principal, EdgePermission::AuthAdmin)?;
+    let actor = principal.map(|who| who.username).unwrap_or_default();
+    let method = request
+        .get("till_step_up")
+        .and_then(|value| value.as_str())
+        .unwrap_or_default()
+        .to_string();
+    let connection = state.auth.connection();
+    let saved = run_blocking(move || {
+        let guard = connection
+            .lock()
+            .map_err(|_| EdgeError::Persistence("edge connection is poisoned".into()))?;
+        crate::edge::pin::set_step_up(&guard, &method, &actor)
+    })
+    .await?;
+    Ok(Json(serde_json::json!({ "till_step_up": saved })))
+}
+
+/// Give somebody a PIN. `AuthAdmin`, because a PIN is a way into a till.
+async fn set_user_pin(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Json(request): Json<serde_json::Value>,
+) -> Result<StatusCode, ApiError> {
+    let principal = require_permission(&state, principal, EdgePermission::AuthAdmin)?;
+    let actor = principal.map(|who| who.username).unwrap_or_default();
+    let username = request
+        .get("username")
+        .and_then(|value| value.as_str())
+        .unwrap_or_default()
+        .to_string();
+    let pin = request
+        .get("pin")
+        .and_then(|value| value.as_str())
+        .unwrap_or_default()
+        .to_string();
+    let connection = state.auth.connection();
+    run_blocking(move || {
+        let guard = connection
+            .lock()
+            .map_err(|_| EdgeError::Persistence("edge connection is poisoned".into()))?;
+        crate::edge::pin::set_pin(&guard, &username, &pin, &actor)
+    })
+    .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Take one away — one cashier at a time, or every one of them on the day a
+/// shop stops being staging.
+async fn clear_user_pin(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Path(username): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    require_permission(&state, principal, EdgePermission::AuthAdmin)?;
+    let connection = state.auth.connection();
+    run_blocking(move || {
+        let guard = connection
+            .lock()
+            .map_err(|_| EdgeError::Persistence("edge connection is poisoned".into()))?;
+        crate::edge::pin::clear_pin(&guard, &username)
+    })
+    .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// A PIN claim, signed by the terminal and checked by the node.
+///
+/// The signature binds a supervisor's grant to the till the supervisor walked
+/// up to; the checking is the node's own, so unlike a fingerprint claim there
+/// is nothing here a terminal can assert its way past.
+async fn pin_claim(
+    State(state): State<EdgeState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, ApiError> {
+    let proof = terminal_proof(&headers)?;
+    let digest = crate::security::sha256_hex(&body);
+    let request: serde_json::Value = serde_json::from_slice(&body)
+        .map_err(|error| ApiError(EdgeError::Validation(format!("invalid claim: {error}"))))?;
+    let username = request
+        .get("username")
+        .and_then(|value| value.as_str())
+        .unwrap_or_default()
+        .to_string();
+    let pin = request
+        .get("pin")
+        .and_then(|value| value.as_str())
+        .unwrap_or_default()
+        .to_string();
+    let purpose = request
+        .get("purpose")
+        .and_then(|value| value.as_str())
+        .unwrap_or("SESSION")
+        .to_string();
+
+    let connection = state.auth.connection();
+    let wanted = purpose.trim().to_ascii_uppercase();
+    let accepted = run_blocking(move || {
+        let mut guard = connection
+            .lock()
+            .map_err(|_| EdgeError::Persistence("edge connection is poisoned".into()))?;
+        crate::edge::fingerprint::pin_claim(
+            &mut guard,
+            &proof,
+            &username,
+            &pin,
+            &purpose,
+            "/api/v1/auth/pin/claim",
+            &digest,
+        )
+    })
+    .await?;
+
+    if wanted != "SESSION" {
+        return Ok(Json(serde_json::to_value(accepted).map_err(|error| {
+            ApiError(EdgeError::Persistence(error.to_string()))
+        })?));
+    }
+
+    let auth = state.auth.clone();
+    let who = accepted.username.clone();
+    // The same session a password login issues. One kind of session, so
+    // everything downstream is already right about it.
+    let issued = run_blocking(move || auth.issue_for_fingerprint(&who)).await?;
+    Ok(Json(serde_json::json!({
+        "username": accepted.username,
+        "purpose": accepted.purpose,
+        "token": issued.token,
+        "token_type": "Bearer",
+        "expires_at_epoch": issued.expires_at.timestamp(),
+    })))
 }
 
 fn required_header(headers: &HeaderMap, name: &'static str) -> Result<String, ApiError> {

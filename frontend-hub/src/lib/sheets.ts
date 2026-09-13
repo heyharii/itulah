@@ -338,6 +338,17 @@ export const SHEET_PARAMS = {
   /// claims — one key cannot mean two records, and the screen that lost the
   /// argument would open somebody else's sheet.
   payrollRun: id,
+  /// Which request for a new employee is open. Not `hire`: the record is a
+  /// *proposal*, and approving one does not hire anybody — the employment
+  /// record is opened afterwards and starts as a candidate.
+  hireProposal: id,
+  /// Whose attendance is open, as an employee id. A day on its own cannot be
+  /// the key: the screen shows one person across a range, and which day the
+  /// reader cares about is a scroll position rather than a record.
+  attendanceOf: id,
+  /// Which punch station is open. `terminal` rather than `station`, matching
+  /// `attendance_terminal` and the `att://` device contract.
+  terminal: id,
   // storeops
   sale: id,
   /// A site id. Analytics reuses this rather than adding `shop`: two names for

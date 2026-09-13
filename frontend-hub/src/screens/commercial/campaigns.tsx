@@ -374,6 +374,12 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
 /// envelope with its own window. A header that answers the wrong question
 /// confidently is worse than no header.
 ///
+/// **Where those figures went, 2026-09-13:** onto the module's Overview, which
+/// asks the question they were answering — what the offers gave away, what came
+/// back, and which campaign it went to — over one window and across every
+/// campaign and rule at once. A list is for finding one row; a module's money
+/// is a fact about the module.
+///
 /// A flag rather than a deletion or a comment: the wiring stays type-checked
 /// and turning it back on is one word. A commented-out block rots, and a
 /// deleted one has to be rebuilt from memory.

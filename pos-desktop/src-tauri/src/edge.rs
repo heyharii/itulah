@@ -52,6 +52,34 @@ pub struct NodeConfig {
     /// `NARROW` (58mm) or `WIDE` (80mm).
     #[serde(default = "default_paper")]
     pub paper: String,
+    /// What this terminal was called when it was paired with the node, and the
+    /// secret it proves that with.
+    ///
+    /// Separate from `terminal_id` above, which is the name a person reads off
+    /// the machine and that gets printed on a receipt. This pair is a
+    /// credential: it is what lets the till ask for the fingerprint roster and
+    /// say whose finger matched, and it is the reason a claim is worth
+    /// anything. Absent until somebody pairs the terminal.
+    #[serde(default)]
+    pub pairing_id: Option<String>,
+    #[serde(default)]
+    pub pairing_secret: Option<String>,
+    /// Strictly increasing, one per signed call. Persisted with the rest,
+    /// because a counter that restarted and began again at one would be a
+    /// counter whose every claim looks like a replay.
+    #[serde(default)]
+    pub pairing_sequence: i64,
+    /// Whose finger to pretend matched, while there is no scanner to press.
+    ///
+    /// **Honoured only in a debug build** — the code that reads it is compiled
+    /// out of a release, so a till in a shop cannot be talked into simulating a
+    /// supervisor by editing a config file. It exists because the interesting
+    /// half of this feature is not the sensor: it is the roster coming down,
+    /// the claim being signed, the sequence being burned, the grant being spent
+    /// once and expiring. All of that is testable on a machine with no scanner,
+    /// and testing it was worth more than waiting for hardware.
+    #[serde(default)]
+    pub simulate_fingerprint: Option<String>,
 }
 
 fn default_printer_port() -> u16 {
@@ -71,6 +99,10 @@ impl Default for NodeConfig {
             printer_host: None,
             printer_port: default_printer_port(),
             paper: default_paper(),
+            pairing_id: None,
+            pairing_secret: None,
+            pairing_sequence: 0,
+            simulate_fingerprint: None,
         }
     }
 }
@@ -168,6 +200,130 @@ pub fn set_node_config(
     *held = next;
     save(&app, &held);
     held.clone()
+}
+
+/// The construction the node checks, written here once.
+///
+/// Deliberately identical to `sign_terminal_request` in
+/// `backend/src/edge/fingerprint.rs`, which is itself the RFID lane's. The path
+/// is inside the signature because a signature that did not name its endpoint
+/// could be lifted off the roster call and spent on the claim call.
+fn sign(
+    secret: &str,
+    terminal: &str,
+    method: &str,
+    path: &str,
+    timestamp: i64,
+    sequence: i64,
+    body_sha256: &str,
+) -> String {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+    // The node keeps the SHA-256 of the secret and signs with that, not with
+    // the secret itself — so this end has to hash first or nothing will verify.
+    let key = hex(&{
+        use sha2::Digest;
+        sha2::Sha256::digest(secret.as_bytes())
+    });
+    let canonical =
+        format!("{method}\n{path}\n{terminal}\n{timestamp}\n{sequence}\n{body_sha256}");
+    let mut mac = <Hmac<Sha256>>::new_from_slice(key.as_bytes()).expect("hmac takes any key");
+    mac.update(canonical.as_bytes());
+    hex(&mac.finalize().into_bytes())
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn digest_of(body: &[u8]) -> String {
+    use sha2::Digest;
+    hex(&sha2::Sha256::digest(body))
+}
+
+/// Call the node as this terminal, rather than as the person signed into it.
+///
+/// Two calls need this and no others: asking for the fingerprint roster, and
+/// saying whose finger matched. Both happen when nobody is signed in yet, which
+/// is exactly why a bearer token cannot be what carries them.
+#[tauri::command]
+pub fn edge_signed_call(
+    app: tauri::AppHandle,
+    node: tauri::State<'_, Node>,
+    method: String,
+    path: String,
+    body: Option<serde_json::Value>,
+) -> EdgeReply {
+    let (config, sequence) = {
+        let mut held = node.0.lock().expect("node config");
+        held.pairing_sequence += 1;
+        (held.clone(), held.pairing_sequence)
+    };
+    // Persisted immediately, and before the call. A sequence spent on a request
+    // that never arrived is a gap, which the node accepts; a sequence reused
+    // because the terminal restarted is a replay, which it must not.
+    save(&app, &config);
+
+    let (Some(terminal), Some(secret)) = (
+        config.pairing_id.as_deref(),
+        config.pairing_secret.as_deref(),
+    ) else {
+        return EdgeReply::unreachable(
+            "Terminal ini belum dipasangkan dengan node toko, jadi belum boleh              bicara atas namanya sendiri. Pasangkan dulu di Setelan terminal."
+                .into(),
+        );
+    };
+
+    if !path.starts_with('/') {
+        return EdgeReply::unreachable(format!("“{path}” is not a path on the shop node."));
+    }
+
+    let payload = body
+        .as_ref()
+        .map(|value| serde_json::to_vec(value).unwrap_or_default())
+        .unwrap_or_default();
+    let body_sha256 = digest_of(&payload);
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|since| since.as_secs() as i64)
+        .unwrap_or_default();
+    let signature = sign(
+        secret,
+        terminal,
+        &method,
+        &path,
+        timestamp,
+        sequence,
+        &body_sha256,
+    );
+
+    let url = format!("{}{}", config.base_url.trim_end_matches('/'), path);
+    let request = ureq::request(&method, &url)
+        .timeout(PATIENCE)
+        .set("Accept", "application/json")
+        .set("X-Terminal-Id", terminal)
+        .set("X-Terminal-Timestamp", &timestamp.to_string())
+        .set("X-Terminal-Sequence", &sequence.to_string())
+        .set("X-Terminal-Signature", &signature);
+
+    let outcome = if payload.is_empty() {
+        request.call()
+    } else {
+        request
+            .set("Content-Type", "application/json")
+            .send_bytes(&payload)
+    };
+
+    match outcome {
+        Ok(response) => reply_from(response.status(), response.into_string().unwrap_or_default()),
+        Err(ureq::Error::Status(status, response)) => {
+            reply_from(status, response.into_string().unwrap_or_default())
+        }
+        Err(transport) => EdgeReply::unreachable(format!(
+            "This till cannot reach its shop node at {}. {transport}",
+            config.base_url
+        )),
+    }
 }
 
 /// Call the shop's node.

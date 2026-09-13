@@ -12,8 +12,23 @@ import {
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import { longDate } from "@/lib/format"
+import { longDate, punchClock } from "@/lib/format"
 import { useAttendance, useRequestCorrection } from "@/lib/hr/queries"
+
+/// A recorded punch time as an `<input type="time">` value, or empty.
+///
+/// The wire form is `2026-09-14 08:32`, sometimes with a `+1` for a reading
+/// after midnight. An input cannot hold the `+1`, so a day like that comes
+/// through as the clock alone and the person restates it — which is right:
+/// correcting an overnight shift is exactly the case where the time somebody
+/// means should be the time somebody typed.
+function clockField(at: string | null | undefined): string {
+  if (at === null || at === undefined) {
+    return ""
+  }
+  const clock = punchClock(at)
+  return /^\d{2}:\d{2}$/.test(clock) ? clock : ""
+}
 
 /// What is wrong with the claim, in the order somebody would notice it.
 function complaint(value: {
@@ -41,21 +56,23 @@ export function Correction() {
   const days = useAttendance()
   const request = useRequestCorrection()
 
-  const day = (days.data ?? []).find((candidate) => candidate.date === date)
+  const day = (days.data?.days ?? []).find(
+    (candidate) => candidate.date === date
+  )
   const [tried, setTried] = useState(false)
 
   const form = useForm({
-    // Prefilled from what the clock did record, so the common case — a missing
+    // Prefilled from what was actually recorded, so the common case — a missing
     // clock-out at the end of a normal shift — is one field and a sentence.
+    //
+    // The end that IS recorded is prefilled and the missing one is left blank,
+    // rather than filled from the rostered shift. A time the server would have
+    // called the plan is not a claim about what happened, and a form that put
+    // "18:00" in the box would be asking somebody to sign for a figure this
+    // screen invented.
     defaultValues: {
-      claimedIn:
-        day?.first_in === null || day?.first_in === undefined
-          ? (day?.scheduled_from ?? "")
-          : new Date(day.first_in).toTimeString().slice(0, 5),
-      claimedOut:
-        day?.last_out === null || day?.last_out === undefined
-          ? (day?.scheduled_to ?? "")
-          : new Date(day.last_out).toTimeString().slice(0, 5),
+      claimedIn: clockField(day?.arrival),
+      claimedOut: clockField(day?.departure),
       reason: "",
     },
     onSubmit: async ({ value }) => {

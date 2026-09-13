@@ -12,11 +12,31 @@ record follows the person rather than the building.
 **Live, against real routes, with no stand-in behind them:** the profile
 (`/employees/me/profile`), leave — `/api/v1/leave-types`,
 `/employees/me/leave-balances`, `/employees/me/leave-requests` and its
-`withdraw` — and overtime: `/employees/me/overtime-orders` and its `consent`.
-A failure on those is a failure and says so.
+`withdraw` — overtime (`/employees/me/overtime-orders` and its `consent`), and
+attendance: `/employees/me/attendance` for the derived fortnight and
+`/employees/me/punches` to clock in or out. A failure on those is a failure and
+says so.
 
-**Still standing in:** attendance, corrections, pay and payslips, device
-sessions. The server answers 404 to those, and `demo.ts` covers them.
+**Still standing in:** corrections, and device sessions. The server answers 404
+to those, and `demo.ts` covers them.
+
+### Clocking in from here is a second punch source, and it says so
+
+The owner's decision is a fingerprint station in every unit — no PIN, no card.
+None has been bought, so until they arrive this app is the only way anybody
+clocks in, and it exists so the HR month can be walked end to end at all.
+
+It is therefore deliberately **not** disguised as a reader. The route is its own
+(`POST /employees/me/punches`, bounded to the caller's own record), every row it
+writes carries `source = 'EMPLOYEE_APP'` and names no station, and every day on
+the Attendance screen says which source produced its readings. When the readers
+land, the months either side of them stay tellable apart.
+
+The body carries the direction and nothing else. The server stamps the instant,
+resolves which roster day the reading answers — yesterday, for a shift running
+past midnight — takes the place from the posting, and derives the punch's id
+from its own content, so a double tap lands once and answers
+`newly_recorded: false`.
 
 Two things changed shape when leave landed, and they are worth knowing before
 reading the diff. The proposal's `LeaveType` carried the reader's own balance

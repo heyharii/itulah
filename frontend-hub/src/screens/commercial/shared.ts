@@ -8,6 +8,7 @@ import type {
 } from "@itulah/contract"
 
 import { count, day, money, span } from "@/lib/format"
+import type { PromotionTotals } from "@/lib/queries/commercial-performance"
 import { oxford } from "@/screens/commercial/compose"
 import { allNavItems } from "@/lib/navigation"
 import { useIdentity } from "@/lib/session"
@@ -69,6 +70,50 @@ export function consumed(
 ): number | null {
   if (budgetMinor === null || budgetMinor <= 0) return null
   return spentMinor / budgetMinor
+}
+
+// ── adding up what the offers did ──────────────────────────────────────────
+
+/// Add up a list of performance rows without pretending the total is a fleet
+/// figure.
+///
+/// Money, counts and units add; **customers do not**. Two campaigns that both
+/// served the same shopper would count them twice, and the server ships no
+/// distinct roll-up, so those two report the largest single row rather than a
+/// sum — the honest lower bound, said out loud where they are drawn.
+///
+/// One caveat the caller has to carry, because it is a property of the list
+/// and not of this function: **rows overlap unless they are RULES.** A
+/// promotion fact is one row per `(sale, rule)`, so summing rules is exact;
+/// summing campaigns counts a basket twice when two campaigns both touched it,
+/// which is why `performance.rs` ships no fleet total of its own.
+export function fold(
+  rows: readonly PromotionTotals[]
+): PromotionTotals & { readonly overlapping: boolean } {
+  const add = (read: (one: PromotionTotals) => number) =>
+    rows.reduce((total, one) => total + read(one), 0)
+  const most = (read: (one: PromotionTotals) => number) =>
+    rows.reduce((highest, one) => Math.max(highest, read(one)), 0)
+  return {
+    benefit_minor: add((one) => one.benefit_minor),
+    clearance_minor: add((one) => one.clearance_minor),
+    sale_count: add((one) => one.sale_count),
+    basket_revenue_minor: add((one) => one.basket_revenue_minor),
+    units: add((one) => one.units),
+    cost_minor: add((one) => one.cost_minor),
+    costed_units: add((one) => one.costed_units),
+    customer_count: most((one) => one.customer_count),
+    new_customer_count: most((one) => one.new_customer_count),
+    overlapping: rows.length > 1,
+  }
+}
+
+/// Percentage change against the previous window of the same length, or `null`
+/// when there is nothing to compare against. Zero to something is not "infinite
+/// per cent", it is new — and is drawn as such.
+export function delta(now: number, before: number): number | null {
+  if (before === 0) return null
+  return Math.round(((now - before) / before) * 1000) / 10
 }
 
 /// The value a `datetime-local` input wants, from an instant.

@@ -125,6 +125,16 @@ pub enum RecordKind {
     Journal,
     Bill,
     Payment,
+    /// A shop asking head office to pay something, and what happened to the ask.
+    ///
+    /// Its own kind rather than a property of the [`Self::Bill`] it may become,
+    /// for the reason [`Self::HireProposal`] gives about employees: most of the
+    /// history worth reading happens while there is no bill to hang it on, and
+    /// an instruction head office refused never gets one at all. It is also
+    /// where the evidence lives — the quotation, the demand, the photograph of
+    /// the meter are documents linked to this record, so the ask needs no file
+    /// column of its own.
+    PaymentInstruction,
     Asset,
     BankLine,
     BankStatement,
@@ -138,6 +148,15 @@ pub enum RecordKind {
     AttendanceShift,
     AttendancePeriod,
     HolidayCalendar,
+    /// A shop's request for an employee it does not have, and head office's
+    /// answer.
+    ///
+    /// Its own kind rather than a property of the [`Self::Employee`] it may
+    /// lead to, because most of them never lead to one: a proposal head office
+    /// rejected has a history worth reading and no employee to hang it on. And
+    /// while it is being negotiated there is nobody to file the conversation
+    /// against — the person it names is not employed here and may never be.
+    HireProposal,
     // The node itself
     AppUser,
     RfidDevice,
@@ -158,7 +177,7 @@ impl RecordKind {
     /// Exported because two guards read it: the conformance test that compares
     /// this list against the `record_kind` table, and the catalogue that
     /// records which kind each route files under.
-    pub const ALL: [Self; 59] = [
+    pub const ALL: [Self; 61] = [
         Self::Article,
         Self::ArticleSetup,
         Self::Colour,
@@ -196,6 +215,7 @@ impl RecordKind {
         Self::Journal,
         Self::Bill,
         Self::Payment,
+        Self::PaymentInstruction,
         Self::Asset,
         Self::BankLine,
         Self::BankStatement,
@@ -208,6 +228,7 @@ impl RecordKind {
         Self::AttendanceShift,
         Self::AttendancePeriod,
         Self::HolidayCalendar,
+        Self::HireProposal,
         Self::AppUser,
         Self::RfidDevice,
         Self::Origin,
@@ -260,6 +281,7 @@ impl RecordKind {
             Self::Journal => "journal",
             Self::Bill => "bill",
             Self::Payment => "payment",
+            Self::PaymentInstruction => "payment_instruction",
             Self::Asset => "asset",
             Self::BankLine => "bank_line",
             Self::BankStatement => "bank_statement",
@@ -272,6 +294,7 @@ impl RecordKind {
             Self::AttendanceShift => "attendance_shift",
             Self::AttendancePeriod => "attendance_period",
             Self::HolidayCalendar => "holiday_calendar",
+            Self::HireProposal => "hire_proposal",
             Self::AppUser => "app_user",
             Self::RfidDevice => "rfid_device",
             Self::Origin => "origin",
@@ -326,6 +349,7 @@ impl RecordKind {
             Self::Journal => "Journal entry",
             Self::Bill => "Supplier bill",
             Self::Payment => "Payment",
+            Self::PaymentInstruction => "Payment instruction",
             Self::Asset => "Fixed asset",
             Self::BankLine => "Bank line",
             Self::BankStatement => "Bank statement",
@@ -338,6 +362,7 @@ impl RecordKind {
             Self::AttendanceShift => "Shift",
             Self::AttendancePeriod => "Attendance period",
             Self::HolidayCalendar => "Holiday calendar",
+            Self::HireProposal => "Hire proposal",
             Self::AppUser => "Operator",
             Self::RfidDevice => "RFID device",
             Self::Origin => "Node",
@@ -407,6 +432,7 @@ impl RecordKind {
             Self::Journal => "/api/v1/finance/journal",
             Self::Bill => "/api/v1/finance/bills",
             Self::Payment => "/api/v1/finance/payments",
+            Self::PaymentInstruction => "/api/v1/finance/payment-instructions",
             Self::Asset => "/api/v1/finance/assets",
             Self::BankLine => "/api/v1/finance/bank-lines",
             Self::BankStatement => "/api/v1/finance/bank-statements",
@@ -418,6 +444,7 @@ impl RecordKind {
             Self::PayrollRun => "/api/v1/payroll/runs",
             Self::AttendanceShift => "/api/v1/attendance-shifts",
             Self::HolidayCalendar => "/api/v1/holiday-calendars",
+            Self::HireProposal => "/api/v1/hire-proposals",
             Self::AppUser | Self::RfidDevice | Self::Origin => "/api/v1/auth/users",
             Self::SyncCommand => "/api/v1/sync/commands",
             Self::Document => "/api/v1/documents",
@@ -503,10 +530,15 @@ const ROUTE_SUBJECTS: &[(&str, RecordKind)] = &[
     ("/api/v1/finance/journal/{}", RecordKind::Journal),
     ("/api/v1/finance/payments/{}", RecordKind::Payment),
     (
+        "/api/v1/finance/payment-instructions/{}",
+        RecordKind::PaymentInstruction,
+    ),
+    (
         "/api/v1/finance/statement-sources/{}",
         RecordKind::StatementSource,
     ),
     ("/api/v1/holiday-calendars/{}", RecordKind::HolidayCalendar),
+    ("/api/v1/hire-proposals/{}", RecordKind::HireProposal),
     ("/api/v1/inventory/allotments/{}", RecordKind::Allotment),
     ("/api/v1/inventory/counts/{}", RecordKind::Count),
     ("/api/v1/inventory/missing/{}", RecordKind::Missing),
@@ -573,6 +605,28 @@ pub const DECLARED_BY_HANDLER: &[(&str, &str, Option<RecordKind>)] = &[
     // Drawing a letter mints one, so its id exists only in the answer.
     ("POST", "/api/v1/letters", Some(RecordKind::Letter)),
     ("POST", "/api/v1/payroll/runs", Some(RecordKind::PayrollRun)),
+    // The one-off figures a place files, and the withdrawals of them. Filed
+    // against the EMPLOYEE rather than against a row of their own: "why did
+    // Siti get three hundred thousand extra in April" is a question somebody
+    // asks on her sheet, and an adjustment id is not a record anybody opens.
+    // The shape `POST /inventory/movements/correct` settled on.
+    //
+    // Defining a payroll component and ratifying its rate are deliberately
+    // NOT here. A component is a rule for the whole company rather than a
+    // record with a sheet — the position the attendance policy and the
+    // overtime caps already take — so those writes show `-` in the catalogue
+    // and their evidence is the `defined` and `ratified` authority on the row
+    // itself, which is what an auditor reads.
+    (
+        "POST",
+        "/api/v1/payroll/adjustments",
+        Some(RecordKind::Employee),
+    ),
+    (
+        "POST",
+        "/api/v1/payroll/adjustments/{id}/withdrawal",
+        Some(RecordKind::Employee),
+    ),
     // Money kept somewhere, and the acts that describe or contradict it. All
     // four are filed against the LEDGER ACCOUNT rather than against their own
     // row: "this account was counted on the 13th and was 25.000 short" belongs
@@ -600,6 +654,35 @@ pub const DECLARED_BY_HANDLER: &[(&str, &str, Option<RecordKind>)] = &[
         "/api/v1/finance/cash-counts/{id}/post",
         Some(RecordKind::Account),
     ),
+    // A deposit is filed against the DRAWER'S ledger account, the same choice
+    // the four above make and for the same reason: "this till banked
+    // 12.000.000 on the 13th" belongs on that account's history, and the
+    // deposit's own id is not something anybody opens. The account is named in
+    // the body on the create and sits on the deposit's own row afterwards, so
+    // the path cannot say it in either case.
+    (
+        "POST",
+        "/api/v1/finance/deposits",
+        Some(RecordKind::Account),
+    ),
+    (
+        "POST",
+        "/api/v1/finance/deposits/{id}/bank",
+        Some(RecordKind::Account),
+    ),
+    (
+        "POST",
+        "/api/v1/finance/deposits/{id}/land",
+        Some(RecordKind::Account),
+    ),
+    // Raising an instruction mints one, so its id exists only in the answer.
+    // Every other act on it carries the id in the path and is matched by the
+    // pattern table instead.
+    (
+        "POST",
+        "/api/v1/finance/payment-instructions",
+        Some(RecordKind::PaymentInstruction),
+    ),
     (
         "POST",
         "/api/v1/article-setups",
@@ -623,6 +706,21 @@ pub const DECLARED_BY_HANDLER: &[(&str, &str, Option<RecordKind>)] = &[
     ),
     ("POST", "/api/v1/documents", Some(RecordKind::Document)),
     ("POST", "/api/v1/employees", Some(RecordKind::Employee)),
+    (
+        "POST",
+        "/api/v1/hire-proposals",
+        Some(RecordKind::HireProposal),
+    ),
+    // The path names the proposal and the act belongs to the employment
+    // record it just created — the shape `POST /sales/{id}/returns` has.
+    // Filed against the employee because that is the record somebody opens
+    // afterwards, and the only place a row saying it was created can live;
+    // the proposal already carries the step in its own history.
+    (
+        "POST",
+        "/api/v1/hire-proposals/{id}/employment",
+        Some(RecordKind::Employee),
+    ),
     ("POST", "/api/v1/finance/assets", Some(RecordKind::Asset)),
     ("POST", "/api/v1/finance/bills", Some(RecordKind::Bill)),
     ("POST", "/api/v1/finance/journal", Some(RecordKind::Journal)),

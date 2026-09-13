@@ -93,11 +93,25 @@ pub async fn balance_matrix(
                     SELECT MIN(length(b.account_code)) FROM ledger_account b
                      WHERE b.account_code LIKE $1 || '%' AND b.account_code <> $1)
          )
+         -- The date belongs INSIDE the joined set, not on the join.
+         --
+         -- This used to read `LEFT JOIN journal_entry e ON e.entry_id =
+         -- l.entry_id AND e.posting_date <= $2`, which never eliminated
+         -- anything: a line whose entry is dated after `as_of` still joined —
+         -- with `e` null — and the SUM is over `l`, so it counted anyway. The
+         -- endpoint echoed the date back and answered with the whole ledger at
+         -- every date it was asked about. Narrowing the line set first makes
+         -- the filter real, and the outer LEFT JOIN still keeps a sub-account
+         -- nothing has posted to, which is the reason it is an outer join.
          SELECT c.account_code, c.name, l.site_id,
                 COALESCE(SUM(l.debit_minor - l.credit_minor), 0)::bigint AS balance
            FROM child c
-           LEFT JOIN journal_line l ON l.account_code LIKE c.account_code || '%'
-           LEFT JOIN journal_entry e ON e.entry_id = l.entry_id AND e.posting_date <= $2
+           LEFT JOIN (
+                SELECT jl.account_code, jl.site_id, jl.debit_minor, jl.credit_minor
+                  FROM journal_line jl
+                  JOIN journal_entry je ON je.entry_id = jl.entry_id
+                 WHERE je.posting_date <= $2
+           ) l ON l.account_code LIKE c.account_code || '%'
           GROUP BY c.account_code, c.name, l.site_id
           ORDER BY c.account_code",
     )
@@ -189,7 +203,14 @@ pub struct StatementSection {
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct Statement {
-    /// `BALANCE_SHEET` or `PROFIT_LOSS`.
+    /// `BALANCE_SHEET`, `PROFIT_LOSS` or `CASH_FLOW`.
+    ///
+    /// On a CASH_FLOW every `amount_minor` below is the CASH effect of that
+    /// account — positive means cash came in — and not the account's own
+    /// balance movement. It is the one place in this module where the ledger's
+    /// "debits positive" convention is deliberately inverted, because a cash
+    /// flow statement is read as inflows and outflows and a revenue line
+    /// showing negative would be the report arguing with its own title.
     pub kind: String,
     pub from: Option<NaiveDate>,
     pub to: NaiveDate,
@@ -223,7 +244,26 @@ pub struct Statement {
     /// side of an entry, not both, so there is nothing for it to be out of
     /// balance AGAINST. Income and expenses balance against the assets and
     /// liabilities that moved with them, which is the balance sheet's question.
+    ///
+    /// **On a cash flow** it is `opening_cash + result - closing_cash`, and
+    /// zero means the three sections account for every rupiah that moved
+    /// through the cash accounts in the window. Non-zero is a real finding and
+    /// not a rounding: see [`cash_flow`].
     pub out_of_balance_minor: i64,
+    /// What the cash accounts held the day before `from`. CASH_FLOW only;
+    /// null on the other two, which have no such thing.
+    pub opening_cash_minor: Option<i64>,
+    /// And at the end of `to`. CASH_FLOW only.
+    pub closing_cash_minor: Option<i64>,
+    /// The accounts this report treated AS cash, in the client's own codes.
+    ///
+    /// Sent because it is the first question to ask of any cash flow statement
+    /// and the one a reader cannot otherwise answer: a figure built over a set
+    /// of accounts nobody can see is a figure nobody can check. Empty on the
+    /// other two statements, and empty on a cash flow means the account map
+    /// names no money account for this unit — which is why the report is
+    /// empty, and is fixed on the Account Map screen.
+    pub cash_accounts: Vec<String>,
 }
 
 const BALANCE_SHEET: [&str; 3] = ["1", "2", "3"];
@@ -249,9 +289,18 @@ pub async fn statement(
     let (classes, from): (&[&str], Option<NaiveDate>) = match kind {
         "BALANCE_SHEET" => (&BALANCE_SHEET, None),
         "PROFIT_LOSS" => (&PROFIT_LOSS, from),
+        // A different report entirely — built over the cash accounts rather
+        // than over the chart's root classes — so it is its own function and
+        // not a third set of classes here.
+        "CASH_FLOW" => {
+            let from = from.ok_or_else(|| {
+                AppError::Validation("a cash flow needs a window to report; send `from`".into())
+            })?;
+            return cash_flow(pool, from, to, site_id).await;
+        }
         other => {
             return Err(AppError::Validation(format!(
-                "unknown statement {other}; expected BALANCE_SHEET or PROFIT_LOSS"
+                "unknown statement {other}; expected BALANCE_SHEET, PROFIT_LOSS or CASH_FLOW"
             )));
         }
     };
@@ -365,6 +414,268 @@ pub async fn statement(
         sections,
         result_minor: result,
         out_of_balance_minor: out_of_balance,
+        opening_cash_minor: None,
+        closing_cash_minor: None,
+        cash_accounts: Vec::new(),
+    })
+}
+
+// ---------------------------------------------------------------------------
+// The cash flow
+// ---------------------------------------------------------------------------
+
+/// The meanings that ARE cash, for the purposes of this statement.
+///
+/// A subset of `MONEY_KEYS` below, and the difference is the point.
+/// `giro_outstanding` is a liability — money promised and not yet taken — and
+/// the card receivables are owed by a scheme on a timetable. Neither is cash,
+/// and counting either would make the closing figure disagree with what is in
+/// the drawers and at the banks.
+const CASH_KEYS: [&str; 5] = [
+    "cash",
+    "petty_cash",
+    "cashier_float",
+    "bank_giro",
+    "bank_savings",
+];
+
+/// Which of the three activities a movement of cash belongs to.
+///
+/// # What ERPNext has that we do not
+///
+/// ERPNext builds its cash flow from a per-account classification: `Account`
+/// carries `account_type`, and a `Cash Flow Mapping` doctype names, per
+/// account, which section it falls in and whether it is added or subtracted.
+/// It is the INDIRECT method — start at net profit, add back the non-cash
+/// charges, adjust for working capital — and every one of those steps needs
+/// that per-account data.
+///
+/// `ledger_account` has `root_class` and `is_group` and nothing else. Nobody
+/// has classified 7,528 accounts and asking them to before the screen works
+/// would be a screen that never works. Adding an unfilled `cash_flow_section`
+/// column would be worse: a report whose every line reads "unclassified" while
+/// looking like it has a classification.
+///
+/// So this is the DIRECT method, and it is honest about being that: the cash
+/// accounts are read from the account map, every entry that touched one in the
+/// window is opened, and the cash is attributed to the OTHER side of that
+/// entry — which is what the cash was actually for. Nothing is added back and
+/// nothing is inferred from profit; every figure is a movement that happened.
+///
+/// The section then comes from where the contra account sits in the client's
+/// own chart, which is data we do have:
+///
+///   * classes 4–8 — revenue, cost of sales, operating and other expense — are
+///     OPERATING. Tax and interest are in class 8 and stay operating, which
+///     IAS 7 permits and which is what the client's own P&L already groups.
+///   * `101` CURRENT ASSET and `201` HUTANG JANGKA PENDEK are OPERATING:
+///     inventory, trade receivables, trade payables, accruals — working
+///     capital, all of it.
+///   * `102` NON CURRENT ASSET and `103` OTHER ASSETS are INVESTING. That is
+///     the fixed asset register and what is spent on it.
+///   * `202` PINJAMAN JANGKA PANJANG and class `3` MODAL are FINANCING:
+///     long-term borrowing and the owners' money.
+///
+/// Two limits, said here rather than discovered:
+///
+///   * a SHORT-TERM bank loan lives under `201` and is read as operating. The
+///     client's chart does not separate it and guessing from an account's name
+///     would be a rule that breaks the first time somebody renames one.
+///   * with a `site` filter, a transfer from a shop's drawer to head office's
+///     bank is a real flow FOR THAT SHOP and its contra is the HO bank
+///     account, under `101` — so it reads as operating. Without the filter
+///     both sides are cash and it correctly contributes nothing.
+fn cash_flow_section(account_code: &str) -> &'static str {
+    match account_code.chars().next() {
+        Some('4') | Some('5') | Some('6') | Some('7') | Some('8') => "OPERATING",
+        Some('3') => "FINANCING",
+        Some('1') => match &account_code[..account_code.len().min(3)] {
+            "101" => "OPERATING",
+            "102" | "103" => "INVESTING",
+            _ => "UNCLASSIFIED",
+        },
+        Some('2') => match &account_code[..account_code.len().min(3)] {
+            "201" => "OPERATING",
+            "202" => "FINANCING",
+            _ => "UNCLASSIFIED",
+        },
+        _ => "UNCLASSIFIED",
+    }
+}
+
+/// The four sections, in the order a cash flow statement is read in.
+///
+/// `UNCLASSIFIED` is last and is deliberately a section rather than a silent
+/// drop: an account the rule above cannot place is money that moved, and a
+/// report that quietly left it out would still add up and would be wrong.
+const CASH_FLOW_SECTIONS: [(&str, &str); 4] = [
+    ("OPERATING", "Operating activities"),
+    ("INVESTING", "Investing activities"),
+    ("FINANCING", "Financing activities"),
+    ("UNCLASSIFIED", "Not classified"),
+];
+
+/// Where the cash came from and where it went, over a window.
+///
+/// The direct method — see [`cash_flow_section`] for why, and for how a
+/// movement is placed. The arithmetic:
+///
+///   every entry that touched a cash account in the window is opened, and each
+///   of its NON-cash lines is credited with `credit - debit`, which is that
+///   line's share of the cash that moved. An entry balances, so those shares
+///   sum to exactly the entry's net cash movement — the decomposition is an
+///   identity, not an estimate.
+///
+/// A transfer between two cash accounts therefore contributes nothing, which
+/// is correct: moving money from a drawer to a bank is not a cash flow.
+///
+/// `out_of_balance_minor` is the check and it is a real one:
+/// `opening + result - closing`, where opening and closing are summed straight
+/// off the cash accounts and `result` is the decomposition above. Non-zero
+/// means cash moved in a way the sections do not explain — the case it catches
+/// is a `site`-filtered report whose entries have their other side at another
+/// unit, which is the inter-unit gap this module already knows it has.
+pub async fn cash_flow(
+    pool: &PgPool,
+    from: NaiveDate,
+    to: NaiveDate,
+    site_id: Option<&str>,
+) -> Result<Statement, AppError> {
+    if to < from {
+        return Err(AppError::Validation(format!(
+            "the window ends before it starts: {from} to {to}"
+        )));
+    }
+
+    // What counts as cash, read from the account map for the same reason
+    // `money_overview` is: the answer is whatever Finance has SAID carries
+    // money, and walking the chart instead would list leaves no posting rule
+    // can reach and miss one somebody mapped somewhere unexpected.
+    let cash_accounts: Vec<String> = sqlx::query_scalar(
+        "SELECT DISTINCT m.account_code
+           FROM account_map m
+          WHERE m.semantic_key = ANY($1)
+            AND ($2::text IS NULL OR m.site_id = $2)
+          ORDER BY 1",
+    )
+    .bind(&CASH_KEYS[..])
+    .bind(site_id)
+    .fetch_all(pool)
+    .await?;
+
+    // The cash SET is (account, unit) pairs and not codes alone: the same code
+    // is mapped at several units, and a `site`-filtered report must not count
+    // another unit's drawer as its own.
+    const CASH_SET: &str = "
+        SELECT m.account_code, m.site_id
+          FROM account_map m
+         WHERE m.semantic_key = ANY($1)
+           AND ($2::text IS NULL OR m.site_id = $2)
+    ";
+
+    // What the cash accounts held on either side of the window. Two reads of
+    // one shape: `< from` is the opening, `<= to` the closing — the same
+    // half-open convention every dated read in this module uses, so `to` is
+    // inclusive as a date.
+    const HELD: &str = "
+        SELECT COALESCE(SUM(l.debit_minor - l.credit_minor), 0)::bigint AS held
+          FROM journal_line l
+          JOIN journal_entry e USING (entry_id)
+          JOIN cash c ON c.account_code = l.account_code AND c.site_id = l.site_id
+         WHERE e.posting_date
+    ";
+    let opening: i64 = sqlx::query_scalar(&format!("WITH cash AS ({CASH_SET}) {HELD} < $3"))
+        .bind(&CASH_KEYS[..])
+        .bind(site_id)
+        .bind(from)
+        .fetch_one(pool)
+        .await?;
+    let closing: i64 = sqlx::query_scalar(&format!("WITH cash AS ({CASH_SET}) {HELD} <= $3"))
+        .bind(&CASH_KEYS[..])
+        .bind(site_id)
+        .bind(to)
+        .fetch_one(pool)
+        .await?;
+
+    let rows = sqlx::query(&format!(
+        "WITH cash AS ({CASH_SET}),
+              touched AS (
+                SELECT DISTINCT l.entry_id
+                  FROM journal_line l
+                  JOIN journal_entry e USING (entry_id)
+                  JOIN cash c ON c.account_code = l.account_code
+                             AND c.site_id = l.site_id
+                 WHERE e.posting_date >= $3 AND e.posting_date <= $4
+              )
+         SELECT l.account_code,
+                COALESCE(a.name, l.account_code) AS name,
+                length(l.account_code)::int AS depth,
+                COALESCE(SUM(l.credit_minor - l.debit_minor), 0)::bigint AS cash_effect
+           FROM journal_line l
+           JOIN touched t ON t.entry_id = l.entry_id
+           LEFT JOIN ledger_account a ON a.account_code = l.account_code
+          WHERE NOT EXISTS (
+                    SELECT 1 FROM cash c
+                     WHERE c.account_code = l.account_code
+                       AND c.site_id = l.site_id)
+          GROUP BY l.account_code, a.name
+          ORDER BY l.account_code"
+    ))
+    .bind(&CASH_KEYS[..])
+    .bind(site_id)
+    .bind(from)
+    .bind(to)
+    .fetch_all(pool)
+    .await?;
+
+    let mut sections: Vec<StatementSection> = CASH_FLOW_SECTIONS
+        .iter()
+        .map(|(key, title)| StatementSection {
+            root_class: (*key).to_string(),
+            title: (*title).to_string(),
+            lines: Vec::new(),
+            total_minor: 0,
+        })
+        .collect();
+    let mut result = 0i64;
+    for row in &rows {
+        let code: String = row.try_get("account_code")?;
+        let amount: i64 = row.try_get("cash_effect")?;
+        // An account both debited and credited inside the window can net to
+        // nothing. Silence is not information, exactly as on the other two.
+        if amount == 0 {
+            continue;
+        }
+        let key = cash_flow_section(&code);
+        let line = StatementLine {
+            name: row.try_get("name")?,
+            depth: row.try_get("depth")?,
+            // Every line here is a leaf a posting landed on; a heading cannot
+            // be posted to at all (`journal_line.is_group` is pinned false).
+            is_group: false,
+            amount_minor: amount,
+            account_code: code,
+        };
+        if let Some(section) = sections.iter_mut().find(|s| s.root_class == key) {
+            section.total_minor += amount;
+            section.lines.push(line);
+        }
+        result += amount;
+    }
+    // A section nothing moved through says only that the chart is large.
+    sections.retain(|section| !section.lines.is_empty());
+
+    Ok(Statement {
+        kind: "CASH_FLOW".into(),
+        from: Some(from),
+        to,
+        site_id: site_id.map(str::to_string),
+        sections,
+        result_minor: result,
+        out_of_balance_minor: opening + result - closing,
+        opening_cash_minor: Some(opening),
+        closing_cash_minor: Some(closing),
+        cash_accounts,
     })
 }
 
@@ -703,9 +1014,13 @@ const MONEY_ROWS: &str = "
       JOIN site st ON st.id = m.site_id
       -- The latest statement for this account at this location, and how much
       -- of it is still unexplained. A lateral join rather than a window, so
-      -- the planner stops at the first row per account; the import date breaks
-      -- a tie, because the same period can legitimately be uploaded twice and
-      -- the later upload is the one in force.
+      -- the planner stops at the first row per account.
+      --
+      -- \"The later upload is the one in force\" used to be this join's own
+      -- opinion, expressed as a tie-break on the import date. Since 0245 it is
+      -- the database's rule — at most one statement per account, unit and
+      -- period has `superseded_by IS NULL` — so the filter says it directly
+      -- and the tie-break stays only to order periods.
       LEFT JOIN LATERAL (
           SELECT b.statement_id, b.period_end, b.closing_minor,
                  -- Not merely unclaimed: not yet FULLY claimed. Since 0213 a
@@ -720,6 +1035,7 @@ const MONEY_ROWS: &str = "
             FROM bank_statement b
            WHERE b.account_code = m.account_code
              AND b.site_id = m.site_id
+             AND b.superseded_by IS NULL
              AND b.period_end <= $1
            ORDER BY b.period_end DESC, b.imported_at DESC
            LIMIT 1

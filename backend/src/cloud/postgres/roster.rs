@@ -240,8 +240,22 @@ pub async fn save_period(pool: &PgPool, period: &AttendancePeriod) -> Result<(),
 /// would close a month over anything it liked while the recorded evidence said
 /// it was clean.
 ///
-/// The punch-derived counts stay `None`. There is no punch source, so there is
-/// nothing to count, and a zero would be a claim that somebody looked.
+/// # The punch-derived counts, and when they are still `None`
+///
+/// They used to be `None` always, because there was no punch source: open
+/// corrections and unrostered punch days could not be counted, and sending
+/// zeros would have been a claim nobody made and nobody verified.
+///
+/// A fingerprint terminal per unit is that source, so they are now **numbers
+/// wherever a unit has one** — `place_has_terminal` is what decides. A unit
+/// with no terminal still gets `None`, because the distinction the original
+/// design protected is exactly the one that still matters: "the punch checks
+/// were made and passed" and "there was nothing here to check" are different
+/// facts, and only one of them is a zero.
+///
+/// A unit with no terminal still closes. It must, or its payroll could never
+/// run — and the recorded evidence says the checks were not assessed rather
+/// than that they were clean.
 pub async fn close_readiness(
     pool: &PgPool,
     place: &PlaceId,
@@ -292,11 +306,24 @@ pub async fn close_readiness(
     .fetch_one(pool)
     .await?;
 
+    // Assessed only where there is something to assess. A unit with no
+    // terminal has no punches and no corrections, and reporting two zeros for
+    // it would say the checks passed.
+    let (open_corrections, unrostered_punch_days) =
+        if super::place_has_terminal(pool, place).await? {
+            (
+                Some(super::open_corrections_in(pool, place, month).await?),
+                Some(super::unrostered_punch_days_in(pool, place, month).await?),
+            )
+        } else {
+            (None, None)
+        };
+
     Ok(CloseReadiness {
         unresolved_leave: u32::try_from(unresolved_leave).unwrap_or(u32::MAX),
         unanswered_overtime: u32::try_from(unanswered_overtime).unwrap_or(u32::MAX),
-        open_corrections: None,
-        unrostered_punch_days: None,
+        open_corrections,
+        unrostered_punch_days,
         employees_without_roster: u32::try_from(without_roster).unwrap_or(u32::MAX),
     })
 }

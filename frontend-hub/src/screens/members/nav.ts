@@ -35,7 +35,7 @@ import type { AppModule } from "@/lib/navigation"
 ///
 /// Both are routed and neither is written: there is no points endpoint at the
 /// centre yet, so they render `Placeholder` on purpose rather than being left
-/// out and forgotten.
+/// out and forgotten — and both are `hidden` today for exactly that reason.
 export const membersNav: AppModule = {
   id: "members",
   label: "Members",
@@ -46,11 +46,19 @@ export const membersNav: AppModule = {
       items: [
         { path: "/members", label: "Members", icon: Users },
         { path: "/members/segments", label: "Segments", icon: PieChart },
-        { path: "/members/points", label: "Points", icon: Coins },
+        /// Off the sidebar since 2026-09-13, on request, and hidden rather
+        /// than deleted: both are still routed, still in ⌘K, and the points a
+        /// member holds now appear on the directory row itself — which is
+        /// where somebody at a counter actually needs them. The two screens
+        /// come back when there is a points endpoint at the centre for them
+        /// to read; today they render `Placeholder`, which is what put them
+        /// on a menu with nothing behind them.
+        { path: "/members/points", label: "Points", icon: Coins, hidden: true },
         {
           path: "/members/points-ledger",
           label: "Points Ledger",
           icon: ScrollText,
+          hidden: true,
         },
       ],
     },

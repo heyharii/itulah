@@ -17,6 +17,7 @@ import { commercialNav } from "@/screens/commercial/nav"
 import { financeNav } from "@/screens/finance/nav"
 import { financeLabNav } from "@/screens/finance-lab/nav"
 import { financeLab2Nav } from "@/screens/finance-lab-2/nav"
+import { financeFinalNav } from "@/screens/finance-final/nav"
 import { homeNav } from "@/screens/home/nav"
 import { inventoryNav } from "@/screens/inventory/nav"
 import { masterNav } from "@/screens/master/nav"
@@ -26,7 +27,6 @@ import { peopleNav } from "@/screens/people/nav"
 import { procurementNav } from "@/screens/procurement/nav"
 import { reportsNav } from "@/screens/reports/nav"
 import { salesNav } from "@/screens/sales/nav"
-import { storeopsNav } from "@/screens/storeops/nav"
 import { systemNav } from "@/screens/system/nav"
 import { lettersNav } from "@/screens/letters/nav"
 import { assetsNav } from "@/screens/assets/nav"
@@ -218,12 +218,12 @@ export const modules: readonly AppModule[] = [
   allotmentNav,
   procurementNav,
   salesNav,
-  storeopsNav,
   operationsNav,
   membersNav,
   financeNav,
   financeLabNav,
   financeLab2Nav,
+  financeFinalNav,
   peopleNav,
   lettersNav,
   vendorsNav,
@@ -347,13 +347,13 @@ export const domains: readonly AppDomain[] = [
     id: "selling",
     label: "Selling",
     icon: Store,
-    modules: ["sales", "storeops", "members"],
+    modules: ["sales", "members"],
   },
   {
     id: "finance",
     label: "Finance",
     icon: Landmark,
-    modules: ["finance", "finance-lab"],
+    modules: ["finance", "finance-lab", "finance-final"],
   },
   { id: "hr", label: "HR", icon: Users, modules: ["people"] },
   {
@@ -377,6 +377,25 @@ export function modulesOfDomain(domain: AppDomain): readonly AppModule[] {
   return domain.modules
     .map((id) => everyModule.find((module) => module.id === id))
     .filter((module): module is AppModule => module !== undefined)
+}
+
+/// Whether a domain's modules are one flat list of screens rather than several
+/// labelled groups.
+///
+/// The heading above a group says which module its rows belong to. GA's six
+/// modules contribute one screen each, and that screen already carries the
+/// module's own label and icon — so the heading was the same word twice, six
+/// times down the column, and the owner asked for it gone on 2026-09-13.
+///
+/// Read off the modules rather than declared on the domain, so the heading
+/// comes back on the commit that gives one of them a second screen — a flag
+/// would have to be remembered then, and would be remembered late. The
+/// question is asked of the WHOLE domain, never module by module: a domain
+/// where one module has four screens and its neighbour has one still needs
+/// every heading, or the neighbour's lone row reads as a fifth screen of the
+/// module above it.
+export function flatDomain(modules: readonly AppModule[]): boolean {
+  return modules.every((module) => visibleItems(module).length <= 1)
 }
 
 /// Which domain a module belongs to, or `undefined` for the ones deliberately

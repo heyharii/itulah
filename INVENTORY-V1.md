@@ -752,7 +752,7 @@ DOMAIN CONFLICT        dua model yang harus didamaikan pemilik
 
 | # | Item | Klasifikasi | Bukti |
 |---|---|---|---|
-| **1** | `dc.outbound.picked.<store>` vs canonical Pick Area | **LEGACY BUT READABLE** + **CODE GAP** | Pusat masih **menulis** `picked.<store>` pada eksekusi allotment TO_STORE ([`allotments.rs:1918`](backend/src/cloud/postgres/allotments.rs)). Dan `dc.outbound.picking` **tidak punya baris di database sama sekali** — tidak di `0002`, tidak di `0009`; movement pusat ke sana ditolak foreign key ([ledger G8](docs/inventory-ledger.md)) |
+| **1** | `dc.outbound.picked.<store>` vs canonical Pick Area | **DITUTUP** (migrasi `0252`) | Dulu: pusat menulis `picked.<store>` pada eksekusi allotment TO_STORE, dan `dc.outbound.picking` tidak punya baris sama sekali — movement pusat ke sana ditolak foreign key. Sekarang: Pick Area punya barisnya, `execution_transition` menulis ke sana ([`allotments.rs:1918`](backend/src/cloud/postgres/allotments.rs)), 13 pool `picked.<store>` + stage induk `PICKED` di-**retire** (`active=false`, riwayatnya tetap terbaca), dan isinya dipindahkan dengan `PLACEMENT_CORRECTION`. Katalog pusat: **112 → 99** pool hidup |
 | **2** | Missing saat Store Receive | **CODE GAP** (besar) | `receive_store` / `receive_store_batch` tidak mengenal expected, hanya menyapu EPC ke `<store>.warehouse:on_hand` ([`sqlite.rs:3916`](backend/src/edge/sqlite.rs), [`:4010`](backend/src/edge/sqlite.rs)). Kolom `handed_over_quantity` sudah ada sejak `0176` dan **tidak ada satu baris Rust pun yang menulisnya** |
 | **3** | Semantik Store Reject | **CODE GAP** | Transisi `StoreWarehouse → StoreReject` sah ([edge `movement.rs:388`](backend/src/edge/domain/inventory/movement.rs)), tetapi `StoreReceive` hanya boleh menuju `StoreWarehouse` ([`:185`](backend/src/edge/domain/inventory/movement.rs)) — Case B hanya bisa dilakukan dua langkah, bukan satu |
 | **4** | Rekonsiliasi Store Receive / DC In Transit | **CODE GAP** | Tidak ada transisi keluar dari `in-transit` di tata bahasa edge ([`movement.rs:341`](backend/src/edge/domain/inventory/movement.rs)); barang yang sudah diterima toko berdiri selamanya di ledger DC ([fleet G3](docs/inventory-fleet.md)) |
@@ -816,31 +816,49 @@ dipindahkan seluruhnya ke fleet.
 
 ---
 
-## 21. Exact code paths — belum dikerjakan
+## 21. Exact code paths — A selesai, sisanya belum dikerjakan
 
 Daftar ini adalah **pemetaan**, bukan rencana eksekusi. Urutannya belum
-diputuskan dan tidak ada kode yang boleh berubah sebelum §20.4 dijawab.
+diputuskan dan — kecuali blok A — tidak ada kode yang boleh berubah sebelum
+§20.4 dijawab.
+
+**Blok A dikerjakan lebih dulu atas arahan pemilik, 13 September 2026.** Ia
+boleh mendahului §20.4 karena ia tidak menyentuh satu pun dari ketiga pertanyaan
+di sana: Pick Area bukan Return to DC (DC-1), bukan pilihan satu-atau-dua tata
+bahasa (DC-2), dan bukan `Loaded` (DC-3). Ketiganya masih terbuka.
 
 Semua jalur UI menunjuk **`frontend-hub`**. `frontend-hub-2` dikesampingkan atas
 arahan pemilik 2026-09-12 dan tidak ada satu pun jalur di bawah yang menyentuhnya.
 
-### A — Pick Area kanonik (§4, INV-05)
+### A — Pick Area kanonik (§4, INV-05) — **SELESAI**
+
+Dikerjakan 13 September 2026. Keputusan pada langkah 2 adalah **Picking**:
+pusat tetap menulis, tetapi ke rak yang tidak menyebut toko. Tujuan tetap
+divalidasi dan tetap dibawa — oleh `allotment_line`, tempat sebuah janji memang
+tinggal.
 
 ```text
-1  backend/migrations/postgres/<baru>     turunkan baris operational_pool
-                                          `dc.outbound.picking` + dua
-                                          inventory_place-nya (belum ada)
-2  cloud/postgres/allotments.rs:1918      execution_transition TO_STORE
-                                          menulis DcOutboundPicked → keputusan:
-                                          Picking, atau pusat berhenti menulis
-3  cloud/postgres/movements.rs:36         larangan manual menyebut
-                                          "dc.outbound.picked.store-"
-4  cloud/postgres/allotments.rs:1541      supply/commitment memakai
-   cloud/postgres/allotments.rs:1995      LIKE '%.outbound.picked%'
-   cloud/postgres/allotments.rs:2056      harus ikut mengenali picking
-5  cloud/postgres/queries.rs:758          peta pool DcOutboundPicked → tetap,
-                                          ditandai legacy pada pembacaan
+1  migrations/postgres/0252_the_pick_area_stops_naming_a_shop.sql   SELESAI
+                                          baris + dua inventory_place-nya;
+                                          isi 13 pool legacy dipindahkan dengan
+                                          PLACEMENT_CORRECTION; 13 leaf + stage
+                                          induk PICKED di-retire, tidak dihapus
+                                          (riwayat movement menunjuk place-nya)
+2  cloud/postgres/allotments.rs:1918      SELESAI — DcOutboundPicking
+3  cloud/postgres/movements.rs:36         SELESAI — larangan menyebut KEDUA
+                                          ejaan; picking karena itu jalan keluar
+                                          yang sekarang, picked karena ia pensiun
+4  cloud/postgres/allotments.rs:1541      sudah benar sebelum ini: ketiganya
+   cloud/postgres/allotments.rs:1995      memang sudah mengenali picking di
+   cloud/postgres/allotments.rs:2056      samping picked
+5  cloud/postgres/queries.rs:758          peta tetap; label PICKING diselaraskan
+   edge/http.rs:503                       menjadi "Pick Area" di kedua node
 ```
+
+Yang **tidak** ikut: tiga stage induk `packed`/`shipment`/`in-transit`
+(`is_placement=false`). Mereka bukan rak dan tidak pernah menyimpan apa pun —
+`control.rs`, `observations.rs` dan `movements.rs` memilih *lewat* mereka untuk
+berarti "tahap ini, toko mana pun". Sebuah pegangan scope layak punya baris.
 
 ### B — Store Receive, Store Reject, receiving gap (§6, §7, INV-08..INV-12)
 

@@ -617,7 +617,7 @@ function useAcquisitionLines(): {
 } {
   const bills = useQuery({
     queryKey: financeKeys.bills(null),
-    queryFn: ({ signal }) => listBills({}, signal),
+    queryFn: ({ signal }) => listBills({}, signal).then((page) => page.rows),
     staleTime: 60_000,
   })
 
@@ -748,6 +748,18 @@ function Schedule({ assetId }: { assetId: string }) {
         render: (data) => (
           <div className="flex flex-col gap-3">
             <div>
+              {data.opening_accumulated_minor !== null && (
+                // Kept apart from what this system charged. One is a figure
+                // somebody carried in at cutover; the other is a list of
+                // journals this screen can link to.
+                <KeyValue term="Carried in">
+                  {money(data.opening_accumulated_minor)}
+                  <span className="text-body">
+                    {" "}
+                    · through {monthOf(data.opening_through)}
+                  </span>
+                </KeyValue>
+              )}
               <KeyValue term="Charged so far">
                 {money(data.charged_total_minor)}
               </KeyValue>
@@ -835,6 +847,12 @@ interface AssessmentDraft {
   /// asset it is about has arrived.
   chargeKind: string
   inService: string
+  /// What the system this one replaced had already depreciated, and the last
+  /// month that figure covers. Both or neither: a figure nobody can date
+  /// cannot stop a run from charging a month the old ledger already charged.
+  /// Empty on anything bought after the cutover, which is most things.
+  openingAccumulated: string
+  openingThrough: string
   reason: string
   acquiredVia: string
   /// The family work in progress becomes when it is finished. Empty on every
@@ -854,8 +872,14 @@ function assessmentReady(
   const costMinor = parseMinor(draft.cost)
   const salvageMinor = parseMinor(draft.salvage)
   const lifeMonths = parseMinor(draft.life)
+  // Half a cutover is refused here rather than at the server, because the
+  // server's refusal arrives after somebody has pressed the button.
+  const carriedInIsWhole =
+    (draft.openingAccumulated.trim() === "") ===
+    (draft.openingThrough.trim() === "")
   return (
     draft.reason.trim() !== "" &&
+    carriedInIsWhole &&
     (draft.decision !== "CAPITALIZE" ||
       (costMinor !== null &&
         costMinor > 0 &&
@@ -926,6 +950,16 @@ function AssetSheet({
           ? draft.chargeKind || impliedChargeKind(asset?.category_code ?? "")
           : null,
         in_service_on: capitalising ? draft.inService : null,
+        // The pair travels together or not at all. Absent is the ordinary
+        // answer and it means nothing was carried in — see migration 0237.
+        opening_accumulated_minor:
+          capitalising && draft.openingAccumulated.trim() !== ""
+            ? (parseMinor(draft.openingAccumulated) ?? undefined)
+            : undefined,
+        opening_through:
+          capitalising && draft.openingThrough.trim() !== ""
+            ? draft.openingThrough
+            : undefined,
         // Only ever sent when finished work is being capitalised out of the
         // work-in-progress family, which is the one re-filing the server
         // allows. See migration 0213.
@@ -960,6 +994,8 @@ function AssetSheet({
       method: "STRAIGHT_LINE",
       chargeKind: "",
       inService: todayIso(),
+      openingAccumulated: "",
+      openingThrough: "",
       reason: "",
       acquiredVia: "",
       becomes: "",
@@ -1315,6 +1351,46 @@ function AssetSheet({
                               <Field
                                 label="In service on"
                                 className="col-span-2"
+                              >
+                                <Day
+                                  value={field.state.value}
+                                  onBlur={field.handleBlur}
+                                  onChange={field.handleChange}
+                                />
+                              </Field>
+                            )}
+                          </form.Field>
+                          {/* Carried in from the ledger this system replaced.
+                              Left empty for anything bought since, which is
+                              why it sits below the basis rather than inside
+                              it: most assessments never touch it, and the one
+                              that does is a cutover. */}
+                          <form.Field name="openingAccumulated">
+                            {(field) => (
+                              <Field
+                                label="Already depreciated elsewhere"
+                                hint="From the old ledger's accumulated balance — their register leaves this column empty."
+                                problem={
+                                  field.state.value.trim() !== "" &&
+                                  parseMinor(field.state.value) === null
+                                    ? "Not a number."
+                                    : undefined
+                                }
+                              >
+                                <Money
+                                  value={field.state.value}
+                                  onBlur={field.handleBlur}
+                                  onChange={field.handleChange}
+                                  placeholder="0"
+                                />
+                              </Field>
+                            )}
+                          </form.Field>
+                          <form.Field name="openingThrough">
+                            {(field) => (
+                              <Field
+                                label="Covers through"
+                                hint="The last month it charged. The run refuses that month and every one before it."
                               >
                                 <Day
                                   value={field.state.value}

@@ -19,6 +19,27 @@ use chrono::{DateTime, Datelike, Duration, NaiveDate, NaiveTime, TimeZone, Utc};
 /// WIB: the shops are Indonesian and so is the day they close.
 pub const DEFAULT_UTC_OFFSET_MINUTES: i32 = 7 * 60;
 
+/// What day it is where the shops are — never `Utc::now().date_naive()`.
+///
+/// The two disagree for the **first seven hours of every local day**, and that
+/// is the worst possible window: between midnight and 07:00 WIB, UTC is still
+/// yesterday. A route that defaults "today" to the UTC date therefore answers
+/// *yesterday* to everybody who opens the app before breakfast — with an empty
+/// day, because the punches and the plan are filed against the local one.
+///
+/// This existed as a live defect in three routes at once (`punch::read_today`,
+/// `leave::on_day`, `leave::entitlements`), and `punch_integration` caught it
+/// only because the clock rolled past midnight mid-run. Its own helper had
+/// been written to avoid exactly this — the test guarded one side of the
+/// comparison and left the server on the other.
+///
+/// One function so there is one spelling. A second `now + offset` somewhere is
+/// how the two drift apart again.
+#[must_use]
+pub fn local_today() -> NaiveDate {
+    (Utc::now() + Duration::minutes(i64::from(DEFAULT_UTC_OFFSET_MINUTES))).date_naive()
+}
+
 /// How wide a column is.
 ///
 /// A closed set rather than a string handed to the database: the parameter

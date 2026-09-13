@@ -173,17 +173,37 @@ pub async fn audit_actions(
         return Ok(response);
     }
 
-    // The broadcast. Only for actions that actually succeeded: announcing a
-    // refusal to the whole business would be both noisy and unkind.
-    if status.is_success() {
-        if let Err(error) = announce(&state, &principal, &method, &path, subject).await {
-            tracing::warn!(%path, %error, "could not announce the action");
-        }
-    }
+    // The broadcast used to be here, and it is deliberately gone.
+    //
+    // Every successful write announced itself to every active user, with a
+    // body that read `POST /api/v1/finance/assets/{id}/assess`. That is not a
+    // notification, it is the audit log with one copy per person: nothing is
+    // being asked of the reader, nobody is waiting on them, and this estate
+    // had 2,919 of them before anything ever displayed one.
+    //
+    // `0046_notifications.sql` predicted it and the function it called said so
+    // in its own doc comment — "a notification for everything that merely
+    // happened trains people to dismiss all of them". It stayed harmless
+    // while nothing drew the list. It stopped being harmless the day a bell
+    // went into the top bar, where it would have been the first thing every
+    // person in the company saw and the reason they stopped looking.
+    //
+    // The action is still recorded: `record_audit` above is the row, and
+    // `/system/activity` is where a log is read. `announce_activity` is kept
+    // for whoever wants a narrowed version of this one day — the point of its
+    // own kind was that narrowing it later is a change to one string.
+    let _ = status;
 
     Ok(response)
 }
 
+/// The broadcast, kept and no longer called — see the comment above.
+///
+/// Left in place rather than deleted because the narrowing it is waiting for is
+/// a real feature: "tell everyone when a price changes" is worth having, and
+/// this is where it would go. What it must never go back to is announcing
+/// every successful request to every person.
+#[allow(dead_code)]
 async fn announce(
     state: &AppState,
     principal: &Principal,

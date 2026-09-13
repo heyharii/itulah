@@ -116,7 +116,54 @@ pub struct Identified {
 /// till is the node's decision, and a shell that fetched its own list would be
 /// a second opinion about who works here.
 #[tauri::command]
-pub fn fingerprint_identify(_enrolled: Vec<EnrolledFinger>) -> Identified {
+pub fn fingerprint_identify(
+    node: tauri::State<'_, crate::edge::Node>,
+    enrolled: Vec<EnrolledFinger>,
+) -> Identified {
+    // A development build may be told to pretend, so that everything around the
+    // sensor can be exercised on a machine that has none: the roster coming
+    // down, the claim being signed, the sequence being burned, the grant being
+    // spent once and expiring. The block is compiled out of a release, so a
+    // till in a shop cannot be talked into simulating a supervisor by editing a
+    // config file — and every simulated answer says so in the words the cashier
+    // reads, because a screen that cannot tell a rehearsal from the real thing
+    // is how a rehearsal reaches a customer.
+    #[cfg(debug_assertions)]
+    {
+        let pretend = node
+            .0
+            .lock()
+            .expect("node config")
+            .simulate_fingerprint
+            .clone();
+        if let Some(who) = pretend.filter(|who| !who.trim().is_empty()) {
+            let who = who.trim();
+            return match enrolled
+                .iter()
+                .find(|one| one.actor_id.eq_ignore_ascii_case(who))
+            {
+                Some(found) => Identified {
+                    bound: true,
+                    actor_id: Some(found.actor_id.clone()),
+                    score: Some(0),
+                    detail: format!(
+                        "SIMULASI — tidak ada sidik jari yang dibaca. \
+                         Terminal ini disetel berpura-pura mengenali {who}."
+                    ),
+                },
+                None => Identified {
+                    bound: true,
+                    actor_id: None,
+                    score: None,
+                    detail: format!(
+                        "SIMULASI — {who} tidak ada di daftar sidik jari toko ini, \
+                         jadi dijawab seperti jari yang tidak dikenali."
+                    ),
+                },
+            };
+        }
+    }
+    let _ = enrolled;
     Identified {
         bound: false,
         actor_id: None,

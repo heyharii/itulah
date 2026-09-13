@@ -1,5 +1,9 @@
 //! Independent SQLite edge runtime and its domain contracts.
 
+/// The unit's punch station: the employee and roster slice head office
+/// publishes, and this box's own durable punch log. A different thing from
+/// `fingerprint` beside it, which is about signing in to a till.
+pub mod attendance;
 pub mod auth;
 pub mod contracts;
 pub mod domain;
@@ -10,6 +14,7 @@ pub mod outbound;
 /// The shop's small money: the petty cash float head office hands over, and
 /// what it buys. Never the drawer — see the module note for the three pots.
 pub mod petty;
+pub mod pin;
 pub mod pricing;
 pub mod printing;
 pub mod reports;

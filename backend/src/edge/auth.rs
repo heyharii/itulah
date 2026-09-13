@@ -351,6 +351,133 @@ impl EdgeAuth {
             }
             return Err(denied());
         }
+        self.start_session(
+            &mut connection,
+            id,
+            username,
+            display_name,
+            role,
+            auth_version,
+            source,
+        )
+    }
+
+    /// Open a session for somebody a finger identified.
+    ///
+    /// No password is checked here because none was offered: the proof is the
+    /// enrolled template that matched on the terminal, and the terminal's own
+    /// signed claim that it matched (`edge/fingerprint.rs`). What this still
+    /// checks is everything about the *account* that a password login checks —
+    /// active, not expired, and **not currently locked out**. An account shut
+    /// after five wrong passwords must not be openable by pressing a thumb; the
+    /// lockout is about the account, not about the keyboard.
+    pub fn issue_for_fingerprint(&self, username: &str) -> Result<IssuedEdgeSession, EdgeError> {
+        if !self.config.enabled {
+            return Err(EdgeError::Conflict(
+                "authentication is disabled on this Edge".into(),
+            ));
+        }
+        let username = username.trim().to_ascii_lowercase();
+        let mut connection = self.lock()?;
+        let denied = || EdgeError::Unauthorized("fingerprint sign-in refused".into());
+        let row: Option<(
+            String,
+            String,
+            String,
+            String,
+            i64,
+            i64,
+            String,
+            Option<String>,
+            Option<String>,
+        )> = connection
+            .query_row(
+                "SELECT id,username,display_name,role,active,auth_version,source,
+                            valid_until,login_blocked_until
+                     FROM edge_user WHERE username=?1",
+                params![username],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                        row.get(6)?,
+                        row.get(7)?,
+                        row.get(8)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(db)?;
+        let Some((
+            id,
+            username,
+            display_name,
+            role,
+            active,
+            auth_version,
+            source,
+            valid_until,
+            login_blocked_until,
+        )) = row
+        else {
+            return Err(denied());
+        };
+        let now = Utc::now();
+        if active != 1 {
+            return Err(denied());
+        }
+        if valid_until
+            .as_deref()
+            .map(parse_time)
+            .transpose()?
+            .is_some_and(|expiry| expiry <= now)
+        {
+            return Err(denied());
+        }
+        if login_blocked_until
+            .as_deref()
+            .map(parse_time)
+            .transpose()?
+            .is_some_and(|until| until > now)
+        {
+            return Err(denied());
+        }
+        self.start_session(
+            &mut connection,
+            id,
+            username,
+            display_name,
+            role,
+            auth_version,
+            source,
+        )
+    }
+
+    /// Turn an already-decided identity into a session.
+    ///
+    /// Split out of [`Self::login`] rather than copied, because a second
+    /// implementation of "what a session is" is how one door ends up issuing a
+    /// token the other door's rules never applied to. **It decides nothing** —
+    /// the caller has already established who this is and that they are allowed
+    /// in; this only writes the row and mints the pair of tokens.
+    ///
+    /// The other caller is a fingerprint claim, which proves identity with a
+    /// finger and a terminal's credential instead of a password.
+    fn start_session(
+        &self,
+        connection: &mut Connection,
+        id: String,
+        username: String,
+        display_name: String,
+        role: String,
+        auth_version: i64,
+        source: String,
+    ) -> Result<IssuedEdgeSession, EdgeError> {
+        let now = Utc::now();
         let user_id = Uuid::parse_str(&id)
             .map_err(|error| EdgeError::Persistence(format!("invalid edge user id: {error}")))?;
         let role =

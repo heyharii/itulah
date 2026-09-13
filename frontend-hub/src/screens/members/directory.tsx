@@ -1,12 +1,11 @@
 import { useQuery } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { UserPlus, X } from "lucide-react"
+import { X } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
-import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Input } from "@/components/ui/field"
@@ -16,7 +15,6 @@ import { Pill } from "@/components/ui/pill"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { EmptyState, NoMatch, Truncated } from "@/components/ui/states"
-import { Tag } from "@/components/ui/tag"
 import { useFilters } from "@/lib/filters"
 import { count, day, money } from "@/lib/format"
 import {
@@ -33,7 +31,7 @@ import {
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
-import { EnrolCard, IssueCode } from "@/screens/members/counter"
+import { IssueCode } from "@/screens/members/counter"
 
 /// The member directory — everybody holding a card, and what they have done
 /// with it.
@@ -45,12 +43,18 @@ import { EnrolCard, IssueCode } from "@/screens/members/counter"
 /// A loyalty scheme nobody can list is a foreign key, not a scheme.
 ///
 /// **What a row is worth reading for.** Not the name — most of them have none,
-/// because a shopper who will not give one still gets a card. It is the four
-/// numbers to the right: how many times they have come in, what they have
-/// spent, what the shop has already given back in promotions, and what the
-/// shop still owes them on vouchers. The last is the one nobody expects to
-/// find on a customer list, and it is the one that turns a directory into
-/// something a manager can act on.
+/// because a shopper who will not give one still gets a card. It is the retail
+/// figures to the right: spend, transactions, average transaction, units,
+/// units per transaction, and what they hold in points. Those are the numbers
+/// a buyer and a shop manager already talk in, and together they say something
+/// spend alone does not — two members who have spent the same amount over four
+/// visits and over forty are different customers.
+///
+/// **Enrolling is not done here** (2026-09-13). A card is a physical object
+/// somebody is holding out across a counter, and the person who can see it is
+/// the cashier. Head office enrolling a number it cannot see is how a scheme
+/// acquires cards nobody ever collected. What stays here is the pairing code,
+/// which is read down a phone line to a member who already has one.
 ///
 /// **Segment goes to the server; the search box does not.** A segment changes
 /// which population is being read, so it is a query the database answers. The
@@ -90,6 +94,15 @@ function segmentTone(key: SegmentKey) {
   }
 }
 
+/// A basket size. One decimal, because "2" and "2,4" units a transaction are
+/// different findings and only the second is true.
+function decimal(value: number): string {
+  return value.toLocaleString("id-ID", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })
+}
+
 /// "42 days ago", or the honest absence of an answer.
 ///
 /// `null` is not a large number and must not sort as one: somebody who has
@@ -100,6 +113,23 @@ function lastSeen(row: MemberRow): string {
   if (row.days_since_purchase === 0) return "Today"
   if (row.days_since_purchase === 1) return "Yesterday"
   return `${count(row.days_since_purchase)} days ago`
+}
+
+/// Takings over receipts, and pieces over receipts. Both are the retail
+/// figures — ATV and UPT — and both are worked out here rather than sent,
+/// because the two parts are already on the row and a third number on the wire
+/// is a third number that can disagree with them.
+///
+/// Zero receipts is not a zero average, it is no average: somebody holding a
+/// card who has never bought has no basket to have a size.
+function per(total: number, transactions: number): number | null {
+  // `isFinite` and not just the zero check: an older server that has not been
+  // rebuilt with `units_total` on the wire sends nothing at all for it, and
+  // `undefined / 5` is `NaN` — which renders as the word NaN in a column of
+  // rupiah. A missing numerator is the same answer as no transactions: there
+  // is no average to state.
+  if (!Number.isFinite(total) || transactions === 0) return null
+  return total / transactions
 }
 
 function columnsFor(
@@ -113,18 +143,18 @@ function columnsFor(
       id: "member",
       accessorFn: (row) => `${row.member_id} ${row.display_name ?? ""}`,
       header: "Member",
-      size: 260,
+      size: 200,
+      // The card number is no longer a tag beside the name. On a scheme where
+      // most shoppers give no name it was a tag on every row saying `cust-1`,
+      // which is a column of noise — so the number is the identity only where
+      // there is no name to be the identity instead, and the sheet carries it
+      // either way.
+      // No pill for a stopped membership: `BLOCKED` is one of the six, so the
+      // Segment column beside this one already says it, and two "Stopped"
+      // chips on one row read as two different facts.
       cell: ({ row }) => (
-        <span className="flex min-w-0 items-center gap-2">
-          <Tag>{row.original.member_id}</Tag>
-          <span className="truncate text-[0.8125rem] text-ink">
-            {/* No name is the ordinary case, not a gap in the data — a shopper
-                who will not give one still gets a card, and a required name is
-                a required lie. Said in words rather than left blank. */}
-            {row.original.display_name ?? (
-              <span className="text-mute">No name given</span>
-            )}
-          </span>
+        <span className="block truncate text-[0.8125rem] text-ink">
+          {row.original.display_name ?? row.original.member_id}
         </span>
       ),
     },
@@ -132,7 +162,7 @@ function columnsFor(
       id: "segment",
       accessorFn: (row) => row.segment,
       header: "Segment",
-      size: 130,
+      size: 120,
       cell: ({ row }) => (
         <Pill tone={segmentTone(row.original.segment)}>
           {windows === null
@@ -142,11 +172,28 @@ function columnsFor(
       ),
     },
     {
+      id: "spent",
+      accessorFn: (row) => row.spent_minor,
+      header: "Spend",
+      size: 130,
+      // Minor units on the wire, whole rupiah in the box: a manager picking
+      // out the members worth a call types 5000000 and means five million.
+      meta: {
+        align: "right",
+        filter: { kind: "number", unit: "Rp" },
+      },
+      cell: ({ row }) => (
+        <span className="font-medium text-ink tabular-nums">
+          {money(row.original.spent_minor)}
+        </span>
+      ),
+    },
+    {
       id: "sales",
       accessorFn: (row) => row.transaction_count,
-      header: "Sales",
-      size: 90,
-      meta: { align: "right" },
+      header: "Transactions",
+      size: 110,
+      meta: { align: "right", filter: { kind: "number", unit: "sales" } },
       cell: ({ row }) =>
         row.original.transaction_count === 0 ? (
           <span className="text-mute">—</span>
@@ -157,58 +204,95 @@ function columnsFor(
         ),
     },
     {
-      id: "spent",
-      accessorFn: (row) => row.spent_minor,
-      header: "Spent",
-      size: 130,
-      // Minor units on the wire, whole rupiah in the box: a manager picking
-      // out the members worth a call types 5000000 and means five million.
-      meta: {
-        align: "right",
-        filter: { kind: "number", unit: "Rp" },
-      },
-      cell: ({ row }) => (
-        <span className="tabular-nums">{money(row.original.spent_minor)}</span>
-      ),
-    },
-    {
-      id: "saved",
-      accessorFn: (row) => row.saved_minor,
-      header: "Saved",
-      size: 120,
-      meta: { align: "right" },
-      // What the shop has already given this person in promotions. Beside
-      // spend it answers the question a loyalty scheme exists to ask — whether
-      // the discount bought the custom — and neither figure means much alone.
-      cell: ({ row }) =>
-        row.original.saved_minor === 0 ? (
+      id: "atv",
+      // Sorted on the number and drawn as money. `null` — never bought — sorts
+      // to the bottom rather than reading as the cheapest shopper in the
+      // scheme, which is what a zero here would have said.
+      accessorFn: (row) => per(row.spent_minor, row.transaction_count) ?? -1,
+      header: "Avg transaction",
+      size: 140,
+      meta: { align: "right", filter: { kind: "number", unit: "Rp" } },
+      cell: ({ row }) => {
+        const average = per(
+          row.original.spent_minor,
+          row.original.transaction_count
+        )
+        return average === null ? (
           <span className="text-mute">—</span>
         ) : (
           <span className="text-body tabular-nums">
-            {money(row.original.saved_minor)}
+            {money(Math.round(average))}
           </span>
+        )
+      },
+    },
+    {
+      id: "units",
+      accessorFn: (row) => row.units_total,
+      header: "Units",
+      size: 90,
+      meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
+      cell: ({ row }) =>
+        row.original.units_total === 0 ? (
+          <span className="text-mute">—</span>
+        ) : (
+          <span className="tabular-nums">{count(row.original.units_total)}</span>
         ),
     },
     {
-      id: "vouchers",
-      accessorFn: (row) => row.voucher_balance_minor,
-      header: "On voucher",
-      size: 130,
-      // A liability, so it is the one money column somebody narrows rather
-      // than reads: "who is still holding voucher money" is a question about
-      // what the shop owes, not about who its best customers are.
-      meta: {
-        align: "right",
-        filter: { kind: "number", unit: "Rp" },
-      },
-      // Money the shop owes this person specifically. It is a liability, so it
-      // is drawn even when the rest of the row is empty.
-      cell: ({ row }) =>
-        row.original.voucher_balance_minor === 0 ? (
+      id: "upt",
+      accessorFn: (row) => per(row.units_total, row.transaction_count) ?? -1,
+      header: "UPT",
+      size: 80,
+      // Units per transaction. Not filterable — a shopper's basket size is read
+      // across the row against their spend, not narrowed by on its own.
+      meta: { align: "right" },
+      cell: ({ row }) => {
+        const upt = per(row.original.units_total, row.original.transaction_count)
+        return upt === null ? (
           <span className="text-mute">—</span>
         ) : (
-          <span className="text-ink tabular-nums">
-            {money(row.original.voucher_balance_minor)}
+          <span className="text-body tabular-nums">{decimal(upt)}</span>
+        )
+      },
+    },
+    {
+      id: "points",
+      accessorFn: (row) => row.points_balance,
+      header: "Points",
+      size: 100,
+      // What is on the card NOW, which is the figure somebody at a counter is
+      // being asked for — not the lifetime total, which is a fact about the
+      // past and cannot be spent. The lifetime total is in the sheet.
+      meta: { align: "right", filter: { kind: "number", unit: "pts" } },
+      cell: ({ row }) => (
+        <span
+          className={
+            row.original.points_balance < 0
+              ? "font-medium text-bad tabular-nums"
+              : row.original.points_balance === 0
+                ? "text-mute"
+                : "font-medium text-ink tabular-nums"
+          }
+        >
+          {row.original.points_balance === 0
+            ? "—"
+            : count(row.original.points_balance)}
+        </span>
+      ),
+    },
+    {
+      id: "redeemed",
+      accessorFn: (row) => row.points_spent_total,
+      header: "Points spent",
+      size: 110,
+      meta: { align: "right" },
+      cell: ({ row }) =>
+        row.original.points_spent_total === 0 ? (
+          <span className="text-mute">—</span>
+        ) : (
+          <span className="text-body tabular-nums">
+            {count(row.original.points_spent_total)}
           </span>
         ),
     },
@@ -217,7 +301,7 @@ function columnsFor(
       // Sorted on the number, drawn as a sentence. `null` sorts last, which is
       // where "never bought" belongs in a column about recency.
       accessorFn: (row) => row.days_since_purchase ?? Number.MAX_SAFE_INTEGER,
-      header: "Last seen",
+      header: "Last purchase",
       size: 130,
       // Days, because that is what the accessor holds — and somebody who has
       // never bought rides at the far end of it rather than dropping out, the
@@ -239,30 +323,6 @@ function columnsFor(
           {lastSeen(row.original)}
         </span>
       ),
-    },
-    {
-      id: "paired",
-      accessorFn: (row) => (row.paired ? 1 : 0),
-      header: "App",
-      size: 100,
-      // The difference between a customer the shop can REACH and one it can
-      // only serve, which is the whole of what a campaign needs to know. The
-      // accessor is 1/0 for sorting, so the two arms are named here.
-      meta: {
-        filter: {
-          kind: "option",
-          format: (value) => (value === "1" ? "Paired" : "Card only"),
-        },
-      },
-      // The difference between a customer the shop can reach and one it can
-      // only serve. Not a fault when it is absent — most cards never pair —
-      // which is why the unpaired case is neutral rather than a warning.
-      cell: ({ row }) =>
-        row.original.paired ? (
-          <Pill tone="info">Paired</Pill>
-        ) : (
-          <span className="text-mute">Card only</span>
-        ),
     },
   ]
 }
@@ -286,9 +346,6 @@ export function Members() {
   /// card that linked here.
   const written = useSheet("segmentId")
   const open = useSheet("member")
-  /// The counter's sheet. In the URL like the rest, so "enrol a card" is
-  /// something a manager can send to somebody standing at a till.
-  const enrolling = useSheet("enrol")
   const [sorting, setSorting] = useState<SortingState>([])
 
   /// The search now runs on the SERVER, over the card number and the name.
@@ -374,28 +431,18 @@ export function Members() {
       <PageHeader
         crumb="Members"
         title="Members"
-        sub="Everybody holding a card, what they have spent, and how long since they last came in."
+        sub="Everybody holding a card, and what they buy."
         actions={
-          <>
-            <Input
-              value={search.value ?? ""}
-              onChange={(event) =>
-                event.target.value === ""
-                  ? search.close()
-                  : search.open(event.target.value)
-              }
-              placeholder="Card number or name"
-              className="h-8 w-56"
-            />
-            {/* The one act this screen was missing. Until it existed the
-                directory could list members and the shopper's app could sign
-                them in, and nothing anywhere could create one — the chain was
-                broken at its first link. */}
-            <Button variant="primary" onClick={() => enrolling.open(true)}>
-              <UserPlus />
-              Enrol a card
-            </Button>
-          </>
+          <Input
+            value={search.value ?? ""}
+            onChange={(event) =>
+              event.target.value === ""
+                ? search.close()
+                : search.open(event.target.value)
+            }
+            placeholder="Card number or name"
+            className="h-8 w-56"
+          />
         }
       />
 
@@ -473,7 +520,7 @@ export function Members() {
                 {written.value !== undefined
                   ? "Nobody matches that segment's conditions today. It is worked out on every read, so it empties and fills on its own."
                   : segment.value === undefined
-                    ? "Nobody has been enrolled yet. Enrol a card above, against a number the shopper is already holding."
+                    ? "Nobody has been enrolled yet. Cards are enrolled at a till, against a number the shopper is already holding."
                     : "No member is in that segment today. It is a statement about behaviour, so it empties and fills on its own."}
               </EmptyState>
             ) : (
@@ -504,7 +551,6 @@ export function Members() {
         onClose={() => open.close()}
       />
 
-      <EnrolCard open={enrolling.isOpen} onClose={() => enrolling.close()} />
     </PageContent>
   )
 }
@@ -533,6 +579,10 @@ function MemberSheet({
 }) {
   const segment =
     member && windows ? describeSegment(member.segment, windows) : null
+  const atv =
+    member === null ? null : per(member.spent_minor, member.transaction_count)
+  const upt =
+    member === null ? null : per(member.units_total, member.transaction_count)
 
   return (
     <Sheet
@@ -554,15 +604,30 @@ function MemberSheet({
             )}
           </div>
 
+          {/* The whole record, including the four figures the table dropped:
+              the card number itself, what promotions gave back, what the shop
+              still owes on vouchers, and whether a phone is paired. A row is a
+              scan; this is the answer to a question about one person. */}
           <Facts>
+            <Fact term="Card">{member.member_id}</Fact>
             <Fact term="Joined">{day(member.joined_on)}</Fact>
-            <Fact term="Last seen">{lastSeen(member)}</Fact>
-            <Fact term="Sales">{count(member.transaction_count)}</Fact>
-            <Fact term="Spent">{money(member.spent_minor)}</Fact>
-            <Fact term="Saved">{money(member.saved_minor)}</Fact>
-            <Fact term="Points">{count(member.points_earned_total)}</Fact>
             <Fact term="First bought">{day(member.first_purchase_at)}</Fact>
+            <Fact term="Last purchase">{lastSeen(member)}</Fact>
+            <Fact term="Spend">{money(member.spent_minor)}</Fact>
+            <Fact term="Transactions">{count(member.transaction_count)}</Fact>
+            <Fact term="Avg transaction">
+              {atv === null ? "—" : money(Math.round(atv))}
+            </Fact>
+            <Fact term="Units">{count(member.units_total)}</Fact>
+            <Fact term="UPT">{upt === null ? "—" : decimal(upt)}</Fact>
+            <Fact term="Points held">{count(member.points_balance)}</Fact>
+            <Fact term="Points earned">
+              {count(member.points_earned_total)}
+            </Fact>
+            <Fact term="Points spent">{count(member.points_spent_total)}</Fact>
+            <Fact term="Saved by promotions">{money(member.saved_minor)}</Fact>
             <Fact term="On voucher">{money(member.voucher_balance_minor)}</Fact>
+            <Fact term="App">{member.paired ? "Paired" : "Card only"}</Fact>
           </Facts>
 
           {/* The act that turns a card into somebody who can see their own
@@ -602,7 +667,7 @@ function MemberSheet({
 
           <div className="flex flex-wrap gap-2">
             <AppLink
-              to="/storeops/customer"
+              to="/sales/customer"
               sheet={{ key: "member", value: member.member_id }}
               variant="ghost"
             >

@@ -10,6 +10,13 @@ export type AssetSchedule = { asset_id: string, asset_number: string, name: stri
  */
 decision: string | null, method: string | null, capitalized_cost_minor: number | null, salvage_value_minor: number | null, useful_life_months: number | null, in_service_on: string | null, 
 /**
+ * What the old system had already charged when this one took over, and
+ * the last month it covers. The schedule shows it as its own line rather
+ * than folding it into `charged_total_minor`: one is a figure somebody
+ * carried in, the other is a list of journals this system can name.
+ */
+opening_accumulated_minor: number | null, opening_through: string | null, 
+/**
  * What was actually posted, month by month, oldest first.
  *
  * The record of what happened, not a projection of what should have. A
