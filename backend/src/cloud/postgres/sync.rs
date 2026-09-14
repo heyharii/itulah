@@ -6807,7 +6807,7 @@ async fn apply_goods_receipt_line(
                         "{} pieces of \"{article_name}\" ({po_number}) were accepted on {} at {origin_id} and are waiting to be named, priced and given labels.",
                         line.quantity, line.receipt_number,
                     ),
-                    subject: Some(("goods_receipt_line", line.receipt_line_id.to_string())),
+                    subject: Some(("receipt", line.receipt_id.to_string())),
                     origin_id: Some(origin_id),
                     payload: serde_json::json!({
                         "receipt_line_id": line.receipt_line_id,
@@ -6838,7 +6838,7 @@ async fn apply_goods_receipt_line(
                          keep them or send them back.",
                         line.receipt_number
                     ),
-                    subject: Some(("goods_receipt_line", line.receipt_line_id.to_string())),
+                    subject: Some(("receipt", line.receipt_id.to_string())),
                     origin_id: Some(origin_id),
                     payload: serde_json::json!({
                         "receipt_line_id": line.receipt_line_id,
