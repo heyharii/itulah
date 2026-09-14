@@ -8182,6 +8182,34 @@ impl SqliteEdge {
             )));
         }
 
+        // The centre learns a delivery exists from a VERIFIED LINE, never from
+        // its invoice: the line fact carries the receipt number, the supplier
+        // and the arrival, and the invoice fact carries an id and money. Facts
+        // are applied in the order they were enqueued, so an invoice filed
+        // before the first line is an invoice the centre can never apply —
+        // and the lines that would let it are queued behind it. That is a
+        // deadlock, and one delivery invoiced early stops everything this
+        // warehouse says afterwards.
+        //
+        // So the order is enforced where it is created rather than repaired
+        // where it lands. It is also the truer rule: an invoice is agreement
+        // about goods somebody checked, and nobody has checked these yet.
+        let verified: i64 = tx
+            .query_row(
+                "SELECT count(*) FROM receiving_count
+                 WHERE receipt_id = ?1 AND verified_at IS NOT NULL",
+                params![request.receipt_id.to_string()],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        if verified == 0 {
+            return Err(EdgeError::Conflict(format!(
+                "delivery {} has nothing verified yet: check the goods in before \
+                 recording the supplier's invoice",
+                request.receipt_id
+            )));
+        }
+
         crate::edge::sync::record_receipt_invoice(
             &tx,
             Uuid::new_v4(),

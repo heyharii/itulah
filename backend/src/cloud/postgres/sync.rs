@@ -9,7 +9,7 @@ use super::payload_digest;
 use crate::cloud::application::{AppError, DeadLetterQuery};
 use crate::cloud::domain::{
     cooldown_after_failure, ingest_rejection_reason, BreakerPolicy, DestinationType, IngestBatch,
-    IngestResponse, MovementCommand, RejectedFact, SyncFact,
+    IngestResponse, MovementCommand, RejectedFact, SyncFact, HEAD_OFFICE_SITE_ID,
 };
 use crate::edge::{
     EdgeRole, InventoryState, MovementCause as EdgeMovementCause, MovementLine as EdgeMovementLine,
@@ -1875,6 +1875,11 @@ enum ApplyStep {
     /// retry from the same seq next pass — blocking is observability, not a
     /// terminal state).
     Blocked { seq: i64, reason: String },
+    /// The fact at `seq` will never apply where it stands, and the facts that
+    /// would make it applicable are queued behind it. Blocking would be a
+    /// deadlock rather than observability, so it goes to the dead-letter table
+    /// and the stream carries on past it.
+    SetAside { seq: i64, reason: String },
 }
 
 /// Apply pending accepted facts into this node's ledger, one stream at a
@@ -1931,6 +1936,14 @@ pub async fn apply_pending(pool: &PgPool, per_stream_limit: i64) -> Result<Apply
                         reason,
                     });
                     break;
+                }
+                ApplyStep::SetAside { seq, reason } => {
+                    tracing::warn!(
+                        origin_id, generation, seq, %reason,
+                        "sync apply: fact set aside to the dead-letter table"
+                    );
+                    set_aside(pool, &origin_id, generation, seq, &reason).await?;
+                    report.skipped += 1;
                 }
             }
         }
@@ -2138,11 +2151,25 @@ async fn apply_one(
                     Ok(invoice) => invoice,
                     Err(reason) => return Ok(ApplyStep::Blocked { seq: next, reason }),
                 };
-                if let Err(error) = apply_goods_receipt_invoice(&mut tx, &invoice).await {
-                    return Ok(ApplyStep::Blocked {
-                        seq: next,
-                        reason: block_diagnostic(&error),
-                    });
+                match apply_goods_receipt_invoice(&mut tx, &invoice).await {
+                    Ok(InvoiceApplication::Applied) => {}
+                    Ok(InvoiceApplication::NoSuchReceipt) => {
+                        return Ok(ApplyStep::SetAside {
+                            seq: next,
+                            reason: format!(
+                                "no goods receipt {}: an invoice arrived before the lines that \
+                                 tell the centre the delivery exists, and those lines are queued \
+                                 behind it",
+                                invoice.receipt_id
+                            ),
+                        })
+                    }
+                    Err(error) => {
+                        return Ok(ApplyStep::Blocked {
+                            seq: next,
+                            reason: block_diagnostic(&error),
+                        })
+                    }
                 }
                 false
             } else if event_type == crate::cloud::domain::FACT_TAGGING_COMPLETED {
@@ -4560,6 +4587,56 @@ async fn apply_fact_position_delta(
     Ok(())
 }
 
+/// Move one fact out of the stream's way, keeping the evidence.
+///
+/// The dead-letter table is where a fact goes when the centre cannot use it.
+/// Until now only the ingest path wrote to it; the apply path had one answer
+/// for everything, which is to stop. Stopping is right when the next pass
+/// might succeed — a lock, a transient failure, a fact whose parent is still
+/// in flight. It is wrong when the thing that would fix the fact is queued
+/// *behind* it, because then the stream is waiting on itself.
+///
+/// The watermark advances past the set-aside seq in the same transaction as
+/// the copy, so a crash between the two cannot lose the fact and let the
+/// stream walk on regardless.
+async fn set_aside(
+    pool: &PgPool,
+    origin_id: &str,
+    generation: i64,
+    seq: i64,
+    reason: &str,
+) -> Result<(), AppError> {
+    let bounded: String = reason.chars().take(500).collect();
+    let mut tx = pool.begin().await?;
+    sqlx::query(
+        "INSERT INTO sync_dead_letter
+             (origin_id, generation, seq, event_id, event_type, payload, reason)
+         SELECT origin_id, generation, seq, event_id, event_type, payload, $4
+         FROM sync_ingest_fact
+         WHERE origin_id = $1 AND generation = $2 AND seq = $3
+         ON CONFLICT DO NOTHING",
+    )
+    .bind(origin_id)
+    .bind(generation)
+    .bind(seq)
+    .bind(&bounded)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        "UPDATE sync_applied_watermark
+         SET applied_seq = $3, blocked_at_seq = NULL, blocked_reason = NULL,
+             blocked_since = NULL, updated_at = now()
+         WHERE origin_id = $1 AND generation = $2",
+    )
+    .bind(origin_id)
+    .bind(generation)
+    .bind(seq)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
 async fn record_blocked(
     pool: &PgPool,
     origin_id: &str,
@@ -4680,8 +4757,15 @@ fn validate_issued_command(command_type: &str, payload: &Value) -> Result<(), Ap
 
 /// Resolve the exact authoritative DC for a site inside the caller's business
 /// transaction. No aliasing and no broadcast fallback are permitted.
-/// What the centre's siteless pool model calls its distribution centre.
-pub(super) const CANONICAL_DC_SITE_ID: &str = "dc";
+///
+/// What the CENTRE calls the building the warehouse stands in — `site.id`, and
+/// `ho` since 0256 folded `dc` and `dc-01` into head office. Not what the box
+/// in that building calls itself: an edge node registers under the site id it
+/// runs as, which is still `dc` or `dc-01`, and that spelling lives in
+/// `sync_origin_credential.site_id`. The gap between the two is exactly what
+/// [`sole_dc_origin_tx`] exists to bridge, and it is why this constant must
+/// follow `site` and not the origin table.
+pub(super) const CANONICAL_WAREHOUSE_SITE_ID: &str = HEAD_OFFICE_SITE_ID;
 
 /// The single registered DC origin, or nothing when that is not unambiguous.
 async fn sole_dc_origin_tx(tx: &mut Transaction<'_, Postgres>) -> Result<Option<String>, AppError> {
@@ -4766,10 +4850,11 @@ pub(super) async fn inventory_dc_owner_tx(
     .fetch_optional(&mut **tx)
     .await?;
     let Some(row) = row else {
-        // The centre names its distribution centre `dc`, because its pool model
-        // has exactly one; the Edge registers under the site it actually runs
-        // as, which is `dc-01`. Nothing reconciles those two names, so an
-        // Official Count opened for `dc` found no owner, silently became a
+        // The centre names the warehouse `ho` since 0256, because it is head
+        // office and the pool model has exactly one of it; the Edge registers
+        // under the site it actually runs as, which is `dc` or `dc-01`.
+        // Nothing reconciles those names, so an Official Count opened for the
+        // centre's own spelling found no owner, silently became a
         // cloud-executed count, and never reached the warehouse that was
         // supposed to walk it.
         //
@@ -4777,7 +4862,7 @@ pub(super) async fn inventory_dc_owner_tx(
         // without pretending the model supports several. If a second DC ever
         // registers this refuses rather than guessing, because picking one of
         // two warehouses to send a count to is not a decision code may make.
-        if site_id == CANONICAL_DC_SITE_ID {
+        if site_id == CANONICAL_WAREHOUSE_SITE_ID {
             return sole_dc_origin_tx(tx).await;
         }
         return Ok(None);
@@ -6926,10 +7011,17 @@ fn parse_invoice_date(value: &str) -> Result<chrono::NaiveDate, AppError> {
 }
 
 /// The supplier's invoice, recorded against a delivery that already arrived.
+/// Whether the invoice found the delivery it belongs to.
+enum InvoiceApplication {
+    Applied,
+    /// The centre has no such delivery yet. Not an error: see the body.
+    NoSuchReceipt,
+}
+
 async fn apply_goods_receipt_invoice(
     tx: &mut Transaction<'_, Postgres>,
     invoice: &crate::cloud::domain::GoodsReceiptInvoicePayload,
-) -> Result<(), AppError> {
+) -> Result<InvoiceApplication, AppError> {
     let date = invoice
         .invoice_date
         .as_deref()
@@ -6952,15 +7044,22 @@ async fn apply_goods_receipt_invoice(
     .await?
     .rows_affected();
     if updated == 0 {
-        // An invoice for a delivery the centre has never heard of. The line
-        // facts and this one come from the same node in sequence, so this
-        // means something is genuinely wrong rather than merely early.
-        return Err(AppError::Validation(format!(
-            "no goods receipt {}: an invoice arrived for a delivery the centre has no record of",
-            invoice.receipt_id
-        )));
+        // An invoice for a delivery the centre has never heard of.
+        //
+        // This used to be treated as "genuinely wrong rather than merely
+        // early", on the reasoning that the line facts and this one leave the
+        // same node in sequence. They do — but not in the order this assumed.
+        // A node enqueues the invoice when somebody types it and the lines
+        // when each count is verified, so an invoice typed first sits at a
+        // LOWER seq than the lines. The centre learns a delivery exists only
+        // from a line fact (that payload carries the receipt number, the
+        // supplier and the arrival; this one carries an id and money), so the
+        // invoice cannot be applied until they land — and they are queued
+        // behind it. Blocking here stops the warehouse for good.
+        return Ok(InvoiceApplication::NoSuchReceipt);
     }
-    Ok(())
+    Ok(InvoiceApplication::Applied)
+
 }
 
 /// A purchase order with what has actually arrived against it.
