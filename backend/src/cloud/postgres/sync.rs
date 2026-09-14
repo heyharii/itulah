@@ -6898,6 +6898,33 @@ async fn apply_goods_receipt_rejected(
     Ok(())
 }
 
+/// An invoice date is a day on a piece of paper, not an instant.
+///
+/// The column is `date` and the field means the day the supplier wrote on the
+/// invoice — a fact with no time and no zone. Some senders hand us that day
+/// already stringified through a clock (`new Date(day).toISOString()`), so the
+/// wire carries `2026-09-10T00:00:00.000Z` where `2026-09-10` was meant.
+/// Refusing those is what blocked one warehouse's whole stream behind a single
+/// typed date: a validation error here stops the origin rather than being set
+/// aside, so everything the DC said afterwards waited on one bad field.
+///
+/// The date part is taken from the instant as it was sent, not as WIB would
+/// read it. A sender that meant a day and passed it through UTC midnight —
+/// which is what every one of these has been — gets the day back unchanged;
+/// shifting by the local offset would move it to the day before instead.
+fn parse_invoice_date(value: &str) -> Result<chrono::NaiveDate, AppError> {
+    let value = value.trim();
+    if let Ok(date) = value.parse::<chrono::NaiveDate>() {
+        return Ok(date);
+    }
+    if let Ok(moment) = chrono::DateTime::parse_from_rfc3339(value) {
+        return Ok(moment.naive_utc().date());
+    }
+    Err(AppError::Validation(format!(
+        "invoice date: expected a day as YYYY-MM-DD, got {value:?}"
+    )))
+}
+
 /// The supplier's invoice, recorded against a delivery that already arrived.
 async fn apply_goods_receipt_invoice(
     tx: &mut Transaction<'_, Postgres>,
@@ -6906,9 +6933,8 @@ async fn apply_goods_receipt_invoice(
     let date = invoice
         .invoice_date
         .as_deref()
-        .map(|value| value.parse::<chrono::NaiveDate>())
-        .transpose()
-        .map_err(|error| AppError::Validation(format!("invoice date: {error}")))?;
+        .map(parse_invoice_date)
+        .transpose()?;
     let updated = sqlx::query(
         "UPDATE goods_receipt
          SET invoice_number = $2, invoice_date = $3, invoice_total_minor = $4,

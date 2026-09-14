@@ -323,8 +323,11 @@ function DeliverySheet({
       dc.recordInvoice(id!, {
         receipt_id: id!,
         invoice_number: value.number.trim(),
-        invoice_date:
-          value.date.trim() === "" ? null : new Date(value.date).toISOString(),
+        // The day on the supplier's paper, sent as the day. Passing it through
+        // a clock is how a date-only field acquires a timezone: `new Date(day)`
+        // reads a non-ISO value as WIB, and `toISOString()` then files it as
+        // the day before. The column at the centre is a `date`.
+        invoice_date: value.date.trim() === "" ? null : value.date.trim(),
         invoice_total_minor: Number(value.totalMinor),
         invoice_document_ref: value.ref.trim() === "" ? null : value.ref.trim(),
         actor_id: actor,

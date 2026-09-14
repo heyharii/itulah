@@ -559,8 +559,11 @@ function InvoiceBlock({
       dc.recordInvoice(receiptId, {
         receipt_id: receiptId,
         invoice_number: value.number.trim(),
-        invoice_date:
-          value.date.trim() === "" ? null : new Date(value.date).toISOString(),
+        // The day on the supplier's paper, sent as the day. Passing it through
+        // a clock is how a date-only field acquires a timezone: `new Date(day)`
+        // reads a non-ISO value as WIB, and `toISOString()` then files it as
+        // the day before. The column at the centre is a `date`.
+        invoice_date: value.date.trim() === "" ? null : value.date.trim(),
         invoice_total_minor: Number(value.totalMinor),
         // The uploaded page IS the reference now. It was a string somebody
         // typed — a folder name, a shelf — and a reference nobody can follow
