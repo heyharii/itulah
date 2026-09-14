@@ -9,7 +9,7 @@ use super::payload_digest;
 use crate::cloud::application::{AppError, DeadLetterQuery};
 use crate::cloud::domain::{
     cooldown_after_failure, ingest_rejection_reason, BreakerPolicy, DestinationType, IngestBatch,
-    IngestResponse, MovementCommand, RejectedFact, SyncFact, HEAD_OFFICE_SITE_ID,
+    IngestResponse, MovementCommand, RejectedFact, SyncFact,
 };
 use crate::edge::{
     EdgeRole, InventoryState, MovementCause as EdgeMovementCause, MovementLine as EdgeMovementLine,
@@ -4757,15 +4757,8 @@ fn validate_issued_command(command_type: &str, payload: &Value) -> Result<(), Ap
 
 /// Resolve the exact authoritative DC for a site inside the caller's business
 /// transaction. No aliasing and no broadcast fallback are permitted.
-///
-/// What the CENTRE calls the building the warehouse stands in — `site.id`, and
-/// `ho` since 0256 folded `dc` and `dc-01` into head office. Not what the box
-/// in that building calls itself: an edge node registers under the site id it
-/// runs as, which is still `dc` or `dc-01`, and that spelling lives in
-/// `sync_origin_credential.site_id`. The gap between the two is exactly what
-/// [`sole_dc_origin_tx`] exists to bridge, and it is why this constant must
-/// follow `site` and not the origin table.
-pub(super) const CANONICAL_WAREHOUSE_SITE_ID: &str = HEAD_OFFICE_SITE_ID;
+/// What the centre's siteless pool model calls its distribution centre.
+pub(super) const CANONICAL_DC_SITE_ID: &str = "dc";
 
 /// The single registered DC origin, or nothing when that is not unambiguous.
 async fn sole_dc_origin_tx(tx: &mut Transaction<'_, Postgres>) -> Result<Option<String>, AppError> {
@@ -4850,11 +4843,10 @@ pub(super) async fn inventory_dc_owner_tx(
     .fetch_optional(&mut **tx)
     .await?;
     let Some(row) = row else {
-        // The centre names the warehouse `ho` since 0256, because it is head
-        // office and the pool model has exactly one of it; the Edge registers
-        // under the site it actually runs as, which is `dc` or `dc-01`.
-        // Nothing reconciles those names, so an Official Count opened for the
-        // centre's own spelling found no owner, silently became a
+        // The centre names its distribution centre `dc`, because its pool model
+        // has exactly one; the Edge registers under the site it actually runs
+        // as, which is `dc-01`. Nothing reconciles those two names, so an
+        // Official Count opened for `dc` found no owner, silently became a
         // cloud-executed count, and never reached the warehouse that was
         // supposed to walk it.
         //
@@ -4862,7 +4854,7 @@ pub(super) async fn inventory_dc_owner_tx(
         // without pretending the model supports several. If a second DC ever
         // registers this refuses rather than guessing, because picking one of
         // two warehouses to send a count to is not a decision code may make.
-        if site_id == CANONICAL_WAREHOUSE_SITE_ID {
+        if site_id == CANONICAL_DC_SITE_ID {
             return sole_dc_origin_tx(tx).await;
         }
         return Ok(None);
