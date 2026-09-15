@@ -10,6 +10,7 @@
 //! makes about received quantities, for the same reason: a stored total and the
 //! rows it summarises drift, and when they do nobody can say which to believe.
 
+use super::poster::HEAD_OFFICE_SITE;
 use crate::cloud::application::AppError;
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
@@ -2418,6 +2419,179 @@ pub async fn assert_postable(
                  cannot take new postings."
             ),
         }));
+    }
+    Ok(())
+}
+
+/// What the poster knows about one line, for the policy checks below.
+///
+/// Borrowed rather than owned: this is built per line inside `poster::post` and
+/// thrown away, and the poster already holds every field.
+pub struct PostingFacts<'a> {
+    /// The `journal_entry.source_kind` the whole entry will carry.
+    pub source_kind: &'a str,
+    pub site_id: &'a str,
+    pub counter_site_id: Option<&'a str>,
+}
+
+/// The kinds a PERSON writes, as opposed to the kinds a rule writes.
+///
+/// `MANUAL` is the hand-written journal. The other three are the corrections
+/// (0129): still keyed by a person, but through a document that a second person
+/// approves — which is the distinction `manual_je_policy = 'OVERRIDE'` exists to
+/// draw.
+const HAND_KEYED_KINDS: [&str; 4] = ["MANUAL", "RECLASS", "ADJUSTMENT", "WRITE_OFF"];
+const CORRECTION_KINDS: [&str; 3] = ["RECLASS", "ADJUSTMENT", "WRITE_OFF"];
+
+/// Refuse a posting the account's own policy does not permit.
+///
+/// # Why this is here and not in each module
+///
+/// Because there is exactly one writer. `poster::post` is the only thing in the
+/// estate that inserts a `journal_entry` or a `journal_line` — grep for the
+/// INSERTs and nothing outside `poster.rs` has one — so a check placed in it
+/// cannot be gone round. Twenty-four call sites reach it and none of them can
+/// choose not to.
+///
+/// # What it reads, and what was already there
+///
+/// Four of the columns it reads were added by 0243 and had never been read by
+/// anything: `dimension`, `requires_counter_site`, `normal_balance`,
+/// `is_contra`. 0261 added the two the workbook still needed —
+/// `posting_mode` and `manual_je_policy` — and this is what brings the set to
+/// life.
+///
+/// `is_group` and `is_active` are NOT checked here. [`assert_postable`] already
+/// refuses both and says so better, and the poster calls it on the line before
+/// this one runs.
+///
+/// `normal_balance` is not checked either, and that is a decision rather than an
+/// omission: it constrains the account's RESULTING balance, so enforcing it
+/// means summing the account inside the posting transaction, per line. ERPNext
+/// does exactly that and gives callers `adv_adj` to skip it. Ours would pay that
+/// cost on every sale of every day. It belongs to a check that runs over the
+/// books, not to the hot path.
+///
+/// # No rule means "anything", and DENY beats ALLOW
+///
+/// A chart of 7,528 accounts cannot be seeded in one go, and an empty table that
+/// refused everything would stop the estate dead on the day it was created. So
+/// `account_source_rule` constrains only the accounts it names: the first row
+/// inserted for an account is the moment that account starts refusing.
+///
+/// Two directions, because the first real case needs the narrower one. A DENY row
+/// refuses ONE kind and leaves the account otherwise usable — which is what the
+/// replacement reserve needs, where the draw-down is approved and the formation
+/// is not. An ALLOW set means "these and nothing else". DENY is checked first, so
+/// a kind that appears in both is refused.
+pub async fn validate_account_posting(
+    executor: impl sqlx::PgExecutor<'_>,
+    account_code: &str,
+    facts: PostingFacts<'_>,
+) -> Result<(), AppError> {
+    let code = account_code.trim();
+    // One query and not two: the allow-list is folded in as an array so that
+    // adding this check costs the posting path a single round trip.
+    let row = sqlx::query(
+        "SELECT a.name, a.posting_mode, a.manual_je_policy, a.dimension,
+                a.requires_counter_site,
+                COALESCE(
+                    ARRAY_AGG(r.source_kind) FILTER (WHERE r.effect = 'ALLOW'),
+                    '{}'
+                ) AS allowed,
+                COALESCE(
+                    ARRAY_AGG(r.source_kind) FILTER (WHERE r.effect = 'DENY'),
+                    '{}'
+                ) AS denied
+           FROM ledger_account a
+           LEFT JOIN account_source_rule r ON r.account_code = a.account_code
+          WHERE a.account_code = $1
+          GROUP BY a.name, a.posting_mode, a.manual_je_policy, a.dimension,
+                   a.requires_counter_site",
+    )
+    .bind(code)
+    .fetch_optional(executor)
+    .await?;
+    // Absent is not this function's refusal to make: `assert_postable` has
+    // already said "no account {code} in the chart" in the poster's own words.
+    let Some(row) = row else { return Ok(()) };
+
+    let name: String = row.try_get("name")?;
+    let posting_mode: String = row.try_get("posting_mode")?;
+    let manual_policy: String = row.try_get("manual_je_policy")?;
+    let dimension: Option<String> = row.try_get("dimension")?;
+    let requires_counter_site: bool = row.try_get("requires_counter_site")?;
+    let allowed: Vec<String> = row.try_get("allowed")?;
+    let denied: Vec<String> = row.try_get("denied")?;
+
+    let kind = facts.source_kind.trim();
+    let hand_keyed = HAND_KEYED_KINDS.contains(&kind);
+    let correction = CORRECTION_KINDS.contains(&kind);
+
+    // Before anything else, because it is the one value that admits nothing: not
+    // a rule, not a person, not an approved correction. 0263.
+    if posting_mode == "BLOCKED" {
+        return Err(AppError::Validation(format!(
+            "{code} {name} takes no postings at all: what may move it has not been decided. \
+             Nothing is wrong with the entry — the account is waiting on a policy."
+        )));
+    }
+    if posting_mode == "AUTO_ONLY" && hand_keyed {
+        return Err(AppError::Validation(format!(
+            "{code} {name} is posted only by a rule; a {kind} entry cannot name it. Whatever moved this account has a document of its own — post that instead."
+        )));
+    }
+    if hand_keyed {
+        match manual_policy.as_str() {
+            "NO" => {
+                return Err(AppError::Validation(format!(
+                    "{code} {name} does not take hand-written entries, corrections included."
+                )))
+            }
+            // The whole point of the third value: a person may reach it, but
+            // only through a document somebody else agreed to.
+            "OVERRIDE" if !correction => {
+                return Err(AppError::Validation(format!(
+                    "{code} {name} may be corrected but not journalled: raise an adjustment, a reclass or a write-off, and have it approved."
+                )))
+            }
+            _ => {}
+        }
+    }
+
+    // DENY first, and independently of the allow-list. One undecided path on an
+    // otherwise working account is the case this exists for: the replacement
+    // reserve may be drawn down and may not be formed, and saying so as a
+    // whitelist would mean listing every kind that IS fine and refusing the ones
+    // somebody forgot.
+    if denied.iter().any(|k| k == kind) {
+        return Err(AppError::Validation(format!(
+            "{code} {name} does not take a {kind} posting: that path is held pending a policy. \
+             The account is otherwise usable — this refusal is about the document, not the account."
+        )));
+    }
+    if !allowed.is_empty() && !allowed.iter().any(|k| k == kind) {
+        let mut spelled: Vec<&str> = allowed.iter().map(String::as_str).collect();
+        spelled.sort_unstable();
+        return Err(AppError::Validation(format!(
+            "{code} {name} does not take a {kind} posting; it is reached by {}.",
+            spelled.join(", ")
+        )));
+    }
+
+    // `dimension = 'unit'` needs no check: `journal_line.site_id` is NOT NULL,
+    // so a line always carries one. `company` is the one that can be wrong.
+    if dimension.as_deref() == Some("company") && facts.site_id != HEAD_OFFICE_SITE {
+        return Err(AppError::Validation(format!(
+            "{code} {name} belongs to the company and not to a shop; it posts at {HEAD_OFFICE_SITE}, and this line is at {}.",
+            facts.site_id
+        )));
+    }
+    if requires_counter_site && facts.counter_site_id.is_none() {
+        return Err(AppError::Validation(format!(
+            "{code} {name} is a balance between two units and the line names only {}; say which unit is on the other side.",
+            facts.site_id
+        )));
     }
     Ok(())
 }

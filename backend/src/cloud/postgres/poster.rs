@@ -38,7 +38,9 @@
 //! a status check, and every one of those guards is read-decide-write, which
 //! two requests can both pass. The index cannot be both passed.
 
-use super::ledger::{assert_postable, resolve_account, Intent};
+use super::ledger::{
+    assert_postable, resolve_account, validate_account_posting, Intent, PostingFacts,
+};
 use crate::cloud::application::AppError;
 use crate::cloud::domain::{balancing_legs, first_unbalanced_site, kind_for_source, SiteMovement};
 use chrono::NaiveDate;
@@ -377,6 +379,29 @@ pub async fn post(
                 }
                 other => other,
             })?;
+        // And then what the account's own policy says. `assert_postable` asks
+        // whether anything may be posted here at all; this asks whether THIS
+        // may — by this kind of document, at this unit, naming this other side.
+        //
+        // Here rather than in the twenty-four callers because this function is
+        // the only writer of `journal_entry` and `journal_line` in the estate,
+        // which makes it the only place a check cannot be gone round.
+        validate_account_posting(
+            &mut **tx,
+            &code,
+            PostingFacts {
+                source_kind: &intent.source_kind,
+                site_id: &line.site_id,
+                counter_site_id: line.counter_site_id.as_deref(),
+            },
+        )
+        .await
+        .map_err(|error| match error {
+            AppError::Validation(message) => {
+                AppError::Validation(format!("line {}: {message}", index + 1))
+            }
+            other => other,
+        })?;
         resolved.push(code);
     }
 
