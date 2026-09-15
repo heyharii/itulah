@@ -66,6 +66,24 @@ allocated_minor: number,
  */
 kind: string, 
 /**
+ * What the bill charges for its deliveries, minus what those deliveries
+ * were valued at when they arrived. Signed: positive is a debit to
+ * purchase price variance and negative a credit. Zero on a bill that
+ * answers no delivery, and decided at matching rather than at posting —
+ * the journal quotes it and the journal cannot move.
+ */
+price_variance_minor: number, 
+/**
+ * Who tied this bill to its deliveries, and when. `None` until somebody
+ * has, which for a service bill is forever.
+ */
+matched_by: string | null, matched_at: string | null, 
+/**
+ * Which income tax is kept back when this bill is paid. See
+ * `RecordBillRequest::withholding_code`.
+ */
+withholding_code: string | null, 
+/**
  * What an expense bill was for, account by account.
  *
  * `None` on a list read, where it is not fetched — one query per row to

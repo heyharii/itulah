@@ -1532,6 +1532,9 @@ function RecordSheet({
               // The bill's own location, always. See `ExpenseLineDraft`.
               site_id: site,
               amount_minor: parseMinor(line.amount) ?? 0,
+              // This form cannot say a line replaces something reserved for —
+              // that needs an asset class beside it, which it does not ask for.
+              draws_reserve: false,
               memo: line.memo.trim() === "" ? null : line.memo.trim(),
             }))
           : undefined,

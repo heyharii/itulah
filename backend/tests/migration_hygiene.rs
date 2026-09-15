@@ -135,10 +135,35 @@ const RESERVED: &[(u32, u32, &str)] = &[
          and renumbering it would change its checksum",
     ),
     (
-        107,
-        158,
-        "the asset lane's block: 146115e filed 0106 and then jumped to 0159 \
-         rather than crowd the next number",
+        256,
+        256,
+        "held for the head-office rename, and NOT free. `9b273f83` set that \
+         lane's work aside because it lands a migration that folds `dc` and \
+         `dc-01` into one `ho` site and refuses `dc` as a site id — which \
+         every demo rig still uses. The migration never landed, but eight \
+         comments in `src` already cite `0256` as the one that renamed the \
+         site (`ledger`, `letters`, `sync`, `queries`). A different file here \
+         would make all eight of them lie. It was briefly taken by a renumber \
+         on 2026-09-15 and given back; the file that took it is 0258",
+    ),
+    (
+        109,
+        109,
+        "one number the finance lane stepped over while it filled what had been \
+         the asset lane's block — see the entry below. 0108 landed and 0110 was \
+         next, in the hours two branches were both filing files in here",
+    ),
+    (
+        149,
+        150,
+        "the last two holes in what was the asset lane's block, and the record \
+         of how that block was settled. 146115e filed a statement-intake \
+         migration at 0106 on 2026-09-09 and jumped to 0159 rather than crowd \
+         the next number — but the finance lane had taken 0106 three days \
+         earlier on its own branch and went on to fill 0107-0158 from there. \
+         When the two met, the newer file was renumbered: the statement intake \
+         is 0142 and the staff-purchase migration that had landed at 0107 is \
+         0256. These two numbers nobody ever filed",
     ),
     (
         183,

@@ -88,8 +88,16 @@ async fn seed_chart(pool: &PgPool) {
         ("101110100103", "Piutang kartu Kredit C003", "1011101001"),
         ("101110100203", "Piutang Debit Card C003", "1011101002"),
         ("101110100303", "Piutang QRIS C003", "1011101003"),
-        ("101110100403", "Piutang Tender Lain-Lain C003", "1011101004"),
-        ("201210100303", "Hutang  VAT PPN Keluaran C003", "2012101003"),
+        (
+            "101110100403",
+            "Piutang Tender Lain-Lain C003",
+            "1011101004",
+        ),
+        (
+            "201210100303",
+            "Hutang  VAT PPN Keluaran C003",
+            "2012101003",
+        ),
         (
             "401011400103",
             "Penjualan Barang Dagangan C003",
@@ -310,14 +318,7 @@ async fn a_days_trade(pool: &PgPool) {
     )
     .await;
     ring_up(pool, wib(1, 13, 40), 900_000, 0, &[("CARD", None, 900_000)]).await;
-    ring_up(
-        pool,
-        wib(1, 16, 5),
-        631_336,
-        0,
-        &[("QRIS", None, 631_336)],
-    )
-    .await;
+    ring_up(pool, wib(1, 16, 5), 631_336, 0, &[("QRIS", None, 631_336)]).await;
     // The evening sale, and the one that proves the day is the shop's: 21:20 in
     // Jakarta is 14:20 UTC, which is still the 1st either way — so this one
     // also carries the split tender and the change, which is where the
@@ -356,11 +357,12 @@ async fn a_day_reaches_the_general_ledger(pool: PgPool) {
     assert!(day.entry_id.is_some(), "the day carries its entry");
 
     // The kind the schema has always allowed and nothing ever wrote.
-    let kind: String = sqlx::query_scalar("SELECT source_kind FROM journal_entry WHERE entry_id=$1")
-        .bind(day.entry_id)
-        .fetch_one(&pool)
-        .await
-        .unwrap_or_else(|error| panic!("kind: {error}"));
+    let kind: String =
+        sqlx::query_scalar("SELECT source_kind FROM journal_entry WHERE entry_id=$1")
+            .bind(day.entry_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("kind: {error}"));
     assert_eq!(kind, "SALE_DAY");
 
     // Revenue is what was SOLD, which is the tenders less the change.
@@ -401,11 +403,12 @@ async fn posting_a_day_twice_books_it_once(pool: PgPool) {
     assert_eq!(first.entry_id, again.entry_id);
     assert_eq!(first.entry_number, again.entry_number);
 
-    let entries: i64 =
-        sqlx::query_scalar("SELECT COUNT(*)::bigint FROM journal_entry WHERE source_kind='SALE_DAY'")
-            .fetch_one(&pool)
-            .await
-            .unwrap_or_else(|error| panic!("count: {error}"));
+    let entries: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)::bigint FROM journal_entry WHERE source_kind='SALE_DAY'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("count: {error}"));
     assert_eq!(entries, 1, "a second entry would double the day's income");
 
     // And nothing moved twice. This is the assertion that would have caught a
@@ -526,7 +529,11 @@ async fn every_tender_lands_on_its_own_account_and_the_fee_on_the_fee(pool: PgPo
     );
     assert_eq!(moved(&pool, "101110100303").await, 800_000 - 6_000, "QRIS");
     assert_eq!(moved(&pool, "205001").await, 0, "no voucher was presented");
-    assert_eq!(moved(&pool, "101110100403").await, 3_200_000, "other tender");
+    assert_eq!(
+        moved(&pool, "101110100403").await,
+        3_200_000,
+        "other tender"
+    );
     assert_eq!(
         moved(&pool, "601011000203").await,
         5_000 + 8_000 + 6_000,
@@ -564,8 +571,15 @@ async fn every_line_carries_its_unit(pool: PgPool) {
     .unwrap_or_else(|error| panic!("lines: {error}"));
     assert!(!rows.is_empty(), "an entry with no lines is not an entry");
     for row in &rows {
-        let site: String = row.try_get("site_id").unwrap_or_else(|e| panic!("site: {e}"));
-        assert_eq!(site, SHOP, "line {:?}", row.try_get::<i32, _>("line_number"));
+        let site: String = row
+            .try_get("site_id")
+            .unwrap_or_else(|e| panic!("site: {e}"));
+        assert_eq!(
+            site,
+            SHOP,
+            "line {:?}",
+            row.try_get::<i32, _>("line_number")
+        );
     }
 }
 
@@ -663,7 +677,14 @@ async fn the_trading_day_is_the_shops_day(pool: PgPool) {
     map_the_shop(&pool).await;
     open_september(&pool).await;
 
-    ring_up(&pool, wib(3, 23, 30), 700_000, 0, &[("CASH", None, 700_000)]).await;
+    ring_up(
+        &pool,
+        wib(3, 23, 30),
+        700_000,
+        0,
+        &[("CASH", None, 700_000)],
+    )
+    .await;
     // 00:30 on the 4th in Jakarta — 17:30 UTC on the 3rd.
     ring_up(&pool, wib(4, 0, 30), 300_000, 0, &[("CASH", None, 300_000)]).await;
 
@@ -796,11 +817,12 @@ async fn a_fee_larger_than_the_tender_is_refused(pool: PgPool) {
     .expect_err("a fee cannot exceed what was taken that way");
     assert!(refusal.to_string().contains("QRIS fee"), "{refusal}");
 
-    let entries: i64 =
-        sqlx::query_scalar("SELECT COUNT(*)::bigint FROM journal_entry WHERE source_kind='SALE_DAY'")
-            .fetch_one(&pool)
-            .await
-            .unwrap_or_else(|error| panic!("count: {error}"));
+    let entries: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)::bigint FROM journal_entry WHERE source_kind='SALE_DAY'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("count: {error}"));
     assert_eq!(entries, 0, "nothing may be written by a refused posting");
 }
 
@@ -824,7 +846,14 @@ async fn revenue_splits_per_tender_when_somebody_has_said_it_should(pool: PgPool
     .execute(&pool)
     .await
     .unwrap_or_else(|error| panic!("tender revenue: {error}"));
-    for qualifier in ["CASH", "CARD_DEBIT", "CARD_CREDIT", "QRIS", "VOUCHER", "OTHER"] {
+    for qualifier in [
+        "CASH",
+        "CARD_DEBIT",
+        "CARD_CREDIT",
+        "QRIS",
+        "VOUCHER",
+        "OTHER",
+    ] {
         cloud::set_account_mapping(
             &pool,
             &cloud::SetAccountMappingRequest {
@@ -946,11 +975,12 @@ async fn the_tax_inside_the_price_is_owed_and_not_earned(pool: PgPool) {
 
     // And the entry says which rule wrote it, so a day posted by the old one
     // can be told apart without reading its lines.
-    let rule: String = sqlx::query_scalar("SELECT rule_version FROM journal_entry WHERE entry_id=$1")
-        .bind(day.entry_id)
-        .fetch_one(&pool)
-        .await
-        .unwrap_or_else(|error| panic!("rule: {error}"));
+    let rule: String =
+        sqlx::query_scalar("SELECT rule_version FROM journal_entry WHERE entry_id=$1")
+            .bind(day.entry_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("rule: {error}"));
     assert_eq!(rule, "sale_day/2");
 
     // The Account Map has to ASK for the meaning, or nobody ever sets it and
@@ -988,7 +1018,14 @@ async fn a_split_revenue_still_adds_back_to_the_day_net_of_its_tax(pool: PgPool)
     .execute(&pool)
     .await
     .unwrap_or_else(|error| panic!("tender revenue: {error}"));
-    for qualifier in ["CASH", "CARD_DEBIT", "CARD_CREDIT", "QRIS", "VOUCHER", "OTHER"] {
+    for qualifier in [
+        "CASH",
+        "CARD_DEBIT",
+        "CARD_CREDIT",
+        "QRIS",
+        "VOUCHER",
+        "OTHER",
+    ] {
         cloud::set_account_mapping(
             &pool,
             &cloud::SetAccountMappingRequest {
@@ -1121,10 +1158,7 @@ async fn qris_has_a_receivable_of_its_own_and_only_one(pool: PgPool) {
         );
     }
     assert_eq!(rows[1].get::<String, _>("name"), "Piutang QRIS");
-    assert_eq!(
-        rows[2].get::<String, _>("name"),
-        "Piutang Tender Lain-Lain"
-    );
+    assert_eq!(rows[2].get::<String, _>("name"), "Piutang Tender Lain-Lain");
 
     // And not fourteen leaves under two groups, which is how 0238 built them
     // and what 0243/0244 abolished.

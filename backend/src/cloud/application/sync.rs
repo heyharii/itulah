@@ -10,7 +10,9 @@
 //! in-process; production uses HTTP.
 
 use crate::cloud::application::{AppConfig, AppError, AppState};
-use crate::cloud::domain::{BreakerPolicy, IngestBatch, IngestResponse};
+use crate::cloud::domain::{
+    BreakerPolicy, HandshakeAgreement, HandshakeRequest, IngestBatch, IngestResponse,
+};
 use crate::cloud::postgres as infrastructure;
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -34,6 +36,7 @@ pub type SyncCycleConfig = crate::sync::SyncConfig;
 pub struct HttpTransport {
     client: reqwest::Client,
     url: String,
+    handshake_url: String,
     key: Option<String>,
 }
 
@@ -43,33 +46,74 @@ impl HttpTransport {
             .timeout(Duration::from_secs(30))
             .build()
             .map_err(|e| AppError::Configuration(format!("sync http client: {e}")))?;
+        let base = base_url.trim_end_matches('/');
         Ok(Self {
             client,
-            url: format!("{}/api/v1/sync/ingest", base_url.trim_end_matches('/')),
+            url: format!("{base}/api/v1/sync/ingest"),
+            handshake_url: format!("{base}/api/v1/sync/handshake"),
             key,
         })
+    }
+
+    fn authorized(&self, url: &str) -> reqwest::RequestBuilder {
+        let request = self.client.post(url);
+        match &self.key {
+            Some(key) => request.header("x-sync-key", key),
+            None => request,
+        }
+    }
+}
+
+/// A refusal's status AND its body.
+///
+/// The status alone used to be the whole error text, and that threw away the
+/// one thing a sender needs to act on: the receiver refuses a batch written
+/// into somebody else's seqs with a named code in the body, and a sender told
+/// only "409" cannot tell that from any other conflict. It would retry the
+/// same doomed batch until the breaker opened, forever.
+async fn failure_text(what: &str, response: reqwest::Response) -> String {
+    let status = response.status();
+    match response.text().await {
+        Ok(body) if !body.trim().is_empty() => {
+            let bounded: String = body.chars().take(500).collect();
+            format!("sync {what} returned {status}: {bounded}")
+        }
+        _ => format!("sync {what} returned {status}"),
     }
 }
 
 #[async_trait::async_trait]
 impl SyncTransport for HttpTransport {
     async fn send(&self, batch: &IngestBatch) -> Result<IngestResponse, String> {
-        let mut request = self.client.post(&self.url).json(batch);
-        if let Some(key) = &self.key {
-            request = request.header("x-sync-key", key);
-        }
-        let response = request
+        let response = self
+            .authorized(&self.url)
+            .json(batch)
             .send()
             .await
             .map_err(|e| format!("sync upload failed: {e}"))?;
-        let status = response.status();
-        if !status.is_success() {
-            return Err(format!("sync ingest returned {status}"));
+        if !response.status().is_success() {
+            return Err(failure_text("ingest", response).await);
         }
         response
             .json::<IngestResponse>()
             .await
             .map_err(|e| format!("unintelligible ingest response: {e}"))
+    }
+
+    async fn handshake(&self, request: &HandshakeRequest) -> Result<HandshakeAgreement, String> {
+        let response = self
+            .authorized(&self.handshake_url)
+            .json(request)
+            .send()
+            .await
+            .map_err(|e| format!("sync handshake failed: {e}"))?;
+        if !response.status().is_success() {
+            return Err(failure_text("handshake", response).await);
+        }
+        response
+            .json::<HandshakeAgreement>()
+            .await
+            .map_err(|e| format!("unintelligible handshake response: {e}"))
     }
 }
 
@@ -167,6 +211,22 @@ pub async fn run_sync_agent(state: AppState, transport: Arc<dyn SyncTransport>) 
                     consecutive_failures,
                     breaker_opened,
                     "sync cycle failed"
+                );
+            }
+            // Louder than a failure and reported apart from one, because a
+            // failure is waiting for a network and this is waiting for a
+            // person: the upstream node is answering about a stream this node
+            // did not send, and no number of retries will change that.
+            CycleReport::Divergent {
+                reason,
+                claimed,
+                max_sent,
+            } => {
+                tracing::error!(
+                    %reason,
+                    claimed,
+                    max_sent,
+                    "sync cycle diverged; the watermark was NOT advanced"
                 );
             }
         }

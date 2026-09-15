@@ -1091,8 +1091,7 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
     let available_before_pick = pick_before["on_hand_qty"].as_i64().unwrap_or_default();
     let allotment_before_pick = pick_before["allotted_qty"].as_i64().unwrap_or_default();
     let warehouse_before_pick = sku_place_quantity(&pool, pick_sku, "dc.warehouse:on_hand").await;
-    let picked_before =
-        sku_place_quantity(&pool, pick_sku, "dc.outbound.picking:on_hand").await;
+    let picked_before = sku_place_quantity(&pool, pick_sku, "dc.outbound.picking:on_hand").await;
     let facts_before_pick = fact_count(&pool).await;
     let pick_request = ExecuteAllotmentRequest {
         allotment_line_id: store_02_line_id,

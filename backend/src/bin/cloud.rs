@@ -43,10 +43,16 @@ async fn main() -> Result<(), AppError> {
     let bind_addr = config.bind_addr;
     let node_id = config.node_id.clone();
     let node_role = config.node_role.clone();
+    // Before anything can ask for the closing checklist. The engine answers
+    // Lane F's `integrity.equations` slot, which ships critical and Pending
+    // until something registers under that key.
+    postgres::integrity_install_close_check();
     let state = AppState::new(pool, config);
     tokio::spawn(run_auth_policy_refresh_agent(state.db.clone()));
     tokio::spawn(run_catalog_publisher(state.db.clone()));
     tokio::spawn(run_ageing_work_agent(state.db.clone()));
+    tokio::spawn(run_asset_month_end_agent(state.db.clone()));
+    tokio::spawn(run_integrity_agent(state.db.clone()));
     if state.config.sync_apply_enabled {
         tokio::spawn(sync_agent::run_apply_agent(state.clone()));
     }
@@ -131,6 +137,145 @@ async fn run_ageing_work_agent(pool: sqlx::PgPool) {
             Ok(0) => {}
             Ok(raised) => info!(%raised, "told head office about work that went past its date"),
             Err(error) => tracing::error!(%error, "failed to look for work past its date"),
+        }
+    }
+}
+
+/// Charge last month's depreciation and replacement reserve, without being
+/// asked.
+///
+/// # Why this exists at all
+///
+/// The arithmetic and the endpoint have been here since 0070 and 0083, and
+/// nothing has ever called them except a person opening a screen and the seed
+/// script running four months once. A month nobody charges looks exactly like a
+/// month in which nothing was due — there is no row either way — so the failure
+/// is silent, and it surfaces as a profit and loss with no depreciation in it or
+/// as a disposal refused four months later because the run "still owes a
+/// charge".
+///
+/// # Why hourly, and why it charges the month that just ended
+///
+/// Hourly because the run is cheap when there is nothing to do — one query
+/// against the register — and because a node restarted on the 1st should not
+/// wait a day. The month charged is always the PREVIOUS one: charging the month
+/// in progress would post a full month of depreciation on the 3rd.
+///
+/// The run is idempotent by construction, so twenty-four attempts a day post
+/// exactly one month's charge. That is the property that makes a schedule this
+/// crude safe, and it is not incidental — it is the unique index on (asset,
+/// month) and the one on (class, location, month) doing their job.
+///
+/// # What it will not do
+///
+/// It never opens a period and never posts into a closed one: the trigger on
+/// the journal refuses that, and the refusal is recorded in the run log rather
+/// than retried. A month somebody closed without charging it is a decision, and
+/// this is not the thing that should quietly undo it.
+async fn run_asset_month_end_agent(pool: sqlx::PgPool) {
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(60 * 60));
+    loop {
+        interval.tick().await;
+        let Some(previous) = chrono::Utc::now()
+            .date_naive()
+            .checked_sub_months(chrono::Months::new(1))
+        else {
+            continue;
+        };
+        let (year, month) = (
+            chrono::Datelike::year(&previous),
+            chrono::Datelike::month(&previous),
+        );
+
+        // Asked before anything is posted, so an ordinary hour of an ordinary
+        // day costs one query and writes no run row. Without this the log would
+        // fill with twenty-four "nothing was due" rows a day and the one row
+        // that mattered would be unfindable.
+        match postgres::asset_depreciation_status(&pool, year, month).await {
+            Ok(status) if status.complete => {}
+            Ok(status) if status.period_status.as_deref() == Some("CLOSED") => {
+                tracing::warn!(
+                    %year, %month, missing = status.missing.len(),
+                    "the month is closed and still owes depreciation; it needs reopening or a \
+                     correction, and this agent will not decide which"
+                );
+            }
+            Ok(_) => {
+                match postgres::asset_depreciation_run_month(&pool, year, month, "system:month-end")
+                    .await
+                {
+                    Ok(run) => info!(
+                        %year, %month, posted = run.posted_count, total = run.posted_total_minor,
+                        "charged a month of depreciation"
+                    ),
+                    Err(error) => {
+                        tracing::error!(%year,%month,%error,"could not charge the month")
+                    }
+                }
+            }
+            Err(error) => tracing::error!(%year,%month,%error,"could not read the month's status"),
+        }
+
+        match postgres::asset_reserve_status(&pool, year, month).await {
+            Ok(status) if status.complete => {}
+            Ok(_) => {
+                match postgres::asset_reserve_charge(&pool, year, month, "system:month-end").await {
+                    Ok(run) => info!(
+                        %year, %month, posted = run.posted_count, total = run.posted_total_minor,
+                        "charged a month of replacement reserve"
+                    ),
+                    Err(error) => {
+                        tracing::error!(%year,%month,%error,"could not charge the replacement reserve")
+                    }
+                }
+            }
+            Err(error) => {
+                tracing::error!(%year,%month,%error,"could not read the reserve's status")
+            }
+        }
+    }
+}
+
+/// Ask the ten control equations once a day, and leave the answers waiting.
+///
+/// Daily rather than on every posting, for the reason the catalogue publisher
+/// runs on a timer: "the books changed" has no single moment, and an equation
+/// that ran on every journal line would spend the day telling somebody that a
+/// bill posted at ten is not yet paid. What people want is one answer per day
+/// that they can trust, found before they arrive.
+///
+/// The date asked about is yesterday, not today. A run at three in the morning
+/// asking about today would be asking about a day with four hours in it, and
+/// would report every unposted document as an exception every night. Yesterday
+/// is a whole day, closed, and the same date whichever hour the run happens to
+/// start — which also makes two runs of the same night comparable.
+///
+/// Hourly ticks with a date guard rather than an interval of a day, because a
+/// process restarted at eight in the morning would otherwise wait until eight
+/// the next morning to ask anything, and a deploy would silently cost a night.
+async fn run_integrity_agent(pool: sqlx::PgPool) {
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(60 * 60));
+    let mut last_asked: Option<chrono::NaiveDate> = None;
+    loop {
+        interval.tick().await;
+        let as_of = chrono::Utc::now().date_naive() - chrono::Duration::days(1);
+        if last_asked == Some(as_of) {
+            continue;
+        }
+        match postgres::integrity_run_now(&pool, as_of, "SCHEDULED", "system:integrity").await {
+            Ok(run) => {
+                last_asked = Some(as_of);
+                info!(
+                    %as_of,
+                    worst = run.worst_state.as_deref().unwrap_or("UNKNOWN"),
+                    open_items = run.open_items,
+                    "asked the control equations"
+                );
+            }
+            // Not recording `last_asked`, so a database that was briefly
+            // unreachable is asked again on the next tick rather than skipped
+            // for the day.
+            Err(error) => tracing::error!(%as_of,%error,"the integrity run failed"),
         }
     }
 }

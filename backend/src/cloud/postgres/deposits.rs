@@ -586,7 +586,7 @@ pub async fn bank_deposit(
     };
 
     let mut tx = pool.begin().await?;
-    let posted = post(&mut tx, &intent, actor).await?;
+    let posted = post(&mut tx, &intent, None, actor).await?;
     // Only from DRAFT: two people pressing at once means one entry, not two,
     // and the second is told the money has already left.
     let updated = sqlx::query(
@@ -665,7 +665,7 @@ pub async fn land_deposit(
     };
 
     let mut tx = pool.begin().await?;
-    let posted = post(&mut tx, &intent, actor).await?;
+    let posted = post(&mut tx, &intent, None, actor).await?;
     let slip = request.slip_reference.trim();
     let updated = sqlx::query(
         "UPDATE store_deposit

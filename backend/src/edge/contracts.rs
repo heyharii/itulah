@@ -173,6 +173,79 @@ pub struct CatalogIdentity {
     pub image_url: Option<String>,
 }
 
+/// Which catalogue this node is holding, and nothing else.
+///
+/// The cheapest question in the system: a handheld that keeps the catalogue in
+/// its own SQLite asks this on waking and compares the generation with what it
+/// stored. Equal means the copy in its hand is the copy the node has, and it
+/// pulls nothing.
+///
+/// `generation` is zero on a node that has never been sent a catalogue. That is
+/// a real state — a shop is commissioned before the centre publishes to it —
+/// and it is answered rather than refused, because a handheld has to be able to
+/// tell "I have nothing" apart from "I could not ask".
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct CatalogSnapshotState {
+    pub generation: i64,
+    pub item_count: i64,
+    pub content_hash: String,
+    /// When this node swapped that generation in. `None` while there is no
+    /// catalogue to have swapped.
+    pub activated_at: Option<DateTime<Utc>>,
+}
+
+/// One SKU as a handheld's own copy of the catalogue keeps it.
+///
+/// Deliberately narrower than [`CatalogIdentity`]: no tags, and above all no
+/// `image_url`. That field is not a column — it is recovered from tagging jobs
+/// and order lines with two correlated subqueries per row, which is affordable
+/// for the dozen SKUs on a rack and is not affordable for the whole catalogue
+/// pulled down a shop's wifi. A scan screen shows a name, a size and a number;
+/// the picture is fetched per article from `/api/v1/catalog/image` when
+/// somebody actually looks at one.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct CatalogSnapshotItem {
+    pub sku_code: String,
+    pub name: String,
+    pub article_code: Option<String>,
+    pub division_code: Option<String>,
+    pub barcode: Option<String>,
+    pub base_price_minor: Option<i64>,
+    pub active: bool,
+}
+
+/// One page of the catalogue, and which catalogue it came out of.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct CatalogSnapshotPage {
+    pub items: Vec<CatalogSnapshotItem>,
+    /// The last `sku_code` on this page, or `None` when the walk is finished.
+    pub next_cursor: Option<String>,
+    /// The generation these rows were read from.
+    ///
+    /// Repeated on every page, not just on the first. A pull of a few thousand
+    /// SKUs over shop wifi takes long enough for a publication to land halfway
+    /// through it, and the swap in `apply_catalog_chunk` is a whole-table
+    /// replace: a handheld that began at generation 7 and reads 8 on a later
+    /// page is holding rows from two different catalogues, spliced at a
+    /// boundary nothing records. Carrying the generation per page is what lets
+    /// it notice and start the walk again, instead of storing a mixture that
+    /// looks complete.
+    pub generation: i64,
+}
+
+/// Where to resume a catalogue walk, and how much to take.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct CatalogSnapshotQuery {
+    /// Exclusive: the last `sku_code` the caller already has.
+    #[serde(default)]
+    pub after: Option<String>,
+    #[serde(default)]
+    pub limit: Option<usize>,
+}
+
 /// One garment inside a delivery.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
@@ -941,6 +1014,28 @@ pub trait EdgeInventory: Send + Sync {
     /// tag whether or not anything in the building has a price. This answers
     /// that question and only that question, at any node.
     fn catalog_identities(&self, sku_codes: &[String]) -> Result<Vec<CatalogIdentity>, EdgeError>;
+
+    /// Which catalogue this node is holding — one row, no items.
+    ///
+    /// `catalog_identities` answers about SKUs a handheld has just read off
+    /// tags; this answers about the catalogue itself, so a handheld holding its
+    /// own copy can decide in one small request whether that copy is still the
+    /// current one. Answered at any node role, for the same reason identities
+    /// are: a DC has no price book and still holds the snapshot.
+    fn catalog_snapshot_state(&self) -> Result<CatalogSnapshotState, EdgeError>;
+
+    /// The whole catalogue, a page at a time, for a handheld to keep locally.
+    ///
+    /// A shop floor is where the wifi is worst and the handhelds are most
+    /// numerous, so the scan screen cannot be a round trip per rack: the
+    /// catalogue is pulled once, kept in the device's own SQLite, and refreshed
+    /// only when [`catalog_snapshot_state`](Self::catalog_snapshot_state) says
+    /// the generation moved. Keyset by `sku_code` rather than OFFSET so a walk
+    /// costs an index seek per page however deep it goes.
+    fn catalog_snapshot_items(
+        &self,
+        query: CatalogSnapshotQuery,
+    ) -> Result<CatalogSnapshotPage, EdgeError>;
 
     /// What this shop may sell right now, priced by the resident price book.
     ///

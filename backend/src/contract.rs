@@ -154,6 +154,20 @@ pub struct EdgeSyncStatus {
     /// cannot run at all rather than that it is merely idle.
     pub origin_id: Option<String>,
     pub generation: i64,
+    /// The highest seq this node has allocated. Together with `generation` it
+    /// is the pair a person compares against `GET /api/v1/sync/origins` on the
+    /// cloud to see whether the two ends are talking about the same stream —
+    /// the one question a green dashboard could not answer while a restored
+    /// database was writing into seqs the cloud had already acknowledged.
+    pub next_seq: i64,
+    /// False while this node has not agreed its generation with the cloud. It
+    /// is still capturing and its backlog is still durable; it is not
+    /// uploading, deliberately.
+    pub handshake_settled: bool,
+    pub handshake_at: Option<DateTime<Utc>>,
+    /// What the cloud said when the generation was last agreed, or why the
+    /// agreement was dropped.
+    pub handshake_note: Option<String>,
     /// Facts captured locally and not yet acknowledged by Cloud. This is the
     /// number a shop actually cares about: it is what would be lost if the
     /// site burned down tonight.

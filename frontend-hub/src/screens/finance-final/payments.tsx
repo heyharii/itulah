@@ -838,6 +838,11 @@ function ComposerPanel({
               amount_minor: row.amount ?? 0,
             })
           ),
+          // Null because this form has no giro fields yet. The server now
+          // REQUIRES both when the method is GIRO, so a giro payment keyed
+          // here is refused until the form asks for the number and due date.
+          giro_number: null,
+          giro_due_date: null,
         },
         key
       )

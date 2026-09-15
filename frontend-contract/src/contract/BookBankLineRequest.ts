@@ -13,4 +13,9 @@ account_code: string,
  * made, and a bank line booked with no explanation is the entry an auditor
  * asks about first.
  */
-memo: string, };
+memo: string, 
+/**
+ * Who the slip names. The bank, usually — most of these are the bank's own
+ * charges — so it is optional and defaults to that.
+ */
+party_name: string | null, };

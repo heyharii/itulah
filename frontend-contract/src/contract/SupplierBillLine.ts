@@ -15,4 +15,16 @@ account_name: string,
  * writes the client's inter-unit accounts. The column stays so that rule
  * can be enabled by dropping a constraint rather than by a migration.
  */
-site_id: string, amount_minor: number, memo: string | null, };
+site_id: string, amount_minor: number, 
+/**
+ * Set when this line buys a fixed asset. Posting the bill mints a DRAFT
+ * asset in that class pointing back at the line — the acquisition link
+ * 0099 left to somebody noticing.
+ */
+asset_class_code: string | null, 
+/**
+ * Set when this line replaces something the company has been reserving
+ * for. It debits the replacement reserve for its class instead of the
+ * account named on the line, and mints no asset.
+ */
+draws_reserve: boolean, memo: string | null, };

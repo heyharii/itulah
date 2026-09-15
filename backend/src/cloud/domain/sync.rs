@@ -82,6 +82,17 @@ pub enum SettlementOutcome {
     /// The response cannot be trusted or made no progress. Advance nothing;
     /// the facts stay pending and the failure counts toward the breaker.
     NoProgress { reason: String },
+    /// The receiver claims to hold a seq this sender never reached. There is
+    /// no honest partial reading of that: the watermark it describes belongs
+    /// to some other stream — most often this origin's own history, written by
+    /// a database this node no longer has. Stop the session and raise it,
+    /// because the only alternative is capping the claim to our own horizon
+    /// and advancing anyway, which marks facts durable that nobody received.
+    Divergent {
+        reason: String,
+        claimed: i64,
+        max_sent: i64,
+    },
 }
 
 /// Decide what a response does to the watermark.
@@ -117,9 +128,24 @@ pub fn plan_settlement(
             ),
         };
     }
-    // Never advance past what we actually sent: a larger claim would mark
-    // facts durable that this sender has not observed being received.
-    let advance_to = response.durable_through.min(max_sent);
+    // Never advance past what we actually sent, and never quietly cap the
+    // claim to make it fit either. Only this node can produce seqs under this
+    // origin's key, so a receiver answering above our own horizon is
+    // describing OUR stream from a database we no longer have. Capping reads
+    // as progress, and progress here means purging facts the receiver may
+    // hold none of.
+    if response.durable_through > max_sent {
+        return SettlementOutcome::Divergent {
+            reason: format!(
+                "receiver claims durable_through {} but the highest seq we sent is {max_sent}; \
+                 this stream's identity is in doubt — refusing to advance anything",
+                response.durable_through
+            ),
+            claimed: response.durable_through,
+            max_sent,
+        };
+    }
+    let advance_to = response.durable_through;
     let mut dead_letters = Vec::with_capacity(response.rejected.len());
     for reject in &response.rejected {
         if reject.seq <= watermark || reject.seq > advance_to || !sent_seqs.contains(&reject.seq) {
@@ -216,17 +242,23 @@ mod tests {
     }
 
     #[test]
-    fn settlement_never_advances_past_what_was_sent() {
-        // A receiver claiming more than we sent may be talking about another
-        // sender's uploads; cap at our own horizon and let dedup absorb the rest.
+    fn settlement_refuses_a_watermark_above_what_was_sent() {
+        // This test used to bless capping: advance to 5, on the theory that
+        // the surplus was another sender's uploads and deduplication would
+        // absorb it. It is not another sender's. The only node that can
+        // produce seqs under this origin's key is this one, so a claim above
+        // our horizon means the receiver is describing this stream from a
+        // database we no longer have — a restore. Advancing to 5 marks five
+        // facts durable at a receiver that may hold none of them, and the
+        // sender then purges them. Refuse the whole response instead.
         let outcome = plan_settlement(3, &[4, 5], &response(9, vec![]));
-        assert_eq!(
-            outcome,
-            SettlementOutcome::Advance {
-                advance_to: 5,
-                dead_letters: vec![]
-            }
-        );
+        let SettlementOutcome::Divergent {
+            claimed, max_sent, ..
+        } = outcome
+        else {
+            panic!("a claim above our horizon must not settle: {outcome:?}");
+        };
+        assert_eq!((claimed, max_sent), (9, 5));
     }
 
     #[test]
@@ -2069,6 +2101,25 @@ pub struct SaleFactTender {
     pub amount_minor: i64,
     #[serde(default)]
     pub reference: Option<String>,
+    // lane-A: who settles this, on which terminal, in which batch. Card money
+    // does not arrive as money — it arrives days later, from a named acquirer,
+    // net of a fee, in a batch their terminal closed — and none of that can be
+    // reconciled against "we took 4,200,000 on cards".
+    //
+    // All optional, all `default`, because no till sends them yet: the fields
+    // are here so a till that starts to needs no change at this end, and until
+    // one does the centre falls back to `reference`, which is where 0077 said
+    // the acquirer goes.
+    #[serde(default)]
+    pub acquirer: Option<String>,
+    #[serde(default)]
+    pub terminal_id: Option<String>,
+    #[serde(default)]
+    pub batch_no: Option<String>,
+    /// `DEBIT` or `CREDIT`. Absent leaves the centre to infer it from the
+    /// acquirer and to record on the day's document that it did.
+    #[serde(default)]
+    pub card_kind: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]

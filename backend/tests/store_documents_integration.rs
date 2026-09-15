@@ -364,7 +364,6 @@ async fn only_an_approved_ask_can_be_settled(pool: PgPool) {
 /// what has ever been asked for.
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn the_envelope_separates_what_is_open_from_what_is_merely_recorded(pool: PgPool) {
-
     let mut waiting = an_ask();
     waiting.submit = true;
     waiting.amount_minor = 3_000_000;
@@ -402,7 +401,10 @@ async fn the_envelope_separates_what_is_open_from_what_is_merely_recorded(pool: 
         "open_minor counts what head office still has to answer, not what the \
          shop has ever asked for"
     );
-    assert!(page.rows.iter().any(|row| row.instruction_id == open.instruction_id));
+    assert!(page
+        .rows
+        .iter()
+        .any(|row| row.instruction_id == open.instruction_id));
 
     // The unit is a server filter on every finance list, and this one is no
     // different: another shop's queue is not this shop's.
@@ -530,7 +532,11 @@ async fn the_two_legs_are_two_entries_on_their_own_dates(pool: PgPool) {
     let first: NaiveDate = rows[0].get("posting_date");
     let second: NaiveDate = rows[1].get("posting_date");
     assert_eq!(first, september(10), "the bag left on the day it left");
-    assert_eq!(second, september(12), "the bank credited it on the bank's day");
+    assert_eq!(
+        second,
+        september(12),
+        "the bank credited it on the bank's day"
+    );
     let rule: String = rows[0].get("rule_version");
     assert_eq!(rule, "store_deposit/1");
 }
@@ -638,10 +644,7 @@ async fn in_transit_survives_filtering_the_list_to_what_has_landed(pool: PgPool)
 
     // And it agrees with the ledger, because both move only when this module
     // posts.
-    assert_eq!(
-        balance(&pool, TRANSIT).await,
-        landed_only.in_transit_minor
-    );
+    assert_eq!(balance(&pool, TRANSIT).await, landed_only.in_transit_minor);
     assert!(flying.sent_entry_id.is_some());
 }
 
@@ -764,7 +767,10 @@ async fn every_posted_line_carries_the_unit(pool: PgPool) {
     .fetch_one(&pool)
     .await
     .unwrap_or_else(|error| panic!("sum: {error}"));
-    assert_eq!(per_unit, 0, "both entries balance at the unit, not only in total");
+    assert_eq!(
+        per_unit, 0,
+        "both entries balance at the unit, not only in total"
+    );
 }
 
 /// A deposit is not a document you can post into a month somebody has sealed.
@@ -788,12 +794,11 @@ async fn banking_into_a_month_nobody_opened_is_refused(pool: PgPool) {
         "the period gate applies to store documents like any other"
     );
 
-    let orphans: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*)::bigint FROM store_deposit WHERE status <> 'DRAFT'",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap_or_else(|error| panic!("count: {error}"));
+    let orphans: i64 =
+        sqlx::query_scalar("SELECT COUNT(*)::bigint FROM store_deposit WHERE status <> 'DRAFT'")
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("count: {error}"));
     assert_eq!(
         orphans, 0,
         "a refused posting must leave the document where it was: the row and \

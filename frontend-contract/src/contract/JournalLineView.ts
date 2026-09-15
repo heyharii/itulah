@@ -4,4 +4,23 @@ export type JournalLineView = { line_number: number, account_code: string,
 /**
  * The client's own name, never translated.
  */
-account_name: string, site_id: string, debit_minor: number, credit_minor: number, supplier_id: string | null, memo: string | null, };
+account_name: string, site_id: string, 
+/**
+ * The unit on the other side, on an inter-unit line and nowhere else.
+ *
+ * Present on the affiliate legs `poster.rs` adds, which is the only place
+ * it is ever written. Without it the entry that funded store 03's
+ * electricity shows two lines called "Hutang Affiliasi Pembiayaan" and a
+ * reader has to decode a twelve-digit code to find out which is whose.
+ */
+counter_site_id: string | null, debit_minor: number, credit_minor: number, supplier_id: string | null, 
+/**
+ * Which asset this line is about, when it is about one. The second
+ * sub-ledger dimension, beside the supplier.
+ */
+asset_id: string | null, 
+/**
+ * `AST-000123`, so a drill-down reads as a sentence rather than as a
+ * UUID somebody has to look up.
+ */
+asset_number: string | null, memo: string | null, };

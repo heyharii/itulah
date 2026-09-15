@@ -18,18 +18,19 @@ use crate::cloud::{
     http::audit::DeclaredSubject,
     postgres::{
         self as infrastructure, AccountBalance, AccountMapPage, AccountPage, AcquisitionGap,
-        AssessAssetRequest, AssetPage, AssetRow, AssetSchedule, BalanceMatrix, BankInstitution,
-        BankStatementLineRow, BankStatementPage, BillPage, BookBankLineRequest, CashCountRow,
-        CompanyBankAccount, ConfirmMatchRequest, DecideInstructionRequest, DepositPage,
-        DepreciationRun, DescribeBankAccountRequest, DisposeAssetRequest, GeneralLedger,
-        ImportOutcome, ImportStatementRequest, InstructionPage, JournalEntryDetail, JournalPage,
-        LandDepositRequest, LedgerAccount, LineSuggestions, MoneyOverview, PayablesAging,
-        PaymentInstruction, PaymentPage, PeriodPage, PostCountRequest, PostSaleDayRequest,
-        PostingIntent, PostingLine, RaiseInstructionRequest, RecordBillRequest, RecordCountRequest,
-        RecordDepositRequest, RecordPaymentRequest, RegisterAssetRequest, SaleDayPage, SaleDayRow,
+        AdjustmentRequest, AssessAssetRequest, AssetPage, AssetRow, AssetSchedule, BalanceMatrix,
+        BankInstitution, BankStatementLineRow, BankStatementPage, BillPage, BookBankLineRequest,
+        CashCountRow, CompanyBankAccount, ConfirmMatchRequest, CorrectionDocument,
+        DecideInstructionRequest, DepositPage, DepreciationRun, DescribeBankAccountRequest,
+        DisposeAssetRequest, GeneralLedger, ImportOutcome, ImportStatementRequest, InstructionPage,
+        JournalEntryDetail, JournalPage, LandDepositRequest, LedgerAccount, LineSuggestions,
+        MoneyOverview, PayablesAging, PaymentInstruction, PaymentPage, PeriodPage,
+        PostCountRequest, PostSaleDayRequest, PostingIntent, PostingLine, RaiseInstructionRequest,
+        ReclassRequest, RecordBillRequest, RecordCountRequest, RecordDepositRequest,
+        RecordPaymentRequest, RegisterAssetRequest, SaleDayPage, SaleDayRow,
         SetAccountMappingRequest, SettleInstructionRequest, Statement, StoreDeposit, SupplierBill,
         SupplierPayment, TransferAssetRequest, TrialBalance, UnbilledReceipt,
-        UpdateBankLineRequest,
+        UpdateBankLineRequest, WriteOffRequest,
     },
 };
 use axum::{
@@ -435,19 +436,38 @@ pub async fn open_period(
     ))
 }
 
+/// Seal a month, if its checklist lets you.
+///
+/// The refusal is a 409 carrying the keys that stood in the way, and the
+/// checklist that produced it is stored against the close that succeeds. Both
+/// halves matter: the first so somebody knows what to go and fix, the second so
+/// that in six months "was the bank reconciled when September closed?" has an
+/// answer that is not somebody's memory of a screen.
+///
+/// This used to call `ledger::close_period`, which flipped the row and counted
+/// the entries and asked nothing. 0126 and 0127 replaced it with a close that
+/// runs the checklist FIRST, against the still-open month, and writes the
+/// verdict in the same transaction as the flip. The old function is still there
+/// and nothing routes to it.
+///
+/// `entries_sealed` survives on the outcome deliberately — it is the one figure
+/// a person double-checks, and the screen already reads it — so the wire shape
+/// grew rather than changed.
 pub async fn close_period(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
-    Json(request): Json<PeriodRequest>,
-) -> Result<Json<Value>, AppError> {
-    let sealed =
-        infrastructure::close_period(&state.db, request.year, request.month, &principal.username)
-            .await?;
-    Ok(Json(json!({
-        "year": request.year,
-        "month": request.month,
-        "entries_sealed": sealed,
-    })))
+    Json(request): Json<ClosePeriodRequest>,
+) -> Result<Json<infrastructure::PeriodCloseOutcome>, AppError> {
+    Ok(Json(
+        infrastructure::period_close(
+            &state.db,
+            request.year,
+            request.month,
+            &principal.username,
+            request.reason.as_deref(),
+        )
+        .await?,
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -548,7 +568,7 @@ pub async fn post_manual_entry(
         lines: request.lines,
     };
     let mut tx = state.db.begin().await?;
-    let posted = infrastructure::post(&mut tx, &intent, &principal.username).await?;
+    let posted = infrastructure::post(&mut tx, &intent, None, &principal.username).await?;
     tx.commit().await?;
     acted_on.set(RecordKind::Journal, posted.entry_id.to_string());
     Ok(Json(json!({
@@ -1720,4 +1740,263 @@ pub async fn post_sale_day(
         acted_on.set(RecordKind::Journal, entry_id.to_string());
     }
     Ok(Json(day))
+}
+
+/// A period named the way a person names one: `2026-09`.
+///
+/// A month has no surrogate key — its identity is the two numbers — so the
+/// path segment is the label, parsed here rather than split into two path
+/// parameters. `/periods/2026-09/reopen` is a URL somebody can read in a log.
+fn parse_period(raw: &str) -> Result<(i32, i32), AppError> {
+    let bad = || AppError::Validation(format!("{raw:?} is not a period; a period reads 2026-09"));
+    let (year, month) = raw.split_once('-').ok_or_else(bad)?;
+    let year: i32 = year.parse().map_err(|_| bad())?;
+    let month: i32 = month.parse().map_err(|_| bad())?;
+    if !(1..=12).contains(&month) {
+        return Err(bad());
+    }
+    Ok((year, month))
+}
+
+/// What a close would refuse on, without closing anything.
+///
+/// The same computation the close runs, exposed on its own so the screen can
+/// show the month's readiness while people are still working on it. It is the
+/// only honest way to build that screen: a checklist assembled separately from
+/// the one the close consults would eventually disagree with it, and the
+/// disagreement would be discovered on the last day of the month.
+pub async fn period_checklist(
+    State(state): State<AppState>,
+    Path(period): Path<String>,
+) -> Result<Json<crate::cloud::domain::CloseVerdict>, AppError> {
+    let (year, month) = parse_period(&period)?;
+    Ok(Json(
+        infrastructure::period_checklist(&state.db, year, month).await?,
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ClosePeriodRequest {
+    pub year: i32,
+    pub month: i32,
+    /// Optional on a close. A month that closes because everything passed
+    /// needs no explanation; the checklist snapshot is the explanation.
+    ///
+    /// `serde(default)` because the screen has been sending `{year, month}`
+    /// since before a reason existed, and a missing field is not the same as a
+    /// refused close.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ReopenRequest {
+    /// Required, and the route refuses without it. See the handler.
+    pub reason: String,
+}
+
+/// Unseal a month.
+///
+/// Two things guard it, and neither is redundant. The reason is mandatory
+/// because a reopen is the one act in finance that lets somebody write into a
+/// month that has already been reported, and the reason is the only record of
+/// why that was allowed. The key is `finance.period.reopen` and not
+/// `finance.period.close`, because whoever can undo their own close has not
+/// closed anything.
+pub async fn reopen_period(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(period): Path<String>,
+    Json(request): Json<ReopenRequest>,
+) -> Result<Json<PeriodPage>, AppError> {
+    let (year, month) = parse_period(&period)?;
+    infrastructure::period_reopen(&state.db, year, month, &principal.username, &request.reason)
+        .await?;
+    // The whole list back, in the shape the GET answers in — see
+    // [`period_scope`]. A write that answered differently from the read of the
+    // same thing is a second shape for one list.
+    Ok(Json(
+        infrastructure::period_page(&state.db, Default::default()).await?,
+    ))
+}
+
+/// Every close and reopen this month has had, newest first.
+pub async fn period_events(
+    State(state): State<AppState>,
+    Path(period): Path<String>,
+) -> Result<Json<Vec<infrastructure::PeriodEvent>>, AppError> {
+    let (year, month) = parse_period(&period)?;
+    Ok(Json(
+        infrastructure::period_events(&state.db, year, month).await?,
+    ))
+}
+
+// ---------------------------------------------------------------------------
+// Corrections
+// ---------------------------------------------------------------------------
+//
+// Three documents, one lifecycle, and the lifecycle is the point. A
+// reclassification, an adjustment and a write-off all go DRAFT → APPROVED →
+// POSTED, all carry a reason, all name two people, and all reverse. What they
+// replaced was a MANUAL journal entry with a memo, which recorded the debit and
+// the credit and none of that.
+//
+// The approve step is a separate route and a separate action key rather than a
+// flag on the create. Two keys is what lets the rule "not the person who drafted
+// it" be stated at all: `finance.post` and `finance.approve` map to the same
+// rung today and always will while the ladder has three, and the rule is
+// enforced on the actor, by the handler's caller and by a CHECK on the row.
+
+#[derive(Debug, Deserialize)]
+pub struct CorrectionQuery {
+    /// `RECLASS`, `ADJUSTMENT` or `WRITE_OFF`.
+    pub kind: Option<String>,
+    pub status: Option<String>,
+    pub site: Option<String>,
+    pub limit: Option<i64>,
+}
+
+pub async fn corrections(
+    State(state): State<AppState>,
+    Query(query): Query<CorrectionQuery>,
+) -> Result<Json<Vec<CorrectionDocument>>, AppError> {
+    Ok(Json(
+        infrastructure::correction_list(
+            &state.db,
+            query.kind.as_deref(),
+            query.status.as_deref(),
+            query.site.as_deref(),
+            query.limit.unwrap_or(200).clamp(1, 500),
+        )
+        .await?,
+    ))
+}
+
+pub async fn correction(
+    State(state): State<AppState>,
+    Path(correction_id): Path<Uuid>,
+) -> Result<Json<CorrectionDocument>, AppError> {
+    Ok(Json(
+        infrastructure::correction(&state.db, correction_id).await?,
+    ))
+}
+
+/// Draft a reclassification.
+///
+/// Refused if either side is money. That refusal is in the infrastructure
+/// rather than here because it reads `account_map` — the client's cash and bank
+/// codes are theirs to move, and a list of prefixes in Rust would stop being
+/// true the day Finance opened a second bank.
+pub async fn create_reclass(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Extension(acted_on): Extension<DeclaredSubject>,
+    Json(request): Json<ReclassRequest>,
+) -> Result<Json<CorrectionDocument>, AppError> {
+    let document = infrastructure::reclass_create(&state.db, &request, &principal.username).await?;
+    acted_on.set(RecordKind::Correction, document.correction_id.to_string());
+    Ok(Json(document))
+}
+
+pub async fn create_adjustment(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Extension(acted_on): Extension<DeclaredSubject>,
+    Json(request): Json<AdjustmentRequest>,
+) -> Result<Json<CorrectionDocument>, AppError> {
+    let document =
+        infrastructure::adjustment_create(&state.db, &request, &principal.username).await?;
+    acted_on.set(RecordKind::Correction, document.correction_id.to_string());
+    Ok(Json(document))
+}
+
+pub async fn create_write_off(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Extension(acted_on): Extension<DeclaredSubject>,
+    Json(request): Json<WriteOffRequest>,
+) -> Result<Json<CorrectionDocument>, AppError> {
+    let document =
+        infrastructure::write_off_create(&state.db, &request, &principal.username).await?;
+    acted_on.set(RecordKind::Correction, document.correction_id.to_string());
+    Ok(Json(document))
+}
+
+/// Agree a correction somebody else drafted.
+///
+/// `finance.approve`, never `finance.post`. The two keys exist so that the
+/// second person is a different person, and the check that they are is made
+/// against `created_by` in the infrastructure and again by a CHECK on the row —
+/// a rule enforced in one place is a rule with one place to go wrong.
+/// Agree a correction somebody else drafted.
+///
+/// The username here is load-bearing, and not for the audit trail alone: 0129
+/// carries `CHECK (approved_by IS NULL OR approved_by <> created_by)`, so an
+/// approver who is spelled the same as the author is REFUSED BY THE DATABASE.
+/// While both sides said `"system"` no correction in the estate could be
+/// approved, and therefore none could be posted — six routes with nothing
+/// behind them.
+pub async fn approve_correction(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(correction_id): Path<Uuid>,
+) -> Result<Json<CorrectionDocument>, AppError> {
+    Ok(Json(
+        infrastructure::correction_approve(&state.db, correction_id, &principal.username).await?,
+    ))
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct PostCorrectionRequest {
+    /// Where in time the entry lands. Absent means the document's own date,
+    /// which is what it means nearly always; a period lock refuses either way.
+    pub posting_date: Option<NaiveDate>,
+}
+
+pub async fn post_correction(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(correction_id): Path<Uuid>,
+    Json(request): Json<PostCorrectionRequest>,
+) -> Result<Json<CorrectionDocument>, AppError> {
+    Ok(Json(
+        infrastructure::correction_post(
+            &state.db,
+            correction_id,
+            request.posting_date,
+            &principal.username,
+        )
+        .await?,
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ReverseCorrectionRequest {
+    pub reason: String,
+    pub posting_date: Option<NaiveDate>,
+}
+
+/// Undo a posted correction, by posting its mirror.
+///
+/// Never by deleting anything. A correction that could be erased would make the
+/// document trail worth less than the memo it replaced.
+pub async fn reverse_correction(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(correction_id): Path<Uuid>,
+    Json(request): Json<ReverseCorrectionRequest>,
+) -> Result<Json<CorrectionDocument>, AppError> {
+    Ok(Json(
+        infrastructure::correction_reverse(
+            &state.db,
+            correction_id,
+            request.posting_date,
+            &request.reason,
+            &principal.username,
+        )
+        .await?,
+    ))
 }

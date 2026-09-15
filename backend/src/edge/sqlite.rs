@@ -3,20 +3,22 @@
 use crate::edge::pricing;
 use crate::edge::{
     derive_allotment_status, validate_command, AdvanceKoliRequest, BeginCheckoutRequest,
-    CatalogIdentity, CheckoutResult, CheckoutTenderState, CommandResult, CreateKoliShipmentRequest,
-    CreatePicklistRequest, EdgeError, EdgeInventory, EdgeOfficialCountDetail,
-    EdgeOfficialCountLine, EdgeOfficialCountSummary, EdgeRole, FulfillmentProgressResult,
-    GoodsReceiptView, IntakeRequest, InventoryState, InvoiceDocument, InvoiceDocumentView,
-    MoveRequest, MovementCause, MovementCommand, MovementGroupId, MovementId, MovementLine,
-    MovementView, NodeContext, OfficialCountEntriesRequest, OfficialCountSubmitRequest,
-    OfficialCountSubmitResult, OpenGoodsReceiptRequest, OperationalPool, PackKoliRequest,
-    PackRequest, PickRequest, PickResult, PicklistRefusal, PicklistResult, Place, PoolBalance,
-    PurchaseCountAwaitingVerification, PurchaseCountRequest, PurchaseCountResult,
-    PurchaseVerifyDecision, PurchaseVerifyRequest, PurchaseVerifyResult, PurchaseWorkLine,
-    ReceiveBatchRequest, ReceiveRequest, RecordInvoiceRequest, RejectDeliveryRequest,
-    ResolveCheckoutRequest, SaleRequest, SaleResult, SiteId, SiteKind, StoreInvoiceDocumentRequest,
-    SubjectId, SystemPlace, TaggingConfirmRequest, TaggingConfirmResult, TaggingWorkJob,
-    TaggingWorkLine, TenderOutcomeRequest, UnresolvedCheckout,
+    CatalogIdentity, CatalogSnapshotItem, CatalogSnapshotPage, CatalogSnapshotQuery,
+    CatalogSnapshotState, CheckoutResult, CheckoutTenderState, CommandResult,
+    CreateKoliShipmentRequest, CreatePicklistRequest, EdgeError, EdgeInventory,
+    EdgeOfficialCountDetail, EdgeOfficialCountLine, EdgeOfficialCountSummary, EdgeRole,
+    FulfillmentProgressResult, GoodsReceiptView, IntakeRequest, InventoryState, InvoiceDocument,
+    InvoiceDocumentView, MoveRequest, MovementCause, MovementCommand, MovementGroupId, MovementId,
+    MovementLine, MovementView, NodeContext, OfficialCountEntriesRequest,
+    OfficialCountSubmitRequest, OfficialCountSubmitResult, OpenGoodsReceiptRequest,
+    OperationalPool, PackKoliRequest, PackRequest, PickRequest, PickResult, PicklistRefusal,
+    PicklistResult, Place, PoolBalance, PurchaseCountAwaitingVerification, PurchaseCountRequest,
+    PurchaseCountResult, PurchaseVerifyDecision, PurchaseVerifyRequest, PurchaseVerifyResult,
+    PurchaseWorkLine, ReceiveBatchRequest, ReceiveRequest, RecordInvoiceRequest,
+    RejectDeliveryRequest, ResolveCheckoutRequest, SaleRequest, SaleResult, SiteId, SiteKind,
+    StoreInvoiceDocumentRequest, SubjectId, SystemPlace, TaggingConfirmRequest,
+    TaggingConfirmResult, TaggingWorkJob, TaggingWorkLine, TenderOutcomeRequest,
+    UnresolvedCheckout,
 };
 use crate::sync::workflow::{
     FulfillmentProgressPayload, FulfillmentStage, OfficialCountResultLine,
@@ -354,6 +356,16 @@ pub(crate) const ATTENDANCE_SCHEMA: &str = include_str!(concat!(
 pub(crate) fn apply_attendance_schema(connection: &Connection) -> Result<(), EdgeError> {
     connection.execute_batch(ATTENDANCE_SCHEMA).map_err(db)
 }
+
+/// Whose seqs this node is writing, and whether the cloud has agreed. See the
+/// migration: a database restored under its own origin id used to start
+/// counting from one into a stream the cloud was already durable through, and
+/// every sale it took that evening was discarded as a duplicate while the
+/// sender was told they were safe.
+pub(crate) const SYNC_HANDSHAKE_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0033_a_stream_says_whose_seqs_it_writes.sql"
+));
 
 #[derive(Clone)]
 pub struct SqliteEdge {
@@ -944,6 +956,14 @@ impl SqliteEdge {
                 |row| row.get(0),
             )
             .map_err(db)?;
+        // Whose seqs this node is writing, and whether the cloud has agreed.
+        let a_stream_says_whose_seqs_it_writes: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('sync_origin') WHERE name='handshake_settled'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
         if an_acceptance_knows_what_matched == 0 {
             connection
                 .execute_batch(RECEIPT_ECONOMICS_SCHEMA)
@@ -984,6 +1004,11 @@ impl SqliteEdge {
         // indexes, all `IF NOT EXISTS`, no ALTER and no CHECK rebuilt, so it
         // creates rather than changes and needs no probe.
         apply_attendance_schema(&connection)?;
+        if a_stream_says_whose_seqs_it_writes == 0 {
+            connection
+                .execute_batch(SYNC_HANDSHAKE_SCHEMA)
+                .map_err(db)?;
+        }
         let existing: Option<(String, String, String)> = connection
             .query_row(
                 "SELECT node_id,role,site_id FROM node_metadata WHERE singleton=1",
@@ -5421,6 +5446,95 @@ impl EdgeInventory for SqliteEdge {
         rows.collect::<Result<Vec<_>, _>>().map_err(db)
     }
 
+    /// Which catalogue is resident here, without listing any of it.
+    ///
+    /// One row, so a floor of handhelds can ask it every time they wake and
+    /// cost the node nothing. A node that has never been sent a catalogue has
+    /// no row at all, and that answers as generation 0 rather than as a
+    /// refusal: "I have nothing yet" is a state a handheld must act on — it
+    /// pulls — and a 404 is the same thing it sees when it is pointed at a node
+    /// too old to serve this route, which is the opposite instruction.
+    fn catalog_snapshot_state(&self) -> Result<CatalogSnapshotState, EdgeError> {
+        let connection = self.lock()?;
+        resident_catalog_state(&connection)
+    }
+
+    /// The catalogue itself, a page at a time, in published order.
+    fn catalog_snapshot_items(
+        &self,
+        query: CatalogSnapshotQuery,
+    ) -> Result<CatalogSnapshotPage, EdgeError> {
+        // A thousand rows is a couple of hundred kilobytes of JSON, which a
+        // handheld on shop wifi finishes before anybody notices. The ceiling is
+        // here so a client cannot ask for the whole catalogue in one response
+        // and time out halfway through it, which is worse than four requests:
+        // a timed-out pull leaves the device with nothing, four leave it with
+        // three quarters and a cursor.
+        const DEFAULT_LIMIT: usize = 1_000;
+        const MAX_LIMIT: usize = 2_000;
+        let limit = query.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
+        let after = query
+            .after
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let connection = self.lock()?;
+        // Read under the same lock the rows are read under, so the generation
+        // reported with a page is the generation that page came out of.
+        // `apply_catalog_chunk` swaps the whole table and writes this row in
+        // one transaction on this same connection, so it cannot land between
+        // these two statements.
+        let generation = resident_catalog_state(&connection)?.generation;
+        let mut statement = connection
+            .prepare(
+                // No `image_url`, no tags: see `CatalogSnapshotItem`. Ordered
+                // by sku_code because that is the order the centre publishes in
+                // — `catalog_items` there says so in as many words — and the
+                // order the content hash was taken over, so a caller walking
+                // pages reassembles the catalogue as it was laid out rather
+                // than in whatever order SQLite felt like returning it.
+                //
+                // Inactive rows are included. A handheld that quietly omitted
+                // them would answer "unknown tag" for a withdrawn garment,
+                // which is what a mis-tagged item looks like; it needs to be
+                // able to say "this one is no longer sold".
+                "SELECT sku_code,name,article_code,division_code,barcode,
+                        base_price_minor,active
+                   FROM catalog_item
+                  WHERE (?1 IS NULL OR sku_code > ?1)
+                  ORDER BY sku_code
+                  LIMIT ?2",
+            )
+            .map_err(db)?;
+        // One more than asked for, so "is there another page" is answered by
+        // the same scan rather than by a second count over the table.
+        let mut scanned = statement
+            .query_map(rusqlite::params![after, (limit + 1) as i64], |row| {
+                Ok(CatalogSnapshotItem {
+                    sku_code: row.get(0)?,
+                    name: row.get(1)?,
+                    article_code: row.get(2)?,
+                    division_code: row.get(3)?,
+                    barcode: row.get(4)?,
+                    base_price_minor: row.get(5)?,
+                    active: row.get::<_, i64>(6)? == 1,
+                })
+            })
+            .map_err(db)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(db)?;
+        let has_more = scanned.len() > limit;
+        scanned.truncate(limit);
+        let next_cursor = has_more
+            .then(|| scanned.last().map(|item| item.sku_code.clone()))
+            .flatten();
+        Ok(CatalogSnapshotPage {
+            items: scanned,
+            next_cursor,
+            generation,
+        })
+    }
+
     fn store_catalog_page(
         &self,
         query: pricing::CatalogQuery,
@@ -5703,6 +5817,14 @@ impl EdgeInventory for SqliteEdge {
             return Ok(response);
         }
         let report = crate::edge::till::open_shift(&tx, &request)?;
+        // The centre gets a copy of every shift, in the same transaction that
+        // wrote it. Behind the idempotency guard, so a replayed request returns
+        // the stored report above without enqueuing the shift a second time.
+        crate::edge::till::enqueue_shift_fact(
+            &tx,
+            &report.shift_id,
+            &self.node.site_id.to_string(),
+        )?;
         Self::save_idempotent(
             &tx,
             &request.idempotency_key,
@@ -5750,6 +5872,7 @@ impl EdgeInventory for SqliteEdge {
             return Ok(response);
         }
         let report = crate::edge::till::record_cash_movement(&tx, shift_id, &request)?;
+        crate::edge::till::enqueue_shift_fact(&tx, shift_id, &self.node.site_id.to_string())?;
         Self::save_idempotent(
             &tx,
             &request.idempotency_key,
@@ -5780,6 +5903,7 @@ impl EdgeInventory for SqliteEdge {
             return Ok(response);
         }
         let report = crate::edge::till::close_shift(&tx, shift_id, &request)?;
+        crate::edge::till::enqueue_shift_fact(&tx, shift_id, &self.node.site_id.to_string())?;
         Self::save_idempotent(
             &tx,
             &request.idempotency_key,
@@ -6246,6 +6370,37 @@ fn parse_time(value: &str) -> Result<DateTime<Utc>, EdgeError> {
     DateTime::parse_from_rfc3339(value)
         .map(|value| value.with_timezone(&Utc))
         .map_err(|error| EdgeError::Persistence(error.to_string()))
+}
+
+/// The `catalog_state` singleton, or the truthful nothing of a node that has
+/// never been sent a catalogue.
+///
+/// Migration 0003 constrains `generation` to be at least 1, so zero cannot
+/// come out of the table and is unambiguous as "no catalogue here at all".
+fn resident_catalog_state(connection: &Connection) -> Result<CatalogSnapshotState, EdgeError> {
+    let row: Option<(i64, i64, String, String)> = connection
+        .query_row(
+            "SELECT generation,item_count,content_hash,activated_at
+               FROM catalog_state WHERE singleton=1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .optional()
+        .map_err(db)?;
+    let Some((generation, item_count, content_hash, activated_at)) = row else {
+        return Ok(CatalogSnapshotState {
+            generation: 0,
+            item_count: 0,
+            content_hash: String::new(),
+            activated_at: None,
+        });
+    };
+    Ok(CatalogSnapshotState {
+        generation,
+        item_count,
+        content_hash,
+        activated_at: Some(parse_time(&activated_at)?),
+    })
 }
 
 fn parse_uuid(value: &str) -> Result<Uuid, EdgeError> {
@@ -7571,6 +7726,199 @@ mod tests {
             let candidate = std::path::PathBuf::from(format!("{}{suffix}", path.display()));
             let _ = std::fs::remove_file(candidate);
         }
+    }
+
+    /// Put a catalogue on a node the way a publication would leave it.
+    ///
+    /// Writes the items and the `catalog_state` row directly rather than going
+    /// through the command lane, because what is under test here is the read
+    /// side. One SKU in ten is withdrawn, so a walk that quietly filtered on
+    /// `active` would come back short and say so.
+    fn seed_catalogue(edge: &SqliteEdge, count: usize, generation: i64) {
+        let shared_connection = edge.connection();
+        let connection = shared_connection
+            .lock()
+            .unwrap_or_else(|error| panic!("connection: {error}"));
+        for index in 0..count {
+            connection
+                .execute(
+                    "INSERT INTO catalog_item
+                         (sku_code,name,uom,barcode,tax_category,active,generation,
+                          updated_at,base_price_minor,article_code,division_code,
+                          tags_json,image_url)
+                     VALUES (?1,?2,'PCS',?3,'STANDARD',?4,?5,'2026-09-15T00:00:00Z',
+                             ?6,'ART-0001','DIV-01','[]',NULL)",
+                    params![
+                        format!("SKU-{index:05}"),
+                        format!("Sonny Denim {index}"),
+                        format!("899{index:07}"),
+                        i64::from(index % 10 != 0),
+                        generation,
+                        150_000 + index as i64,
+                    ],
+                )
+                .unwrap_or_else(|error| panic!("catalogue item {index}: {error}"));
+        }
+        connection
+            .execute(
+                "INSERT INTO catalog_state
+                     (singleton,snapshot_id,generation,item_count,content_hash,activated_at)
+                 VALUES (1,'snapshot-0001',?1,?2,?3,'2026-09-15T01:00:00Z')",
+                params![generation, count as i64, "a".repeat(64)],
+            )
+            .unwrap_or_else(|error| panic!("catalogue state: {error}"));
+    }
+
+    /// A node nobody has published to yet answers, rather than refusing.
+    ///
+    /// A shop is commissioned before the centre publishes to it, so this is an
+    /// ordinary Tuesday and not a fault. A handheld reading generation 0 knows
+    /// to pull; a handheld reading a 404 cannot tell that from being pointed at
+    /// a node too old to serve the route, and the two call for opposite things.
+    #[test]
+    fn a_node_with_no_catalogue_reports_generation_zero() {
+        let store = SqliteEdge::open_in_memory(node(EdgeRole::Store, "store-07"))
+            .unwrap_or_else(|error| panic!("store: {error}"));
+
+        let state = store
+            .catalog_snapshot_state()
+            .unwrap_or_else(|error| panic!("state: {error}"));
+        assert_eq!(state.generation, 0);
+        assert_eq!(state.item_count, 0);
+        assert_eq!(state.content_hash, "");
+        assert!(
+            state.activated_at.is_none(),
+            "nothing was ever activated, so there is no hour to name"
+        );
+
+        let page = store
+            .catalog_snapshot_items(CatalogSnapshotQuery::default())
+            .unwrap_or_else(|error| panic!("items: {error}"));
+        assert!(page.items.is_empty());
+        assert!(page.next_cursor.is_none());
+        assert_eq!(page.generation, 0);
+    }
+
+    /// The walk that a handheld actually performs: cursor, page, repeat.
+    ///
+    /// The failure this guards is not "wrong page size" — it is a cursor that
+    /// skips or repeats at a boundary, which leaves a device holding a
+    /// catalogue with a hole in it and no way to know. A hole shows up months
+    /// later as one garment that scans as unknown at one shop.
+    #[test]
+    fn a_keyset_walk_reads_every_sku_exactly_once() {
+        let store = SqliteEdge::open_in_memory(node(EdgeRole::Store, "store-07"))
+            .unwrap_or_else(|error| panic!("store: {error}"));
+        seed_catalogue(&store, 50, 7);
+
+        let state = store
+            .catalog_snapshot_state()
+            .unwrap_or_else(|error| panic!("state: {error}"));
+        assert_eq!(state.generation, 7);
+        assert_eq!(state.item_count, 50);
+
+        let mut seen: Vec<String> = Vec::new();
+        let mut cursor: Option<String> = None;
+        let mut pages = 0;
+        loop {
+            let page = store
+                .catalog_snapshot_items(CatalogSnapshotQuery {
+                    after: cursor.clone(),
+                    limit: Some(10),
+                })
+                .unwrap_or_else(|error| panic!("page after {cursor:?}: {error}"));
+            pages += 1;
+            assert!(
+                pages <= 10,
+                "a cursor that does not advance loops forever in the field; \
+                 it must not loop forever here either"
+            );
+            assert_eq!(page.generation, 7, "every page names its own catalogue");
+            assert!(page.items.len() <= 10);
+            seen.extend(page.items.iter().map(|item| item.sku_code.clone()));
+            match page.next_cursor {
+                Some(next) => cursor = Some(next),
+                None => break,
+            }
+        }
+
+        assert_eq!(pages, 5, "fifty rows at ten a page");
+        assert_eq!(seen.len(), 50, "no row was skipped");
+        let mut unique = seen.clone();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(unique.len(), 50, "no row was handed out twice");
+        assert_eq!(seen, unique, "and they arrived in sku_code order");
+        assert_eq!(seen.first().map(String::as_str), Some("SKU-00000"));
+        assert_eq!(seen.last().map(String::as_str), Some("SKU-00049"));
+
+        // The withdrawn one in ten is in the pull, flagged rather than hidden:
+        // a handheld has to be able to say "no longer sold" instead of
+        // "unknown tag", which is what a mis-tagged garment looks like.
+        let first_page = store
+            .catalog_snapshot_items(CatalogSnapshotQuery {
+                after: None,
+                limit: Some(10),
+            })
+            .unwrap_or_else(|error| panic!("first page: {error}"));
+        assert_eq!(first_page.items.len(), 10);
+        assert!(!first_page.items[0].active);
+        assert!(first_page.items[1].active);
+        assert_eq!(first_page.items[0].barcode.as_deref(), Some("8990000000"));
+        assert_eq!(first_page.items[0].base_price_minor, Some(150_000));
+        assert_eq!(
+            first_page.items[0].article_code.as_deref(),
+            Some("ART-0001")
+        );
+
+        // `after` is exclusive, or a paged pull re-sends its boundary row on
+        // every page and the device counts one garment twice per page.
+        let resumed = store
+            .catalog_snapshot_items(CatalogSnapshotQuery {
+                after: Some("SKU-00009".into()),
+                limit: Some(3),
+            })
+            .unwrap_or_else(|error| panic!("resumed: {error}"));
+        assert_eq!(resumed.items[0].sku_code, "SKU-00010");
+    }
+
+    /// A client asking for the whole catalogue in one response does not get it.
+    ///
+    /// The ceiling is not politeness: a response big enough to time out on shop
+    /// wifi leaves the device with nothing at all, where four bounded ones
+    /// leave it with three quarters and a cursor to carry on from.
+    #[test]
+    fn a_greedy_limit_is_clamped_to_the_ceiling() {
+        let store = SqliteEdge::open_in_memory(node(EdgeRole::Store, "store-07"))
+            .unwrap_or_else(|error| panic!("store: {error}"));
+        seed_catalogue(&store, 2_005, 3);
+
+        let page = store
+            .catalog_snapshot_items(CatalogSnapshotQuery {
+                after: None,
+                limit: Some(10_000),
+            })
+            .unwrap_or_else(|error| panic!("greedy page: {error}"));
+        assert_eq!(
+            page.items.len(),
+            2_000,
+            "the hard maximum, not what was asked"
+        );
+        assert_eq!(
+            page.next_cursor.as_deref(),
+            Some("SKU-01999"),
+            "and the rest is reachable rather than lost"
+        );
+        assert_eq!(page.generation, 3);
+
+        // Nought would mean a walk that never ends; the floor is one row.
+        let single = store
+            .catalog_snapshot_items(CatalogSnapshotQuery {
+                after: None,
+                limit: Some(0),
+            })
+            .unwrap_or_else(|error| panic!("zero limit: {error}"));
+        assert_eq!(single.items.len(), 1);
     }
 }
 

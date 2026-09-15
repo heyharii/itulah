@@ -404,7 +404,7 @@ pub async fn post_variance(
     };
 
     let mut tx = pool.begin().await?;
-    let posted = post(&mut tx, &intent, actor).await?;
+    let posted = post(&mut tx, &intent, None, actor).await?;
     // Only from null: two people pressing at once means one entry, not two, and
     // the second is told the difference is already in the books.
     let updated = sqlx::query(

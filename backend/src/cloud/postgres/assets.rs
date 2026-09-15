@@ -25,9 +25,10 @@ use crate::cloud::application::AppError;
 use crate::cloud::domain::{
     monthly_charge, Basis, ChargeKind, DepreciationMethod, Outcome, SkipReason,
 };
-use chrono::{Datelike, NaiveDate};
+use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{PgPool, Row};
+use sqlx::{PgPool, Postgres, Row, Transaction};
+use std::collections::HashMap;
 use uuid::Uuid;
 
 /// A life in months and a rate in basis points, each derived from the other
@@ -746,9 +747,9 @@ pub async fn asset(pool: &PgPool, asset_id: Uuid) -> Result<AssetRow, AppError> 
 /// client's own chart puts it. That is the point: work in progress is not a
 /// fixed asset yet, and their accountants already say so by filing it
 /// somewhere else. 668 of the 1,342 rows in their register are here.
-const ASSET_FAMILIES: [&str; 3] = ["10215", "10217", "1031803"];
+pub(super) const ASSET_FAMILIES: [&str; 3] = ["10215", "10217", "1031803"];
 
-fn is_asset_account(code: &str) -> bool {
+pub(super) fn is_asset_account(code: &str) -> bool {
     ASSET_FAMILIES.iter().any(|family| code.starts_with(family))
 }
 
@@ -1262,9 +1263,20 @@ pub async fn assess_asset(
                 PostingLine::credit("work_in_progress", &site, cost).with_qualifier(&filed_under),
             ],
         };
-        post(&mut tx, &intent, actor).await?;
+        post(&mut tx, &intent, None, actor).await?;
     }
     tx.commit().await?;
+    // A DRAFT asset is one a posted bill line minted; assessing it is a person
+    // saying they have seen what the bill bought. That is exactly what
+    // REGISTERED has always meant, so this is not a new state machine — it is
+    // the draft joining the one that already exists. Guarded on DRAFT so an
+    // asset already IN_SERVICE is not walked backwards by a re-assessment.
+    sqlx::query(
+        "UPDATE fixed_asset SET status = 'REGISTERED' WHERE asset_id = $1 AND status = 'DRAFT'",
+    )
+    .bind(asset_id)
+    .execute(pool)
+    .await?;
     asset(pool, asset_id).await
 }
 
@@ -1537,7 +1549,16 @@ async fn charge_month(
                 };
 
                 let mut tx = pool.begin().await?;
-                let posted = post(&mut tx, &intent, actor).await?;
+                // The month is the step. `source_id` is the asset and the asset
+                // is charged every month, so the document alone cannot say which
+                // charge this is — and under migration 0140's key it would make
+                // October's charge look like a duplicate of September's. Naming
+                // the period also gives the run the idempotency it never had:
+                // charging one asset twice for one month is now refused by the
+                // database rather than by `asset_depreciation_entry` being read
+                // a moment before it is written.
+                let purpose = format!("PERIOD_{}", period.format("%Y%m"));
+                let posted = post(&mut tx, &intent, Some(&purpose), actor).await?;
                 sqlx::query(
                     "INSERT INTO asset_depreciation_entry
                        (entry_id, asset_id, period_month, amount_minor, journal_entry_id, posted_by)
@@ -1868,7 +1889,8 @@ pub async fn dispose_asset(
         if let Some(key) = proceeds_key.as_deref() {
             lines.push(
                 PostingLine::debit(key, &site, request.proceeds_minor)
-                    .with_qualifier(request.proceeds_account_qualifier.trim()),
+                    .with_qualifier(request.proceeds_account_qualifier.trim())
+                    .for_asset(asset_id),
             );
         }
     }
@@ -1878,12 +1900,10 @@ pub async fn dispose_asset(
     // somebody makes twice on the Account Map.
     let result = cost - accumulated - request.proceeds_minor;
     match result.cmp(&0) {
-        std::cmp::Ordering::Greater => {
-            lines.push(PostingLine::debit("asset_disposal_result", &site, result))
-        }
-        std::cmp::Ordering::Less => {
-            lines.push(PostingLine::credit("asset_disposal_result", &site, -result))
-        }
+        std::cmp::Ordering::Greater => lines
+            .push(PostingLine::debit("asset_disposal_result", &site, result).for_asset(asset_id)),
+        std::cmp::Ordering::Less => lines
+            .push(PostingLine::credit("asset_disposal_result", &site, -result).for_asset(asset_id)),
         std::cmp::Ordering::Equal => {}
     }
 
@@ -1911,7 +1931,8 @@ pub async fn dispose_asset(
     };
 
     let mut tx = pool.begin().await?;
-    let posted = post(&mut tx, &intent, actor).await?;
+    // An asset leaves the books once, so MAIN is the whole of it.
+    let posted = post(&mut tx, &intent, None, actor).await?;
     // One statement, so the CHECK that ties DISPOSED to its entry, its method
     // and its proceeds is satisfied by the row as a whole. Setting them one at
     // a time would fail on the first.
@@ -2037,7 +2058,17 @@ pub async fn transfer_asset(
             }),
             lines,
         };
-        Some(post(&mut tx, &intent, actor).await?.entry_id)
+        // The date is the step. An asset moves more than once in its life and
+        // `source_id` is the asset, so — as with the monthly charge — the
+        // document alone cannot say which move this is. Naming the day also
+        // makes the second attempt at one move a refusal rather than a second
+        // entry: an asset does not go to two places on one date.
+        let purpose = format!("MOVED_{}", request.moved_on.format("%Y%m%d"));
+        Some(
+            post(&mut tx, &intent, Some(&purpose), actor)
+                .await?
+                .entry_id,
+        )
     } else {
         None
     };
@@ -2368,4 +2399,398 @@ pub async fn acquisition_gap(pool: &PgPool) -> Result<AcquisitionGap, AppError> 
         lines_without_an_asset: lines,
         lines_total_minor: lines_total,
     })
+}
+
+// ---------------------------------------------------------------------------
+// An asset the books bought, put on the register by the posting
+// ---------------------------------------------------------------------------
+//
+// 0099 argued there is no acquisition posting RULE to write, and that is still
+// true: the bill is the acquisition and it already posts. What it left to a
+// person was the LINK, and `acquisition_gap` has been reporting the gap ever
+// since — a list somebody works through by hand, one bill at a time, long after
+// the person who knew what the line was for has moved on.
+//
+// The moment anybody knows that a line bought a rack rather than a month of
+// electricity is the moment they are holding the paper. 0137 lets them say so.
+// This is what happens when they do.
+
+/// Mint the DRAFT assets a posting bill's lines say they are buying.
+///
+/// Runs INSIDE the caller's transaction and BEFORE the journal is written, so
+/// the acquisition line can carry the asset it bought as its dimension. The
+/// other order — post, then mint, then go back and update the line — would need
+/// to find the line again by its amount, and two identical racks on one bill
+/// would make that a guess.
+///
+/// Returns bill line -> asset, for the caller to hang on its posting lines.
+///
+/// A line that DRAWS the replacement reserve mints nothing, and that is not an
+/// omission: operating equipment is not capitalised in this client's books at
+/// all — 0139 — so there would be no cost for a register row to carry and no
+/// depreciation for it to be charged. The reserve stands in for both.
+pub async fn asset_drafts_for_bill(
+    tx: &mut Transaction<'_, Postgres>,
+    invoice_id: Uuid,
+    actor: &str,
+) -> Result<HashMap<Uuid, Uuid>, AppError> {
+    let rows = sqlx::query(
+        "SELECT l.line_id, l.asset_class_code, l.site_id, l.memo, l.line_number,
+                i.invoice_number, i.invoice_date, c.name AS class_name
+           FROM supplier_invoice_expense_line l
+           JOIN supplier_invoice i USING (invoice_id)
+           JOIN ledger_account c ON c.account_code = l.asset_class_code
+          WHERE l.invoice_id = $1
+            AND l.asset_class_code IS NOT NULL
+            AND NOT l.draws_reserve
+            AND NOT EXISTS (SELECT 1 FROM fixed_asset a
+                             WHERE a.acquired_via_line_id = l.line_id)
+          ORDER BY l.line_number",
+    )
+    .bind(invoice_id)
+    .fetch_all(&mut **tx)
+    .await?;
+
+    let mut minted = HashMap::with_capacity(rows.len());
+    for row in &rows {
+        let line_id: Uuid = row.try_get("line_id")?;
+        let class_code: String = row.try_get("asset_class_code")?;
+        let class_name: String = row.try_get("class_name")?;
+        let line_number: i32 = row.try_get("line_number")?;
+        let invoice_number: String = row.try_get("invoice_number")?;
+
+        // Checked when the bill was keyed as well. Repeated here because this
+        // is the last place before a row exists, and an asset in a class that
+        // is not an asset class is a row nothing can ever depreciate or dispose
+        // of.
+        if !is_asset_account(&class_code) {
+            return Err(AppError::Validation(format!(
+                "{invoice_number} line {line_number} says it buys a {class_code}, which is not an \
+                 asset class; they are the families under {}",
+                ASSET_FAMILIES.join(", ")
+            )));
+        }
+
+        // The client's own name for the class, unless the person keying wrote
+        // something better. `OE - Rak 1` is a poor name for one rack and an
+        // honest one for a row nobody has looked at yet — which is exactly what
+        // DRAFT says.
+        let name = match row.try_get::<Option<String>, _>("memo")? {
+            Some(memo) if !memo.trim().is_empty() => memo.trim().to_string(),
+            _ => class_name,
+        };
+
+        let number: i64 = sqlx::query("SELECT nextval('fixed_asset_number_seq') AS n")
+            .fetch_one(&mut **tx)
+            .await?
+            .try_get("n")?;
+        let asset_id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO fixed_asset
+               (asset_id, asset_number, name, category_code, site_id, acquired_on,
+                status, notes, registered_by, acquired_via_line_id)
+             VALUES ($1,$2,$3,$4,$5,$6,'DRAFT',$7,$8,$9)",
+        )
+        .bind(asset_id)
+        .bind(format!("AST-{number:06}"))
+        .bind(&name)
+        .bind(&class_code)
+        .bind(row.try_get::<String, _>("site_id")?)
+        .bind(row.try_get::<NaiveDate, _>("invoice_date")?)
+        .bind(format!(
+            "Dari {invoice_number} baris {line_number}. Belum dinilai: umur ekonomis dan tanggal \
+             mulai disusutkan menunggu Finance."
+        ))
+        .bind(actor)
+        .bind(line_id)
+        .execute(&mut **tx)
+        .await?;
+        minted.insert(line_id, asset_id);
+    }
+    Ok(minted)
+}
+
+// ---------------------------------------------------------------------------
+// The month, run and written down
+// ---------------------------------------------------------------------------
+
+/// Whether one asset's arithmetic still owes a charge for a month.
+///
+/// The same question `charge_is_owed` asks of a disposal, asked of a row of the
+/// run's own candidate query rather than of an `AssetRow`. Kept separate rather
+/// than reshaping one into the other: `AssetRow` is a read model with a dozen
+/// fields this does not need, and building one per asset to answer a boolean is
+/// a query per asset on a list that draws a hundred.
+fn row_is_owed_a_charge(row: &sqlx::postgres::PgRow, period: NaiveDate) -> Result<bool, AppError> {
+    let in_service: NaiveDate = row.try_get("in_service_on")?;
+    if month_of(in_service) > period {
+        return Ok(false);
+    }
+    let method = match DepreciationMethod::parse(&row.try_get::<String, _>("method")?) {
+        Some(method) => method,
+        None => return Ok(false),
+    };
+    Ok(matches!(
+        monthly_charge(Basis {
+            method,
+            capitalized_cost_minor: row.try_get("capitalized_cost_minor")?,
+            salvage_value_minor: row.try_get("salvage_value_minor")?,
+            useful_life_months: row.try_get("useful_life_months")?,
+            accumulated_minor: row.try_get("accumulated")?,
+            period_index: months_between(in_service, period),
+        }),
+        Outcome::Post(_)
+    ))
+}
+
+/// One asset a month is still waiting on.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct AssetAwaitingCharge {
+    pub asset_id: Uuid,
+    pub asset_number: String,
+    pub name: String,
+    pub site_id: String,
+    pub category_code: String,
+}
+
+/// The last time anybody tried to charge a month, and how it went.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct DepreciationRunRecord {
+    pub run_id: Uuid,
+    pub started_at: DateTime<Utc>,
+    /// Absent on a run that never finished — which is not the same as a run
+    /// that posted nothing, and is the state worth seeing at a year end.
+    pub finished_at: Option<DateTime<Utc>>,
+    pub posted_count: i32,
+    pub posted_total_minor: i64,
+    pub skipped_count: i32,
+    pub failed_count: i32,
+    /// `system:month-end` when the schedule ran it, a username when a person
+    /// did.
+    pub triggered_by: String,
+    pub note: Option<String>,
+}
+
+/// Whether a month's depreciation is actually done.
+///
+/// Written for the period-close checklist, which needs a sentence rather than a
+/// run report: "September — 35 due, 35 posted, none missing" closes, and "35
+/// due, 24 posted, 11 missing" does not.
+///
+/// `assets_due` is asked of the REGISTER and not of the log. A month can have
+/// been run correctly on the 1st and be incomplete on the 5th, because an asset
+/// was capitalised in between and now owes a charge it did not owe then. A
+/// "months completed" flag would say done and the books would disagree.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct AssetDepreciationStatus {
+    pub period_month: NaiveDate,
+    /// Capitalised assets this month concerns: the ones already charged, plus
+    /// the ones whose arithmetic still owes a charge. Land and assets at
+    /// salvage are in neither — they are complete at nothing.
+    pub assets_due: i64,
+    pub posted_count: i64,
+    pub posted_total_minor: i64,
+    /// The ones still waiting, named. A count alone sends somebody looking for
+    /// which.
+    pub missing: Vec<AssetAwaitingCharge>,
+    /// True when nothing is waiting. The one field a checklist reads.
+    pub complete: bool,
+    /// Whether the month is still open to post into. A month closed with
+    /// charges missing is the state this endpoint exists to prevent.
+    pub period_status: Option<String>,
+    pub last_run: Option<DepreciationRunRecord>,
+}
+
+/// The candidate query the run and the status share, so the two cannot drift
+/// about what "an asset this month concerns" means.
+const DUE_CANDIDATES: &str =
+    "SELECT a.asset_id, a.asset_number, a.name, a.site_id, a.category_code,
+                k.capitalized_cost_minor, k.salvage_value_minor, k.useful_life_months,
+                k.method, k.in_service_on,
+                COALESCE((SELECT SUM(d.amount_minor) FROM asset_depreciation_entry d
+                           WHERE d.asset_id = a.asset_id), 0)::bigint AS accumulated,
+                EXISTS (SELECT 1 FROM asset_depreciation_entry d
+                         WHERE d.asset_id = a.asset_id AND d.period_month = $1) AS already
+           FROM fixed_asset a
+           JOIN LATERAL (
+               SELECT * FROM asset_capitalization x
+                WHERE x.asset_id = a.asset_id ORDER BY x.sequence DESC LIMIT 1
+           ) k ON true
+          WHERE k.decision = 'CAPITALIZE'
+            AND a.status <> 'DISPOSED'
+            AND k.in_service_on <= ($1::date + interval '1 month' - interval '1 day')
+          ORDER BY a.asset_number";
+
+/// What a month still owes, and what the last attempt at it did.
+pub async fn asset_depreciation_status(
+    pool: &PgPool,
+    year: i32,
+    month: u32,
+) -> Result<AssetDepreciationStatus, AppError> {
+    let period = NaiveDate::from_ymd_opt(year, month, 1)
+        .ok_or_else(|| AppError::Validation("not a month".into()))?;
+
+    let rows = sqlx::query(DUE_CANDIDATES)
+        .bind(period)
+        .fetch_all(pool)
+        .await?;
+
+    let mut due = 0i64;
+    let mut missing = Vec::new();
+    for row in &rows {
+        // An asset already charged is due by definition — it was, and the
+        // charge is the evidence. Asking the arithmetic again would say no,
+        // because the accumulated figure now includes this very month, and the
+        // count would fall as the run succeeded.
+        if row.try_get::<bool, _>("already")? {
+            due += 1;
+            continue;
+        }
+        if row_is_owed_a_charge(row, period)? {
+            due += 1;
+            missing.push(AssetAwaitingCharge {
+                asset_id: row.try_get("asset_id")?,
+                asset_number: row.try_get("asset_number")?,
+                name: row.try_get("name")?,
+                site_id: row.try_get("site_id")?,
+                category_code: row.try_get("category_code")?,
+            });
+        }
+    }
+
+    let posted = sqlx::query(
+        "SELECT COUNT(*)::bigint AS n, COALESCE(SUM(amount_minor), 0)::bigint AS total
+           FROM asset_depreciation_entry WHERE period_month = $1",
+    )
+    .bind(period)
+    .fetch_one(pool)
+    .await?;
+
+    let period_status: Option<String> =
+        sqlx::query("SELECT status FROM fiscal_period WHERE year = $1 AND month = $2")
+            .bind(year as i16)
+            .bind(month as i16)
+            .fetch_optional(pool)
+            .await?
+            .map(|row| row.try_get("status"))
+            .transpose()?;
+
+    let last_run = sqlx::query(
+        "SELECT run_id, started_at, finished_at, posted_count, posted_total_minor,
+                skipped_count, failed_count, triggered_by, note
+           FROM asset_depreciation_run
+          WHERE period_month = $1
+          ORDER BY started_at DESC LIMIT 1",
+    )
+    .bind(period)
+    .fetch_optional(pool)
+    .await?
+    .map(|row| {
+        Ok::<_, AppError>(DepreciationRunRecord {
+            run_id: row.try_get("run_id")?,
+            started_at: row.try_get("started_at")?,
+            finished_at: row.try_get("finished_at")?,
+            posted_count: row.try_get("posted_count")?,
+            posted_total_minor: row.try_get("posted_total_minor")?,
+            skipped_count: row.try_get("skipped_count")?,
+            failed_count: row.try_get("failed_count")?,
+            triggered_by: row.try_get("triggered_by")?,
+            note: row.try_get("note")?,
+        })
+    })
+    .transpose()?;
+
+    Ok(AssetDepreciationStatus {
+        period_month: period,
+        assets_due: due,
+        posted_count: posted.try_get("n")?,
+        posted_total_minor: posted.try_get("total")?,
+        complete: missing.is_empty(),
+        missing,
+        period_status,
+        last_run,
+    })
+}
+
+/// Charge a month, and write down that it was charged.
+///
+/// The run itself is `run_depreciation`, unchanged and still idempotent by the
+/// unique index on (asset, period). What this adds is the record that an
+/// attempt happened — the thing a schedule needs and a person pressing a button
+/// does not, because a person can see the answer on their screen and nobody is
+/// watching at three in the morning on the first of the month.
+///
+/// The row is written BEFORE the run and finished after, so a run that dies
+/// half way leaves a row with no `finished_at` rather than no row at all. A run
+/// that left nothing behind would be indistinguishable from a month nobody ever
+/// reached, which is the confusion this exists to end.
+pub async fn asset_depreciation_run_month(
+    pool: &PgPool,
+    year: i32,
+    month: u32,
+    actor: &str,
+) -> Result<DepreciationRun, AppError> {
+    let period = NaiveDate::from_ymd_opt(year, month, 1)
+        .ok_or_else(|| AppError::Validation("not a month".into()))?;
+
+    let run_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO asset_depreciation_run (run_id, period_month, triggered_by)
+         VALUES ($1,$2,$3)",
+    )
+    .bind(run_id)
+    .bind(period)
+    .bind(actor)
+    .execute(pool)
+    .await?;
+
+    match run_depreciation(pool, year, month, actor).await {
+        Ok(run) => {
+            // What is still missing after the attempt, asked of the register
+            // and not of the run's own report: an asset the run never selected
+            // — one capitalised while it was running — is missing from the
+            // month and absent from the report, and only the register sees
+            // both.
+            let after = asset_depreciation_status(pool, year, month).await?;
+            sqlx::query(
+                "UPDATE asset_depreciation_run
+                    SET finished_at = now(), posted_count = $2, posted_total_minor = $3,
+                        skipped_count = $4, failed_count = $5
+                  WHERE run_id = $1",
+            )
+            .bind(run_id)
+            .bind(run.posted_count as i32)
+            .bind(run.posted_total_minor)
+            .bind(run.skipped_count as i32)
+            .bind(after.missing.len() as i32)
+            .execute(pool)
+            .await?;
+            Ok(run)
+        }
+        Err(error) => {
+            // The run posts asset by asset in its own transactions, so whatever
+            // it managed before the refusal stands. The row records the refusal
+            // verbatim, because by morning the only other evidence that eleven
+            // assets were turned away is that their entries are absent.
+            let note = error.to_string();
+            let still_missing = asset_depreciation_status(pool, year, month)
+                .await
+                .map(|status| status.missing.len() as i32)
+                .unwrap_or(0);
+            sqlx::query(
+                "UPDATE asset_depreciation_run
+                    SET finished_at = now(), failed_count = $2, note = $3
+                  WHERE run_id = $1",
+            )
+            .bind(run_id)
+            .bind(still_missing)
+            .bind(&note)
+            .execute(pool)
+            .await?;
+            Err(error)
+        }
+    }
 }

@@ -24,13 +24,15 @@
 //!
 //! # Assumptions, stated because they are choices and not facts
 //!
-//! * **One payment, one account, one site, one date.** The site is the
-//!   payment's, and the database refuses an allocation to a bill at another
-//!   location. Head office paying a shop's supplier is a real thing an
-//!   Indonesian retailer does, and doing it honestly needs the client's
-//!   inter-unit accounts — which they keep — plus a rule about which side
-//!   carries the balance. Refusing is not the final answer; it is the honest
-//!   one until that rule is written down.
+//! * **One payment, one account, one date — but not one site.** The money
+//!   leaves the PAYMENT's location and the payable is cleared at the BILL's,
+//!   which is where the bill credited it. Head office paying a shop's supplier
+//!   is a real thing an Indonesian retailer does every week, and until the
+//!   inter-unit rule existed `assert_allocation_fits` refused it, because the
+//!   honest entry does not balance per location on its own. It does now:
+//!   `domain::interunit` completes it through the client's affiliate accounts,
+//!   0121 took the refusal off, and the shop's books show its payable cleared
+//!   against what it owes head office instead of against money it never had.
 //! * **One payment may settle several bills, in part.** Both are ordinary: a
 //!   weekly transfer clears a batch, and a disputed line gets paid short.
 //! * **No foreign exchange.** Bill and payment must agree on currency. Every
@@ -52,6 +54,7 @@
 //!   posted payments only, and `allocated_minor` is what tells a screen why a
 //!   bill with an outstanding balance still will not take another allocation.
 
+use super::giro::{giro_insert, NewGiro};
 use super::payables::PayableFacet;
 use super::poster::{post, PostingIntent, PostingLine};
 use super::{decode_cursor, encode_cursor};
@@ -80,6 +83,13 @@ pub struct PaymentAllocation {
     /// a screen listing what a transfer settled should be able to say that one
     /// of the four was the electricity.
     pub kind: String,
+    /// Where the BILL is, which is not always where the payment is.
+    ///
+    /// It decides where the payable is debited, and it has to: a payable
+    /// credited in store 03's books and cleared in head office's would leave
+    /// store 03 owing a supplier for ever while head office's balance sheet
+    /// carried a debt it never had.
+    pub site_id: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -142,6 +152,18 @@ pub struct RecordPaymentRequest {
     pub reference: Option<String>,
     pub note: Option<String>,
     pub allocations: Vec<AllocateToBill>,
+    /// The number printed on the giro, when the method is GIRO. Required then,
+    /// refused otherwise: a giro with no number is a liability nobody can find
+    /// again when the bank telephones about it.
+    ///
+    /// Kept out of `reference` on purpose. `reference` is free text — a
+    /// transfer confirmation code, a cheque stub, a note to self — and the
+    /// number of a post-dated instrument is a key: it identifies the paper, it
+    /// is unique per bank, and the giro row's own uniqueness rests on it.
+    pub giro_number: Option<String>,
+    /// The date on the face of it. Required with the number, and the whole
+    /// reason a giro is not simply a slow transfer.
+    pub giro_due_date: Option<NaiveDate>,
 }
 
 // ---------------------------------------------------------------------------
@@ -284,7 +306,7 @@ async fn attach_allocations(
     let rows = sqlx::query(
         "SELECT al.payment_id, al.invoice_id, al.amount_minor,
                 i.invoice_number, i.supplier_id, i.supplier_name, i.invoice_date,
-                i.due_date, i.total_minor AS invoice_total_minor, i.kind
+                i.due_date, i.total_minor AS invoice_total_minor, i.kind, i.site_id
            FROM supplier_payment_allocation al
            JOIN supplier_invoice i USING (invoice_id)
           WHERE al.payment_id = ANY($1)
@@ -306,6 +328,7 @@ async fn attach_allocations(
             invoice_total_minor: row.try_get("invoice_total_minor")?,
             amount_minor: row.try_get("amount_minor")?,
             kind: row.try_get("kind")?,
+            site_id: row.try_get("site_id")?,
         };
         if let Some(payment) = payments.iter_mut().find(|p| p.payment_id == payment_id) {
             payment.allocations.push(allocation);
@@ -588,6 +611,54 @@ pub async fn record_payment(
             METHODS.join(", ")
         )));
     }
+
+    // A giro is a promise on a dated piece of paper, and both halves of that
+    // are required. Without the number nobody can find the liability again when
+    // the bank telephones; without the date it is indistinguishable from a
+    // transfer, which is exactly the confusion that had these crediting the
+    // bank account weeks early.
+    let giro_number = request
+        .giro_number
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let giro = match (method.as_str(), giro_number, request.giro_due_date) {
+        ("GIRO", Some(number), Some(due)) => {
+            if due < request.payment_date {
+                return Err(AppError::Validation(format!(
+                    "giro {number} is dated {due} and the payment is dated {}; a giro falls due \
+                     after it is written, which is the point of one",
+                    request.payment_date
+                )));
+            }
+            // The bank is the qualifier, and it has to be one: `giro_outstanding`
+            // is kept per bank in the client's chart (2012002001 BCA,
+            // 2012002002 Mandiri, …) and an unqualified credit has nowhere to
+            // land.
+            if request.account_qualifier.trim().is_empty() {
+                return Err(AppError::Validation(
+                    "a giro is drawn on a particular bank; name it as the account qualifier — \
+                     BCA, MANDIRI — because the outstanding-giro account is kept per bank"
+                        .into(),
+                ));
+            }
+            Some((number.to_string(), due))
+        }
+        ("GIRO", _, _) => {
+            return Err(AppError::Validation(
+                "a giro needs the number printed on it and the date on its face; without both \
+                 it is a transfer that has not happened yet"
+                    .into(),
+            ))
+        }
+        (_, None, None) => None,
+        (other, _, _) => {
+            return Err(AppError::Validation(format!(
+                "a {other} payment carries no giro number or due date; change the method to \
+                 GIRO, or drop them"
+            )))
+        }
+    };
     if request.allocations.is_empty() {
         return Err(AppError::Validation(
             "a payment must say which bills it settles; a payment against no bill is a bank \
@@ -630,6 +701,13 @@ pub async fn record_payment(
     // which is exactly what somebody has to go and fill in.
     let qualifier = request.account_qualifier.trim();
     super::ledger::resolve_account(pool, &key, &request.site_id, qualifier).await?;
+    // And the account the giro will actually be credited to. Checked here
+    // rather than at posting, so a bank whose outstanding-giro leaf nobody
+    // mapped is refused while somebody is still looking at the form.
+    if giro.is_some() {
+        super::ledger::resolve_account(pool, "giro_outstanding", &request.site_id, qualifier)
+            .await?;
+    }
 
     let mut tx = pool.begin().await?;
     let payment_id = Uuid::new_v4();
@@ -641,8 +719,9 @@ pub async fn record_payment(
     sqlx::query(
         "INSERT INTO supplier_payment
            (payment_id, payment_number, site_id, payment_date, method, account_key,
-            account_qualifier, currency, total_minor, reference, note, recorded_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,'IDR',$8,$9,$10,$11)",
+            account_qualifier, currency, total_minor, reference, note, recorded_by,
+            giro_number, giro_due_date)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'IDR',$8,$9,$10,$11,$12,$13)",
     )
     .bind(payment_id)
     .bind(format!("PV-{number:08}"))
@@ -655,6 +734,8 @@ pub async fn record_payment(
     .bind(request.reference.as_deref())
     .bind(request.note.as_deref())
     .bind(actor)
+    .bind(giro.as_ref().map(|(number, _)| number.as_str()))
+    .bind(giro.as_ref().map(|(_, due)| *due))
     .execute(&mut *tx)
     .await?;
 
@@ -714,7 +795,14 @@ pub async fn post_payment(
         } else {
             "trade_payable"
         };
-        let mut line = PostingLine::debit(payable, &existing.site_id, allocation.amount_minor)
+        // At the BILL's location, not the payment's. That is where the bill
+        // credited this payable, and clearing it anywhere else would leave two
+        // sets of books wrong in opposite directions with a trial balance that
+        // still balanced. When the two differ the entry does not balance per
+        // location on its own, and `poster::post` adds the affiliate legs that
+        // make it — which is the whole reason this line is allowed to say
+        // something the payment's site does not.
+        let mut line = PostingLine::debit(payable, &allocation.site_id, allocation.amount_minor)
             .for_supplier(&allocation.supplier_id);
         line.memo = Some(format!(
             "{} {}",
@@ -726,13 +814,49 @@ pub async fn post_payment(
         ));
         lines.push(line);
     }
-    lines.push(
-        PostingLine::credit(
-            &existing.account_key,
+    // What the credit goes to, and the one place a giro differs from every
+    // other method.
+    //
+    // # Why a giro does not credit the bank
+    //
+    // It used to, and that was the bug. The client pays most of its suppliers
+    // by giro thirty to ninety days out, and crediting `bank_giro` the moment
+    // one was written said the bank account was that much emptier weeks before
+    // the bank had heard of the instrument. The bank balance then could not be
+    // reconciled against a statement, and the cash position was wrong in the
+    // direction that invites somebody to borrow against money that is still
+    // there.
+    //
+    // So an issued giro credits `giro_outstanding` for that bank: the debt has
+    // moved from the supplier to the instrument, and nothing has left. Only
+    // `giro::giro_clear` moves the bank, and it does it on the day the
+    // statement says the bank took it.
+    let credit_key = if existing.method == "GIRO" {
+        "giro_outstanding"
+    } else {
+        existing.account_key.as_str()
+    };
+    // What actually left, which is not always what was settled. A payment may
+    // keep back the supplier's income tax and may carry the bank's own charge
+    // for the transfer, and both of those sit between the debt and the money
+    // line. `payables_flow` owns that arithmetic because it owns the columns
+    // 0133 added; with neither present it returns exactly the single credit
+    // this used to push, so every payment recorded before 0133 posts the same
+    // entry it always did.
+    //
+    // It is given `credit_key` rather than the payment's own account key, so a
+    // giro still credits the instrument rather than the bank. Withholding and a
+    // bank charge are about how much left, not about where from.
+    lines.extend(
+        super::payables_flow::payment_money_lines(
+            pool,
+            payment_id,
             &existing.site_id,
+            credit_key,
+            &existing.account_qualifier,
             existing.total_minor,
         )
-        .with_qualifier(&existing.account_qualifier),
+        .await?,
     );
 
     let settled = existing
@@ -752,7 +876,7 @@ pub async fn post_payment(
     };
 
     let mut tx = pool.begin().await?;
-    let posted = post(&mut tx, &intent, actor).await?;
+    let posted = post(&mut tx, &intent, None, actor).await?;
     sqlx::query(
         "UPDATE supplier_payment
             SET status='POSTED', journal_entry_id=$2, posted_by=$3, posted_at=now()
@@ -763,6 +887,78 @@ pub async fn post_payment(
     .bind(actor)
     .execute(&mut *tx)
     .await?;
+
+    // The instrument itself, written down in the same transaction as the entry
+    // that put it on `giro_outstanding`. Not at recording time: a draft payment
+    // is not yet a liability, and a giro board that counted drafts would show
+    // money promised that nobody has approved.
+    if existing.method == "GIRO" {
+        let details = sqlx::query(
+            "SELECT giro_number, giro_due_date FROM supplier_payment WHERE payment_id = $1",
+        )
+        .bind(payment_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        let number: Option<String> = details.try_get("giro_number")?;
+        let due_date: Option<NaiveDate> = details.try_get("giro_due_date")?;
+        match (number, due_date) {
+            (Some(number), Some(due_date)) => {
+                giro_insert(
+                    &mut tx,
+                    &NewGiro {
+                        direction: "OUT",
+                        number,
+                        bank: existing.account_qualifier.clone(),
+                        site_id: existing.site_id.clone(),
+                        amount_minor: existing.total_minor,
+                        issue_date: existing.payment_date,
+                        due_date,
+                        supplier_payment_id: Some(payment_id),
+                        cash_document_id: None,
+                        issue_entry_id: posted.entry_id,
+                    },
+                    actor,
+                )
+                .await?;
+            }
+            // Payments recorded before 0119 have the method and not the paper.
+            // Posting one credits `giro_outstanding` correctly and leaves it
+            // off the board, which is visible and fixable; refusing to post it
+            // would strand a payment somebody keyed in good faith.
+            _ => {
+                tracing::warn!(
+                    payment = %existing.payment_number,
+                    "giro payment has no number or due date; posted to giro_outstanding but not \
+                     tracked on the giro board"
+                );
+            }
+        }
+    }
+
+    // One settlement per bill, not one per payment: a transfer answering four
+    // invoices closes four debts, and a ledger that recorded it as one figure
+    // could not say which. The full allocation is settled even when tax was
+    // withheld from it — the vendor is credited with what was billed and
+    // receives less, and a settlement of the net would leave every service
+    // vendor permanently in arrears by the tax.
+    for allocation in &existing.allocations {
+        super::payables_flow::payable_settled(
+            &mut tx,
+            super::payables_flow::payable_key(allocation.kind == "EXPENSE"),
+            // At the BILL's location, exactly as the debit line above is, and
+            // for the same reason: that is where the bill opened the item.
+            &allocation.site_id,
+            &allocation.supplier_id,
+            allocation.invoice_id,
+            "PAYMENT",
+            payment_id,
+            allocation.amount_minor,
+            intent.posting_date,
+            posted.entry_id,
+            actor,
+        )
+        .await?;
+    }
     tx.commit().await?;
 
     payment(pool, payment_id).await

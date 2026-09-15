@@ -667,7 +667,7 @@ pub async fn post_sale_day(
     };
 
     let mut tx = pool.begin().await?;
-    let posted = post(&mut tx, &intent, actor).await?;
+    let posted = post(&mut tx, &intent, None, actor).await?;
     let claimed = sqlx::query(
         "INSERT INTO sale_day_posting
            (site_id, trading_day, entry_id, utc_offset_minutes, sales_count, gross_minor,
@@ -1134,6 +1134,11 @@ mod tests {
             voucher_minor: 0,
             other_minor: 0,
             refunds_minor: 0,
+            // Nothing to do with the tax split: `revenue_of` is about which
+            // bucket the money arrived in, and the PPN comes off the credit
+            // side afterwards. Zero so the arithmetic under test is the only
+            // arithmetic here.
+            tax_minor: 0,
         };
         assert_eq!(facts.revenue_of(Tender::Cash), 1_300_000);
         assert_eq!(facts.revenue_of(Tender::CardDebit), 1_431_336);

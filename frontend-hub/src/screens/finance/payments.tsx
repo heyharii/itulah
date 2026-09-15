@@ -797,6 +797,11 @@ interface PaymentDraft {
   total: string
   reference: string
   note: string
+  /// Only when `method` is GIRO, and then both are required — the server
+  /// refuses a giro with no number (0117/0119). Kept out of `reference`
+  /// deliberately: `reference` is free text, a giro number is a key.
+  giroNumber: string
+  giroDueDate: string
   allocations: DraftAllocation[]
 }
 
@@ -847,7 +852,13 @@ function paymentTotals(draft: PaymentDraft, room: ReadonlyMap<string, number>) {
       draft.allocations.length > 0 &&
       !misread &&
       over.length === 0 &&
-      agrees,
+      agrees &&
+      // A third rule mirrored from the server, for the reason the other two
+      // are: the button should not offer to do something that will be
+      // refused. A giro with no number or no due date is refused by
+      // `record_payment`, and the message names a field this form can show.
+      (draft.method !== "GIRO" ||
+        (draft.giroNumber.trim() !== "" && draft.giroDueDate !== "")),
   }
 }
 
@@ -917,6 +928,17 @@ function ComposerSheet({
             invoice_id: row.invoice_id,
             amount_minor: row.amount ?? 0,
           })),
+          // Sent only on GIRO and refused by the server on anything else, so
+          // a method changed after typing must not smuggle the old paper
+          // along. The fields stay on the draft; what leaves is gated here.
+          giro_number:
+            draft.method === "GIRO" && draft.giroNumber.trim() !== ""
+              ? draft.giroNumber.trim()
+              : null,
+          giro_due_date:
+            draft.method === "GIRO" && draft.giroDueDate !== ""
+              ? draft.giroDueDate
+              : null,
         },
         key
       )
@@ -929,6 +951,8 @@ function ComposerSheet({
       form.setFieldValue("total", "")
       form.setFieldValue("reference", "")
       form.setFieldValue("note", "")
+      form.setFieldValue("giroNumber", "")
+      form.setFieldValue("giroDueDate", "")
       setKey(idempotencyKey())
       // Recording writes no journal entry, so no balance moved — but a draft
       // reserves against the bills it names, which is what `allocated_minor`
@@ -947,6 +971,8 @@ function ComposerSheet({
       total: "",
       reference: "",
       note: "",
+      giroNumber: "",
+      giroDueDate: "",
       allocations: [],
     } as PaymentDraft,
     onSubmit: ({ value }) => record.mutate(value),
@@ -1125,6 +1151,52 @@ function ComposerSheet({
             )}
           </form.Field>
         </div>
+
+        {/* The paper, and only when there is paper. A giro is a promise before
+            it is money (0117), and the number is how the bank finds it again
+            when they telephone — which is why the server requires it rather
+            than accepting a note in `reference`. */}
+        <form.Subscribe selector={(state) => state.values.method}>
+          {(method) =>
+            method === "GIRO" ? (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <form.Field name="giroNumber">
+                  {(field) => (
+                    <Field
+                      label="Giro number"
+                      hint="Printed on the slip. Required for a giro."
+                    >
+                      <Input
+                        value={field.state.value}
+                        onBlur={field.handleBlur}
+                        onChange={(event) =>
+                          field.handleChange(event.target.value)
+                        }
+                      />
+                    </Field>
+                  )}
+                </form.Field>
+                <form.Field name="giroDueDate">
+                  {(field) => (
+                    <Field
+                      label="Due date"
+                      hint="The day it may be cashed, not today."
+                    >
+                      <Input
+                        type="date"
+                        value={field.state.value}
+                        onBlur={field.handleBlur}
+                        onChange={(event) =>
+                          field.handleChange(event.target.value)
+                        }
+                      />
+                    </Field>
+                  )}
+                </form.Field>
+              </div>
+            ) : null
+          }
+        </form.Subscribe>
 
         <form.Subscribe selector={(state) => state.values}>
           {(draft) => (

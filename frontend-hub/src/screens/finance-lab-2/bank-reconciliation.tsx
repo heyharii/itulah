@@ -200,6 +200,7 @@ export function BankReconciliation() {
       bookBankLine(input.lineId, {
         account_code: input.accountCode,
         memo: input.memo,
+        party_name: null,
       }),
     onSuccess: () => {
       setOpen(null)

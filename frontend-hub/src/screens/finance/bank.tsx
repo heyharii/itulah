@@ -844,6 +844,9 @@ function Reconcile({ statement }: { statement: BankStatementRow }) {
       bookBankLine(input.lineId, {
         account_code: input.accountCode,
         memo: input.memo.trim(),
+        // The bank itself, which is what null means here and what these lines
+        // almost always are.
+        party_name: null,
       }).then((receipt) => ({ ...receipt, lineId: input.lineId })),
     onSuccess: (receipt) => {
       setBooked((seen) => new Map(seen).set(receipt.lineId, receipt.entry_id))

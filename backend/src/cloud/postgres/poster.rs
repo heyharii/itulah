@@ -23,13 +23,40 @@
 //! An unmapped meaning is refused, and the refusal names the key. It is never
 //! defaulted: an invented account is a mistake that balances, which is the kind
 //! that survives a year.
+//!
+//! # Two things this door does that its callers do not have to
+//!
+//! **It balances every unit.** A rule may build the entry it means — head
+//! office's bank paying a shop's electricity — and this module adds the
+//! affiliate legs that leave both sets of books balanced on their own, from
+//! `domain::interunit`. See that module for why. A rule cannot forget to, and a
+//! rule that wanted to opt out could not: migration 0120's deferred trigger
+//! refuses an entry with a unit out of balance whoever wrote it.
+//!
+//! **It refuses a document posted twice.** `(source_kind, source_id, purpose)`
+//! is unique from migration 0140. Every posting rule already guards itself with
+//! a status check, and every one of those guards is read-decide-write, which
+//! two requests can both pass. The index cannot be both passed.
 
 use super::ledger::{assert_postable, resolve_account, Intent};
 use crate::cloud::application::AppError;
+use crate::cloud::domain::{balancing_legs, first_unbalanced_site, kind_for_source, SiteMovement};
 use chrono::NaiveDate;
 use serde::Deserialize;
 use sqlx::{Postgres, Row, Transaction};
 use uuid::Uuid;
+
+/// The unit whose books carry every inter-unit receivable.
+///
+/// A constant and not configuration: it is the same `dc` that migration 0122
+/// maps the affiliate accounts against and that `import-coa.py` files the
+/// client's `00` suffix under, and a second place to say it is a second place
+/// for it to be said differently. The kernel still takes it as an argument —
+/// that is what keeps the kernel testable without a database.
+pub const HEAD_OFFICE_SITE: &str = "dc";
+
+/// The step a document posts for when it has only one, which is nearly always.
+pub const MAIN: &str = "MAIN";
 
 /// Which account a line means, and how it is allowed to say so.
 ///
@@ -60,9 +87,26 @@ pub enum LineAccount {
 pub struct PostingLine {
     pub account: LineAccount,
     pub site_id: String,
+    /// The unit on the other side, on an inter-unit line and nowhere else.
+    ///
+    /// A rule never sets this. It is written by the balancer below onto the
+    /// affiliate legs it adds, so a shop's ledger can say who a balance is with
+    /// instead of leaving somebody to decode a twelve-digit account code.
+    #[serde(default)]
+    pub counter_site_id: Option<String>,
     pub debit_minor: i64,
     pub credit_minor: i64,
     pub supplier_id: Option<String>,
+    /// Which asset this line is about, when it is about one.
+    ///
+    /// The second sub-ledger dimension, and it is set the same way the first
+    /// is: by the rule that KNOWS. Depreciation, disposal, transfer and an
+    /// acquisition all name one asset; a reserve charge names a class of
+    /// equipment and no asset at all, and leaves this alone. Nothing infers it
+    /// from the account code afterwards — a class holds many assets, so the
+    /// inference would be wrong the first time a shop owned two racks.
+    #[serde(default)]
+    pub asset_id: Option<Uuid>,
     pub memo: Option<String>,
 }
 
@@ -74,9 +118,11 @@ impl PostingLine {
                 qualifier: String::new(),
             },
             site_id: site_id.to_string(),
+            counter_site_id: None,
             debit_minor: amount_minor,
             credit_minor: 0,
             supplier_id: None,
+            asset_id: None,
             memo: None,
         }
     }
@@ -88,9 +134,11 @@ impl PostingLine {
                 qualifier: String::new(),
             },
             site_id: site_id.to_string(),
+            counter_site_id: None,
             debit_minor: 0,
             credit_minor: amount_minor,
             supplier_id: None,
+            asset_id: None,
             memo: None,
         }
     }
@@ -107,6 +155,17 @@ impl PostingLine {
 
     pub fn for_supplier(mut self, supplier_id: &str) -> Self {
         self.supplier_id = Some(supplier_id.to_string());
+        self
+    }
+
+    /// Say which asset this line is about.
+    ///
+    /// The counterpart of `for_supplier`, and it earns its place for the same
+    /// reason: without it "what has this machine cost us" is a question only
+    /// `asset_depreciation_entry` can answer, and that table knows nothing
+    /// about the disposal, the transfer or the acquisition.
+    pub fn for_asset(mut self, asset_id: Uuid) -> Self {
+        self.asset_id = Some(asset_id);
         self
     }
 }
@@ -138,15 +197,15 @@ pub struct Posted {
 /// A caller that hears "debits 5,000, credits 4,800 — the difference is 200"
 /// at the point of building the entry can fix it, where the same failure
 /// arriving at COMMIT names a transaction and not a rule.
-fn check_balanced(intent: &PostingIntent) -> Result<i64, AppError> {
-    if intent.lines.is_empty() {
+fn check_balanced(lines: &[PostingLine]) -> Result<i64, AppError> {
+    if lines.is_empty() {
         return Err(AppError::Validation(
             "a journal entry needs at least one line".into(),
         ));
     }
     let mut debits: i64 = 0;
     let mut credits: i64 = 0;
-    for (index, line) in intent.lines.iter().enumerate() {
+    for (index, line) in lines.iter().enumerate() {
         if line.debit_minor < 0 || line.credit_minor < 0 {
             return Err(AppError::Validation(format!(
                 "line {} has a negative amount; post the other side instead",
@@ -175,13 +234,117 @@ fn check_balanced(intent: &PostingIntent) -> Result<i64, AppError> {
     Ok(debits)
 }
 
+/// The entry's lines, plus whatever it takes to leave every unit at zero.
+///
+/// Runs on every posting, and on the overwhelming majority it does nothing: an
+/// entry at one location has one unit, already balanced, and comes back with
+/// the lines it arrived with.
+///
+/// The order matters and it is this way round deliberately. The kernel is only
+/// correct on an entry that balances in TOTAL — otherwise it would quietly push
+/// the whole difference onto head office and turn a caller's arithmetic mistake
+/// into a plausible-looking inter-unit balance — so the total is checked first
+/// and the legs are added second. The legs are then validated exactly like the
+/// rule's own lines: they resolve through `account_map` and they must name a
+/// postable account, which is why this happens before resolution and not after.
+fn balanced_per_site(intent: &PostingIntent) -> Result<(Vec<PostingLine>, i64), AppError> {
+    let total = check_balanced(&intent.lines)?;
+
+    let movements: Vec<SiteMovement> = intent
+        .lines
+        .iter()
+        .map(|line| SiteMovement::new(&line.site_id, line.debit_minor, line.credit_minor))
+        .collect();
+    let kind = kind_for_source(&intent.source_kind);
+    let legs = balancing_legs(&movements, kind, HEAD_OFFICE_SITE);
+    if legs.is_empty() {
+        return Ok((intent.lines.clone(), total));
+    }
+
+    let mut lines = intent.lines.clone();
+    for leg in legs {
+        lines.push(PostingLine {
+            account: LineAccount::Meaning {
+                semantic_key: leg.semantic_key.to_string(),
+                qualifier: leg.qualifier,
+            },
+            site_id: leg.site_id,
+            counter_site_id: Some(leg.counter_site_id),
+            debit_minor: leg.debit_minor,
+            credit_minor: leg.credit_minor,
+            supplier_id: None,
+            // An affiliate leg is about a unit, never about a machine.
+            asset_id: None,
+            // The memo says which side of which pair this is, because on a
+            // shop's ledger the account name alone reads as "Hutang Affiliasi"
+            // and every one of them looks the same.
+            memo: Some(format!("{} — {}", kind.as_str(), intent.source_kind)),
+        });
+    }
+
+    // An assertion and not a question. If a unit is still out after the legs
+    // were added, this file has a bug, and the entry would otherwise reach the
+    // ledger looking correct — 0120's trigger would catch it at COMMIT and name
+    // a transaction rather than a rule.
+    let after: Vec<SiteMovement> = lines
+        .iter()
+        .map(|line| SiteMovement::new(&line.site_id, line.debit_minor, line.credit_minor))
+        .collect();
+    if let Some((site, out_by)) = first_unbalanced_site(&after) {
+        return Err(AppError::Validation(format!(
+            "balancing a {} entry left {site} out by {out_by}; this is a fault in the \
+             inter-unit rule and not in the entry",
+            intent.source_kind
+        )));
+    }
+
+    let total = check_balanced(&lines)?;
+    Ok((lines, total))
+}
+
+/// Turn the idempotency index's refusal into a sentence.
+///
+/// It arrives as SQLSTATE 23505, which `AppError` has no reason to translate in
+/// general — a duplicate key is usually a bug — and which would otherwise reach
+/// a person as "database operation failed" with a 500 beside it. This one is a
+/// 409 and it is the correct answer: the work was already done.
+fn as_already_posted(error: sqlx::Error, intent: &PostingIntent, purpose: &str) -> AppError {
+    if let sqlx::Error::Database(db) = &error {
+        if db.code().as_deref() == Some("23505")
+            && db.constraint() == Some("ux_journal_entry_source_purpose")
+        {
+            let source = intent.source_id.as_deref().unwrap_or("(none)");
+            return AppError::Conflict(format!(
+                "{} {source} has already been posted for {purpose}; \
+                 a document posts once for each step it has",
+                intent.source_kind
+            ));
+        }
+    }
+    error.into()
+}
+
 /// Write one entry. The single door.
+///
+/// `purpose` names WHICH posting of the document this is, and `None` means
+/// [`MAIN`] — the answer for a document that posts once, which is nearly all of
+/// them. A document with several moments gives each one a name: a store deposit
+/// posts `DEPOSITED` when the shop hands the money over and `CONFIRMED` when
+/// the bank says it arrived, and each of those posts exactly once. Migration
+/// 0140 makes `(source_kind, source_id, purpose)` unique, so a resent request
+/// and two that raced are refused by the database rather than by a status check
+/// both callers can pass.
 pub async fn post(
     tx: &mut Transaction<'_, Postgres>,
     intent: &PostingIntent,
+    purpose: Option<&str>,
     actor: &str,
 ) -> Result<Posted, AppError> {
-    let total = check_balanced(intent)?;
+    let purpose = purpose
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .unwrap_or(MAIN);
+    let (lines, total) = balanced_per_site(intent)?;
 
     // Resolved before anything is written, so an unmapped meaning fails without
     // leaving half an entry behind for the rollback to tidy up.
@@ -194,8 +357,8 @@ pub async fn post(
     // it. Both variants are checked, not just the code a person typed: a
     // mapping made when an account was live keeps resolving after Finance
     // retires it, and `is_active` is not part of the foreign key.
-    let mut resolved = Vec::with_capacity(intent.lines.len());
-    for (index, line) in intent.lines.iter().enumerate() {
+    let mut resolved = Vec::with_capacity(lines.len());
+    for (index, line) in lines.iter().enumerate() {
         let code = match &line.account {
             LineAccount::Meaning {
                 semantic_key,
@@ -226,38 +389,42 @@ pub async fn post(
 
     sqlx::query(
         "INSERT INTO journal_entry
-           (entry_id, entry_number, posting_date, source_kind, source_id,
+           (entry_id, entry_number, posting_date, source_kind, source_id, purpose,
             rule_version, total_minor, currency, memo, posted_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
     )
     .bind(entry_id)
     .bind(&entry_number)
     .bind(intent.posting_date)
     .bind(&intent.source_kind)
     .bind(intent.source_id.as_deref())
+    .bind(purpose)
     .bind(&intent.rule_version)
     .bind(total)
     .bind(&intent.currency)
     .bind(intent.memo.as_deref())
     .bind(actor)
     .execute(&mut **tx)
-    .await?;
+    .await
+    .map_err(|error| as_already_posted(error, intent, purpose))?;
 
-    for (index, (line, account_code)) in intent.lines.iter().zip(&resolved).enumerate() {
+    for (index, (line, account_code)) in lines.iter().zip(&resolved).enumerate() {
         sqlx::query(
             "INSERT INTO journal_line
-               (line_id, entry_id, line_number, account_code, site_id,
-                debit_minor, credit_minor, supplier_id, memo)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+               (line_id, entry_id, line_number, account_code, site_id, counter_site_id,
+                debit_minor, credit_minor, supplier_id, asset_id, memo)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
         )
         .bind(Uuid::new_v4())
         .bind(entry_id)
         .bind(index as i32 + 1)
         .bind(account_code)
         .bind(&line.site_id)
+        .bind(line.counter_site_id.as_deref())
         .bind(line.debit_minor)
         .bind(line.credit_minor)
         .bind(line.supplier_id.as_deref())
+        .bind(line.asset_id)
         .bind(line.memo.as_deref())
         .execute(&mut **tx)
         .await?;
@@ -277,6 +444,16 @@ pub async fn post(
 /// was remapped — resolving afresh would post the reversal somewhere the
 /// original never touched, and both accounts would be wrong by the same amount
 /// while the trial balance still balanced.
+///
+/// The affiliate legs are copied with everything else, `counter_site_id` and
+/// all, and are not recomputed. Two reasons, and either would be enough. The
+/// stored lines already balance every unit, so mirroring them balances every
+/// unit again — running the balancer over them would find nothing to do, which
+/// is what `domain::interunit`'s idempotence test asserts. And a reversal has
+/// to undo what was posted rather than what the rule would post today: if the
+/// balance was booked as BARANG and the kinds have since been re-cut, resolving
+/// afresh would credit one column and debit another, leaving both wrong and the
+/// pair looking settled.
 pub async fn reverse(
     tx: &mut Transaction<'_, Postgres>,
     entry_id: Uuid,
@@ -298,7 +475,8 @@ pub async fn reverse(
     // `reversal_of` is UNIQUE, so a second attempt is refused by the database
     // rather than by a check somebody could forget to write.
     let lines = sqlx::query(
-        "SELECT line_number, account_code, site_id, debit_minor, credit_minor, supplier_id, memo
+        "SELECT line_number, account_code, site_id, counter_site_id,
+                debit_minor, credit_minor, supplier_id, asset_id, memo
            FROM journal_line WHERE entry_id = $1 ORDER BY line_number",
     )
     .bind(entry_id)
@@ -334,19 +512,27 @@ pub async fn reverse(
         let credit: i64 = row.try_get("credit_minor")?;
         sqlx::query(
             "INSERT INTO journal_line
-               (line_id, entry_id, line_number, account_code, site_id,
-                debit_minor, credit_minor, supplier_id, memo)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+               (line_id, entry_id, line_number, account_code, site_id, counter_site_id,
+                debit_minor, credit_minor, supplier_id, asset_id, memo)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
         )
         .bind(Uuid::new_v4())
         .bind(reversal_id)
         .bind(row.try_get::<i32, _>("line_number")?)
         .bind(row.try_get::<String, _>("account_code")?)
         .bind(row.try_get::<String, _>("site_id")?)
+        // Carried, not recomputed: the reversal of an inter-unit leg is with
+        // the same unit the original was with.
+        .bind(row.try_get::<Option<String>, _>("counter_site_id")?)
         // The mirror: what was debited is credited.
         .bind(credit)
         .bind(debit)
         .bind(row.try_get::<Option<String>, _>("supplier_id")?)
+        // Copied, like the account code and for the same reason: a reversal is
+        // about whatever the original was about. An undone disposal that lost
+        // its asset would leave the asset's own ledger showing the cost going
+        // out and never coming back.
+        .bind(row.try_get::<Option<Uuid>, _>("asset_id")?)
         .bind(row.try_get::<Option<String>, _>("memo")?)
         .execute(&mut **tx)
         .await?;

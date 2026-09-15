@@ -118,6 +118,8 @@ cloud	GET	/api/v1/finance/banks	Supervisor	-
 cloud	GET	/api/v1/finance/bills	Supervisor	-
 cloud	GET	/api/v1/finance/bills/{id}	Supervisor	-
 cloud	GET	/api/v1/finance/cash-counts	Supervisor	-
+cloud	GET	/api/v1/finance/corrections	Supervisor	-
+cloud	GET	/api/v1/finance/corrections/{id}	Supervisor	-
 cloud	GET	/api/v1/finance/deposits	Supervisor	-
 cloud	GET	/api/v1/finance/deposits/{id}	Supervisor	-
 cloud	GET	/api/v1/finance/giro-print-templates	Supervisor	-
@@ -131,6 +133,8 @@ cloud	GET	/api/v1/finance/payment-instructions/{id}	Supervisor	-
 cloud	GET	/api/v1/finance/payments	Supervisor	-
 cloud	GET	/api/v1/finance/payments/{id}	Supervisor	-
 cloud	GET	/api/v1/finance/periods	Supervisor	-
+cloud	GET	/api/v1/finance/periods/{id}/checklist	Supervisor	-
+cloud	GET	/api/v1/finance/periods/{id}/events	Supervisor	-
 cloud	GET	/api/v1/finance/sale-days	Supervisor	-
 cloud	GET	/api/v1/finance/statement	Supervisor	-
 cloud	GET	/api/v1/finance/statement-intake	Supervisor	-
@@ -345,6 +349,12 @@ cloud	POST	/api/v1/finance/bills	Admin	bill
 cloud	POST	/api/v1/finance/bills/{id}/post	Admin	bill
 cloud	POST	/api/v1/finance/cash-counts	Admin	account
 cloud	POST	/api/v1/finance/cash-counts/{id}/post	Admin	account
+cloud	POST	/api/v1/finance/corrections/adjustment	Admin	correction
+cloud	POST	/api/v1/finance/corrections/reclass	Admin	correction
+cloud	POST	/api/v1/finance/corrections/write-off	Admin	correction
+cloud	POST	/api/v1/finance/corrections/{id}/approve	Admin	correction
+cloud	POST	/api/v1/finance/corrections/{id}/post	Admin	correction
+cloud	POST	/api/v1/finance/corrections/{id}/reverse	Admin	correction
 cloud	POST	/api/v1/finance/deposits	Admin	account
 cloud	POST	/api/v1/finance/deposits/{id}/bank	Admin	account
 cloud	POST	/api/v1/finance/deposits/{id}/land	Admin	account
@@ -362,6 +372,7 @@ cloud	POST	/api/v1/finance/payments	Admin	payment
 cloud	POST	/api/v1/finance/payments/{id}/post	Admin	payment
 cloud	POST	/api/v1/finance/periods	Admin	-
 cloud	POST	/api/v1/finance/periods/close	Admin	-
+cloud	POST	/api/v1/finance/periods/{id}/reopen	Admin	fiscal_period
 cloud	POST	/api/v1/finance/sale-days/{site}/{day}/post	Admin	-
 cloud	POST	/api/v1/finance/statement-intake/run	Admin	-
 cloud	POST	/api/v1/finance/statement-sources	Admin	-
@@ -550,6 +561,8 @@ edge-common	GET	/api/v1/auth/methods	-	-
 edge-common	GET	/api/v1/catalog/campaign-image	-	-
 edge-common	GET	/api/v1/catalog/identities	-	-
 edge-common	GET	/api/v1/catalog/image	-	-
+edge-common	GET	/api/v1/catalog/snapshot	-	-
+edge-common	GET	/api/v1/catalog/snapshot/items	-	-
 edge-common	GET	/api/v1/health	-	-
 edge-common	GET	/api/v1/inventory/movements	-	-
 edge-common	GET	/api/v1/inventory/pools	-	-

@@ -40,9 +40,22 @@ pub struct JournalLineView {
     /// The client's own name, never translated.
     pub account_name: String,
     pub site_id: String,
+    /// The unit on the other side, on an inter-unit line and nowhere else.
+    ///
+    /// Present on the affiliate legs `poster.rs` adds, which is the only place
+    /// it is ever written. Without it the entry that funded store 03's
+    /// electricity shows two lines called "Hutang Affiliasi Pembiayaan" and a
+    /// reader has to decode a twelve-digit code to find out which is whose.
+    pub counter_site_id: Option<String>,
     pub debit_minor: i64,
     pub credit_minor: i64,
     pub supplier_id: Option<String>,
+    /// Which asset this line is about, when it is about one. The second
+    /// sub-ledger dimension, beside the supplier.
+    pub asset_id: Option<Uuid>,
+    /// `AST-000123`, so a drill-down reads as a sentence rather than as a
+    /// UUID somebody has to look up.
+    pub asset_number: Option<String>,
     pub memo: Option<String>,
 }
 
@@ -520,8 +533,11 @@ pub async fn journal_entry(pool: &PgPool, entry_id: Uuid) -> Result<JournalEntry
 
     let lines = sqlx::query(
         "SELECT l.line_number, l.account_code, a.name AS account_name, l.site_id,
-                l.debit_minor, l.credit_minor, l.supplier_id, l.memo
-           FROM journal_line l JOIN ledger_account a ON a.account_code = l.account_code
+                l.counter_site_id, l.debit_minor, l.credit_minor, l.supplier_id,
+                l.asset_id, f.asset_number, l.memo
+           FROM journal_line l
+           JOIN ledger_account a ON a.account_code = l.account_code
+           LEFT JOIN fixed_asset f ON f.asset_id = l.asset_id
           WHERE l.entry_id = $1 ORDER BY l.line_number",
     )
     .bind(entry_id)
@@ -538,9 +554,12 @@ pub async fn journal_entry(pool: &PgPool, entry_id: Uuid) -> Result<JournalEntry
                     account_code: row.try_get("account_code")?,
                     account_name: row.try_get("account_name")?,
                     site_id: row.try_get("site_id")?,
+                    counter_site_id: row.try_get("counter_site_id")?,
                     debit_minor: row.try_get("debit_minor")?,
                     credit_minor: row.try_get("credit_minor")?,
                     supplier_id: row.try_get("supplier_id")?,
+                    asset_id: row.try_get("asset_id")?,
+                    asset_number: row.try_get("asset_number")?,
                     memo: row.try_get("memo")?,
                 })
             })
@@ -662,6 +681,15 @@ pub struct GeneralLedgerRow {
     /// The client's own name for that account, never translated.
     pub account_name: String,
     pub site_id: String,
+    /// The unit on the other side of the movement, when the posting named
+    /// one. 0120 put it on the line.
+    ///
+    /// Not what an affiliate balance is read from: 0122 gives every pair of
+    /// units its own leaf, so the figure comes from summing the account —
+    /// which is what a trial balance does, and is why this screen and the
+    /// trial balance cannot disagree. See `interunit`. This column answers
+    /// the other half of the question, which movements rather than how much.
+    pub counter_site_id: Option<String>,
     /// Who the other side was, when the posting named one.
     ///
     /// `journal_line.supplier_id` is the sub-ledger dimension the payables
@@ -766,7 +794,8 @@ impl LedgerCursor {
 /// ledger in the order the ledger means.
 const LEDGER_WINDOW: &str = "
     SELECT l.line_id, e.entry_id, e.entry_number, e.posting_date, e.source_kind,
-           e.source_id, l.site_id, l.account_code, l.supplier_id,
+           e.source_id, l.site_id, l.counter_site_id, l.account_code,
+           l.supplier_id,
            COALESCE(l.memo, e.memo) AS memo,
            l.debit_minor, l.credit_minor,
            (m.journal_line_id IS NOT NULL) AS reconciled,
@@ -805,6 +834,11 @@ const LEDGER_FILTERS: &str = "
 /// The account code is matched by prefix, so asking for a heading gives the
 /// whole subtree — which is how somebody reads "what happened in CASH this
 /// month" without knowing that cash is fourteen separate leaves.
+/// `counter_site_id` narrows it further, to the movements with one other unit.
+/// It is the question an affiliate account exists to answer — head office's
+/// `Piutang Affiliasi` is thirteen balances filed under one heading, and 0122
+/// gives each pair its own leaf, so this reaches the same rows whether the
+/// caller asks for the pair's leaf or for the heading and a counterparty.
 pub async fn general_ledger(
     pool: &PgPool,
     account_code: &str,
@@ -823,6 +857,7 @@ pub async fn general_ledger(
            FROM journal_line l JOIN journal_entry e USING (entry_id)
           WHERE l.account_code LIKE $1 || '%'
             AND ($2::text IS NULL OR l.site_id = $2)
+            AND ($4::text IS NULL OR l.counter_site_id = $4)
             AND e.posting_date < $3",
     )
     .bind(account_code)
@@ -950,6 +985,7 @@ pub async fn general_ledger(
                 .try_get::<Option<String>, _>("account_name")?
                 .unwrap_or_default(),
             site_id: row.try_get("site_id")?,
+            counter_site_id: row.try_get("counter_site_id")?,
             supplier_id: row.try_get("supplier_id")?,
             supplier_name: row.try_get("supplier_name")?,
             memo: row.try_get("memo")?,

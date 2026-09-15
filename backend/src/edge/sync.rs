@@ -29,15 +29,17 @@ use crate::cloud::domain::{
     COMMAND_CATALOG_CHUNK, COMMAND_PURCHASE_ORDER_ACTIVATE,
 };
 use crate::cloud::domain::{
-    decide_command, parse_activate_publication, parse_auth_policy, AuthPolicySnapshot,
-    BreakerPolicy, CommandBlock, CommandDisposition, PushedCommand, RejectedFact, SyncFact,
-    COMMAND_ACTIVATE_PUBLICATION, COMMAND_AUTH_POLICY_REPLACE,
+    decide_command, is_stale_generation, parse_activate_publication, parse_auth_policy,
+    AuthPolicySnapshot, BreakerPolicy, CommandBlock, CommandDisposition, HandshakeRequest,
+    PushedCommand, RejectedFact, StreamWitness, SyncFact, COMMAND_ACTIVATE_PUBLICATION,
+    COMMAND_AUTH_POLICY_REPLACE,
 };
 use crate::edge::{
     derive_allotment_status, EdgeRole, InventoryState, MovementCause, MovementCommand,
     MovementGroupId, MovementLine, NodeContext, OperationalPool, Place, SiteId, SqliteEdge,
     SubjectId, SystemPlace,
 };
+use crate::sync::handshake::{negotiate_generation, GenerationStore, HandshakeReport};
 use crate::sync::port::{CommandApplyReport, SenderState, SyncStore};
 use crate::sync::workflow::{
     parse_allotment_activation, parse_allotment_cancellation, parse_official_count_activation,
@@ -2423,6 +2425,189 @@ fn report_activation_failure(
 }
 
 #[async_trait::async_trait]
+impl GenerationStore for SqliteSyncStore {
+    /// Where this node stands, witness and all.
+    ///
+    /// The witness is the first fact it is still waiting to send. That is the
+    /// only seq that can be contested — everything below it the receiver has
+    /// acknowledged, everything above it the receiver has never seen — and
+    /// naming the fact there is what lets the receiver tell a lost
+    /// acknowledgement from a database that was swapped underneath the origin.
+    async fn local_stream(&self) -> Result<Option<HandshakeRequest>, SyncError> {
+        self.with_connection(|connection| {
+            let origin: Option<(String, i64, i64)> = connection
+                .query_row(
+                    "SELECT origin_id, generation, next_seq FROM sync_origin WHERE singleton=1",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .optional()
+                .map_err(err)?;
+            let Some((origin_id, generation, next_seq)) = origin else {
+                return Ok(None);
+            };
+            let durable_through: i64 = connection
+                .query_row(
+                    "SELECT durable_seq FROM sync_watermark
+                     WHERE origin_id = ?1 AND generation = ?2",
+                    params![&origin_id, generation],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(err)?
+                .unwrap_or(0);
+            let witness = connection
+                .query_row(
+                    "SELECT seq, event_id FROM sync_fact_log
+                     WHERE origin_id = ?1 AND generation = ?2 AND seq > ?3
+                     ORDER BY seq LIMIT 1",
+                    params![&origin_id, generation, durable_through],
+                    |row| {
+                        Ok(StreamWitness {
+                            seq: row.get(0)?,
+                            event_id: row.get(1)?,
+                        })
+                    },
+                )
+                .optional()
+                .map_err(err)?;
+            Ok(Some(HandshakeRequest {
+                origin_id,
+                generation,
+                next_seq,
+                durable_through,
+                witness,
+            }))
+        })
+    }
+
+    async fn handshake_settled(&self) -> Result<bool, SyncError> {
+        self.with_connection(|connection| {
+            Ok(connection
+                .query_row(
+                    "SELECT handshake_settled FROM sync_origin WHERE singleton=1",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()
+                .map_err(err)?
+                .unwrap_or(0)
+                == 1)
+        })
+    }
+
+    /// Adopt the generation the receiver granted, moving the unsent backlog
+    /// into it.
+    ///
+    /// The move is the part worth reading. Facts still waiting to be sent were
+    /// captured under a generation the receiver has told us it will discard,
+    /// so leaving them where they are would abandon exactly the rows this
+    /// exchange exists to save. They are also RENUMBERED, down to start at
+    /// one: the new generation's watermark is zero, and a receiver holding
+    /// nothing cannot accept a batch starting at seq 3,001 — the prefix rule
+    /// would call it a gap and the stream would stall forever at zero. Sliding
+    /// the tail down by the old watermark keeps it contiguous from the only
+    /// place the new stream can begin.
+    ///
+    /// Their `event_id`s do not change, which is what makes this safe: a fact
+    /// the receiver somehow already holds deduplicates by identity rather than
+    /// landing twice.
+    async fn adopt_generation(&self, generation: i64, note: &str) -> Result<(), SyncError> {
+        self.with_connection(|connection| {
+            let tx = connection.transaction().map_err(err)?;
+            let current: Option<(String, i64)> = tx
+                .query_row(
+                    "SELECT origin_id, generation FROM sync_origin WHERE singleton=1",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()
+                .map_err(err)?;
+            let Some((origin_id, from)) = current else {
+                return Err(err("this node has no sync origin to negotiate a generation for"));
+            };
+            if generation < from {
+                return Err(err(format!(
+                    "refusing to move origin {origin_id} back from generation {from} to {generation}"
+                )));
+            }
+            if generation > from {
+                let occupied: i64 = tx
+                    .query_row(
+                        "SELECT COUNT(*) FROM sync_fact_log WHERE origin_id=?1 AND generation=?2",
+                        params![&origin_id, generation],
+                        |row| row.get(0),
+                    )
+                    .map_err(err)?;
+                if occupied > 0 {
+                    return Err(err(format!(
+                        "generation {generation} already holds {occupied} facts on this node; \
+                         refusing to write a second stream into it"
+                    )));
+                }
+                let acknowledged: i64 = tx
+                    .query_row(
+                        "SELECT durable_seq FROM sync_watermark WHERE origin_id=?1 AND generation=?2",
+                        params![&origin_id, from],
+                        |row| row.get(0),
+                    )
+                    .optional()
+                    .map_err(err)?
+                    .unwrap_or(0);
+                tx.execute(
+                    "UPDATE sync_fact_log SET generation = ?1, seq = seq - ?2
+                     WHERE origin_id = ?3 AND generation = ?4 AND seq > ?2",
+                    params![generation, acknowledged, &origin_id, from],
+                )
+                .map_err(err)?;
+                let next_seq: i64 = tx
+                    .query_row(
+                        "SELECT COALESCE(MAX(seq), 0) FROM sync_fact_log
+                         WHERE origin_id=?1 AND generation=?2",
+                        params![&origin_id, generation],
+                        |row| row.get(0),
+                    )
+                    .map_err(err)?;
+                tx.execute(
+                    "INSERT INTO sync_watermark (origin_id, generation, durable_seq, updated_at)
+                     VALUES (?1, ?2, 0, ?3)
+                     ON CONFLICT(origin_id, generation) DO NOTHING",
+                    params![&origin_id, generation, now_text()],
+                )
+                .map_err(err)?;
+                tx.execute(
+                    "UPDATE sync_origin SET generation = ?1, next_seq = ?2 WHERE singleton=1",
+                    params![generation, next_seq],
+                )
+                .map_err(err)?;
+            }
+            tx.execute(
+                "UPDATE sync_origin
+                 SET handshake_settled = 1, handshake_at = ?1, handshake_note = ?2
+                 WHERE singleton=1",
+                params![now_text(), note],
+            )
+            .map_err(err)?;
+            tx.commit().map_err(err)
+        })
+    }
+
+    async fn reopen_handshake(&self, reason: &str) -> Result<(), SyncError> {
+        self.with_connection(|connection| {
+            connection
+                .execute(
+                    "UPDATE sync_origin
+                     SET handshake_settled = 0, handshake_note = ?1
+                     WHERE singleton=1",
+                    params![reason],
+                )
+                .map_err(err)?;
+            Ok(())
+        })
+    }
+}
+
+#[async_trait::async_trait]
 impl SyncStore for SqliteSyncStore {
     async fn origin_identity(&self) -> Result<Option<(String, i64)>, SyncError> {
         self.with_connection(|connection| {
@@ -2869,11 +3054,22 @@ impl EdgeSyncHandle {
             .connection
             .lock()
             .map_err(|_| crate::edge::EdgeError::Persistence("edge sync store poisoned".into()))?;
-        let origin: Option<(String, i64)> = connection
+        let origin: Option<(String, i64, i64, i64, Option<String>, Option<String>)> = connection
             .query_row(
-                "SELECT origin_id, generation FROM sync_origin WHERE singleton=1",
+                "SELECT origin_id, generation, next_seq,
+                        handshake_settled, handshake_at, handshake_note
+                 FROM sync_origin WHERE singleton=1",
                 [],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                    ))
+                },
             )
             .optional()
             .map_err(persistence)?;
@@ -2881,8 +3077,19 @@ impl EdgeSyncHandle {
         let sender = read_sender_state(&connection)
             .map_err(|error| crate::edge::EdgeError::Persistence(error.to_string()))?;
         Ok(crate::contract::EdgeSyncStatus {
-            origin_id: origin.as_ref().map(|(id, _)| id.clone()),
-            generation: origin.map_or(0, |(_, generation)| generation),
+            origin_id: origin.as_ref().map(|(id, ..)| id.clone()),
+            generation: origin.as_ref().map_or(0, |(_, generation, ..)| *generation),
+            next_seq: origin.as_ref().map_or(0, |(_, _, next_seq, ..)| *next_seq),
+            handshake_settled: origin
+                .as_ref()
+                .is_some_and(|(_, _, _, settled, ..)| *settled == 1),
+            handshake_at: origin
+                .as_ref()
+                .and_then(|(_, _, _, _, at, _)| at.as_deref())
+                .and_then(|at| parse_time(at).ok()),
+            handshake_note: origin
+                .as_ref()
+                .and_then(|(_, _, _, _, _, note)| note.clone()),
             pending_facts: pending,
             durable_through: watermark,
             dead_lettered: dead,
@@ -2921,6 +3128,23 @@ pub fn spawn_agent(
             &config.upload_key,
         )),
     };
+    // Every start-up renegotiates. The durable flag cannot be trusted across a
+    // restore — a backup carries whatever value it was saved with, so trusting
+    // it would mean trusting it in precisely the case this exists to catch —
+    // and the cost of not trusting it is one request per boot whose answer,
+    // for a healthy node, is "keep the stream you have".
+    {
+        let guard = edge
+            .connection()
+            .lock()
+            .map_err(|_| crate::edge::EdgeError::Persistence("edge sync store poisoned".into()))?
+            .execute(
+                "UPDATE sync_origin SET handshake_settled = 0 WHERE singleton=1",
+                [],
+            )
+            .map_err(persistence);
+        guard?;
+    }
     let connection = edge.connection();
     let origin = crate::edge::EdgeInventory::node(edge).node_id.clone();
     let runtime = tokio::runtime::Handle::try_current().map_err(|error| {
@@ -2950,6 +3174,40 @@ pub fn spawn_agent(
                 () = tokio::time::sleep(interval) => {}
                 () = agent.wake.notified() => {}
             }
+            // Whose seqs are these? Asked before every upload and answered
+            // once per run, because the fault it catches — this database
+            // replaced under its own origin id — is invisible from in here and
+            // arrives exactly at a restart.
+            match negotiate_generation(&store, &transport).await {
+                Ok(report) if report.clear_to_send() => match report {
+                    HandshakeReport::Rotated { from, to, reason } => tracing::warn!(
+                        origin = %origin,
+                        from,
+                        to,
+                        reason = reason.as_deref().unwrap_or("(none given)"),
+                        "this database was replaced; its stream moved to a new generation"
+                    ),
+                    HandshakeReport::Kept { generation } => {
+                        tracing::info!(origin = %origin, generation, "sync generation confirmed")
+                    }
+                    _ => {}
+                },
+                Ok(report) => {
+                    // Capture continues and the backlog stays durable. What
+                    // does not happen is an upload into seqs that may belong to
+                    // an earlier incarnation of this node.
+                    tracing::warn!(
+                        origin = %origin,
+                        outcome = ?report,
+                        "edge sync is holding its backlog until it can agree a generation"
+                    );
+                    continue;
+                }
+                Err(error) => {
+                    tracing::error!(%error, "edge sync could not record a generation handshake");
+                    continue;
+                }
+            }
             match crate::sync::run_cycle(&store, &cycle, &transport).await {
                 Ok(outcome) => {
                     if let crate::sync::CycleReport::Advanced {
@@ -2957,6 +3215,30 @@ pub fn spawn_agent(
                     } = outcome.upstream
                     {
                         tracing::info!(sent, advance_to, "edge sync advanced");
+                    }
+                    // The receiver refusing this stream by name, or answering
+                    // about a seq we never reached, both mean the same thing:
+                    // the agreement we are working from is stale. Drop it so
+                    // the next cycle negotiates instead of retrying a batch
+                    // that cannot land until it does.
+                    let restale = match &outcome.upstream {
+                        crate::sync::CycleReport::Failed { error, .. }
+                            if is_stale_generation(error) =>
+                        {
+                            Some(error.clone())
+                        }
+                        crate::sync::CycleReport::Divergent { reason, .. } => Some(reason.clone()),
+                        _ => None,
+                    };
+                    if let Some(reason) = restale {
+                        tracing::error!(
+                            origin = %origin,
+                            %reason,
+                            "the cloud is not holding the stream this node is sending; renegotiating"
+                        );
+                        if let Err(error) = store.reopen_handshake(&reason).await {
+                            tracing::error!(%error, "could not reopen the generation handshake");
+                        }
                     }
                     if outcome.commands_applied > 0 || outcome.commands_skipped > 0 {
                         tracing::info!(

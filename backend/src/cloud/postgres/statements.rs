@@ -693,15 +693,22 @@ pub async fn cash_flow(
 /// taken, which is exactly the figure that explains a bank balance the books
 /// and the statement disagree about.
 ///
-/// Eight keys and not the whole map: these are the ones a treasurer counts.
+/// `time_deposit` sits with them (// lane-C). It is money the company has and
+/// cannot spend today, which is precisely the distinction a cash position is
+/// for — and leaving it out would mean a treasurer reading this screen and a
+/// treasurer reading the balance sheet disagreeing about how much the company
+/// has, by whatever is on deposit.
+///
+/// Nine keys and not the whole map: these are the ones a treasurer counts.
 /// Every other mapped meaning is a cost, a stock figure or a payable, and has a
 /// screen of its own.
-const MONEY_KEYS: [&str; 8] = [
+const MONEY_KEYS: [&str; 9] = [
     "cash",
     "petty_cash",
     "cashier_float",
     "bank_giro",
     "bank_savings",
+    "time_deposit",
     "giro_outstanding",
     "card_receivable_credit",
     "card_receivable_debit",

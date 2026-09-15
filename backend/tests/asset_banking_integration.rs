@@ -860,6 +860,7 @@ async fn a_bank_line_is_matched_against_our_own_ledger(pool: PgPool) {
                 cloud::PostingLine::credit("bank_savings", "ho", 5_000_000),
             ],
         },
+        None,
         ACTOR,
     )
     .await
@@ -1328,7 +1329,7 @@ async fn finished_work_leaves_contract_in_progress_and_the_cost_moves_with_it(po
         .begin()
         .await
         .unwrap_or_else(|error| panic!("begin: {error}"));
-    cloud::post(&mut tx, &intent, ACTOR)
+    cloud::post(&mut tx, &intent, None, ACTOR)
         .await
         .unwrap_or_else(|error| panic!("post: {error}"));
     tx.commit()

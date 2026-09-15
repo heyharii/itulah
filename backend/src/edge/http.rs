@@ -402,6 +402,16 @@ fn common_router() -> Router<EdgeState> {
         // in the common router because a DC needs to name what it is holding
         // even though it has no price book.
         .route("/api/v1/catalog/identities", get(catalog_identities))
+        // Which catalogue this node holds, and the catalogue itself in pages.
+        // A handheld keeps its own copy in local SQLite; the first of these is
+        // how it learns the copy is stale, and the second is how it replaces
+        // it. Common router for the same reason identities are: a DC holds the
+        // snapshot too.
+        .route("/api/v1/catalog/snapshot", get(catalog_snapshot))
+        .route(
+            "/api/v1/catalog/snapshot/items",
+            get(catalog_snapshot_items),
+        )
         // Product photographs, fetched BY the node rather than by the handheld.
         .route("/api/v1/catalog/image", get(catalog_image))
         .route("/api/v1/catalog/campaign-image", get(campaign_image))
@@ -1911,9 +1921,25 @@ async fn sync_status(
         let (durable_through, pending_facts, dead_lettered) =
             crate::edge::sync::backlog(&connection)
                 .map_err(|error| EdgeError::Persistence(error.to_string()))?;
+        // The origin is read even here. A node with no sender still captures
+        // under a generation and a seq, and those two numbers are what a
+        // person compares against the cloud's own list when they suspect the
+        // two ends are describing different streams.
+        let stream: Option<(i64, i64)> =
+            rusqlite::OptionalExtension::optional(connection.query_row(
+                "SELECT generation, next_seq FROM sync_origin WHERE singleton=1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            ))
+            .map_err(|error| EdgeError::Persistence(error.to_string()))?;
         Ok(EdgeSyncStatus {
             origin_id: None,
-            generation: 0,
+            generation: stream.map_or(0, |(generation, _)| generation),
+            next_seq: stream.map_or(0, |(_, next_seq)| next_seq),
+            // Nothing to agree with: there is no receiver configured.
+            handshake_settled: false,
+            handshake_at: None,
+            handshake_note: None,
             pending_facts,
             durable_through,
             dead_lettered,
@@ -2061,6 +2087,52 @@ async fn catalog_identities(
 struct CatalogIdentityQuery {
     #[serde(default)]
     skus: String,
+}
+
+/// What generation of the catalogue this node is holding.
+///
+/// The one request a handheld makes on waking. It compares the generation with
+/// what its own SQLite holds and, nine mornings out of ten, does nothing more.
+/// A node with no catalogue answers generation 0 and an empty hash rather than
+/// 404 — see `EdgeInventory::catalog_snapshot_state` for why the difference
+/// matters to the device.
+async fn catalog_snapshot(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    let snapshot = run_blocking(move || state.inventory.catalog_snapshot_state()).await?;
+    Ok(Json(json!({
+        "generation": snapshot.generation,
+        "item_count": snapshot.item_count,
+        "content_hash": snapshot.content_hash,
+        "activated_at": snapshot.activated_at,
+    })))
+}
+
+/// The catalogue itself, keyset-paged, for a handheld to store locally.
+///
+/// `generation` is on every page and not only on the first. A device that
+/// starts its walk at generation 7 and reads 8 on page four has been handed
+/// halves of two different catalogues — the swap is a whole-table replace, so
+/// the pages after it may silently skip SKUs the earlier ones would have
+/// carried, and nothing in the rows themselves says which publication they came
+/// out of. Repeating the
+/// generation is what lets the device notice and start the walk again, instead
+/// of committing a spliced catalogue that looks complete and prices a range
+/// nobody published.
+async fn catalog_snapshot_items(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Query(query): Query<crate::edge::CatalogSnapshotQuery>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    let page = run_blocking(move || state.inventory.catalog_snapshot_items(query)).await?;
+    Ok(Json(json!({
+        "items": page.items,
+        "next_cursor": page.next_cursor,
+        "generation": page.generation,
+    })))
 }
 
 /// One HTTP client for image fetches, kept for its connection pool.

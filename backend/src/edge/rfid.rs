@@ -259,11 +259,28 @@ impl EdgeRfid {
             )
             .optional()
             .map_err(db)?;
-        if let Some((prior_device, prior_sequence, prior_digest, response_json)) = prior {
-            if prior_device != device_id
-                || prior_sequence != proof.sequence
-                || prior_digest != request_digest
-            {
+        if let Some((prior_device, _prior_sequence, prior_digest, response_json)) = prior {
+            // The same reader, filing the same bytes, gets the answer it was
+            // already given. The sequence it signed with is deliberately NOT
+            // part of that test.
+            //
+            // A device signs every attempt with a fresh timestamp and a fresh
+            // sequence because the signature's own skew window is 300 seconds
+            // either side of now: a batch that sat in an outbox through an
+            // offline spell CANNOT be replayed with the proof it was first
+            // signed with, because that proof is no longer valid. So a
+            // handheld retrying after a lost response necessarily presents a
+            // new sequence — which means comparing sequences here refused the
+            // one case idempotency exists to serve, and the counter that lost
+            // an answer over shop wifi could never get it back.
+            //
+            // Anti-replay of genuinely new work is not weakened by this: the
+            // `proof.sequence <= last_sequence` check below is untouched and
+            // still refuses a reused sequence for any batch that is not this
+            // one. What establishes "this is the same batch from the same
+            // reader" is the device and the digest over the body, and those
+            // two are what is compared.
+            if prior_device != device_id || prior_digest != request_digest {
                 return Err(EdgeError::Conflict(
                     "idempotency key was already used for another RFID request".into(),
                 ));
@@ -825,6 +842,84 @@ mod tests {
         assert!(matches!(
             service.ingest(bad_proof, &changed_body, None),
             Err(EdgeError::Unauthorized(_))
+        ));
+    }
+
+    /// The retry idempotency was written for: same batch, new signature.
+    ///
+    /// A reader cannot re-send the proof it signed the first time — the
+    /// signature is only good for five minutes either side of its timestamp, so
+    /// a batch that sat in an outbox through an offline spell, and a batch
+    /// retried after the answer was lost on the way back, both arrive under a
+    /// sequence this node has never seen. While the receipt check compared
+    /// sequences, every one of those was refused as a conflict: the one case
+    /// idempotency exists for was the one case it would not serve, and a
+    /// counter that lost an answer over shop wifi had no way to get it back.
+    #[test]
+    fn a_retry_under_a_fresh_sequence_gets_the_stored_answer() {
+        let (edge, service, signing_key) = setup();
+        let body =
+            serde_json::to_vec(&request()).unwrap_or_else(|error| panic!("request: {error}"));
+        let first = service
+            .ingest(
+                proof(&signing_key, &body, 1),
+                &body,
+                Some("operator-1".into()),
+            )
+            .unwrap_or_else(|error| panic!("ingest: {error}"));
+
+        // Same bytes, same reader, a sequence four higher — the device has
+        // signed three other batches while this one waited.
+        let retry = service
+            .ingest(
+                proof(&signing_key, &body, 5),
+                &body,
+                Some("operator-1".into()),
+            )
+            .unwrap_or_else(|error| panic!("retry: {error}"));
+        assert_eq!(
+            retry, first,
+            "the answer it was already given, not a new one"
+        );
+
+        // And it was a retry, not a second filing: the floor is not told it has
+        // twice the stock because a reply went missing.
+        let shared_connection = edge.connection();
+        let connection = shared_connection
+            .lock()
+            .unwrap_or_else(|error| panic!("connection: {error}"));
+        let observations: i64 = connection
+            .query_row(
+                "SELECT count(*) FROM edge_observation_sighting",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or_else(|error| panic!("observations: {error}"));
+        assert_eq!(observations, 1);
+    }
+
+    /// The other half of the same test, and the reason the digest stays in it.
+    ///
+    /// Dropping the sequence from the receipt check must not turn an
+    /// idempotency key into a licence to file anything under it. A different
+    /// body under a key that is already spoken for is a client bug, and it is
+    /// still a conflict whatever sequence it arrives with.
+    #[test]
+    fn a_different_batch_under_the_same_key_is_still_refused() {
+        let (_edge, service, signing_key) = setup();
+        let body =
+            serde_json::to_vec(&request()).unwrap_or_else(|error| panic!("request: {error}"));
+        service
+            .ingest(proof(&signing_key, &body, 1), &body, None)
+            .unwrap_or_else(|error| panic!("ingest: {error}"));
+
+        let mut changed = request();
+        changed.observations[0].epc = "EPC999".into();
+        let changed_body =
+            serde_json::to_vec(&changed).unwrap_or_else(|error| panic!("changed request: {error}"));
+        assert!(matches!(
+            service.ingest(proof(&signing_key, &changed_body, 7), &changed_body, None),
+            Err(EdgeError::Conflict(_))
         ));
     }
 }

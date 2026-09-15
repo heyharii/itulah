@@ -426,13 +426,6 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         // is refused BY NAME, the way a cash count is recorded without
         // `cash_variance` and cannot be posted without it.
         key(
-            "cash_in_transit",
-            "Deposits in transit",
-            "1011005001 Setoran Dalam Perjalanan",
-            false,
-            "Cash & Bank",
-        ),
-        key(
             "bank_savings",
             "Bank — savings",
             "1011003* Cash In Bank Tabungan",
@@ -446,12 +439,72 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
             true,
             "Cash & Bank",
         ),
+        // lane-C: the instrument, not the bank.
+        //
+        // Qualified per bank because the client's chart keeps one leaf each —
+        // 2012002001 Outstanding Giro Bank BCA, 2012002002 Mandiri,
+        // 2012002003 BRI, 2012002004 BNI, 2012002005 DANAMON — and a giro is
+        // drawn on one of them. An unqualified mapping would put a BCA giro and
+        // a Mandiri giro in the same balance, and the board that answers "does
+        // this bank have enough in it for what we have written on it" would be
+        // answering about the wrong bank.
         key(
             "giro_outstanding",
             "Giro issued, not cleared",
             "2012002* Outstanding Giro",
             true,
             "Payables",
+        ),
+        // lane-C: a fixed deposit is money the company has and cannot spend
+        // today. It holds money — `MONEY_MEANINGS` says so — which is what
+        // makes moving cash into one a TRANSFER rather than a payment, and
+        // therefore what stops a slip headed BUKTI KAS KELUAR being printed
+        // over an entry that only moved money between two accounts we hold.
+        //
+        // 1011004001 TIME DEPOSIT BANK BCA, 1011004002 MANDIRI, 1011004003 BRI,
+        // 1011004004 BNI.
+        key(
+            "time_deposit",
+            "Time deposit",
+            "1011004* TIME DEPOSIT",
+            true,
+            "Cash & Bank",
+        ),
+        // lane-C: the three lines every bank statement carries every month,
+        // and the accounts the seeded bank rules propose.
+        //
+        // They are here rather than left to whoever books the statement,
+        // because a rule that proposes an account has to have one to propose;
+        // an unmapped key makes the proposal refusable with a message naming
+        // the key, which is the difference between a screen that explains
+        // itself and one that fails.
+        key(
+            "bank_admin_fee",
+            "Bank charges",
+            "6010310004 Biaya Bank HO",
+            false,
+            "Cash & Bank",
+        ),
+        key(
+            "interest_income",
+            "Bank interest received",
+            "8010110001 Pendapatan Bunga Bank",
+            false,
+            "Cash & Bank",
+        ),
+        // The client's chart has no leaf named for PPh final on interest, so
+        // this points at the income-tax expense they do keep. It is an expense
+        // and not a prepaid on purpose: PPh 4(2) on bank interest is FINAL —
+        // withheld at source and never recovered — and mapping it to
+        // `1011302006 Prepaid - Other Tax` would put an asset on the balance
+        // sheet for money that is gone. Finance can repoint it on the Account
+        // map screen the day they open a leaf of their own.
+        key(
+            "tax_on_interest",
+            "Tax withheld on bank interest",
+            "8030112001 Current Tax Inc/Exp PPH Pasal 25",
+            false,
+            "Cash & Bank",
         ),
         key(
             "rounding",
@@ -477,17 +530,45 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
             false,
             "Cash & Bank",
         ),
+        // lane-A changed these two from unqualified to qualified. What a shop
+        // is owed on cards is owed by a NAMED acquirer, clearing on its own
+        // day for its own fee, and a day's takings cannot be reconciled
+        // against a settlement file without saying which. The client's chart
+        // keeps one account for all of them, so every qualifier may point at
+        // the same leaf — the qualifier is what lets them split it later
+        // without a change to a posting rule.
         key(
             "card_receivable_credit",
             "Credit card receivable",
-            "1011101001 Piutang kartu Kredit",
-            false,
+            "1011101001 Piutang kartu Kredit (per network)",
+            true,
             "Receivables",
         ),
         key(
             "card_receivable_debit",
             "Debit card receivable",
-            "1011101002 Piutang Debit Card",
+            "1011101002 Piutang Debit Card (per bank)",
+            true,
+            "Receivables",
+        ),
+        // lane-P
+        //
+        // Head office sends a store manager money for the shop to run on, and
+        // it is the manager's to account for until they spend it or bring it
+        // back. The client keeps an account for exactly that, and keeps it
+        // apart from staff loans: `1011102001 PIUTANG PEGAWAI` is what an
+        // employee personally owes, `1011102002 PIUTANG KEPALA TOKO` is what a
+        // manager is holding on the company's behalf. They read almost the
+        // same and they are not the same debt, so this key names the second and
+        // says so here rather than leaving somebody to pick from a list.
+        //
+        // Unqualified, because the location IS the narrowing: the client has a
+        // leaf per shop under this heading — `101110200200` at head office
+        // through `101110200213` — and `account_map` is already keyed by site.
+        key(
+            "store_manager_receivable",
+            "Store manager float",
+            "1011102002 PIUTANG KEPALA TOKO",
             false,
             "Receivables",
         ),
@@ -631,6 +712,31 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
             false,
             "Inventory & COGS",
         ),
+        // Both write-off sides, and both on the client's one "income (expense)"
+        // leaf. The chart has no bad-debt expense account: what it has is
+        // `1011103 Cadangan Penghapusan Piutang Tak Tertagih`, a provision, and
+        // a heading at that. So rather than invent an account, two meanings
+        // share one leaf — which `account_map` allows, and which keeps the
+        // distinction where it is readable: a posting rule that says
+        // `bad_debt_expense` says what it did, whatever the balance it lands in
+        // is called.
+        //
+        // `asset_disposal_result` is already on this same leaf, so it is now
+        // three meanings on 8010110007. That is the client's filing, not ours.
+        key(
+            "bad_debt_expense",
+            "Receivable written off",
+            "8010110007 Pendapatan (Biaya) Lain-Lain",
+            false,
+            "Corrections",
+        ),
+        key(
+            "other_income_expense",
+            "Other income and expense",
+            "8010110007 Pendapatan (Biaya) Lain-Lain",
+            false,
+            "Corrections",
+        ),
         key(
             "prepaid_expense",
             "Prepaid expense",
@@ -699,7 +805,7 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
             "Work in progress",
             "1031803001* Contract In Progress (CIP)",
             true,
-            "Fixed assets",
+            "Fixed Assets",
         ),
         key(
             "intangible_asset",
@@ -745,6 +851,19 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
             false,
             "Fixed Assets",
         ),
+        // The client's seventh asset family is not depreciated. `1021607` is
+        // named `Reserve Replacement - Operating Equipment` where the other six
+        // under `10216` are named `Akum-Penyusu - …`, and `70102` has no
+        // depreciation family for operating equipment at all — its sixth child
+        // is `BIAYA REPLACEMENT OPERATING EQUIPMENT`. Three parallel blocks of
+        // thirty-six accounts, class for class.
+        //
+        // So these two are qualified by the CLASS and not by the category: the
+        // qualifier is `1021507001 OE - Rak 1` and the pair it resolves to is
+        // `1021607001` and `7010215001`. Qualifying by the family instead would
+        // put every rack, mannequin and hanger in the company into one reserve
+        // account, which is what the account map did before 0139 and what made
+        // the client's own reserve report unreadable.
         key(
             "loan_principal",
             "Loan principal",
@@ -759,6 +878,279 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
             false,
             "Loans & Financing",
         ),
+        // lane-A: what a day's takings need. The client splits sales income by
+        // how it was settled, because cash is in a drawer tonight and a card is
+        // a named acquirer's debt that arrives on Thursday net of a fee, so the
+        // income keys below are qualified the same way the receivables are.
+        //
+        // Three of these are marked "proposed": their chart, all 496 accounts
+        // of it, has nothing for them. QRIS did not exist when it was drawn and
+        // they have never sold a gift card — checked, not assumed: no account
+        // in it mentions QRIS, a wallet, or a voucher.
+        //
+        // Each suggested code is a rung nobody has taken, checked against the
+        // same file. That check is worth making rather than eyeballing: the
+        // obvious next rung for QRIS income, 4010113001, is already spent on
+        // "Penjualan Online Sendiri" — 401011.3 is their online rung, .3002
+        // being the marketplaces — so QRIS goes to 401011.4 instead. Proposing
+        // a code that already means something else is the one mistake here
+        // that would post real money into somebody else's account and still
+        // balance.
+        //
+        // All three are suggestions on the Account Map screen and nothing more.
+        // Unmapped, the day refuses and names the key.
+        key(
+            "revenue_cash",
+            "Sales — cash",
+            "4010110001 Penjualan Tunai",
+            false,
+            "Sales posting",
+        ),
+        key(
+            "revenue_debit",
+            "Sales — debit card",
+            "4010111* Penjualan Debit (per bank)",
+            true,
+            "Sales posting",
+        ),
+        key(
+            "revenue_credit",
+            "Sales — credit card",
+            "4010112* Penjualan Kartu Kredit (per network)",
+            true,
+            "Sales posting",
+        ),
+        key(
+            "revenue_qris",
+            "Sales — QRIS",
+            "4010114001 Penjualan QRIS (proposed; the client's chart has none)",
+            false,
+            "Sales posting",
+        ),
+        key(
+            "sales_return",
+            "Sales returns",
+            "4010214001 Retur Penjualan",
+            false,
+            "Sales posting",
+        ),
+        key(
+            "sales_discount",
+            "Sales discount",
+            "4010213001 Potongan Penjualan",
+            false,
+            "Sales posting",
+        ),
+        key(
+            "vat_out",
+            "Output VAT",
+            "2012101003 Hutang PPN Keluaran",
+            false,
+            "Sales posting",
+        ),
+        key(
+            "qris_receivable",
+            "QRIS receivable",
+            "1011101003 Piutang QRIS (proposed; the client's chart has none)",
+            true,
+            "Sales posting",
+        ),
+        // end lane-A
+        // lane-G: the rest of the payables loop.
+        //
+        // Every code below was read out of the client's own chart
+        // (`Laporan_Master_Account1.csv`) and every one of them has the same
+        // fourteen location leaves — HO and C001..C013 — that `inventory` and
+        // `trade_payable` do. None is invented and none is borrowed from a
+        // meaning that was already spoken for.
+        //
+        // The one this lane exists for. 0052 said the client's chart had no
+        // goods-received-not-invoiced account and refused to post a delivery on
+        // those grounds; the account was there all along, beside the ordinary
+        // supplier payable, and nothing had ever posted to it. A delivery
+        // credits it and the bill that answers the delivery clears it, so the
+        // balance on it at a month end is exactly what the warehouse holds and
+        // nobody has been invoiced for.
+        key(
+            "supplier_suspend",
+            "Supplier payable — goods received, not invoiced",
+            "2012001002 Hutang Supplier Barang Dagang - Suspend",
+            false,
+            "Payables",
+        ),
+        // Where a bill that disagrees with the order puts the difference.
+        //
+        // The expectation is the SAME account `purchase_discount` names, and
+        // that is not an oversight: the client keeps one signed account for
+        // both, `8010110003 Potongan Pembelian`, and there is no variance
+        // account anywhere in the 7,538 rows to point at instead. Two keys
+        // rather than one all the same, because they are two different facts —
+        // a discount is agreed and a variance is discovered — and a client who
+        // opens a variance account later remaps this one key instead of
+        // waiting for a release.
+        key(
+            "purchase_price_variance",
+            "Purchase price variance",
+            "8010110003 Potongan Pembelian",
+            false,
+            "Payables",
+        ),
+        // Money paid to a supplier before there is a bill to owe them for.
+        //
+        // Distinct from `advance`, which is the travelling advance a person
+        // draws (`1011303001 Advanced - Travelling`), and distinct again from
+        // anything owed by a store manager. Three different debts to three
+        // different kinds of counterparty, and the client's chart keeps them on
+        // three different accounts, so this system does too.
+        key(
+            "advance_purchase",
+            "Advance to a supplier",
+            "1011303002 Advanced - Purchase",
+            false,
+            "Payables",
+        ),
+        // `bank_admin_fee` — the bank's own charge on a transfer, when it comes
+        // out of the same movement rather than being debited separately — is
+        // the same meaning and the same account lane C declares above under
+        // Cash & Bank, so it is declared there and not again here.
+        // Income tax kept back from a supplier and owed to the tax office.
+        // Creditable: the vendor claims it against their annual liability with
+        // the certificate this system's figure appears on.
+        key(
+            "pph23_payable",
+            "PPh 23 withheld",
+            "2012101002 Hutang Pajak PPH Pasal 23 (withold)",
+            false,
+            "Payables",
+        ),
+        // The final-tax half of the same act, and the one honest gap in this
+        // list: the client's chart has no PPh 4(2) leaf. `20121 HUTANG PAJAK`
+        // holds PPh 21, PPh 23, output VAT, land-and-building tax and PPh 25,
+        // and nothing for the final tax on rent of land and buildings.
+        //
+        // So the expectation below names the heading rather than a leaf, and it
+        // is a suggestion in the way `asset_disposal_result`'s is. Left
+        // deliberately unseeded: pointing it at the PPh 23 account would put a
+        // final tax in a creditable one, where somebody would claim it back a
+        // year later. Unmapped, a rent payment refuses and names this key,
+        // which is the whole point — the Account Map screen lists it as unset
+        // from the day this ships rather than somebody discovering it while
+        // trying to pay a landlord.
+        key(
+            "pph_final_payable",
+            "PPh 4(2) withheld — final",
+            "2012101* Hutang Pajak (the chart keeps no PPh 4(2) leaf; open one)",
+            false,
+            "Payables",
+        ),
+        // ── lane-B — the store cash chain ────────────────────────────────
+        //
+        // Two of these are PROPOSED: the client's chart has no account for
+        // either, and both are named as proposals on the Account Map screen so
+        // nobody maps them to something approximate by accident.
+        //
+        // `cash_in_transit` is the one that matters. Without it a shop's
+        // banking is credited on the day the bag leaves and debited on the day
+        // the bank posts it, and in between the money is in no account and no
+        // report. `1011005` is the next free rung of `10110 KAS & SETARA KAS`,
+        // after CASH ON HAND, CASH IN BANK GIRO, CASH IN BANK TABUNGAN and TIME
+        // DEPOSIT — exactly where a treasurer would look for it.
+        key(
+            "cash_in_transit",
+            "Cash in transit",
+            "1011005001 Kas Dalam Perjalanan (proposed — the client has none)",
+            false,
+            "Cash & Bank",
+        ),
+        // The drawer's difference, once somebody has accepted it. The next free
+        // leaf under the rung that already holds `8010110002 Selisih
+        // pembulatan` and `8010110006 Kehilangan Barang atau Selisih Stock
+        // Opname`, because a till shortfall is the same species of number as a
+        // stock one and the client already keeps that species there.
+        // `store_manager_receivable` — what a store manager is HOLDING for the
+        // company, which is not what an employee OWES it — belongs to this lane
+        // as much as to the Payment Ledger, and lane P declares it above under
+        // Receivables. One key, one meaning, one declaration: a meaning
+        // declared twice fails `every_meaning_is_declared_once`.
+        // Wages owed and not yet handed over. What a manager paying an employee
+        // out of a fund DEBITS — never a second salary expense, which was
+        // already recognised when payroll was finalised.
+        key(
+            "payroll_payable",
+            "Wages payable",
+            "2012201001 Biaya Gaji dan Upah YMHD",
+            false,
+            "Payables",
+        ),
+        // What a shop may spend petty cash or an operating fund on. Nine, and
+        // the ninth is a catch-all on purpose: a category list with no bottom
+        // means a real receipt eventually has nowhere to go, and the shop pays
+        // for it out of the drawer instead — which is the exact behaviour this
+        // lane exists to end.
+        key(
+            "expense_electricity",
+            "Electricity",
+            "6010310006 Biaya Pemakaian Listrik",
+            false,
+            "Store cash",
+        ),
+        key(
+            "expense_water",
+            "Water",
+            "6010310007 Biaya Pemakaian Air Bersih (PDAM)",
+            false,
+            "Store cash",
+        ),
+        key(
+            "expense_telephone",
+            "Telephone and internet",
+            "6010310005 Biaya Telephone, Facsimile, Modem",
+            false,
+            "Store cash",
+        ),
+        key(
+            "expense_household",
+            "Household",
+            "6010310003 Biaya Rumah Tangga",
+            false,
+            "Store cash",
+        ),
+        key(
+            "expense_stationery",
+            "Stationery and printing",
+            "6010310002 Alat Tulis Kantor & Barang Cetakan",
+            false,
+            "Store cash",
+        ),
+        key(
+            "expense_repairs",
+            "Repairs and maintenance",
+            "6010410004 BIAYA PERBAIKAN DAN PERAWATAN BANGUNAN",
+            false,
+            "Store cash",
+        ),
+        key(
+            "expense_transport",
+            "Local transport",
+            "6010310009 Biaya Lokal Transport",
+            false,
+            "Store cash",
+        ),
+        key(
+            "expense_cleaning",
+            "Cleaning",
+            "6010310001 Biaya Kebersihan (Cleaning)",
+            false,
+            "Store cash",
+        ),
+        key(
+            "expense_misc",
+            "Miscellaneous",
+            "6010310099 Miscellaneous Expences",
+            false,
+            "Store cash",
+        ),
+        // ── end lane-B ───────────────────────────────────────────────────
     ]
 }
 
@@ -2526,4 +2918,36 @@ pub async fn close_period(
     .fetch_one(pool)
     .await?;
     Ok(row.try_get("n")?)
+}
+
+#[cfg(test)]
+mod catalogue_tests {
+    use super::required_semantic_keys;
+    use std::collections::BTreeMap;
+
+    /// One meaning, declared once.
+    ///
+    /// Worth a test rather than a convention because several lanes add to this
+    /// list at the same time and two of them naming the same meaning is the
+    /// likeliest way it goes wrong. A duplicate would not fail anything: the
+    /// setup screen would show the row twice, an operator would map it twice,
+    /// and the second mapping would be the one nobody could find. Two meanings
+    /// pointing at ONE ACCOUNT is fine and deliberate — three do below — but
+    /// one key twice is a merge nobody finished.
+    #[test]
+    fn every_meaning_is_declared_exactly_once() {
+        let mut seen: BTreeMap<String, usize> = BTreeMap::new();
+        for doc in required_semantic_keys() {
+            *seen.entry(doc.key.clone()).or_default() += 1;
+        }
+        let doubled: Vec<&String> = seen
+            .iter()
+            .filter(|(_, count)| **count > 1)
+            .map(|(key, _)| key)
+            .collect();
+        assert!(
+            doubled.is_empty(),
+            "declared more than once — two lanes probably added the same meaning: {doubled:?}"
+        );
+    }
 }

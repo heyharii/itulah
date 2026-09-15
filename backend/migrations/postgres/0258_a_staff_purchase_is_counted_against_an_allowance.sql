@@ -1,4 +1,4 @@
--- 0107: A staff purchase is a discount somebody is entitled to, counted.
+-- 0258: A staff purchase is a discount somebody is entitled to, counted.
 --
 -- Asked for by Hari 2026-09-09: "employee discount ini bisa reset, bisa tau yg
 -- dibeli, bisa tau berapa transaksi dan totalnya berapa".

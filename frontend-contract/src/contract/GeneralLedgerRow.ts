@@ -32,6 +32,17 @@ account_code: string,
  */
 account_name: string, site_id: string, 
 /**
+ * The unit on the other side of the movement, when the posting named
+ * one. 0120 put it on the line.
+ *
+ * Not what an affiliate balance is read from: 0122 gives every pair of
+ * units its own leaf, so the figure comes from summing the account —
+ * which is what a trial balance does, and is why this screen and the
+ * trial balance cannot disagree. See `interunit`. This column answers
+ * the other half of the question, which movements rather than how much.
+ */
+counter_site_id: string | null, 
+/**
  * Who the other side was, when the posting named one.
  *
  * `journal_line.supplier_id` is the sub-ledger dimension the payables

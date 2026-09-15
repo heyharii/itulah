@@ -448,7 +448,12 @@ async fn a_phone_punch_is_recorded_and_never_looks_like_a_reading(pool: PgPool) 
         fortnight.body
     );
     let day = &fortnight.body["days"][0];
-    assert_eq!(day["date"], local_today().to_string(), "{:?}", fortnight.body);
+    assert_eq!(
+        day["date"],
+        local_today().to_string(),
+        "{:?}",
+        fortnight.body
+    );
     assert_eq!(
         day["punch_sources"],
         json!(["EMPLOYEE_APP"]),

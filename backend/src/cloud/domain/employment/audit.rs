@@ -408,6 +408,92 @@ pub mod actions {
     /// them needs a reason; splitting them would be three places to forget to
     /// ask for one.
     pub const HIRE_PROPOSAL_DECIDE: &str = "people.hire_proposal.decide";
+    // ── the books ────────────────────────────────────────────────────────
+    //
+    // Finance keys live in this module for the reason the header gives: one key
+    // space, one `required_role`, one answer to "may they". They are named
+    // finer than the three-rung ladder can currently express — `finance.post`
+    // and `finance.approve` map to the same rung today and always will while
+    // the ladder has three rungs — because the distinction is the control, and
+    // a control that is not named cannot later be granted separately.
+    //
+    // Before these existed, `required_role` for a path answered `Supervisor`
+    // for everything under `/api/v1/finance/`, and no handler asked a second
+    // question. A shift supervisor could seal a month, type a journal entry
+    // from nothing, and dispose of a building.
+
+    /// Read the operational money screens: what is owed, what is owing, what
+    /// the cash and bank positions are, what assets exist.
+    ///
+    /// The supervisor rung, and the only finance key that is not head office's.
+    /// A place manager who cannot see what their shop owes is a place manager
+    /// who has to ask head office what their shop owes.
+    pub const FINANCE_READ: &str = "finance.read";
+    /// Read the books themselves: the chart of accounts, the journal, a trial
+    /// balance, a statement, an account's ledger.
+    ///
+    /// Separate from [`FINANCE_READ`] and deliberately higher. "What does this
+    /// shop owe" and "what has the company earned and what does it own" are
+    /// different questions with different audiences, and one grant answering
+    /// both is how an operations screen becomes the company's P&L.
+    pub const FINANCE_LEDGER_READ: &str = "finance.ledger.read";
+    /// Record a bill, a payment or an asset — in draft, touching no account.
+    ///
+    /// Its own key rather than a mode of [`FINANCE_POST`]: writing down what a
+    /// supplier sent is clerical, and putting it into the books is not.
+    pub const FINANCE_DOCUMENT_RECORD: &str = "finance.document.record";
+    /// Put a recorded document into the books.
+    pub const FINANCE_POST: &str = "finance.post";
+    /// Agree a correction somebody else drafted.
+    ///
+    /// **Disjoint from [`FINANCE_POST`]**, which is what lets the two-person
+    /// rule compare actors at all — the same argument as
+    /// [`PAYROLL_APPROVE`] against [`PAYROLL_VERIFY`]. The rule itself is
+    /// enforced on the actor and by a CHECK on the row; the key is what makes
+    /// it expressible.
+    pub const FINANCE_APPROVE: &str = "finance.approve";
+    /// Type a journal entry from nothing.
+    ///
+    /// Its own key because it is the only write in the system with no document
+    /// behind it. Everything else in finance is a consequence of something that
+    /// happened; this is somebody's opinion, entered directly.
+    pub const FINANCE_JOURNAL_MANUAL: &str = "finance.journal.manual";
+    /// Reverse a posted entry, or a posted correction.
+    pub const FINANCE_REVERSE: &str = "finance.reverse";
+    /// Decide which account a meaning resolves to.
+    ///
+    /// The map is upstream of every posting rule in the system, so changing it
+    /// changes what tomorrow's postings mean without touching a single line of
+    /// posting code. That is why it is not [`FINANCE_POST`].
+    pub const FINANCE_MAP_SET: &str = "finance.map.set";
+    /// Match a bank line, unmatch one, or import a statement.
+    pub const FINANCE_BANK_RECONCILE: &str = "finance.bank.reconcile";
+    /// Register, assess, dispose of or move a fixed asset, and run a month's
+    /// depreciation.
+    pub const FINANCE_ASSET_MANAGE: &str = "finance.asset.manage";
+    /// Open an accounting month.
+    pub const FINANCE_PERIOD_OPEN: &str = "finance.period.open";
+    /// Seal one, once its checklist permits.
+    pub const FINANCE_PERIOD_CLOSE: &str = "finance.period.close";
+    /// Unseal one. **Disjoint from [`FINANCE_PERIOD_CLOSE`]** for the same
+    /// reason [`ATTENDANCE_PERIOD_REOPEN`] is disjoint from
+    /// [`ATTENDANCE_PERIOD_CLOSE`]: whoever can undo their own close has not
+    /// closed anything. It is the key that lets somebody write into a month
+    /// that has already been reported, so it is the one key in finance that
+    /// exists mainly to be withheld.
+    pub const FINANCE_PERIOD_REOPEN: &str = "finance.period.reopen";
+    /// Import a cutover: the opening trial balance, the opening stock and its
+    /// costs, and the open items carried over from the client's old system.
+    ///
+    /// Its own key rather than a mode of [`FINANCE_JOURNAL_MANUAL`], and it is
+    /// the one this file would most like to see withheld from everybody until
+    /// the day it is used. A cutover is the only act in the system that writes
+    /// the beginning of every balance at once, and the FIFO queue in particular
+    /// is priced exactly once — after the first sale on the first morning there
+    /// is no second chance at it, because the layers are already being consumed.
+    /// It is also, unusually, an act with no document of ours behind it: what
+    /// it asserts happened, happened in somebody else's software.
+    pub const FINANCE_OPENING_IMPORT: &str = "finance.opening.import";
 
     /// The keys that may move the employment state machine.
     pub const EMPLOYMENT_CHANGING: &[&str] = &[EMPLOYMENT_CHANGE];
@@ -514,6 +600,18 @@ pub mod actions {
     /// and the first grant somebody was given without the other would be a
     /// grant to do half of it.
     pub const HIRE_EMPLOYING: &[&str] = &[EMPLOYEE_CREATE];
+
+    /// The keys that may put something into the books.
+    pub const FINANCE_POSTING: &[&str] = &[FINANCE_POST, FINANCE_JOURNAL_MANUAL];
+    /// The keys that may agree what somebody else drafted. **Disjoint from
+    /// [`FINANCE_POSTING`]**: that disjointness is what the maker-checker rule
+    /// on a correction document is made of.
+    pub const FINANCE_APPROVING: &[&str] = &[FINANCE_APPROVE];
+    /// The keys that may seal an accounting month.
+    pub const FINANCE_PERIOD_SEALING: &[&str] = &[FINANCE_PERIOD_CLOSE];
+    /// The keys that may unseal one. **Disjoint from
+    /// [`FINANCE_PERIOD_SEALING`]**.
+    pub const FINANCE_PERIOD_UNSEALING: &[&str] = &[FINANCE_PERIOD_REOPEN];
 }
 
 /// Which rung of the ladder an action key needs.
@@ -583,6 +681,11 @@ pub fn required_role(action_key: &str) -> Role {
         // place asks for one figure for one person for one month, and head
         // office decides both what a payslip may say and what it costs.
         | actions::PAYROLL_ADJUSTMENT_FILE => Role::Supervisor,
+        // The only finance key below head office. Everything else under
+        // `finance.` falls through to Admin with the rest of the rules the
+        // places are measured against — including, deliberately, reading the
+        // journal and the trial balance.
+        | actions::FINANCE_READ => Role::Supervisor,
         // Everybody signed in may ask for their own leave. The bound is the
         // record rather than the rung — the handler serves this key only for
         // the caller's own employment record — because a cashier who could not
@@ -1051,6 +1154,61 @@ mod tests {
                 .unwrap_or_else(|error| panic!("authorization: {error}"));
         assert!(settle.authorizes_payroll_settlement());
         assert!(!settle.authorizes_payroll_handover());
+    }
+
+    /// Every finance key is head office's except the one a place manager needs.
+    ///
+    /// The line is drawn at "what does my shop owe" against "what has the
+    /// company earned". Reading the journal and the trial balance is on the
+    /// far side of it deliberately: `auth::required_role` answers Supervisor
+    /// for every GET under `/api/v1/finance/`, and this is the gate that says
+    /// the trial balance is not one of the things that buys you.
+    #[test]
+    fn finance_is_head_office_except_the_shop_floor_read() {
+        assert_eq!(required_role(actions::FINANCE_READ), Role::Supervisor);
+        for key in [
+            actions::FINANCE_LEDGER_READ,
+            actions::FINANCE_DOCUMENT_RECORD,
+            actions::FINANCE_POST,
+            actions::FINANCE_APPROVE,
+            actions::FINANCE_JOURNAL_MANUAL,
+            actions::FINANCE_REVERSE,
+            actions::FINANCE_MAP_SET,
+            actions::FINANCE_BANK_RECONCILE,
+            actions::FINANCE_ASSET_MANAGE,
+            actions::FINANCE_PERIOD_OPEN,
+            actions::FINANCE_PERIOD_CLOSE,
+            actions::FINANCE_PERIOD_REOPEN,
+        ] {
+            assert_eq!(required_role(key), Role::Admin, "{key}");
+        }
+    }
+
+    /// The three pairs whose whole purpose is that they are two keys.
+    ///
+    /// Each of these could be collapsed into one grant, and each collapse would
+    /// delete a control: a maker who is also the checker, or a closer who can
+    /// reopen what they closed.
+    #[test]
+    fn the_finance_controls_are_pairs_of_distinct_keys() {
+        assert_ne!(actions::FINANCE_POST, actions::FINANCE_APPROVE);
+        assert_ne!(actions::FINANCE_DOCUMENT_RECORD, actions::FINANCE_POST);
+        assert_ne!(
+            actions::FINANCE_PERIOD_CLOSE,
+            actions::FINANCE_PERIOD_REOPEN
+        );
+        for approving in actions::FINANCE_APPROVING {
+            assert!(
+                !actions::FINANCE_POSTING.contains(approving),
+                "{approving} may not also be a posting key"
+            );
+        }
+        for unsealing in actions::FINANCE_PERIOD_UNSEALING {
+            assert!(
+                !actions::FINANCE_PERIOD_SEALING.contains(unsealing),
+                "{unsealing} may not also seal"
+            );
+        }
     }
 
     /// Issuing a credential is head office's, because it is the act that

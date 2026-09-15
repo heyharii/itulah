@@ -662,6 +662,31 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("SetAccountMappingRequest: {e}"));
     inventory_backend::cloud::postgres::SemanticKeyDoc::export_all(&config)
         .unwrap_or_else(|e| panic!("SemanticKeyDoc: {e}"));
+
+    // lane-A: a day of takings, and moving a settled tender. Exported for the
+    // same reason everything above it is — the screens that generate a day,
+    // read its working paper and retender a card have to agree with the server
+    // about the shape of all three, and the only way to guarantee that is for
+    // one of them to be written by the other.
+    inventory_backend::cloud::postgres::SalesPosting::export_all(&config)
+        .unwrap_or_else(|e| panic!("SalesPosting: {e}"));
+    inventory_backend::cloud::postgres::SalesPostingLine::export_all(&config)
+        .unwrap_or_else(|e| panic!("SalesPostingLine: {e}"));
+    inventory_backend::cloud::postgres::SalesPostingDocument::export_all(&config)
+        .unwrap_or_else(|e| panic!("SalesPostingDocument: {e}"));
+    inventory_backend::cloud::postgres::GenerateSalesPostingRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("GenerateSalesPostingRequest: {e}"));
+    inventory_backend::cloud::postgres::GenerateSalesDaysRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("GenerateSalesDaysRequest: {e}"));
+    inventory_backend::cloud::postgres::GeneratedDay::export_all(&config)
+        .unwrap_or_else(|e| panic!("GeneratedDay: {e}"));
+    inventory_backend::cloud::postgres::ReverseSalesPostingRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("ReverseSalesPostingRequest: {e}"));
+    inventory_backend::cloud::postgres::RetenderRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("RetenderRequest: {e}"));
+    inventory_backend::cloud::postgres::RetenderOutcome::export_all(&config)
+        .unwrap_or_else(|e| panic!("RetenderOutcome: {e}"));
+    // end lane-A
     inventory_backend::cloud::postgres::BookLocation::export_all(&config)
         .unwrap_or_else(|e| panic!("BookLocation: {e}"));
     inventory_backend::cloud::postgres::FiscalPeriod::export_all(&config)
@@ -676,6 +701,14 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("GeneralLedger: {e}"));
     inventory_backend::cloud::postgres::GeneralLedgerRow::export_all(&config)
         .unwrap_or_else(|e| panic!("GeneralLedgerRow: {e}"));
+    // The two-way check. Both sides of every head-office/shop balance, which
+    // is the one figure in these books that two people have to agree about.
+    inventory_backend::cloud::postgres::InterunitPair::export_all(&config)
+        .unwrap_or_else(|e| panic!("InterunitPair: {e}"));
+    inventory_backend::cloud::postgres::InterunitMovement::export_all(&config)
+        .unwrap_or_else(|e| panic!("InterunitMovement: {e}"));
+    inventory_backend::cloud::postgres::InterunitReport::export_all(&config)
+        .unwrap_or_else(|e| panic!("InterunitReport: {e}"));
     inventory_backend::cloud::http::finance::AccountDetail::export_all(&config)
         .unwrap_or_else(|e| panic!("AccountDetail: {e}"));
     inventory_backend::cloud::http::finance::PeriodRequest::export_all(&config)
@@ -738,6 +771,40 @@ fn the_wire_types_are_written_for_the_browser() {
     inventory_backend::cloud::postgres::AllocateToBill::export_all(&config)
         .unwrap_or_else(|e| panic!("AllocateToBill: {e}"));
 
+    // The rest of the payables loop. `BillMatchRequest` and `BillMatchLine`
+    // arrive on their own through `RecordBillRequest::export_all` above, so
+    // they are not repeated here; everything else has to be asked for.
+    //
+    // `ReceiptAwaitingPosting` is the queue screen and `ThreeWayReport` the
+    // exception report, and the two are different questions: the first is what
+    // finance still has to do, the second is what the books and the warehouse
+    // disagree about. `PaymentDeductions` is what a payment will actually move,
+    // which a person has to be able to see before it posts rather than after.
+    inventory_backend::cloud::postgres::ReceiptPosting::export_all(&config)
+        .unwrap_or_else(|e| panic!("ReceiptPosting: {e}"));
+    inventory_backend::cloud::postgres::ReceiptAwaitingPosting::export_all(&config)
+        .unwrap_or_else(|e| panic!("ReceiptAwaitingPosting: {e}"));
+    inventory_backend::cloud::postgres::BillMatch::export_all(&config)
+        .unwrap_or_else(|e| panic!("BillMatch: {e}"));
+    inventory_backend::cloud::postgres::ThreeWayReport::export_all(&config)
+        .unwrap_or_else(|e| panic!("ThreeWayReport: {e}"));
+    inventory_backend::cloud::postgres::CreditNote::export_all(&config)
+        .unwrap_or_else(|e| panic!("CreditNote: {e}"));
+    inventory_backend::cloud::postgres::CreditNoteRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("CreditNoteRequest: {e}"));
+    inventory_backend::cloud::postgres::CreditNoteRefundRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("CreditNoteRefundRequest: {e}"));
+    inventory_backend::cloud::postgres::SupplierAdvance::export_all(&config)
+        .unwrap_or_else(|e| panic!("SupplierAdvance: {e}"));
+    inventory_backend::cloud::postgres::SupplierAdvanceRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("SupplierAdvanceRequest: {e}"));
+    inventory_backend::cloud::postgres::SupplierAdvanceApplyRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("SupplierAdvanceApplyRequest: {e}"));
+    inventory_backend::cloud::postgres::PaymentDeductions::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentDeductions: {e}"));
+    inventory_backend::cloud::postgres::PaymentWithholdRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentWithholdRequest: {e}"));
+
     // Payables ageing. `AgingBuckets` is one shape used twice — per supplier
     // and for the footer — so the total does not have to invent a supplier id.
     inventory_backend::cloud::postgres::PayablesAging::export_all(&config)
@@ -746,6 +813,43 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("PayablesAgingRow: {e}"));
     inventory_backend::cloud::postgres::AgingBuckets::export_all(&config)
         .unwrap_or_else(|e| panic!("AgingBuckets: {e}"));
+
+    // lane-P — the Payment Ledger. Accounts Payable and Accounts Receivable are
+    // two readings of one table, which is why `PaymentLedgerEntry` carries a
+    // `side` rather than the browser knowing which screen it is on. Nothing
+    // here has a request type, and that is the shape rather than an omission:
+    // an open balance is opened by the posting rule that created the document,
+    // never by a screen, so the wire runs one way.
+    inventory_backend::cloud::postgres::PaymentLedgerEntry::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentLedgerEntry: {e}"));
+    inventory_backend::cloud::postgres::PaymentLedgerSide::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentLedgerSide: {e}"));
+    inventory_backend::cloud::postgres::PaymentLedgerPartyType::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentLedgerPartyType: {e}"));
+    inventory_backend::cloud::postgres::PaymentLedgerAging::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentLedgerAging: {e}"));
+    inventory_backend::cloud::postgres::PaymentLedgerAgingRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentLedgerAgingRow: {e}"));
+    inventory_backend::cloud::postgres::PaymentLedgerPartyStatement::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentLedgerPartyStatement: {e}"));
+    inventory_backend::cloud::postgres::PaymentLedgerSettlementRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentLedgerSettlementRow: {e}"));
+    inventory_backend::cloud::postgres::PaymentLedgerSettled::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentLedgerSettled: {e}"));
+    inventory_backend::cloud::postgres::PaymentLedgerRemainder::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentLedgerRemainder: {e}"));
+    inventory_backend::cloud::postgres::PaymentLedgerDelinked::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentLedgerDelinked: {e}"));
+    inventory_backend::cloud::postgres::PaymentLedgerOutstanding::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentLedgerOutstanding: {e}"));
+    // The equation. `agrees` is sent rather than left for the browser to work
+    // out, for the same reason `TrialBalance.balanced` is.
+    inventory_backend::cloud::postgres::PaymentLedgerIntegrity::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentLedgerIntegrity: {e}"));
+    inventory_backend::cloud::postgres::PaymentLedgerIntegrityRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentLedgerIntegrityRow: {e}"));
+    inventory_backend::cloud::http::payment_ledger::PaymentLedgerView::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentLedgerView: {e}"));
 
     // Fixed assets. `AssetRow.decision` is an Option on purpose: absent means
     // nobody has assessed the asset, which is an open control gap and must not
@@ -787,6 +891,32 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("UnbackedAsset: {e}"));
     inventory_backend::cloud::postgres::UnclaimedAcquisitionLine::export_all(&config)
         .unwrap_or_else(|e| panic!("UnclaimedAcquisitionLine: {e}"));
+
+    // Whether a month's depreciation is actually done, for the period-close
+    // checklist. `missing` is a list and not a count: a screen saying "11
+    // outstanding" sends somebody looking for which eleven.
+    inventory_backend::cloud::postgres::AssetDepreciationStatus::export_all(&config)
+        .unwrap_or_else(|e| panic!("AssetDepreciationStatus: {e}"));
+    inventory_backend::cloud::postgres::AssetAwaitingCharge::export_all(&config)
+        .unwrap_or_else(|e| panic!("AssetAwaitingCharge: {e}"));
+    inventory_backend::cloud::postgres::DepreciationRunRecord::export_all(&config)
+        .unwrap_or_else(|e| panic!("DepreciationRunRecord: {e}"));
+
+    // The replacement reserve. The client's seventh asset family is not
+    // depreciated at all — their chart carries three parallel blocks of
+    // thirty-six accounts for reserving against it instead.
+    inventory_backend::cloud::postgres::AssetReserveClass::export_all(&config)
+        .unwrap_or_else(|e| panic!("AssetReserveClass: {e}"));
+    inventory_backend::cloud::postgres::AssetReplacementRate::export_all(&config)
+        .unwrap_or_else(|e| panic!("AssetReplacementRate: {e}"));
+    inventory_backend::cloud::postgres::SetReplacementRateRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("SetReplacementRateRequest: {e}"));
+    inventory_backend::cloud::postgres::ReserveRun::export_all(&config)
+        .unwrap_or_else(|e| panic!("ReserveRun: {e}"));
+    inventory_backend::cloud::postgres::ReserveChargeLine::export_all(&config)
+        .unwrap_or_else(|e| panic!("ReserveChargeLine: {e}"));
+    inventory_backend::cloud::postgres::ReserveStatus::export_all(&config)
+        .unwrap_or_else(|e| panic!("ReserveStatus: {e}"));
 
     // Bank reconciliation. `Suggestion.reasons` is the field that matters: a
     // 0-100 score explains nothing about which field agreed, and the person
@@ -880,6 +1010,51 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("StatementFormat: {e}"));
     inventory_backend::cloud::http::statement_intake::IntakeRunOutcome::export_all(&config)
         .unwrap_or_else(|e| panic!("IntakeRunOutcome: {e}"));
+    // lane-C: the money documents, and the two things that make one without a
+    // person typing it.
+    //
+    // The slip is exported as its own shape rather than assembled in the
+    // browser from the row. Everything on it — the title, the account names,
+    // the amount in words — is derived, and a page that re-derived them would
+    // be a second implementation of the derivation: a slip whose words
+    // disagreed with its figures is worse than one with no words at all.
+    inventory_backend::cloud::postgres::RecordCashDocumentRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("RecordCashDocumentRequest: {e}"));
+    inventory_backend::cloud::postgres::CashDocumentRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("CashDocumentRow: {e}"));
+    inventory_backend::cloud::postgres::CashDocumentSlip::export_all(&config)
+        .unwrap_or_else(|e| panic!("CashDocumentSlip: {e}"));
+    inventory_backend::cloud::postgres::RecordBankRuleRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("RecordBankRuleRequest: {e}"));
+    inventory_backend::cloud::postgres::BankRuleRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("BankRuleRow: {e}"));
+    inventory_backend::cloud::postgres::BankRuleProposalRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("BankRuleProposalRow: {e}"));
+    inventory_backend::cloud::postgres::BankRuleRunOutcome::export_all(&config)
+        .unwrap_or_else(|e| panic!("BankRuleRunOutcome: {e}"));
+    // One root: `export_all` pulls `GiroRow` and `GiroBankTotal` in behind the
+    // board.
+    inventory_backend::cloud::postgres::GiroBoard::export_all(&config)
+        .unwrap_or_else(|e| panic!("GiroBoard: {e}"));
+    inventory_backend::cloud::postgres::SettleGiroRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("SettleGiroRequest: {e}"));
+
+    // lane-N: the words a person explains money in, and the three doors out of
+    // one bank statement line.
+    //
+    // `BankLineOptions` is exported as one root rather than three lists a page
+    // assembles, because the ORDER of the three is the design: matches, then
+    // documents to create, then categories. A browser type that let a page pick
+    // the blocks up separately would be a type that let it show them in any
+    // order, and the fastest of the three is the one that double-counts.
+    inventory_backend::cloud::postgres::TransactionCategoryRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("TransactionCategoryRow: {e}"));
+    inventory_backend::cloud::postgres::RecordTransactionCategoryRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("RecordTransactionCategoryRequest: {e}"));
+    inventory_backend::cloud::postgres::BankLineOptions::export_all(&config)
+        .unwrap_or_else(|e| panic!("BankLineOptions: {e}"));
+    inventory_backend::cloud::postgres::CategoriseBankLineRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("CategoriseBankLineRequest: {e}"));
     // Where the money is. Driven off `account_map`, so a meaning nobody has
     // mapped produces no row — which is the honest answer and a visible one.
     inventory_backend::cloud::postgres::MoneyOverview::export_all(&config)

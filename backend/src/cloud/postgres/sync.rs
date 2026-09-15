@@ -8,8 +8,9 @@ use super::allotments::{insert_allotment_event, LineIdentity};
 use super::payload_digest;
 use crate::cloud::application::{AppError, DeadLetterQuery};
 use crate::cloud::domain::{
-    cooldown_after_failure, ingest_rejection_reason, BreakerPolicy, DestinationType, IngestBatch,
-    IngestResponse, MovementCommand, RejectedFact, SyncFact, HEAD_OFFICE_SITE_ID,
+    admit_batch, cooldown_after_failure, ingest_rejection_reason, stale_generation_message,
+    BatchAdmission, BatchFact, BreakerPolicy, DestinationType, IngestBatch, IngestResponse,
+    MovementCommand, RejectedFact, SyncFact, HEAD_OFFICE_SITE_ID,
 };
 use crate::edge::{
     EdgeRole, InventoryState, MovementCause as EdgeMovementCause, MovementLine as EdgeMovementLine,
@@ -493,6 +494,59 @@ pub async fn ingest_batch(pool: &PgPool, batch: &IngestBatch) -> Result<IngestRe
             held_by_sequence.insert(row.get("seq"), (status, reason));
         }
     }
+    // Whose seqs are these? Below the watermark the loop that follows treats
+    // every fact as a duplicate and skips it. For a sender resending its own
+    // facts after losing its watermark that is exactly right. For a sender
+    // whose database was replaced it is catastrophic: brand new sales are
+    // discarded in silence and the response reports them durable.
+    //
+    // Identity is what tells the two apart, so that is what is handed to the
+    // guard — whether this cloud has ever seen each fact, not where it sits.
+    let arriving: Vec<BatchFact> = facts
+        .iter()
+        .map(|fact| BatchFact {
+            seq: fact.seq,
+            known: held_by_event.contains_key(&fact.event_id),
+        })
+        .collect();
+    if let BatchAdmission::BelowWatermark {
+        watermark,
+        lowest_seq,
+        highest_seq,
+        contested,
+    } = admit_batch(durable, &arriving)
+    {
+        let message = stale_generation_message(
+            &batch.origin_id,
+            batch.generation,
+            watermark,
+            lowest_seq,
+            highest_seq,
+            contested,
+        );
+        // Roll the receipt back before recording the alert: the alert is what
+        // the operator sees, and it must survive the refusal that produced it.
+        drop(tx);
+        super::sync_raise_integrity_alert(
+            pool,
+            &batch.origin_id,
+            batch.generation,
+            super::SYNC_ALERT_BELOW_WATERMARK,
+            &message,
+            Some(watermark),
+        )
+        .await?;
+        tracing::error!(
+            origin = %batch.origin_id,
+            generation = batch.generation,
+            watermark,
+            lowest_seq,
+            highest_seq,
+            "refused a sync batch lying entirely below the watermark"
+        );
+        return Err(AppError::Conflict(message));
+    }
+
     let mut rejected = Vec::new();
     let mut pending_rows = Vec::new();
     for fact in facts {
@@ -2232,6 +2286,26 @@ async fn apply_one(
                     Err(reason) => return Ok(ApplyStep::Blocked { seq: next, reason }),
                 };
                 if let Err(error) = apply_sale(&mut tx, origin_id, generation, next, &sale).await {
+                    return Ok(ApplyStep::Blocked {
+                        seq: next,
+                        reason: block_diagnostic(&error),
+                    });
+                }
+                false
+            } else if event_type == crate::edge::till::FACT_SHIFT_RECORDED {
+                // The drawer, on the same path the tenders take. Nothing here
+                // touches the watermark or the generation: the coordinate is
+                // handed over and stored, so the shift can be traced to the
+                // push that delivered it.
+                let shift = match super::store_money::parse_cash_shift(&payload) {
+                    Ok(shift) => shift,
+                    Err(reason) => return Ok(ApplyStep::Blocked { seq: next, reason }),
+                };
+                if let Err(error) = super::store_money::cash_shift_ingest(
+                    &mut tx, origin_id, generation, next, &shift,
+                )
+                .await
+                {
                     return Ok(ApplyStep::Blocked {
                         seq: next,
                         reason: block_diagnostic(&error),
@@ -5894,9 +5968,13 @@ async fn apply_sale(
     // fact overwrites the same rows rather than recording each payment twice.
     for tender in &sale.tenders {
         sqlx::query(
+            // lane-A: the acquirer, terminal and batch travel with the tender
+            // when the till knows them. Null when it does not, which is every
+            // till today — the ledger then falls back to `reference`.
             "INSERT INTO edge_sale_tender
-                 (sale_id, tender_seq, method, amount_minor, reference)
-             VALUES ($1, $2, $3, $4, $5)
+                 (sale_id, tender_seq, method, amount_minor, reference,
+                  acquirer, terminal_id, batch_no, card_kind)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
              ON CONFLICT (sale_id, tender_seq) DO NOTHING",
         )
         .bind(sale.sale_id)
@@ -5909,6 +5987,36 @@ async fn apply_sale(
                 .as_deref()
                 .map(str::trim)
                 .filter(|value| !value.is_empty()),
+        )
+        .bind(
+            tender
+                .acquirer
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_ascii_uppercase),
+        )
+        .bind(
+            tender
+                .terminal_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty()),
+        )
+        .bind(
+            tender
+                .batch_no
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty()),
+        )
+        .bind(
+            tender
+                .card_kind
+                .as_deref()
+                .map(str::trim)
+                .map(str::to_ascii_uppercase)
+                .filter(|value| value == "DEBIT" || value == "CREDIT"),
         )
         .execute(&mut **tx)
         .await?;

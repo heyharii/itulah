@@ -35,6 +35,7 @@
 //! frozen by a trigger: the journal that quotes them cannot move, so neither can
 //! they.
 
+use super::assets::{asset_drafts_for_bill, is_asset_account, ASSET_FAMILIES};
 use super::ledger::{assert_postable, Intent};
 use super::poster::{post, LineAccount, PostingIntent, PostingLine};
 use super::{decode_cursor, encode_cursor};
@@ -115,6 +116,19 @@ pub struct SupplierBill {
     /// `MERCHANDISE` or `EXPENSE`. What decides which accounts the posting
     /// debits, and therefore whether `lines` means anything.
     pub kind: String,
+    /// What the bill charges for its deliveries, minus what those deliveries
+    /// were valued at when they arrived. Signed: positive is a debit to
+    /// purchase price variance and negative a credit. Zero on a bill that
+    /// answers no delivery, and decided at matching rather than at posting —
+    /// the journal quotes it and the journal cannot move.
+    pub price_variance_minor: i64,
+    /// Who tied this bill to its deliveries, and when. `None` until somebody
+    /// has, which for a service bill is forever.
+    pub matched_by: Option<String>,
+    pub matched_at: Option<DateTime<Utc>>,
+    /// Which income tax is kept back when this bill is paid. See
+    /// `RecordBillRequest::withholding_code`.
+    pub withholding_code: Option<String>,
     /// What an expense bill was for, account by account.
     ///
     /// `None` on a list read, where it is not fetched — one query per row to
@@ -141,6 +155,14 @@ pub struct SupplierBillLine {
     /// can be enabled by dropping a constraint rather than by a migration.
     pub site_id: String,
     pub amount_minor: i64,
+    /// Set when this line buys a fixed asset. Posting the bill mints a DRAFT
+    /// asset in that class pointing back at the line — the acquisition link
+    /// 0099 left to somebody noticing.
+    pub asset_class_code: Option<String>,
+    /// Set when this line replaces something the company has been reserving
+    /// for. It debits the replacement reserve for its class instead of the
+    /// account named on the line, and mints no asset.
+    pub draws_reserve: bool,
     pub memo: Option<String>,
 }
 
@@ -152,9 +174,25 @@ pub struct RecordBillLine {
     /// advance or a capital purchase — class 1. The database refuses the rest,
     /// and says why.
     pub account_code: String,
-    /// Must be the bill's own location; see `SupplierBillLine::site_id`.
+    /// Where the COST belongs, which need not be the bill's own location: one
+    /// head-office invoice for four shops' electricity is four lines at four
+    /// locations. See `SupplierBillLine::site_id`.
     pub site_id: String,
     pub amount_minor: i64,
+    /// The client's asset class this line buys, when it buys one: a family
+    /// under `10215`, or one of the thirty-six operating-equipment classes.
+    ///
+    /// Said here, by the person holding the paper, because that is the only
+    /// moment anybody knows. Everything downstream — the register row, the
+    /// depreciation, the disposal — follows from it, and none of it can be
+    /// reconstructed later from an account code that fourteen shops share.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub asset_class_code: Option<String>,
+    /// This purchase replaces something the company reserves for. Requires
+    /// `asset_class_code`, which then says which reserve it comes out of.
+    #[serde(default)]
+    pub draws_reserve: bool,
     pub memo: Option<String>,
 }
 
@@ -197,6 +235,36 @@ pub struct RecordBillRequest {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub receipt_ids: Option<Vec<Uuid>>,
+    /// Which deliveries this bill answers, and what it charges for each of
+    /// them. `None` on a service bill, a freight charge or an expense, which
+    /// answer no delivery and post by 0094's path.
+    ///
+    /// Optional, and not merely for the sake of the callers written before it.
+    /// Matching is a decision with an actor and a possible variance to accept,
+    /// and it can be made by somebody other than whoever keyed the paper, on
+    /// another day. So it is also its own endpoint. Recording and matching in
+    /// one call is the case where the same person does both at once, which is
+    /// most of them: a clerk with the delivery note and the invoice side by
+    /// side should not have to make two requests to say so.
+    ///
+    /// Handed to `payables_flow::bill_match` unchanged. When it is present the
+    /// bill comes back MATCHED, and when the deliveries disagree with it the
+    /// whole call fails and no bill is recorded — a DRAFT left behind by a
+    /// refused match is a row somebody has to find and delete.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub matching: Option<super::payables_flow::BillMatchRequest>,
+    /// Which income tax is kept back when this bill is paid, or `None` for
+    /// none — which is the ordinary case, because goods for resale are not
+    /// subject to PPh 23.
+    ///
+    /// A property of what was bought and therefore of the bill, not of the
+    /// payment: the rate follows from whether this was a service, a hire, a
+    /// royalty or the rent of a building. `domain::withholding` holds the codes
+    /// and 0133's CHECK holds the same list.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub withholding_code: Option<String>,
 }
 
 /// A delivery nobody has billed for.
@@ -391,6 +459,7 @@ const BILL_COLUMNS: &str = "i.invoice_id, i.invoice_number, i.supplier_id, i.sup
      i.site_id, i.invoice_date, i.due_date, i.currency, i.subtotal_minor, i.tax_minor,
      i.discount_minor, i.total_minor, i.status, i.journal_entry_id, i.recorded_by,
      i.recorded_at, i.posted_by, i.note, i.kind,
+     i.price_variance_minor, i.matched_by, i.matched_at, i.withholding_code,
      (SELECT e.entry_number FROM journal_entry e WHERE e.entry_id = i.journal_entry_id) AS entry_number,
      -- Age off what falls due NEXT, not off the single date on the paper.
      -- A bill 40% paid whose second instalment falls next month is not late,
@@ -438,6 +507,10 @@ fn to_bill(row: &sqlx::postgres::PgRow) -> Result<SupplierBill, AppError> {
         payment_state: row.try_get("payment_state")?,
         overdue: row.try_get("overdue")?,
         kind: row.try_get("kind")?,
+        price_variance_minor: row.try_get("price_variance_minor")?,
+        matched_by: row.try_get("matched_by")?,
+        matched_at: row.try_get("matched_at")?,
+        withholding_code: row.try_get("withholding_code")?,
         lines: None,
     })
 }
@@ -446,7 +519,7 @@ fn to_bill(row: &sqlx::postgres::PgRow) -> Result<SupplierBill, AppError> {
 async fn bill_lines(pool: &PgPool, invoice_id: Uuid) -> Result<Vec<SupplierBillLine>, AppError> {
     let rows = sqlx::query(
         "SELECT l.line_id, l.line_number, l.account_code, a.name AS account_name,
-                l.site_id, l.amount_minor, l.memo
+                l.site_id, l.amount_minor, l.asset_class_code, l.draws_reserve, l.memo
            FROM supplier_invoice_expense_line l
            JOIN ledger_account a ON a.account_code = l.account_code
           WHERE l.invoice_id = $1
@@ -464,6 +537,8 @@ async fn bill_lines(pool: &PgPool, invoice_id: Uuid) -> Result<Vec<SupplierBillL
                 account_name: row.try_get("account_name")?,
                 site_id: row.try_get("site_id")?,
                 amount_minor: row.try_get("amount_minor")?,
+                asset_class_code: row.try_get("asset_class_code")?,
+                draws_reserve: row.try_get("draws_reserve")?,
                 memo: row.try_get("memo")?,
             })
         })
@@ -835,30 +910,22 @@ pub async fn record_bill(
                     index + 1
                 )));
             }
-            // Every 6* and 7* leaf in this client's chart is already a
-            // per-location account, and their trial balance is read per
-            // location. A DC bill carrying a store-01 line would debit store
-            // 01 with no credit anywhere in store 01's books: two locations
-            // out by the same amount in opposite directions, and a
-            // consolidated trial balance that still balances.
+            // A line may sit at another location than its bill. One electricity
+            // invoice at head office covering four shops is four lines at four
+            // locations, which is how the client bills it and how they read it
+            // back.
             //
-            // The honest credit is inter-unit — the client keeps
-            // `affiliate_receivable` and `affiliate_payable` and both are
-            // mapped for all fourteen locations — but no rule writes either
-            // yet, and which side carries the balance is Finance's decision.
-            // 0084 refuses a cross-site PAYMENT on the same argument. The
-            // composite foreign key added in 0098 is the guarantee; this is
-            // the sentence.
-            if line.site_id.trim() != request.site_id.trim() {
-                return Err(AppError::Validation(format!(
-                    "line {} puts the cost at {} and the bill is at {}; a cost at another \
-                     location needs an inter-unit credit, and no rule writes affiliate_receivable \
-                     or affiliate_payable yet. Record one bill per location instead.",
-                    index + 1,
-                    line.site_id.trim(),
-                    request.site_id.trim()
-                )));
-            }
+            // This is where a refusal used to be, and the reason it could stand
+            // for as long as it did: every 6* and 7* leaf in the client's chart
+            // is a per-location account and their trial balance is read per
+            // location, so a head-office bill carrying a store-01 line debited
+            // store 01 with no credit anywhere in store 01's books. The honest
+            // credit is inter-unit, nothing wrote one, and refusing was better
+            // than mis-posting. `domain::interunit` writes it now — the shop's
+            // cost against what it owes head office, head office's receivable
+            // against the supplier it will pay — so the entry balances at every
+            // location it touches and the constraint that enforced the old rule
+            // came off in 0121.
             // Checked here as well as by the composite foreign key on the
             // table, for the reason `assert_postable` documents: a foreign-key
             // violation is SQLSTATE 23503 and reaches a person as "database
@@ -871,6 +938,40 @@ pub async fn record_bill(
                     }
                     other => other,
                 })?;
+            // What the line says it is buying, checked while the person who
+            // wrote it is still on the screen. The alternative is a refusal at
+            // the moment somebody posts the bill, days later, naming a class
+            // they did not choose.
+            if let Some(class) = line.asset_class_code.as_deref().map(str::trim) {
+                if !is_asset_account(class) {
+                    return Err(AppError::Validation(format!(
+                        "line {} says it buys a {class}, which is not an asset class; they are \
+                         the families under {}",
+                        index + 1,
+                        ASSET_FAMILIES.join(", ")
+                    )));
+                }
+                // A line that MINTS an asset has to be coded to the fixed-asset
+                // family too, because that debit is the cost the register will
+                // carry. A line that DRAWS the reserve is the opposite: its
+                // account is whatever the person chose and the posting rule
+                // ignores it, so nothing is asked of it here.
+                if !line.draws_reserve && !is_asset_account(line.account_code.trim()) {
+                    return Err(AppError::Validation(format!(
+                        "line {} buys a {class} but is coded to {}; a capital purchase is coded \
+                         to the asset account it lands in, under {}",
+                        index + 1,
+                        line.account_code.trim(),
+                        ASSET_FAMILIES.join(", ")
+                    )));
+                }
+            } else if line.draws_reserve {
+                return Err(AppError::Validation(format!(
+                    "line {} draws the replacement reserve without saying which one; name the \
+                     asset class it replaces",
+                    index + 1
+                )));
+            }
             sum = sum
                 .checked_add(line.amount_minor)
                 .ok_or_else(|| AppError::Validation("the bill total overflows".into()))?;
@@ -884,6 +985,24 @@ pub async fn record_bill(
         }
     }
 
+    // Checked against `domain::withholding` and not only against 0133's CHECK,
+    // for `assert_postable`'s reason: the constraint reaches a person as
+    // "database operation failed" and names neither the column nor the codes
+    // that would have worked. A bill naming a tax this system cannot compute
+    // is a bill whose payment would refuse months later, at the bank.
+    let withholding_code = match request.withholding_code.as_deref().map(str::trim) {
+        None | Some("") => None,
+        Some(code) => {
+            let known = crate::cloud::domain::withholding::category(code).ok_or_else(|| {
+                AppError::Validation(format!(
+                    "'{code}' is not a withholding this system computes; it knows {}",
+                    crate::cloud::domain::withholding::category_codes().join(", ")
+                ))
+            })?;
+            Some(known.code)
+        }
+    };
+
     // The header and its lines in one transaction, because 0094's deferred
     // trigger checks them together at COMMIT: an expense bill without its lines
     // is not a state that ever exists.
@@ -893,8 +1012,8 @@ pub async fn record_bill(
         "INSERT INTO supplier_invoice
            (invoice_id, invoice_number, supplier_id, supplier_name, site_id, invoice_date,
             due_date, currency, subtotal_minor, tax_minor, discount_minor, total_minor,
-            recorded_by, note, kind)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,'IDR',$8,$9,$10,$11,$12,$13,$14)",
+            recorded_by, note, kind, withholding_code)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'IDR',$8,$9,$10,$11,$12,$13,$14,$15)",
     )
     .bind(invoice_id)
     .bind(request.invoice_number.trim())
@@ -910,6 +1029,7 @@ pub async fn record_bill(
     .bind(actor)
     .bind(request.note.as_deref())
     .bind(&kind)
+    .bind(withholding_code)
     .execute(&mut *tx)
     .await
     .map_err(map_bill_write_error)?;
@@ -917,8 +1037,9 @@ pub async fn record_bill(
     for (index, line) in lines.iter().enumerate() {
         sqlx::query(
             "INSERT INTO supplier_invoice_expense_line
-               (line_id, invoice_id, line_number, account_code, site_id, amount_minor, memo)
-             VALUES ($1,$2,$3,$4,$5,$6,$7)",
+               (line_id, invoice_id, line_number, account_code, site_id, amount_minor,
+                asset_class_code, draws_reserve, memo)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
         )
         .bind(Uuid::new_v4())
         .bind(invoice_id)
@@ -926,6 +1047,13 @@ pub async fn record_bill(
         .bind(line.account_code.trim())
         .bind(line.site_id.trim())
         .bind(line.amount_minor)
+        .bind(
+            line.asset_class_code
+                .as_deref()
+                .map(str::trim)
+                .filter(|class| !class.is_empty()),
+        )
+        .bind(line.draws_reserve)
         .bind(line.memo.as_deref())
         .execute(&mut *tx)
         .await?;
@@ -1017,6 +1145,24 @@ pub async fn record_bill(
 
     tx.commit().await?;
 
+    // Matching is the same person's second sentence, not a second request. It
+    // runs after the commit because it is its own transaction with its own
+    // actor and its own refusals — but a refusal must not leave a DRAFT bill
+    // behind for somebody to find and delete, so a failed match takes the bill
+    // with it. Deleted rather than voided: nothing has referenced it, it has
+    // existed for a few milliseconds, and there is no ledger entry to explain.
+    if let Some(matching) = &request.matching {
+        if let Err(error) =
+            super::payables_flow::bill_match(pool, invoice_id, matching, actor).await
+        {
+            sqlx::query("DELETE FROM supplier_invoice WHERE invoice_id = $1 AND status = 'DRAFT'")
+                .bind(invoice_id)
+                .execute(pool)
+                .await?;
+            return Err(error);
+        }
+    }
+
     bill(pool, invoice_id).await
 }
 
@@ -1066,34 +1212,87 @@ pub async fn post_bill(
     // chosen by the person who read the paper, exactly as it does on a manual
     // journal entry. `LineAccount::Account` is the same door that entry uses.
     //
-    // Every leg lands at the bill's own location: 0098 forces a line's site to
-    // equal its bill's, because a cross-location cost has no honest credit
-    // until an inter-unit rule exists. So the entry balances per location as
-    // well as in total, which is the only way it can be read against the
-    // client's own per-location trial balance.
+    // A cost line lands where the cost belongs and the payable lands at the
+    // bill's own location, so an expense bill spanning four shops posts four
+    // costs and one payable. That does not balance per location on its own, and
+    // it does not have to: 0121 relaxed 0098's "a line sits where its bill
+    // does", and `poster::post` adds the affiliate legs that leave each shop
+    // and head office at zero — which is the only way this can be read against
+    // the client's own per-location trial balance.
+    //
+    // Two exceptions to "debit whatever the person wrote down", and both are
+    // the register speaking rather than the document:
+    //
+    //   * a line that says it buys an asset gets that asset as its dimension,
+    //     so the ledger can be asked what one machine has cost. The asset is
+    //     minted first, below, inside the same transaction — a draft asset with
+    //     no posted bill behind it is a state nobody could explain.
+    //   * a line that says it DRAWS the replacement reserve debits the reserve
+    //     for its class instead of the account named on it. The expense was
+    //     already taken, month by month, while the reserve was being built;
+    //     charging it again would put one rack through the profit and loss
+    //     twice.
+    let mut tx = pool.begin().await?;
+    let minted = if expense {
+        asset_drafts_for_bill(&mut tx, invoice_id, actor).await?
+    } else {
+        std::collections::HashMap::new()
+    };
+
     let mut lines: Vec<PostingLine> = if expense {
         existing
             .lines
             .as_deref()
             .unwrap_or(&[])
             .iter()
-            .map(|line| PostingLine {
-                account: LineAccount::Account {
-                    account_code: line.account_code.clone(),
-                },
-                site_id: line.site_id.clone(),
-                debit_minor: line.amount_minor,
-                credit_minor: 0,
-                supplier_id: None,
-                memo: line.memo.clone(),
+            .map(|line| {
+                let mut posting = match (line.draws_reserve, line.asset_class_code.as_deref()) {
+                    (true, Some(class)) => {
+                        PostingLine::debit("replacement_reserve", &line.site_id, line.amount_minor)
+                            .with_qualifier(class)
+                    }
+                    _ => PostingLine {
+                        account: LineAccount::Account {
+                            account_code: line.account_code.clone(),
+                        },
+                        site_id: line.site_id.clone(),
+                        // Nothing to say: where a cost line sits somewhere else
+                        // the balancer works the counterparty out and adds the
+                        // affiliate legs itself.
+                        counter_site_id: None,
+                        debit_minor: line.amount_minor,
+                        credit_minor: 0,
+                        supplier_id: None,
+                        asset_id: None,
+                        memo: line.memo.clone(),
+                    },
+                };
+                posting.memo = line.memo.clone();
+                posting.asset_id = minted.get(&line.line_id).copied();
+                posting
             })
             .collect()
     } else {
-        vec![PostingLine::debit(
-            "inventory",
+        // MERCHANDISE — what a merchandise bill debits depends on whether it
+        // answers a delivery, and that is `payables_flow`'s question because it
+        // owns the suspense account the delivery credited.
+        //
+        // A bill matched to deliveries debits `supplier_suspend` for what those
+        // deliveries were valued at and sends the difference to purchase price
+        // variance; the suspense account then empties exactly as it filled,
+        // which is the property that makes it worth having. A bill that answers
+        // no delivery still debits `inventory` for the whole subtotal, exactly
+        // as it did before 0130 — which is every merchandise bill recorded up
+        // to now, so nothing that already works changes.
+        super::payables_flow::merchandise_debit_lines(
+            pool,
+            invoice_id,
             &existing.site_id,
+            &existing.supplier_id,
             existing.subtotal_minor,
-        )]
+            existing.price_variance_minor,
+        )
+        .await?
     };
     if existing.tax_minor > 0 {
         lines.push(PostingLine::debit(
@@ -1146,8 +1345,9 @@ pub async fn post_bill(
         lines,
     };
 
-    let mut tx = pool.begin().await?;
-    let posted = post(&mut tx, &intent, actor).await?;
+    // The transaction was opened above, so the assets this bill mints and the
+    // entry that pays for them are one write.
+    let posted = post(&mut tx, &intent, None, actor).await?;
     sqlx::query(
         "UPDATE supplier_invoice
             SET status='POSTED', journal_entry_id=$2, posted_by=$3, posted_at=now()
@@ -1157,6 +1357,23 @@ pub async fn post_bill(
     .bind(posted.entry_id)
     .bind(actor)
     .execute(&mut *tx)
+    .await?;
+    // A posted bill is a debt to a named supplier, due on a named date. In the
+    // same transaction as the entry that raised it: a payable item without its
+    // journal entry is a figure nobody can trace.
+    super::payables_flow::payable_opened(
+        &mut tx,
+        super::payables_flow::payable_key(expense),
+        &existing.site_id,
+        &existing.supplier_id,
+        existing.supplier_name.as_deref(),
+        invoice_id,
+        existing.total_minor,
+        existing.due_date,
+        intent.posting_date,
+        posted.entry_id,
+        actor,
+    )
     .await?;
     tx.commit().await?;
 

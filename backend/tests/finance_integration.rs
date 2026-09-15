@@ -97,7 +97,7 @@ async fn post_a_bill(pool: &PgPool) {
         .begin()
         .await
         .unwrap_or_else(|error| panic!("begin: {error}"));
-    cloud::post(&mut tx, &bill(8_600_000), ACTOR)
+    cloud::post(&mut tx, &bill(8_600_000), None, ACTOR)
         .await
         .unwrap_or_else(|error| panic!("post: {error}"));
     tx.commit()
@@ -115,7 +115,7 @@ async fn a_meaning_with_no_account_refuses_and_says_which(pool: PgPool) {
         .begin()
         .await
         .unwrap_or_else(|error| panic!("begin: {error}"));
-    let refusal = cloud::post(&mut tx, &bill(8_600_000), ACTOR).await;
+    let refusal = cloud::post(&mut tx, &bill(8_600_000), None, ACTOR).await;
 
     let message = match refusal {
         Ok(posted) => panic!(
@@ -146,7 +146,7 @@ async fn a_bill_posts_and_the_trial_balance_balances(pool: PgPool) {
         .begin()
         .await
         .unwrap_or_else(|error| panic!("begin: {error}"));
-    let posted = cloud::post(&mut tx, &bill(8_600_000), ACTOR)
+    let posted = cloud::post(&mut tx, &bill(8_600_000), None, ACTOR)
         .await
         .unwrap_or_else(|error| panic!("post: {error}"));
     tx.commit()
@@ -250,7 +250,7 @@ async fn a_closed_period_refuses_a_posting(pool: PgPool) {
         .begin()
         .await
         .unwrap_or_else(|error| panic!("begin: {error}"));
-    let refusal = cloud::post(&mut tx, &bill(1_000), ACTOR).await;
+    let refusal = cloud::post(&mut tx, &bill(1_000), None, ACTOR).await;
     let message = match refusal {
         Ok(posted) => panic!("posted {} into a closed month", posted.entry_number),
         Err(error) => as_shown_to_a_person(&error),
@@ -277,7 +277,7 @@ async fn a_month_nobody_opened_refuses_a_posting(pool: PgPool) {
         .begin()
         .await
         .unwrap_or_else(|error| panic!("begin: {error}"));
-    let refusal = cloud::post(&mut tx, &intent, ACTOR).await;
+    let refusal = cloud::post(&mut tx, &intent, None, ACTOR).await;
     let message = match refusal {
         Ok(posted) => panic!("posted {} into a month nobody opened", posted.entry_number),
         Err(error) => as_shown_to_a_person(&error),
@@ -333,13 +333,15 @@ async fn a_heading_cannot_be_posted_to(pool: PgPool) {
                 debit_minor: 500,
                 credit_minor: 0,
                 supplier_id: None,
+                asset_id: None,
                 memo: None,
+                counter_site_id: None,
             },
             PostingLine::credit("trade_payable", "ho", 500),
         ],
     };
     assert!(
-        cloud::post(&mut tx, &intent, ACTOR).await.is_err(),
+        cloud::post(&mut tx, &intent, None, ACTOR).await.is_err(),
         "posting to a heading should be refused by the database"
     );
 }
@@ -354,7 +356,7 @@ async fn a_reversal_mirrors_the_original_and_leaves_it_alone(pool: PgPool) {
         .begin()
         .await
         .unwrap_or_else(|error| panic!("begin: {error}"));
-    let original = cloud::post(&mut tx, &bill(2_000_000), ACTOR)
+    let original = cloud::post(&mut tx, &bill(2_000_000), None, ACTOR)
         .await
         .unwrap_or_else(|error| panic!("post: {error}"));
     tx.commit()
@@ -431,7 +433,7 @@ async fn the_journal_cannot_be_edited_or_deleted(pool: PgPool) {
         .begin()
         .await
         .unwrap_or_else(|error| panic!("begin: {error}"));
-    let posted = cloud::post(&mut tx, &bill(4_000), ACTOR)
+    let posted = cloud::post(&mut tx, &bill(4_000), None, ACTOR)
         .await
         .unwrap_or_else(|error| panic!("post: {error}"));
     tx.commit()
@@ -463,11 +465,17 @@ async fn the_general_ledger_opens_where_the_previous_window_closed(pool: PgPool)
     for (day, amount) in [(1_u32, 1_000_i64), (2, 2_000)] {
         let mut intent = bill(amount);
         intent.posting_date = september(day);
+        // Two bills and not one bill posted twice. `bill()` names INV-1, and
+        // from migration 0140 a document posts once for each step it has — so
+        // the second of these would be refused as the duplicate it looks like.
+        // Which is the right refusal: what this test wants is two movements in
+        // one account, and two movements come from two documents.
+        intent.source_id = Some(format!("INV-{day}"));
         let mut tx = pool
             .begin()
             .await
             .unwrap_or_else(|error| panic!("begin: {error}"));
-        cloud::post(&mut tx, &intent, ACTOR)
+        cloud::post(&mut tx, &intent, None, ACTOR)
             .await
             .unwrap_or_else(|error| panic!("post: {error}"));
         tx.commit()
@@ -518,6 +526,9 @@ async fn a_bill_debits_inventory_gross_and_credits_the_discount(pool: PgPool) {
             note: None,
             kind: None,
             lines: None,
+            matching: None,
+            withholding_code: None,
+            receipt_ids: None,
         },
         ACTOR,
     )
@@ -588,6 +599,9 @@ async fn the_balance_sheet_balances_once_the_result_is_counted(pool: PgPool) {
             note: None,
             kind: None,
             lines: None,
+            matching: None,
+            withholding_code: None,
+            receipt_ids: None,
         },
         ACTOR,
     )
@@ -621,7 +635,7 @@ async fn a_family_shows_a_cell_for_every_location(pool: PgPool) {
         .begin()
         .await
         .unwrap_or_else(|error| panic!("begin: {error}"));
-    cloud::post(&mut tx, &bill(7_000), ACTOR)
+    cloud::post(&mut tx, &bill(7_000), None, ACTOR)
         .await
         .unwrap_or_else(|error| panic!("post: {error}"));
     tx.commit()
@@ -849,7 +863,6 @@ async fn a_filter_this_build_does_not_know_is_ignored(pool: PgPool) {
 /// keyset that compares the wrong tuple fails first.
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn scrolling_the_chart_gives_every_account_once(pool: PgPool) {
-
     for sort in ["default", "code", "name", "children"] {
         for desc in [false, true] {
             let scope = cloud::AccountScope {
@@ -914,7 +927,6 @@ async fn scrolling_the_chart_gives_every_account_once(pool: PgPool) {
 /// answer a question nobody asked.
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn a_search_ignores_the_heading_the_tree_is_parked_on(pool: PgPool) {
-
     let roots = cloud::account_page(&pool, cloud::AccountScope::default())
         .await
         .expect("roots");

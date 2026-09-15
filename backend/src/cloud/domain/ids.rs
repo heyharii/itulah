@@ -57,19 +57,38 @@ pub enum SiteKind {
 
 #[derive(Debug, Error, PartialEq)]
 pub enum SiteIdError {
-    #[error("site id must be 'ho' or 'store-NN'")]
+    #[error("site id must be 'dc' or 'store-NN'")]
     Invalid,
 }
 
-/// The one site that is not a shop, as `site.id` spells it since 0256.
-pub const HEAD_OFFICE_SITE_ID: &str = "ho";
+/// The one site that is not a shop, as `site.id` spells it **today**.
+///
+/// `dc`, and not `ho`. The rename that folds the distribution centre and head
+/// office into one `ho` site is migration 0256, and `9b273f83` set that lane
+/// aside unlanded because it refuses `dc` — which every demo rig still uses.
+/// `ho` is real, but it is an `org_place.id`: 0236 records the place `ho` as
+/// sitting at site `dc`.
+///
+/// This constant said `ho` for a while and nothing in the database did. The
+/// cost was not theoretical: `postgres::allotments` gates `RETURN_TO_DC` and
+/// `RETURN_TO_SUPPLIER` on it, so both were asking for a site id that does not
+/// exist while checking a pool id (`dc.reject.dc`) that does — two allotment
+/// types that could not be created at all. Kept in step with
+/// `postgres::poster::HEAD_OFFICE_SITE`, which is what the posting engine and
+/// 0122's affiliate map have always used.
+///
+/// When 0256 lands, this and `poster`'s constant flip together, and the pool
+/// ids move with them. Not before: one of the two moving alone is exactly the
+/// state this comment exists because of.
+pub const HEAD_OFFICE_SITE_ID: &str = "dc";
 
 impl SiteId {
     pub fn new(value: impl Into<String>) -> Result<Self, SiteIdError> {
         let value = value.into().to_ascii_lowercase();
-        // `dc` is refused rather than aliased. Three live spellings of one
-        // building is what 0256 exists to end, and a validation error names
-        // the caller that still holds the old one — an alias would hide it.
+        // `ho` is refused rather than aliased, for the reason the previous
+        // spelling of this function refused `dc`: two live spellings of one
+        // building is what 0256 exists to end, and a validation error names the
+        // caller holding the wrong one. Today the wrong one is `ho`.
         if value == HEAD_OFFICE_SITE_ID {
             return Ok(Self(value));
         }

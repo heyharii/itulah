@@ -1,7 +1,7 @@
 //! The rules that route an inbound file, and the record of every file that
 //! arrived.
 //!
-//! Two tables from 0106 and nothing clever. The interesting decisions are in
+//! Two tables from 0142 and nothing clever. The interesting decisions are in
 //! `cloud::intake` (what to do with a file) and `cloud::domain::statement_intake`
 //! (which rule wants it); this is where they are kept.
 //!
@@ -318,7 +318,7 @@ pub async fn save_statement_source(
 
 /// Retire a rule.
 ///
-/// The intake rows it produced keep their history — 0106 nulls the reference
+/// The intake rows it produced keep their history — 0142 nulls the reference
 /// rather than cascading — so deleting a rule cannot make the same files
 /// arrive again as if they never had.
 pub async fn delete_statement_source(pool: &PgPool, source_id: Uuid) -> Result<(), AppError> {

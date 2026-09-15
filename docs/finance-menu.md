@@ -249,7 +249,7 @@ Legenda **Ref**: acuan asal baris. **Status**: `live` (rute + layar ada) · `par
   suatu hari berutang *Payment Reconciliation* — pekerjaan yang berbeda.
 - Dijatuhkan dari ERPNext atas keputusan pemilik: Bank Guarantee · Plaid · Bank Account
   Type/Subtype · **Bank Clearance**.
-- Aturan kategorisasi koran dan sumber statement (0106) **bukan baris** — lembar dari
+- Aturan kategorisasi koran dan sumber statement (0142) **bukan baris** — lembar dari
   toolbar Bank Transactions. Ini membatalkan B44 `/accounting/rules` yang salah label.
 
 ### ▾ Receivables (2) — terbuka

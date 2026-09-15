@@ -140,6 +140,11 @@ pub enum RecordKind {
     BankStatement,
     StatementSource,
     FiscalPeriod,
+    /// A correction as a DECISION — raised, approved, posted, maybe reversed.
+    /// Not the journal entry it becomes: that is filed under [`Self::Journal`]
+    /// by the poster, and a correction has three states an entry never has.
+    /// See 0129 and 0259.
+    Correction,
     // People
     Employee,
     LeaveRequest,
@@ -177,7 +182,7 @@ impl RecordKind {
     /// Exported because two guards read it: the conformance test that compares
     /// this list against the `record_kind` table, and the catalogue that
     /// records which kind each route files under.
-    pub const ALL: [Self; 61] = [
+    pub const ALL: [Self; 62] = [
         Self::Article,
         Self::ArticleSetup,
         Self::Colour,
@@ -216,6 +221,7 @@ impl RecordKind {
         Self::Bill,
         Self::Payment,
         Self::PaymentInstruction,
+        Self::Correction,
         Self::Asset,
         Self::BankLine,
         Self::BankStatement,
@@ -282,6 +288,7 @@ impl RecordKind {
             Self::Bill => "bill",
             Self::Payment => "payment",
             Self::PaymentInstruction => "payment_instruction",
+            Self::Correction => "correction",
             Self::Asset => "asset",
             Self::BankLine => "bank_line",
             Self::BankStatement => "bank_statement",
@@ -350,6 +357,7 @@ impl RecordKind {
             Self::Bill => "Supplier bill",
             Self::Payment => "Payment",
             Self::PaymentInstruction => "Payment instruction",
+            Self::Correction => "Correction",
             Self::Asset => "Fixed asset",
             Self::BankLine => "Bank line",
             Self::BankStatement => "Bank statement",
@@ -433,6 +441,7 @@ impl RecordKind {
             Self::Bill => "/api/v1/finance/bills",
             Self::Payment => "/api/v1/finance/payments",
             Self::PaymentInstruction => "/api/v1/finance/payment-instructions",
+            Self::Correction => "/api/v1/finance/corrections",
             Self::Asset => "/api/v1/finance/assets",
             Self::BankLine => "/api/v1/finance/bank-lines",
             Self::BankStatement => "/api/v1/finance/bank-statements",
@@ -533,6 +542,13 @@ const ROUTE_SUBJECTS: &[(&str, RecordKind)] = &[
         "/api/v1/finance/payment-instructions/{}",
         RecordKind::PaymentInstruction,
     ),
+    // A close, a reopen, the checklist behind either, and the history of both
+    // are all things done TO one month. `FiscalPeriod` already names
+    // `/api/v1/finance/periods` as its sheet, and this is what files the acts
+    // there instead of leaving the log saying a month was reopened without
+    // saying which.
+    ("/api/v1/finance/corrections/{}", RecordKind::Correction),
+    ("/api/v1/finance/periods/{}", RecordKind::FiscalPeriod),
     (
         "/api/v1/finance/statement-sources/{}",
         RecordKind::StatementSource,
@@ -634,6 +650,25 @@ pub const DECLARED_BY_HANDLER: &[(&str, &str, Option<RecordKind>)] = &[
     // opens. None of the four can be read from the path — a describe names the
     // account in its body, and the other two carry their own row's id — so the
     // handler is the only thing that can say.
+    // A correction is drafted before it has an id in any URL, so the three
+    // routes that raise one can only be filed by the handler that just made it.
+    // The four that follow it — approve, post, reverse, and the read — carry the
+    // id and are matched from the path by `ROUTE_SUBJECTS`.
+    (
+        "POST",
+        "/api/v1/finance/corrections/adjustment",
+        Some(RecordKind::Correction),
+    ),
+    (
+        "POST",
+        "/api/v1/finance/corrections/reclass",
+        Some(RecordKind::Correction),
+    ),
+    (
+        "POST",
+        "/api/v1/finance/corrections/write-off",
+        Some(RecordKind::Correction),
+    ),
     (
         "POST",
         "/api/v1/finance/bank-accounts",

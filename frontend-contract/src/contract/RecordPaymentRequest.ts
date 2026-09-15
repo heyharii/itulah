@@ -16,4 +16,20 @@ account_key: string, account_qualifier: string,
  * that believes it is paying 50,000,000 and has built allocations totalling
  * 5,000,000 should hear about it here, not discover it on a bank statement.
  */
-total_minor: number | null, reference: string | null, note: string | null, allocations: Array<AllocateToBill>, };
+total_minor: number | null, reference: string | null, note: string | null, allocations: Array<AllocateToBill>, 
+/**
+ * The number printed on the giro, when the method is GIRO. Required then,
+ * refused otherwise: a giro with no number is a liability nobody can find
+ * again when the bank telephones about it.
+ *
+ * Kept out of `reference` on purpose. `reference` is free text — a
+ * transfer confirmation code, a cheque stub, a note to self — and the
+ * number of a post-dated instrument is a key: it identifies the paper, it
+ * is unique per bank, and the giro row's own uniqueness rests on it.
+ */
+giro_number: string | null, 
+/**
+ * The date on the face of it. Required with the number, and the whole
+ * reason a giro is not simply a slow transfer.
+ */
+giro_due_date: string | null, };
