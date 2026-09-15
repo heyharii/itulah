@@ -15,4 +15,14 @@ kind?: string,
  * amounts must total `subtotal_minor` — tax and the bill's own total are
  * stated separately, as they are on the paper.
  */
-lines?: Array<RecordBillLine>, };
+lines?: Array<RecordBillLine>, 
+/**
+ * The deliveries this bill pays for.
+ *
+ * Optional, because a bill can arrive before anybody ties it to anything
+ * and a person should still be able to write it down. Naming them here is
+ * what takes those deliveries off `unbilled_receipts` — until 0052's join
+ * table has a row, a receipt is unbilled forever, however many bills have
+ * been posted for it.
+ */
+receipt_ids?: Array<string>, };

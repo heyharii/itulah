@@ -288,9 +288,11 @@ export function Expenses() {
                         <SiteName id={unit.site_id} className="text-ink" />
                         {/* Under the name, not beside it. Head office's row is
                             the reason the id is drawn at all: the client's
-                            chart calls it `HO` and this system files it under
-                            `dc`, because head office and the distribution
-                            centre share a building. */}
+                            chart calls it `HO` and so, since 0256, does this
+                            system — `ho`, one row for the office and the
+                            warehouse that shares its building. The id is still
+                            worth drawing because the shops do NOT agree that
+                            way: the client's `C001` is our `store-01`. */}
                         <span className="block">
                           <Code>{unit.site_id}</Code>
                         </span>
@@ -546,8 +548,10 @@ interface UnitFloat {
 ///
 /// Grouped in arrival order rather than sorted: the server returns the chart's
 /// own order — head office first, then the shops as the client numbers them —
-/// and re-sorting by `site_id` would put `dc` between `store-03` and
-/// `store-04`, which is nobody's idea of where head office goes.
+/// and re-sorting here would be a second opinion about where head office goes.
+/// `ho` happens to sort before `store-01` today, which is the right place by
+/// accident; it was `dc`, which sorted between `store-03` and `store-04`, and
+/// the next rename is under no obligation to be luckier.
 function unitsOf(rows: readonly MoneyAccountRow[]): UnitFloat[] {
   // Mutable inside this function, `readonly` to everyone outside it. The map
   // used to be typed `{ site_id: string } & Record<string, number>`, which is a

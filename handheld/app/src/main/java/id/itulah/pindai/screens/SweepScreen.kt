@@ -36,8 +36,12 @@ import androidx.compose.ui.unit.dp
 import id.itulah.pindai.core.Reader
 import id.itulah.pindai.ui.kit.*
 import id.itulah.pindai.ui.theme.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import java.util.LinkedHashMap
 
 /**
  * What a sweep screen must leave clear at its foot, so the last card fades under
@@ -109,11 +113,15 @@ fun SweepScreen(vm: SweepViewModel, state: SweepState, onOpenSessions: () -> Uni
     }
 }
 
-/** `itemsIndexed` for a plain list, keyed by SKU so rows keep identity. */
+/** Product items are one reusable layout type, keyed by SKU so rows keep identity. */
 private fun androidx.compose.foundation.lazy.LazyListScope.itemsIndexed(
     lines: List<Grouped>,
     row: @Composable (Int, Grouped) -> Unit,
-) = items(lines.size, key = { lines[it].sku }) { index -> row(index, lines[index]) }
+) = items(
+    lines.size,
+    key = { lines[it].sku },
+    contentType = { "product" },
+) { index -> row(index, lines[index]) }
 
 /**
  * One button, two meanings — and it belongs to the shell's foot, not to the
@@ -462,49 +470,71 @@ private fun ProductRow(line: Grouped, auth: String?) {
  */
 private object Thumbs {
     private const val TARGET_PX = 160
-    private val cache = java.util.concurrent.ConcurrentHashMap<
-        String, androidx.compose.ui.graphics.ImageBitmap>()
+    private const val MAX_CACHE_ENTRIES = 64
+    private val cache = object : LinkedHashMap<
+        String, androidx.compose.ui.graphics.ImageBitmap>(MAX_CACHE_ENTRIES, .75f, true,
+    ) {
+        override fun removeEldestEntry(
+            eldest: MutableMap.MutableEntry<String, androidx.compose.ui.graphics.ImageBitmap>,
+        ): Boolean = size > MAX_CACHE_ENTRIES
+    }
+    // A row can leave and re-enter the viewport while its image is still on the
+    // wire. Keep one process-scoped fetch per URL so that a slow connection does
+    // not make each new composition download and decode the same JPEG again.
+    private val loaderScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val inFlight = java.util.concurrent.ConcurrentHashMap<
+        String, Deferred<androidx.compose.ui.graphics.ImageBitmap?>>()
 
-    fun cached(url: String) = cache[url]
+    fun cached(url: String): androidx.compose.ui.graphics.ImageBitmap? =
+        synchronized(cache) { cache[url] }
 
     suspend fun load(url: String, auth: String?): androidx.compose.ui.graphics.ImageBitmap? {
-        cache[url]?.let { return it }
-        val bitmap = withContext(Dispatchers.IO) {
-            runCatching {
-                // The node serves these behind inventory-read, so the operator
-                // token has to travel with the request. Fetching bare worked
-                // only against a node with authentication switched off, and
-                // would have left every tile blank in a real shop.
-                val connection = java.net.URL(url).openConnection()
-                if (!auth.isNullOrBlank()) {
-                    connection.setRequestProperty("Authorization", "Bearer " + auth)
-                }
-                connection.connectTimeout = 10_000
-                connection.readTimeout = 20_000
-                val bytes = connection.getInputStream().use { it.readBytes() }
-                val bounds = android.graphics.BitmapFactory.Options().apply {
-                    inJustDecodeBounds = true
-                }
-                android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-                var sample = 1
-                while (bounds.outWidth / (sample * 2) >= TARGET_PX) sample *= 2
-                val options = android.graphics.BitmapFactory.Options().apply {
-                    inSampleSize = sample
-                }
-                android.graphics.BitmapFactory
-                    .decodeByteArray(bytes, 0, bytes.size, options)
-                    ?.asImageBitmap()
-            }.getOrNull()
+        cached(url)?.let { return it }
+        // An auth change must not make a caller join a request that was sent
+        // without the now-available bearer token. The cache remains URL keyed:
+        // the pixels are the same, while the wire request is not.
+        val key = url + "\u0000" + (auth ?: "")
+        val request = inFlight.computeIfAbsent(key) {
+            loaderScope.async {
+                runCatching {
+                    // The node serves these behind inventory-read, so the operator
+                    // token has to travel with the request. Fetching bare worked
+                    // only against a node with authentication switched off, and
+                    // would have left every tile blank in a real shop.
+                    val connection = java.net.URL(url).openConnection()
+                    if (!auth.isNullOrBlank()) {
+                        connection.setRequestProperty("Authorization", "Bearer " + auth)
+                    }
+                    connection.connectTimeout = 10_000
+                    connection.readTimeout = 20_000
+                    val bytes = connection.getInputStream().use { it.readBytes() }
+                    val bounds = android.graphics.BitmapFactory.Options().apply {
+                        inJustDecodeBounds = true
+                    }
+                    android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+                    var sample = 1
+                    while (bounds.outWidth / (sample * 2) >= TARGET_PX) sample *= 2
+                    val options = android.graphics.BitmapFactory.Options().apply {
+                        inSampleSize = sample
+                    }
+                    android.graphics.BitmapFactory
+                        .decodeByteArray(bytes, 0, bytes.size, options)
+                        ?.asImageBitmap()
+                }.getOrNull()?.also { bitmap -> synchronized(cache) { cache[url] = bitmap } }
+            }
         }
-        if (bitmap != null) cache[url] = bitmap
-        return bitmap
+        // The row's coroutine may be cancelled when it leaves the viewport;
+        // cleanup belongs to the shared request, so a failed/completed request
+        // cannot poison this map indefinitely when its last waiter disappears.
+        request.invokeOnCompletion { inFlight.remove(key, request) }
+        return request.await()
     }
 }
 
 @Composable
 private fun RemoteThumb(url: String, auth: String?) {
     var bitmap by remember(url) { mutableStateOf(Thumbs.cached(url)) }
-    LaunchedEffect(url) { if (bitmap == null) bitmap = Thumbs.load(url, auth) }
+    LaunchedEffect(url, auth) { if (bitmap == null) bitmap = Thumbs.load(url, auth) }
     bitmap?.let {
         Image(it, contentDescription = null,
             modifier = Modifier.fillMaxSize().clip(ControlShape),

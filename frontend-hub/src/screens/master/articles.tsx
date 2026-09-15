@@ -349,7 +349,7 @@ export function Articles() {
     () => ({
       ...articleScopeFromFilters(filters.filters),
       q: needle === "" ? undefined : needle,
-      sort: sort.value === "newest" ? "newest" : undefined,
+      sort: sort.value === "oldest" ? "oldest" : undefined,
     }),
     [filters.filters, needle, sort.value]
   )
@@ -669,9 +669,11 @@ export function Articles() {
 
 /// The two orders the master can be read in.
 ///
-/// `null` is the order it has always answered in — the catalogue as it was
-/// built up — so the plain URL is the plain catalogue and there is one
-/// spelling of "no order chosen".
+/// `null` is newest first. The absent value carries the DEFAULT rather than
+/// the historical order, so there is still one spelling of "no order chosen"
+/// and the plain URL is still the plain catalogue — the catalogue just leads
+/// with what was minted last, which is what a person opening this screen
+/// without searching came to see.
 ///
 /// "Newest" is `created_at` and not the article code, which matters here: the
 /// codes this server mints do run in order, but the seeded and legacy articles
@@ -679,8 +681,8 @@ export function Articles() {
 /// `00000001`. Ordering by code would have put the oldest rows in the company
 /// at the top of a list labelled Newest.
 const ORDERS = [
-  { value: null, label: "Oldest first" },
-  { value: "newest", label: "Newest first" },
+  { value: null, label: "Newest first" },
+  { value: "oldest", label: "Oldest first" },
 ]
 
 /// Two figures about the catalogue being browsed, above the controls that

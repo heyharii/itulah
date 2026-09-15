@@ -474,8 +474,8 @@ export function PoolsBody() {
   const tree = useMemo<PoolRow[]>(() => {
     const items = fleet.data?.items ?? []
 
-    /// `dc-01-edge` → `dc`: the site the centre files this origin's rows under.
-    /// Empty for every store, where the two spellings already agree.
+    /// `dc-01-edge` → `ho`: the site the centre files this origin's rows
+    /// under. Empty for every store, where the two spellings already agree.
     const siteOfOrigin = new Map<string, string>()
     for (const item of items) {
       const shadowing = item.authority.shadowed_by_origin_id

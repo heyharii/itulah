@@ -22,6 +22,12 @@ export type RepointPrinterRequest = { printer_host: string, printer_port: number
  */
 label_width_mm: number | null, label_height_mm: number | null, 
 /**
+ * How far this bench's reel is inset. A fact about the stock in the
+ * machine, like the two above it — a run moved to a bench whose tags sit
+ * further from the edge prints its left column onto the liner otherwise.
+ */
+label_offset_mm: number | null, 
+/**
  * The language of the machine now holding the run. Carried for the same
  * reason the tag size is: a run walked to another bench may be walked to
  * a different make of printer, and a run that cannot say so keeps sending

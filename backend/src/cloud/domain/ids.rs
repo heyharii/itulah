@@ -41,23 +41,36 @@ uuid_id!(CountId);
 #[serde(transparent)]
 pub struct SiteId(String);
 
+/// Which of the two kinds of place a `site` row is.
+///
+/// `HeadOffice` is the warehouse, and the two words mean one building: since
+/// 0256 the distribution centre and head office are a single `site` row, `ho`,
+/// of kind `HO`. The pool grammar still spells that building's shelves `dc.…`
+/// — a separate id space, deliberately left alone — so the kind is the thing
+/// to branch on, never the first segment of a pool id.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum SiteKind {
-    Dc,
+    HeadOffice,
     Store,
 }
 
 #[derive(Debug, Error, PartialEq)]
 pub enum SiteIdError {
-    #[error("site id must be 'dc' or 'store-NN'")]
+    #[error("site id must be 'ho' or 'store-NN'")]
     Invalid,
 }
+
+/// The one site that is not a shop, as `site.id` spells it since 0256.
+pub const HEAD_OFFICE_SITE_ID: &str = "ho";
 
 impl SiteId {
     pub fn new(value: impl Into<String>) -> Result<Self, SiteIdError> {
         let value = value.into().to_ascii_lowercase();
-        if value == "dc" {
+        // `dc` is refused rather than aliased. Three live spellings of one
+        // building is what 0256 exists to end, and a validation error names
+        // the caller that still holds the old one — an alias would hide it.
+        if value == HEAD_OFFICE_SITE_ID {
             return Ok(Self(value));
         }
         let Some(number) = value.strip_prefix("store-") else {
@@ -69,12 +82,12 @@ impl SiteId {
         Ok(Self(value))
     }
 
-    pub fn dc() -> Self {
-        Self("dc".to_owned())
+    pub fn head_office() -> Self {
+        Self(HEAD_OFFICE_SITE_ID.to_owned())
     }
     pub fn kind(&self) -> SiteKind {
-        if self.0 == "dc" {
-            SiteKind::Dc
+        if self.0 == HEAD_OFFICE_SITE_ID {
+            SiteKind::HeadOffice
         } else {
             SiteKind::Store
         }

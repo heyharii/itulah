@@ -159,7 +159,7 @@ export function Ageing() {
         {/* The location filter is the point of this report, not a convenience
             on it. "We are two months late" is a sentence nobody can act on;
             "Store 07 is two months late" sends somebody to a store. It is a
-            select and not a box because the ids are `dc` and `store-01`, which
+            select and not a box because the ids are `ho` and `store-01`, which
             nothing on this page ever says out loud. */}
         <LocationSelect
           value={site}

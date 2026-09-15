@@ -48,11 +48,13 @@ use tower::ServiceExt;
 use uuid::Uuid;
 
 const DC_ORIGIN: &str = "dc-01-edge";
-/// The DC the cloud actually knows about. `operational_pool` is seeded with
-/// `dc.warehouse` on site `dc`, and `allotment` still carries
-/// `CHECK (source_pool_id = 'dc.warehouse')` — so this is not a name the test
-/// may choose freely.
-const DC_SITE: &str = "dc";
+/// The warehouse the cloud actually knows about. Since 0256 the warehouse IS
+/// head office and the site is `ho`; the POOLS it holds are still spelled
+/// `dc.warehouse`, and `allotment` still carries
+/// `CHECK (source_pool_id = 'dc.warehouse')` — so neither the site nor the
+/// pool is a name the test may choose freely, and they no longer share a
+/// spelling.
+const DC_SITE: &str = "ho";
 const DC_KEY: &str = "dc-01-full-chain-sync-key-000001";
 
 const STORE_ORIGIN: &str = "store-01-edge";

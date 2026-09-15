@@ -74,9 +74,11 @@ use crate::cloud::domain::Role;
 
 /// What kind of place a posting names — `org_place.kind`.
 ///
-/// Not `SiteKind`, which has only `Dc` and `Store`: every row of `site` is a
-/// node that syncs, and head office is not one. The two vocabularies stay
-/// separate for the same reason the two tables do.
+/// Not `SiteKind`, which has only `HeadOffice` and `Store`: `site` is where
+/// stock sits and `org_place` is where people are posted, and the two answer
+/// different questions even now that 0256 has made head office a row of both.
+/// `DistributionCentre` survives here because `org_place.kind` may still carry
+/// `DC` for a warehouse that is not head office; no row does today.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlaceKind {
     HeadOffice,

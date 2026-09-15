@@ -8,10 +8,10 @@ use crate::cloud::{
     domain::{
         AllotmentStatus, AllotmentType, DestinationType, FulfillmentStatus, InventoryState,
         MovementCause, MovementCommand, MovementGroupId, MovementLine, OperationalPool, Place,
-        SiteId, SubjectId,
+        SiteId, SubjectId, HEAD_OFFICE_SITE_ID,
     },
 };
-use crate::edge::{OperationalPool as EdgeOperationalPool, SiteId as EdgeSiteId};
+use crate::edge::OperationalPool as EdgeOperationalPool;
 use crate::sync::workflow::{
     parse_allotment_cancellation, AllotmentActivationLine, AllotmentActivationPayload,
     AllotmentCancellationLine, AllotmentCancellationPayload, AllotmentCancellationResultLine,
@@ -27,7 +27,15 @@ use std::{
 };
 use uuid::Uuid;
 
+/// A POOL id, and deliberately still spelled `dc`. 0256 renamed the site, not
+/// the seventy-four pools standing on it.
 const DEFAULT_SOURCE_POOL_ID: &str = "dc.warehouse";
+
+/// `site.kind` for the one place that is not a shop. Was `DC` until 0256 made
+/// the warehouse and head office one row; a check against `DC` now matches
+/// nothing at all rather than matching the wrong thing, which is the better of
+/// the two failures but still a failure.
+const HEAD_OFFICE_KIND: &str = "HO";
 
 #[derive(Clone, Debug)]
 pub(super) struct LineIdentity {
@@ -1848,12 +1856,22 @@ fn validate_create_line(
     }
     match allotment_type {
         AllotmentType::ToStore => {
-            let source_site = EdgeSiteId::new(&line.identity.source_site_id)
-                .map_err(|error| AppError::Validation(error.to_string()))?;
             let source_pool = EdgeOperationalPool::from_str(&line.identity.source_pool_id)
                 .map_err(|error| AppError::Validation(error.to_string()))?;
+            // The pool's own owner segment, not the site id. Until 0256 those
+            // were the same string — `dc.warehouse` at site `dc` — and this
+            // check read the site id. The site is `ho` now and the pools kept
+            // their names, so parsing `ho` as a pool owner would refuse every
+            // TO_STORE line ever raised.
+            //
+            // What binds pool to site is no longer a shared spelling but the
+            // `operational_pool JOIN site` above, which has already proved
+            // this pool belongs to this site; the kind is what says the site
+            // is the warehouse and not a shop.
+            let source_owner = source_pool.site_id().clone();
             if source_pool.id() != line.identity.source_pool_id
-                || !source_pool.is_dc_fulfillment_source_for(&source_site)
+                || !source_pool.is_dc_fulfillment_source_for(&source_owner)
+                || source_site_kind != HEAD_OFFICE_KIND
                 || line.identity.destination_type != DestinationType::Store
             {
                 return Err(AppError::Validation(
@@ -1878,16 +1896,18 @@ fn validate_create_line(
             if source_site_kind != "STORE"
                 || !source_matches_store
                 || line.identity.destination_type != DestinationType::Dc
-                || line.identity.destination_id != "dc"
+                || line.identity.destination_id != HEAD_OFFICE_SITE_ID
             {
                 return Err(AppError::Validation(
-                    "RETURN_TO_DC requires a Store warehouse/floor/reject source and DC/dc destination"
+                    "RETURN_TO_DC requires a Store warehouse/floor/reject source and DC/ho destination"
                         .into(),
                 ));
             }
         }
         AllotmentType::ReturnToSupplier => {
-            if line.identity.source_site_id != "dc"
+            // A site id on the left, a pool id on the right. They stopped
+            // being the same word at 0256 and only the first one moved.
+            if line.identity.source_site_id != HEAD_OFFICE_SITE_ID
                 || line.identity.source_pool_id != "dc.reject.dc"
                 || line.identity.destination_type != DestinationType::Supplier
                 || line.identity.destination_id != "external/supplier"
@@ -1908,7 +1928,7 @@ fn execution_transition(
 ) -> Result<(MovementCause, String), AppError> {
     match allotment_type {
         AllotmentType::ToStore
-            if identity.source_site_id == "dc"
+            if identity.source_site_id == HEAD_OFFICE_SITE_ID
                 && identity.source_pool_id == DEFAULT_SOURCE_POOL_ID
                 && identity.destination_type == DestinationType::Store =>
         {
@@ -1930,8 +1950,11 @@ fn execution_transition(
         }
         AllotmentType::ReturnToDc
             if identity.destination_type == DestinationType::Dc
-                && identity.destination_id == "dc" =>
+                && identity.destination_id == HEAD_OFFICE_SITE_ID =>
         {
+            // The site the goods are going to is `ho`; the shelf they land on
+            // is still called `dc.warehouse`. Both spellings are correct and
+            // neither is the other's.
             Ok((MovementCause::ReturnToDc, "dc.warehouse:on_hand".into()))
         }
         AllotmentType::ReturnToSupplier

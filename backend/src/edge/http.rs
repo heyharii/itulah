@@ -24,7 +24,10 @@ use axum::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{collections::BTreeMap, path::PathBuf, str::FromStr, sync::Arc};
-use tower_http::{services::ServeDir, trace::TraceLayer};
+use tower_http::{
+    services::{ServeDir, ServeFile},
+    trace::TraceLayer,
+};
 use uuid::Uuid;
 
 #[derive(Clone)]
@@ -234,7 +237,17 @@ pub fn dc_router_with_sync(
         )
         .route("/api/v1/dc/tagging-jobs", get(dc_tagging_jobs))
         .route("/api/v1/dc/tagging-confirmations", post(dc_confirm_tagging))
-        .fallback_service(ServeDir::new(frontend_dir).append_index_html_on_directories(true))
+        .fallback_service(
+            // A single-page app owns its own routes, so the node has to hand
+            // `index.html` to any path it has no file for and let the router
+            // decide. Without this, `/terima/hitung?po=…` is a 404 the moment
+            // somebody reloads it or opens it from a message — the app works
+            // perfectly until the first refresh, which is the worst way for it
+            // to break because it looks like the node has died.
+            ServeDir::new(&frontend_dir)
+                .append_index_html_on_directories(true)
+                .fallback(ServeFile::new(frontend_dir.join("index.html"))),
+        )
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             require_auth,
@@ -362,7 +375,17 @@ pub fn store_router_with_sync(
             "/api/v1/store/reports/sales/window",
             get(store_sales_window),
         )
-        .fallback_service(ServeDir::new(frontend_dir).append_index_html_on_directories(true))
+        .fallback_service(
+            // A single-page app owns its own routes, so the node has to hand
+            // `index.html` to any path it has no file for and let the router
+            // decide. Without this, `/terima/hitung?po=…` is a 404 the moment
+            // somebody reloads it or opens it from a message — the app works
+            // perfectly until the first refresh, which is the worst way for it
+            // to break because it looks like the node has died.
+            ServeDir::new(&frontend_dir)
+                .append_index_html_on_directories(true)
+                .fallback(ServeFile::new(frontend_dir.join("index.html"))),
+        )
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             require_auth,

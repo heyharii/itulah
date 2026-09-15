@@ -116,6 +116,11 @@ pub struct RepointPrinterRequest {
     /// printer is not a reason to redraw the label.
     pub label_width_mm: Option<i64>,
     pub label_height_mm: Option<i64>,
+    /// How far this bench's reel is inset. A fact about the stock in the
+    /// machine, like the two above it — a run moved to a bench whose tags sit
+    /// further from the edge prints its left column onto the liner otherwise.
+    #[serde(default)]
+    pub label_offset_mm: Option<i64>,
     /// The language of the machine now holding the run. Carried for the same
     /// reason the tag size is: a run walked to another bench may be walked to
     /// a different make of printer, and a run that cannot say so keeps sending
@@ -1032,8 +1037,9 @@ pub fn repoint(
                     chunk_size = COALESCE(?4, chunk_size),
                     label_width_mm = COALESCE(?5, label_width_mm),
                     label_height_mm = COALESCE(?6, label_height_mm),
-                    lang = COALESCE(?7, lang),
-                    updated_at = ?8
+                    label_offset_mm = COALESCE(?7, label_offset_mm),
+                    lang = COALESCE(?8, lang),
+                    updated_at = ?9
               WHERE session_id = ?1",
             params![
                 session_id,
@@ -1042,6 +1048,7 @@ pub fn repoint(
                 request.chunk_size,
                 request.label_width_mm,
                 request.label_height_mm,
+                request.label_offset_mm,
                 request.language.map(PrinterLanguage::as_str),
                 now_text(),
             ],
@@ -1759,6 +1766,7 @@ mod tests {
                 chunk_size: Some(2),
                 label_width_mm: None,
                 label_height_mm: None,
+                label_offset_mm: None,
             },
         ) {
             Ok(moved) => moved,
@@ -1794,6 +1802,7 @@ mod tests {
                 label_width_mm: Some(40),
                 label_height_mm: Some(30),
                 language: None,
+                label_offset_mm: None,
             },
         ) {
             Ok(moved) => moved,
@@ -1824,6 +1833,7 @@ mod tests {
                 label_width_mm: None,
                 label_height_mm: None,
                 language: None,
+                label_offset_mm: None,
             },
         ) {
             Ok(moved) => moved,
@@ -2029,6 +2039,7 @@ mod tests {
                 label_width_mm: None,
                 label_height_mm: None,
                 language: None,
+                label_offset_mm: None,
             },
         ) {
             Err(EdgeError::Validation(_)) => {}
@@ -2183,6 +2194,7 @@ mod tests {
                 label_width_mm: None,
                 label_height_mm: None,
                 language: None,
+                label_offset_mm: None,
             },
         ) {
             Err(EdgeError::Validation(message)) => {

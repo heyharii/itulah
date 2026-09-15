@@ -133,8 +133,18 @@ const DC_FULFILLMENT_POOL_CODES = new Set([
 const STORE_RETURN_POOL_CODES = new Set(["WAREHOUSE", "FLOOR", "REJECT"])
 
 /// The single pool a supplier return may leave from, named literally in the
-/// server's check.
+/// server's check. A POOL id, still spelled `dc`: migration 0256 renamed the
+/// site the warehouse's pools stand on, not the pools.
 const SUPPLIER_RETURN_POOL_ID = "dc.reject.dc"
+
+/// `site.kind` for the warehouse. `HO` and not `DC` since 0256 folded the
+/// distribution centre into head office — they are one building, and now one
+/// row. A filter left on `DC` matches nothing and silently offers an empty
+/// source list rather than erroring.
+const WAREHOUSE_SITE_KIND = "HO"
+
+/// `site.id` for that same place. The pool ids above do NOT follow it.
+const WAREHOUSE_SITE_ID = "ho"
 
 export type AllotmentKind = "TO_STORE" | "RETURN_TO_DC" | "RETURN_TO_SUPPLIER"
 
@@ -147,7 +157,7 @@ export function sourcePoolsFor(
     case "TO_STORE":
       return usable.filter(
         (pool) =>
-          pool.site_kind === "DC" &&
+          pool.site_kind === WAREHOUSE_SITE_KIND &&
           DC_FULFILLMENT_POOL_CODES.has(pool.pool_code)
       )
     case "RETURN_TO_DC":
@@ -164,8 +174,12 @@ export function sourcePoolsFor(
 /// Where an allotment of this kind may go.
 ///
 /// Two of the three have exactly one answer and no choice to offer: everything
-/// returned goes to `dc`, and everything sent back to a supplier goes to the
+/// returned goes to `ho`, and everything sent back to a supplier goes to the
 /// one external place the ledger keeps for suppliers.
+///
+/// `destination_type` stays `DC`: it names the KIND of endpoint the allotment
+/// grammar recognises — store, warehouse, supplier — and the server still
+/// spells that one `DC`. Only the site id moved.
 export function fixedDestinationFor(
   kind: AllotmentKind
 ): { destination_type: "DC" | "SUPPLIER"; destination_id: string } | null {
@@ -173,7 +187,7 @@ export function fixedDestinationFor(
     case "TO_STORE":
       return null
     case "RETURN_TO_DC":
-      return { destination_type: "DC", destination_id: "dc" }
+      return { destination_type: "DC", destination_id: WAREHOUSE_SITE_ID }
     case "RETURN_TO_SUPPLIER":
       return {
         destination_type: "SUPPLIER",

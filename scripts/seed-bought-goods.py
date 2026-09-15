@@ -146,7 +146,13 @@ def main() -> int:
     )
     parser.add_argument("--user", default="admin", help="who to sign in as")
     parser.add_argument(
-        "--dc-site", default="dc", help="the warehouse the order is delivered to"
+        "--dc-site",
+        default="dc",
+        help=(
+            "the site id the DC EDGE NODE is registered under, not `site.id` — a "
+            "receipt is checked against sync_origin_credential.site_id, which 0256 "
+            "did not touch. `ho` here would refuse every delivery"
+        ),
     )
     args = parser.parse_args()
 

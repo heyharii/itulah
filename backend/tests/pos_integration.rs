@@ -87,6 +87,9 @@ async fn publish_price_book(pool: &PgPool) {
             markdowns: Vec::new(),
             rules: Vec::new(),
             coupons: Vec::new(),
+            // Authored since 0231, and this book authors nothing: the test is
+            // about what the till charges, not about how the change is filed.
+            change_type: None,
             version: 2,
             name: "POS Test Price Book".into(),
             effective_from: chrono::Utc::now() - chrono::Duration::minutes(1),

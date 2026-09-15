@@ -190,13 +190,18 @@ pub struct ArticleDetail {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ArticleOrder {
     /// Lowest code first: the master in the order it was built up. The order
-    /// this endpoint has always answered in, and still the default — a
-    /// catalogue read by somebody looking for a product should not reshuffle
-    /// itself every time a delivery is set up.
-    #[default]
+    /// this endpoint answered in until the owner asked for the other one.
     Oldest,
-    /// Highest code first: what has just been minted, which is what somebody
-    /// asking "what is new" means.
+    /// Newest first, and the default since the owner asked for it across every
+    /// list in the console.
+    ///
+    /// The argument for `Oldest` was that a catalogue somebody is searching
+    /// should not reshuffle itself. True, and outweighed: a master of five
+    /// hundred rows is not read from the top, it is searched — while the rows
+    /// somebody wants to SEE without searching are always the ones just
+    /// minted. Defaulting to oldest meant every article a delivery created
+    /// landed on page eleven, which is where they were found during testing.
+    #[default]
     Newest,
 }
 

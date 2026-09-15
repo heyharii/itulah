@@ -68,8 +68,17 @@ export const TAG_PRESETS: readonly {
   readonly widthMm: number
   readonly heightMm: number
   readonly note?: string
+  /// How far this stock's tag sits from the left edge of what the head sweeps.
+  ///
+  /// A property of the REEL, not of the layout — so it belongs to the preset
+  /// rather than being retyped every time somebody changes stock. Omitted
+  /// where the tag starts at the edge; a preset that declares it sets it when
+  /// chosen, because picking the wrong inset prints the left column onto the
+  /// liner and that is discovered a hundred tags later.
+  readonly offsetMm?: number
 }[] = [
   { widthMm: 50, heightMm: 30, note: "House stock" },
+  { widthMm: 45, heightMm: 18, offsetMm: 2, note: "RFID type 2" },
   { widthMm: 58, heightMm: 40, note: "Tuned by hand" },
   { widthMm: 40, heightMm: 30 },
   { widthMm: 100, heightMm: 50, note: "Cartons" },

@@ -1,5 +1,6 @@
 package id.itulah.pindai.screens
 
+import android.os.Trace
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import id.itulah.pindai.core.Epc
@@ -9,10 +10,16 @@ import id.itulah.pindai.data.Api
 import id.itulah.pindai.data.ConfigStore
 import id.itulah.pindai.data.Settings
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -143,6 +150,24 @@ class SweepViewModel(
     /** Tags whose evidence is already on the Edge; never filed twice. */
     private val filed = java.util.Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
     private var autoJob: kotlinx.coroutines.Job? = null
+    private var resolveJob: Job? = null
+    private var resolveRequested = false
+    private var resolvingSkus: Set<String> = emptySet()
+    private var sharedJob: Job? = null
+    private var sharedGeneration = 0L
+    private var dataGeneration = 0L
+    private var sweepOpen = false
+    private val operationMutex = Mutex()
+    private val publishMutex = Mutex()
+    private val filingMutex = Mutex()
+    private var filingJob: Job? = null
+    private var filingRequested = false
+    private var filingRetryAt = 0L
+    private var filingBackoffMs = FILING_RETRY_BASE_MS
+    private var warmJob: Job? = null
+    private val filingClaims = java.util.Collections.newSetFromMap(
+        ConcurrentHashMap<String, Boolean>(),
+    )
     private val dirty = java.util.concurrent.atomic.AtomicBoolean(false)
     private var sessionId = UUID.randomUUID().toString()
 
@@ -152,7 +177,13 @@ class SweepViewModel(
 
     private fun settings(): Settings = config.load()
 
-    fun setMode(mode: Mode) = update { it.copy(mode = mode, message = null, failed = false) }
+    fun setMode(mode: Mode) {
+        if (state.value.busy || (sweepOpen && collector.isNotEmpty())) {
+            update { it.copy(message = "finish the current sweep before changing jobs") }
+            return
+        }
+        update { it.copy(mode = mode, message = null, failed = false) }
+    }
     fun setDestination(v: String) = update { it.copy(destination = v.trim()) }
     fun setCountId(v: String) = update { it.copy(countId = v.trim()) }
 
@@ -203,67 +234,90 @@ class SweepViewModel(
         if (!settings.isConfigured) return
         val wanted = qtyBySku.keys.toSet() - state.value.identities.keys
         if (wanted.isEmpty()) return
+        // A slow Edge must not turn the two-second refresh cadence into a stack
+        // of identical catalogue queries. The job is deliberately kept separate
+        // from auto-filing so a names request can never pause the reader loop.
+        if (resolveJob?.isActive == true) {
+            // A new tag can arrive while the current request is in flight. Keep
+            // one follow-up request queued so stopping immediately after that
+            // arrival does not leave its identity permanently unresolved.
+            if (wanted.any { it !in resolvingSkus }) resolveRequested = true
+            return
+        }
         // Ask in batches. Every distinct SKU used to ride in one query string,
         // which is fine for a rack and a URL nobody measured: 255 products
         // already makes it 3 KB, and a DC counting a thousand styles would hand
         // the node a 12 KB GET line and get a 414 back — losing every name at
         // once, at exactly the scale where names matter most.
         val batches = wanted.chunked(200)
-        viewModelScope.launch {
-            update { it.copy(resolving = true, resolveNote = null) }
-            val started = System.currentTimeMillis()
-            val result = withContext(Dispatchers.IO) {
-                runCatching {
-                    val api = Api(settings)
-                    val items = org.json.JSONArray()
-                    batches.forEach { batch ->
-                        val json = api.get(
-                            "/api/v1/catalog/identities?skus=" + batch.joinToString(","),
-                        )
-                        val page = json.optJSONArray("items") ?: org.json.JSONArray()
-                        for (k in 0 until page.length()) items.put(page.getJSONObject(k))
+        val generation = dataGeneration
+        resolvingSkus = wanted
+        resolveRequested = false
+        resolveJob = viewModelScope.launch {
+            try {
+                update { it.copy(resolving = true, resolveNote = null) }
+                val started = System.currentTimeMillis()
+                val result = withContext(Dispatchers.IO) {
+                    runCatching {
+                        val api = Api(settings)
+                        val items = org.json.JSONArray()
+                        batches.forEach { batch ->
+                            val json = api.get(
+                                "/api/v1/catalog/identities?skus=" + batch.joinToString(","),
+                            )
+                            val page = json.optJSONArray("items") ?: org.json.JSONArray()
+                            for (k in 0 until page.length()) items.put(page.getJSONObject(k))
+                        }
+                        (0 until items.length()).associate { i ->
+                            val row = items.getJSONObject(i)
+                            val sku = row.optString("sku_code")
+                            sku to Identity(
+                                sku = sku,
+                                name = row.optString("name", sku),
+                                articleCode = row.optString("article_code").ifBlank { null },
+                                // Point at the node, not at the object store. The
+                                // store's own domain is redirected to a block page
+                                // by Indonesian ISPs, so a handheld on shop wifi
+                                // gets a notice where a JPEG should be; the node is
+                                // not on that network and is already trusted here.
+                                imageUrl = if (row.optString("image_url").isNotBlank()) {
+                                    settings.baseUrl + "/api/v1/catalog/image?sku=" + sku
+                                } else null,
+                                basePriceMinor = if (row.isNull("base_price_minor")) null
+                                    else row.optLong("base_price_minor"),
+                            )
+                        }
                     }
-                    (0 until items.length()).associate { i ->
-                        val row = items.getJSONObject(i)
-                        val sku = row.optString("sku_code")
-                        sku to Identity(
-                            sku = sku,
-                            name = row.optString("name", sku),
-                            articleCode = row.optString("article_code").ifBlank { null },
-                            // Point at the node, not at the object store. The
-                            // store's own domain is redirected to a block page
-                            // by Indonesian ISPs, so a handheld on shop wifi
-                            // gets a notice where a JPEG should be; the node is
-                            // not on that network and is already trusted here.
-                            imageUrl = if (row.optString("image_url").isNotBlank()) {
-                                settings.baseUrl + "/api/v1/catalog/image?sku=" + sku
-                            } else null,
-                            basePriceMinor = if (row.isNull("base_price_minor")) null
-                                else row.optLong("base_price_minor"),
-                        )
+                }
+                val elapsed = System.currentTimeMillis() - started
+                val token = settings.operatorToken.ifBlank { null }
+                if (generation == dataGeneration) {
+                    result.onSuccess { found ->
+                        update {
+                            val merged = it.identities + found
+                            it.copy(
+                                identities = merged,
+                                lines = it.lines.map { row -> row.copy(identity = merged[row.sku]) },
+                                imageAuth = token,
+                                resolving = false,
+                                resolveNote = "${found.size}/${wanted.size} named · ${elapsed} ms",
+                            )
+                        }
+                    }.onFailure { e ->
+                        // Not fatal and not hidden: the sweep is still complete and
+                        // still sendable, it just has no names on it yet.
+                        update {
+                            it.copy(resolving = false,
+                                resolveNote = "names unavailable here (${e.message})")
+                        }
                     }
                 }
-            }
-            val elapsed = System.currentTimeMillis() - started
-            val token = settings.operatorToken.ifBlank { null }
-            result.onSuccess { found ->
-                update {
-                    val merged = it.identities + found
-                    it.copy(
-                        identities = merged,
-                        lines = it.lines.map { row -> row.copy(identity = merged[row.sku]) },
-                        imageAuth = token,
-                        resolving = false,
-                        resolveNote = "${found.size}/${wanted.size} named · ${elapsed} ms",
-                    )
-                }
-            }.onFailure { e ->
-                // Not fatal and not hidden: the sweep is still complete and
-                // still sendable, it just has no names on it yet.
-                update {
-                    it.copy(resolving = false,
-                        resolveNote = "names unavailable here (${e.message})")
-                }
+            } finally {
+                val again = resolveRequested
+                resolveRequested = false
+                resolvingSkus = emptySet()
+                resolveJob = null
+                if (generation == dataGeneration && again) resolveIdentities()
             }
         }
     }
@@ -279,7 +333,15 @@ class SweepViewModel(
      * warehouse floor, not copied between machines.
      */
     fun setSessionCode(code: String) {
+        if (state.value.busy || (sweepOpen && collector.isNotEmpty())) {
+            update { it.copy(sharedNote = "finish the current sweep before changing session") }
+            return
+        }
         val cleaned = code.trim().uppercase().filter { it.isLetterOrDigit() || it == '-' }.take(24)
+        // A response for the previous name must never paint the newly selected
+        // session. The in-flight request is allowed to finish, but its generation
+        // check below drops the stale result and starts the current one after it.
+        sharedGeneration++
         config.save(config.load().copy(sessionCode = cleaned))
         update { it.copy(sessionCode = cleaned, shared = null, sharedNote = null) }
         if (cleaned.isNotBlank()) refreshShared()
@@ -335,29 +397,47 @@ class SweepViewModel(
         val settings = settings()
         val code = state.value.sessionCode
         if (!settings.isConfigured || code.isBlank()) return
-        viewModelScope.launch {
-            val result = withContext(Dispatchers.IO) {
-                runCatching {
-                    val json = Api(settings).get("/api/v1/rfid/sessions/" + code)
-                    val devices = json.optJSONArray("devices") ?: org.json.JSONArray()
-                    val epcArray = json.optJSONArray("epcs") ?: org.json.JSONArray()
-                    SharedSession(
-                        code = code,
-                        tagCount = json.optInt("tag_count"),
-                        sightingCount = json.optInt("sighting_count"),
-                        helpers = (0 until devices.length()).map { i ->
-                            val row = devices.getJSONObject(i)
-                            Helper(row.optString("device_id"), row.optInt("tag_count"))
-                        },
-                        epcs = (0 until epcArray.length()).map { i -> epcArray.getString(i) },
-                        truncated = json.optBoolean("truncated"),
-                    )
+        // Refreshes happen every two seconds during a shared sweep. Keep at most
+        // one database/JSON request in flight; if the code changes while it is
+        // running, the generation check and completion handoff below fetch the
+        // new code once the old request has drained.
+        if (sharedJob?.isActive == true) return
+        val generation = sharedGeneration
+        sharedJob = viewModelScope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    runCatching {
+                        val json = Api(settings).get("/api/v1/rfid/sessions/" + code)
+                        val devices = json.optJSONArray("devices") ?: org.json.JSONArray()
+                        val epcArray = json.optJSONArray("epcs") ?: org.json.JSONArray()
+                        SharedSession(
+                            code = code,
+                            tagCount = json.optInt("tag_count"),
+                            sightingCount = json.optInt("sighting_count"),
+                            helpers = (0 until devices.length()).map { i ->
+                                val row = devices.getJSONObject(i)
+                                Helper(row.optString("device_id"), row.optInt("tag_count"))
+                            },
+                            epcs = (0 until epcArray.length()).map { i -> epcArray.getString(i) },
+                            truncated = json.optBoolean("truncated"),
+                        )
+                    }
                 }
-            }
-            result.onSuccess { session ->
-                update { it.copy(shared = session, sharedNote = null) }
-            }.onFailure { e ->
-                update { it.copy(sharedNote = e.message ?: "session unreadable") }
+                if (generation == sharedGeneration && state.value.sessionCode == code) {
+                    result.onSuccess { session ->
+                        update { it.copy(shared = session, sharedNote = null) }
+                    }.onFailure { e ->
+                        update { it.copy(sharedNote = e.message ?: "session unreadable") }
+                    }
+                }
+            } finally {
+                // `setSessionCode` can happen while HttpURLConnection is draining
+                // on IO. Once this request is done, hand off exactly one refresh
+                // for the current code without ever overlapping requests.
+                sharedJob = null
+                if (generation != sharedGeneration && state.value.sessionCode.isNotBlank()) {
+                    refreshShared()
+                }
             }
         }
     }
@@ -388,103 +468,182 @@ class SweepViewModel(
         // that one".
         if (target == state.value.readerPower) return
         viewModelScope.launch {
-            val sweeping = state.value.sweeping
-            // Said before the antenna goes down, not after it comes back.
-            update {
-                it.copy(busy = true,
-                    powerNote = if (sweeping) "moving the antenna · about 7 seconds"
-                        else "moving the antenna…")
-            }
-            val outcome = withContext(Dispatchers.IO) {
-                runCatching {
-                    if (sweeping) reader.stop()
-                    val applied = reader.setPower(target)
-                    val resumed = !sweeping ||
-                        reader.start(withTid = false) { read -> absorb(read) }
-                    applied to resumed
-                }
-            }
-            outcome.onSuccess { (applied, resumed) ->
-                val settled = if (applied > 0) applied else target
-                config.saveReaderPower(settled)
+            operationMutex.withLock {
+                if (state.value.busy) return@withLock
+                val sweeping = state.value.sweeping
+                // Said before the antenna goes down, not after it comes back.
                 update {
-                    it.copy(
-                        busy = false,
-                        readerPower = settled,
-                        powerNote = when {
-                            !resumed -> "power set · the reader did not resume"
-                            applied > 0 -> "module reports $applied dBm"
-                            else -> "kept · applies when the reader wakes"
-                        },
-                        // A sweep whose inventory never came back is over, and
-                        // must say so. Leaving the flag up is how somebody
-                        // walks an aisle collecting nothing.
-                        sweeping = it.sweeping && resumed,
-                        failed = it.failed || !resumed,
-                        message = if (resumed) it.message
-                            else "the reader stopped — start reading again",
-                    )
+                    it.copy(busy = true,
+                        powerNote = if (sweeping) "moving the antenna · about 7 seconds"
+                            else "moving the antenna…")
                 }
-                // A sweep that ended by accident still files what it found.
-                // Auto-filing stops with the flag, so without this the last
-                // tick's tags sit in memory until somebody sweeps again — and
-                // the whole point of filing as we go is that nothing waits on
-                // somebody remembering.
-                if (!resumed) fileNewTags()
-            }.onFailure { e ->
-                update { it.copy(busy = false, powerNote = e.message ?: "the reader refused") }
+                // Do not let a power change compete with Finish, lifecycle stop,
+                // or another slider release. The vendor UART is single-owner.
+                stopAutoFiling()
+                val outcome = withContext(Dispatchers.IO) {
+                    runCatching {
+                        if (sweeping) reader.stop()
+                        val applied = reader.setPower(target)
+                        val resumed = !sweeping ||
+                            reader.start(withTid = false) { read -> absorb(read) }
+                        applied to resumed
+                    }
+                }
+                outcome.onSuccess { (applied, resumed) ->
+                    val settled = if (applied > 0) applied else target
+                    config.saveReaderPower(settled)
+                    update {
+                        it.copy(
+                            readerPower = settled,
+                            powerNote = when {
+                                !resumed -> "power set · the reader did not resume"
+                                applied > 0 -> "module reports $applied dBm"
+                                else -> "kept · applies when the reader wakes"
+                            },
+                            // A sweep whose inventory never came back is over, and
+                            // must say so. Leaving the flag up is how somebody
+                            // walks an aisle collecting nothing.
+                            sweeping = it.sweeping && resumed,
+                            failed = it.failed || !resumed,
+                            message = if (resumed) it.message
+                                else "the reader stopped — start reading again",
+                        )
+                    }
+                    // A sweep that ended by accident still files what it found.
+                    // Auto-filing stops with the flag, so without this the last
+                    // tick's tags sit in memory until somebody sweeps again — and
+                    // the whole point of filing as we go is that nothing waits on
+                    // somebody remembering.
+                    if (!resumed) fileNewTags()
+                    update { it.copy(busy = false) }
+                    if (resumed && sweeping) startAutoFiling()
+                }.onFailure { e ->
+                    update { it.copy(busy = false, powerNote = e.message ?: "the reader refused") }
+                }
             }
         }
     }
 
     fun toggleSweep() {
+        if (state.value.busy) return
         if (state.value.sweeping) stopSweep() else startSweep()
+    }
+
+    /** Start a new logical sweep without carrying a completed rack forward. */
+    private fun beginSweep() {
+        clearCollectedData()
+        filingRetryAt = 0L
+        filingBackoffMs = FILING_RETRY_BASE_MS
+        sessionId = UUID.randomUUID().toString()
+        sweepOpen = true
+        update {
+            it.copy(
+                tagCount = 0,
+                lines = emptyList(),
+                foreignCount = 0,
+                identities = emptyMap(),
+                resolving = false,
+                resolveNote = null,
+                filedCount = 0,
+                filingNote = null,
+                message = null,
+                failed = false,
+            )
+        }
+    }
+
+    /** Drop only data that belongs to the finished logical sweep. */
+    private fun clearCollectedData() {
+        dataGeneration++
+        resolveJob?.cancel()
+        resolveJob = null
+        resolveRequested = false
+        resolvingSkus = emptySet()
+        collector.clear()
+        qtyBySku.clear()
+        skuRank.clear()
+        ranks.set(0)
+        foreign.set(0)
+        filed.clear()
+        filingClaims.clear()
+        filingRequested = false
+        dirty.set(false)
+    }
+
+    private fun hasPendingEvidence(): Boolean =
+        collector.values.any { it.epc !in filed }
+
+    /** Stable across a lost response, but unique for the exact session and batch. */
+    private fun observationIdempotencyKey(session: String, batch: List<Seen>): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        digest.update(session.toByteArray(Charsets.UTF_8))
+        digest.update('\n'.code.toByte())
+        batch.asSequence().map { it.epc }.sorted().forEach { epc ->
+            digest.update(epc.toByteArray(Charsets.UTF_8))
+            digest.update('\n'.code.toByte())
+        }
+        val hex = digest.digest().joinToString("") { "%02x".format(it) }
+        return "hh-rfid-" + hex.take(56)
     }
 
     private fun startSweep() {
         viewModelScope.launch {
-            update { it.copy(busy = true, message = "Waking the reader…", failed = false) }
-            val result = withContext(Dispatchers.IO) {
-                runCatching {
-                    // Choose the power BEFORE the module opens, so init applies
-                    // it once. Measured on a C5 (E710_V7.10.1): a setPower
-                    // issued to an ALREADY-OPEN module reports success and the
-                    // getter echoes the new figure, but the antenna goes silent
-                    // — 40 reads at 30 dBm became zero at 29, which is not a
-                    // thing one decibel can do.
-                    settings().readerPower.takeIf { it > 0 }?.let { reader.setPower(it) }
-                    val version = reader.init(appContext!!)
-                    val started = reader.start(withTid = false) { read -> absorb(read) }
-                    if (!started) error("the reader refused to start inventory")
-                    version
+            operationMutex.withLock {
+                if (state.value.busy || state.value.sweeping) return@withLock
+                if (!sweepOpen) beginSweep()
+                update { it.copy(busy = true, message = "Waking the reader…", failed = false) }
+                val result = withContext(Dispatchers.IO) {
+                    runCatching {
+                        // Choose the power BEFORE the module opens, so init applies
+                        // it once. Measured on a C5 (E710_V7.10.1): a setPower
+                        // issued to an ALREADY-OPEN module reports success and the
+                        // getter echoes the new figure, but the antenna goes silent
+                        // — 40 reads at 30 dBm became zero at 29, which is not a
+                        // thing one decibel can do.
+                        settings().readerPower.takeIf { it > 0 }?.let { reader.setPower(it) }
+                        val version = reader.init(appContext!!)
+                        val started = reader.start(withTid = false) { read -> absorb(read) }
+                        if (!started) error("the reader refused to start inventory")
+                        version
+                    }
                 }
-            }
-            result.onSuccess { version ->
-                update {
-                    it.copy(sweeping = true, busy = false,
-                        readerInfo = "fw " + version.ifBlank { "?" },
-                        readerPower = reader.power().coerceAtLeast(0),
-                        message = "Reading…")
+                result.onSuccess { version ->
+                    update {
+                        it.copy(sweeping = true, busy = false,
+                            readerInfo = "fw " + version.ifBlank { "?" },
+                            readerPower = reader.power().coerceAtLeast(0),
+                            message = "Reading…")
+                    }
+                    startAutoFiling()
+                }.onFailure { e ->
+                    update { it.copy(busy = false, failed = true, message = e.message ?: "reader unavailable") }
                 }
-                startAutoFiling()
-            }.onFailure { e ->
-                update { it.copy(busy = false, failed = true, message = e.message ?: "reader unavailable") }
             }
         }
     }
 
     private fun stopSweep() {
         viewModelScope.launch {
-            withContext(Dispatchers.IO) { reader.stop() }
-            autoJob?.cancel()
-            autoJob = null
-            dirty.set(true)
-            publish()
-            update { it.copy(sweeping = false, message = "${collector.size} tags read") }
-            // Anything the last tick missed goes now, so stopping is a complete
-            // act rather than a promise.
-            fileNewTags()
-            resolveIdentities()
+            operationMutex.withLock {
+                if (!state.value.sweeping) {
+                    withContext(Dispatchers.IO) { runCatching { reader.stop() } }
+                    return@withLock
+                }
+                // Stop the timer first so no more publishes or filing requests are
+                // scheduled while the reader is winding down. The collector and its
+                // unsent evidence remain untouched.
+                update { it.copy(busy = true) }
+                stopAutoFiling()
+                withContext(Dispatchers.IO) { reader.stop() }
+                dirty.set(true)
+                publish()
+                update { it.copy(sweeping = false, message = "${collector.size} tags read") }
+                // Anything the last tick missed goes now, so stopping is a complete
+                // act rather than a promise.
+                fileNewTags()
+                resolveIdentities()
+                update { it.copy(busy = false) }
+            }
         }
     }
 
@@ -503,21 +662,26 @@ class SweepViewModel(
      */
     private fun startAutoFiling() {
         autoJob?.cancel()
+        // Warm-up is useful, but a slow or offline node must never hold the
+        // 200 ms publish loop hostage. It is deliberately independent work.
+        warmJob?.cancel()
+        val settings = settings()
+        warmJob = if (settings.isConfigured) {
+            viewModelScope.launch(Dispatchers.IO) { runCatching { Api(settings).warm() } }
+        } else null
+
         autoJob = viewModelScope.launch {
-            // Open the socket while the operator is still pulling the trigger,
-            // so the first real batch does not also pay for the handshake.
-            val settings = settings()
-            if (settings.isConfigured) {
-                withContext(Dispatchers.IO) { runCatching { Api(settings).warm() } }
-            }
             var tick = 0
             while (state.value.sweeping) {
                 kotlinx.coroutines.delay(200)
+                if (!state.value.sweeping) break
+                // UI snapshots keep their 200 ms cadence even when an upload or
+                // catalogue request is stuck on a slow network.
                 publish()
                 // Evidence and names travel every ten ticks — two seconds — so
                 // the radio is quiet between them.
                 if (++tick % 10 == 0) {
-                    fileNewTags()
+                    scheduleFiling()
                     resolveIdentities()
                     // The point of a shared session is watching the aisle fill
                     // in while it is walked. Refreshing only on join and on
@@ -530,30 +694,114 @@ class SweepViewModel(
         }
     }
 
-    private suspend fun fileNewTags() {
+    /** Stop the scheduler but let an in-flight upload drain under its own lock. */
+    private suspend fun stopAutoFiling() {
+        val job = autoJob
+        autoJob = null
+        job?.cancelAndJoin()
+        warmJob?.cancel()
+        warmJob = null
+    }
+
+    /** Queue at most one upload and back off when the node is unavailable. */
+    private fun scheduleFiling() {
         val settings = settings()
-        if (!settings.isConfigured) return
-        val fresh = collector.values.filter { filed.add(it.epc) }
-        if (fresh.isEmpty()) return
-        val started = System.currentTimeMillis()
-        val outcome = withContext(Dispatchers.IO) {
-            runCatching {
-                Api(settings).postObservations(
-                    fresh.map { it.epc to it.rssi }, currentSessionId(),
-                )
+        if (!settings.isConfigured || !hasPendingEvidence()) return
+        if (System.currentTimeMillis() < filingRetryAt) return
+        if (filingJob?.isActive == true) {
+            filingRequested = true
+            return
+        }
+        filingRequested = false
+        filingJob = viewModelScope.launch {
+            try {
+                fileNewTags()
+            } finally {
+                filingJob = null
+                val again = filingRequested
+                filingRequested = false
+                if (again && state.value.sweeping) scheduleFiling()
             }
         }
-        val elapsed = System.currentTimeMillis() - started
-        outcome.onSuccess {
-            update {
-                it.copy(filedCount = filed.size,
-                    filingNote = "${filed.size} filed · ${elapsed} ms")
+    }
+
+    /**
+     * File only the evidence not already acknowledged by the Edge.
+     *
+     * The mutex is intentionally held across the network call. Finish, the
+     * lifecycle stop, and the two-second scheduler must see one ordered stream:
+     * otherwise Finish can decide that a claimed-but-not-yet-acknowledged tag
+     * is already filed. Batches stay within the Edge's 2,000-EPC limit and each
+     * one gets a stable key, so a lost response can be retried without a
+     * duplicate observation.
+     */
+    private suspend fun fileNewTags(): Boolean {
+        val settings = settings()
+        if (!settings.isConfigured) return false
+        return filingMutex.withLock {
+            var sent = 0
+            var failure: Throwable? = null
+            while (true) {
+                // Batch selection and hashing scale with the collected EPCs.
+                // Keep both off the main thread: the reader can have thousands
+                // of entries even when the visible list has only a few rows.
+                val selection = withContext(Dispatchers.Default) {
+                    val fresh = collector.values
+                        .asSequence()
+                        .filter { it.epc !in filed && it.epc !in filingClaims }
+                        .sortedBy { it.epc }
+                        .take(MAX_OBSERVATIONS_PER_BATCH)
+                        .filter { filingClaims.add(it.epc) }
+                        .toList()
+                    if (fresh.isEmpty()) null else {
+                        val session = currentSessionId()
+                        Triple(fresh, session, observationIdempotencyKey(session, fresh))
+                    }
+                }
+                if (selection == null) break
+                val (fresh, session, key) = selection
+                try {
+                    withContext(Dispatchers.IO) {
+                        Api(settings).postObservations(
+                            fresh.map { it.epc to it.rssi }, session, key,
+                        )
+                    }
+                    fresh.forEach {
+                        filingClaims.remove(it.epc)
+                        filed.add(it.epc)
+                    }
+                    sent += fresh.size
+                } catch (cancelled: CancellationException) {
+                    fresh.forEach { filingClaims.remove(it.epc) }
+                    throw cancelled
+                } catch (error: Throwable) {
+                    fresh.forEach { filingClaims.remove(it.epc) }
+                    failure = error
+                    update {
+                        it.copy(
+                            filedCount = filed.size,
+                            filingNote = "not filed yet (${error.message ?: "network unavailable"})",
+                        )
+                    }
+                    break
+                }
             }
-        }.onFailure { e ->
-            // Put them back: unfiled evidence must stay unfiled, or a dropped
-            // batch becomes a tag nobody ever files.
-            fresh.forEach { filed.remove(it.epc) }
-            update { it.copy(filingNote = "not filed yet (${e.message})") }
+
+            if (failure != null) {
+                filingRetryAt = System.currentTimeMillis() + filingBackoffMs
+                filingBackoffMs = (filingBackoffMs * 2).coerceAtMost(FILING_RETRY_MAX_MS)
+                false
+            } else {
+                filingRetryAt = 0L
+                filingBackoffMs = FILING_RETRY_BASE_MS
+                if (sent > 0) {
+                    update {
+                        it.copy(filedCount = filed.size,
+                            filingNote = "${filed.size} filed")
+                    }
+                }
+                true
+            }
         }
     }
 
@@ -592,70 +840,115 @@ class SweepViewModel(
     }
 
     /** Push what the reader has found, at a pace an eye can follow. */
-    private fun publish() {
-        if (!dirty.getAndSet(false)) return
-        val identities = state.value.identities
-        // Rows in the order the shop floor met them. Sorting by quantity made
-        // two hundred rows change places under the finger every time a number
-        // moved, which is both work and a list nobody can read while counting.
-        val lines = qtyBySku.entries
-            .map { (sku, qty) -> Grouped(sku, qty, identities[sku]) }
-            .sortedBy { skuRank[it.sku] ?: Int.MAX_VALUE }
-        val tags = collector.size
-        update { it.copy(tagCount = tags, lines = lines, foreignCount = foreign.get()) }
+    private suspend fun publish() {
+        // `stopSweep` and the auto-filing timer can reach this at the same time:
+        // serialize their dirty check and UI snapshot so an older snapshot cannot
+        // overwrite the one taken after the reader stopped.
+        publishMutex.withLock {
+            if (!dirty.getAndSet(false)) return@withLock
+            try {
+                val identities = state.value.identities
+                // Rows in the order the shop floor met them. Sorting by quantity made
+                // two hundred rows change places under the finger every time a number
+                // moved, which is both work and a list nobody can read while counting.
+                val lines = withContext(Dispatchers.Default) {
+                    Trace.beginSection("pindai.publish.snapshot")
+                    try {
+                        qtyBySku.entries
+                            .map { (sku, qty) -> Grouped(sku, qty, identities[sku]) }
+                            .sortedBy { skuRank[it.sku] ?: Int.MAX_VALUE }
+                    } finally {
+                        Trace.endSection()
+                    }
+                }
+                val tags = collector.size
+                update { it.copy(tagCount = tags, lines = lines, foreignCount = foreign.get()) }
+            } catch (error: Throwable) {
+                // The flag is cleared before the Default-dispatch snapshot so a
+                // successful publish cannot race a new read. If that snapshot is
+                // cancelled (for example while the ViewModel is being stopped),
+                // retain the work for the next publish instead of silently losing
+                // the final tags from the screen.
+                dirty.set(true)
+                throw error
+            }
+        }
     }
 
     /** File the evidence, then do whatever this mode means on top of it. */
     fun commit() {
-        val current = state.value
-        val settings = settings()
-        if (!settings.isConfigured) {
-            update { it.copy(failed = true, message = "Settings are incomplete") }; return
-        }
-        if (current.tagCount == 0) {
-            update { it.copy(failed = true, message = "Nothing swept yet") }; return
-        }
         viewModelScope.launch {
-            update { it.copy(busy = true, message = "Sending…", failed = false) }
-            if (current.sweeping) withContext(Dispatchers.IO) { reader.stop() }
-            // Evidence is already on the Edge — it went as the sweep ran. All
-            // that is left is anything the last tick missed, and then the act
-            // this mode actually means. Keeping the two apart matters: an
-            // observation is a fact, a carton or a receipt is a decision, and a
-            // decision that fails must never make the facts look unfiled.
-            val flushed = runCatching { fileNewTags() }
-            val outcome = withContext(Dispatchers.IO) {
-                runCatching {
-                    val api = Api(settings)
-                    // One snapshot, taken here. The collector is the tags; UI
-                    // state carries only their count.
-                    val tags = collector.values.toList()
-                    when (current.mode) {
-                        Mode.SCAN -> null
-                        Mode.PACKING -> packing(api, current, tags)
-                        Mode.RECEIVING -> receiving(api, tags)
-                        Mode.COUNT -> counting(api, current, tags)
+            operationMutex.withLock {
+                val settings = settings()
+                if (!settings.isConfigured) {
+                    update { it.copy(failed = true, message = "Settings are incomplete") }
+                    return@withLock
+                }
+                // A read can arrive between the last 200 ms tick and this tap.
+                // Take the final UI snapshot before deciding whether there is
+                // anything to commit.
+                dirty.set(true)
+                publish()
+                val current = state.value
+                if (collector.isEmpty()) {
+                    update { it.copy(failed = true, message = "Nothing swept yet") }
+                    return@withLock
+                }
+
+                update { it.copy(busy = true, message = "Sending…", failed = false) }
+                stopAutoFiling()
+                if (current.sweeping) withContext(Dispatchers.IO) { reader.stop() }
+                // Evidence is already on the Edge — it went as the sweep ran.
+                // All that is left is anything the last tick missed, and then
+                // the act this mode actually means. Keeping the two apart
+                // matters: an observation is a fact, a carton or a receipt is a
+                // decision, and a decision that fails must never make the facts
+                // look unfiled.
+                update { it.copy(sweeping = false) }
+                val flushed = fileNewTags()
+                val outcome: Result<String?> = if (!flushed) {
+                    Result.failure(IllegalStateException("some observations are not filed yet"))
+                } else {
+                    withContext(Dispatchers.IO) {
+                        runCatching {
+                            val api = Api(settings)
+                            // One snapshot, taken here. The collector is the
+                            // tags; UI state carries only their count.
+                            val tags = collector.values.toList()
+                            when (current.mode) {
+                                Mode.SCAN -> null
+                                Mode.PACKING -> packing(api, current, tags)
+                                Mode.RECEIVING -> receiving(api, tags)
+                                Mode.COUNT -> counting(api, current, tags)
+                            }
+                        }
                     }
                 }
-            }
-            val filedNow = filed.size
-            when {
-                flushed.isFailure -> update {
-                    it.copy(busy = false, sweeping = false, failed = true,
-                        message = "some tags are not filed yet: " +
-                            (flushed.exceptionOrNull()?.message ?: "unknown"))
-                }
-                outcome.isFailure -> update {
-                    it.copy(busy = false, sweeping = false, failed = true,
-                        message = "$filedNow observations FILED · " +
-                            (outcome.exceptionOrNull()?.message ?: "next step failed"))
-                }
-                else -> {
-                    val text = "$filedNow observations filed" +
-                        (outcome.getOrNull()?.let { " · $it" } ?: "")
-                    update { it.copy(busy = false, sweeping = false, failed = false,
-                        message = text, lastReceipt = text) }
-                    refreshShared()
+
+                val filedNow = filed.size
+                when {
+                    !flushed -> update {
+                        it.copy(busy = false, sweeping = false, failed = true,
+                            message = "some tags are not filed yet: " +
+                                (it.filingNote ?: "network unavailable"))
+                    }
+                    outcome.isFailure -> update {
+                        it.copy(busy = false, sweeping = false, failed = true,
+                            message = "$filedNow observations FILED · " +
+                                (outcome.exceptionOrNull()?.message ?: "next step failed"))
+                    }
+                    else -> {
+                        val text = "$filedNow observations filed" +
+                            (outcome.getOrNull()?.let { " · $it" } ?: "")
+                        clearCollectedData()
+                        sweepOpen = false
+                        update { it.copy(busy = false, sweeping = false, failed = false,
+                            tagCount = 0, lines = emptyList(), foreignCount = 0,
+                            identities = emptyMap(), resolving = false, resolveNote = null,
+                            filedCount = 0, filingNote = null,
+                            message = text, lastReceipt = text) }
+                        refreshShared()
+                    }
                 }
             }
         }
@@ -755,7 +1048,9 @@ class SweepViewModel(
         // Off the main thread even when idle: stop() joins the poll thread and
         // talks to the UART, and neither belongs in a tab change.
         viewModelScope.launch {
-            withContext(Dispatchers.IO) { runCatching { reader.stop() } }
+            operationMutex.withLock {
+                withContext(Dispatchers.IO) { runCatching { reader.stop() } }
+            }
         }
     }
 
@@ -764,6 +1059,11 @@ class SweepViewModel(
     }
 
     companion object {
+        /** Edge sync accepts at most this many consolidated EPCs per batch. */
+        private const val MAX_OBSERVATIONS_PER_BATCH = 2_000
+        private const val FILING_RETRY_BASE_MS = 5_000L
+        private const val FILING_RETRY_MAX_MS = 60_000L
+
         /** Set once by the activity; the reader needs a Context to open the UART. */
         @Volatile var appContext: android.content.Context? = null
     }

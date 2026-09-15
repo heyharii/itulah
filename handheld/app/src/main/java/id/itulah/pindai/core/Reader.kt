@@ -117,6 +117,7 @@ class Reader {
     }
 
     /** Sweep until [stop] is called, handing every read to [onTag]. */
+    @Synchronized
     fun start(withTid: Boolean, onTag: (TagRead) -> Unit): Boolean {
         val r = rfid ?: return false
         stop()
@@ -147,6 +148,7 @@ class Reader {
         return true
     }
 
+    @Synchronized
     fun stop() {
         val thread = pollThread
         polling = false

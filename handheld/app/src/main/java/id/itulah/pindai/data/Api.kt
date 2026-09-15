@@ -27,7 +27,11 @@ class Api(private val settings: Settings) {
 
     private var sequence: Long = System.currentTimeMillis() / 1000
 
-    fun postObservations(reads: List<Pair<String, Float?>>, sessionId: String): JSONObject {
+    fun postObservations(
+        reads: List<Pair<String, Float?>>,
+        sessionId: String,
+        idempotencyKey: String = "hh-" + UUID.randomUUID().toString().replace("-", "").take(20),
+    ): JSONObject {
         if (reads.isEmpty()) throw ApiError("tidak ada tag untuk dikirim")
         val observations = JSONArray()
         reads.forEach { (epc, rssi) ->
@@ -42,7 +46,7 @@ class Api(private val settings: Settings) {
             put("pool", settings.pool)
             put("reader_session_id", sessionId)
             put("observed_at", iso8601Now())
-            put("idempotency_key", "hh-" + UUID.randomUUID().toString().replace("-", "").take(20))
+            put("idempotency_key", idempotencyKey)
             put("observations", observations)
         }.toString().toByteArray()
 

@@ -141,19 +141,31 @@ function PrintAction({
       // sending ZPL to something that only reads TSPL — which prints nothing
       // and looks exactly like a printer that is switched off.
       //
-      // The tag geometry is deliberately NOT sent: repointing is about which
-      // machine, not about redrawing a label whose words were frozen when the
-      // run was queued.
+      // The tag GEOMETRY travels with the machine, and the WORDS do not.
+      //
+      // That line used to be drawn in the wrong place: geometry was withheld
+      // on the grounds that a run's label was frozen when it was queued. The
+      // words are — a reprint has to reproduce the tag that was printed, not
+      // the one today's catalogue would make. But the reel is a fact about the
+      // bench, exactly like the host and the port beside it. Withholding it
+      // meant a run opened on 50x30 kept being drawn for 50x30 after somebody
+      // loaded a 45x18 reel, and what came out was the old layout crushed onto
+      // short stock while the preview beside it showed the new one. Two
+      // pictures of one label, and the paper was the one nobody could argue
+      // with.
       const moved =
         session.printer_host !== printer.host ||
-        session.printer_port !== printer.port
+        session.printer_port !== printer.port ||
+        session.label_width_mm !== printer.widthMm ||
+        session.label_height_mm !== printer.heightMm
       const target = moved
         ? await dc.repointPrintSession(session.session_id, {
             printer_host: printer.host,
             printer_port: printer.port,
             chunk_size: printer.chunk,
-            label_width_mm: null,
-            label_height_mm: null,
+            label_width_mm: printer.widthMm,
+            label_height_mm: printer.heightMm,
+            label_offset_mm: printer.offsetMm,
             language: printer.language,
           })
         : session
@@ -644,7 +656,8 @@ function PrinterCard() {
             {TAG_PRESETS.map((preset) => {
               const chosen =
                 preset.widthMm === printer.widthMm &&
-                preset.heightMm === printer.heightMm
+                preset.heightMm === printer.heightMm &&
+                (preset.offsetMm ?? printer.offsetMm) === printer.offsetMm
               return (
                 <button
                   key={`${preset.widthMm}x${preset.heightMm}`}
@@ -655,6 +668,12 @@ function PrinterCard() {
                       ...printer,
                       widthMm: preset.widthMm,
                       heightMm: preset.heightMm,
+                      // A reel that states its own inset carries it; one that
+                      // does not leaves whatever the bench already had, because
+                      // the inset belongs to the stock and not to the size.
+                      ...(preset.offsetMm === undefined
+                        ? {}
+                        : { offsetMm: preset.offsetMm }),
                     })
                   }
                   title={preset.note}

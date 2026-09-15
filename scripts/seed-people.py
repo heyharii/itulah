@@ -65,10 +65,12 @@ PEOPLE = [
     # a warehouse supervisor is a warehouse supervisor whichever unit employs
     # them.
     #
-    # `site('dc')` is untouched. The warehouse is still a syncing node that
-    # receives goods and runs the handhelds, and `site.kind` is still `DC`.
-    # What changed is only where the people who work there are POSTED — a
-    # different table, for exactly this reason.
+    # Migration 0256 then did the same to `site`: `dc` and `dc-01` folded into
+    # one row `ho` of kind `HO`, and `org_place.ho.site_id` points at it. The
+    # warehouse is still a syncing node that receives goods and runs the
+    # handhelds — that node registers as `dc`, in `sync_origin_credential`,
+    # which is a third id space and was deliberately left alone. So were the
+    # seventy-four pool ids that still begin `dc.`.
     ("HO-0006", "Yusuf Ramadhan", "Warehouse Supervisor", "S3", "PKWTT", "ho", "2020-05-11"),
     ("HO-0007", "Nina Oktaviani", "Inbound Clerk", "S1", "PKWT", "ho", "2025-03-03"),
     ("HO-0008", "Rizal Fadhil", "Picker", "S1", "PKWT", "ho", "2025-06-02"),

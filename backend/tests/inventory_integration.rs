@@ -82,7 +82,7 @@ async fn inventory_foundation_end_to_end(pool: PgPool) {
     // centre acquired thirteen shelves nobody in the warehouse writes to.
     assert_eq!(pool_items.len(), 99);
     assert_eq!(
-        pool_items.iter().filter(|p| p["site_id"] == "dc").count(),
+        pool_items.iter().filter(|p| p["site_id"] == "ho").count(),
         60
     );
     assert_eq!(
@@ -929,7 +929,7 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
     let create_request = CreateAllotmentRequest {
         allotment_type: AllotmentType::ToStore,
         lines: vec![CreateAllotmentLineInput {
-            source_site_id: "dc".into(),
+            source_site_id: "ho".into(),
             source_pool_id: "dc.warehouse".into(),
             destination_type: DestinationType::Store,
             destination_id: "store-01".into(),
@@ -1009,7 +1009,7 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
         CreateAllotmentRequest {
             allotment_type: AllotmentType::ToStore,
             lines: vec![CreateAllotmentLineInput {
-                source_site_id: "dc".into(),
+                source_site_id: "ho".into(),
                 source_pool_id: "dc.warehouse".into(),
                 destination_type: DestinationType::Store,
                 destination_id: "store-01".into(),
@@ -1028,7 +1028,7 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
         CreateAllotmentRequest {
             allotment_type: AllotmentType::ToStore,
             lines: vec![CreateAllotmentLineInput {
-                source_site_id: "dc".into(),
+                source_site_id: "ho".into(),
                 source_pool_id: "dc.warehouse".into(),
                 destination_type: DestinationType::Store,
                 destination_id: "store-02".into(),
@@ -1277,7 +1277,7 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
     let race_request = |store: &str, key: &str| CreateAllotmentRequest {
         allotment_type: AllotmentType::ToStore,
         lines: vec![CreateAllotmentLineInput {
-            source_site_id: "dc".into(),
+            source_site_id: "ho".into(),
             source_pool_id: "dc.warehouse".into(),
             destination_type: DestinationType::Store,
             destination_id: store.into(),
@@ -1307,7 +1307,7 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
         CreateAllotmentRequest {
             allotment_type: AllotmentType::ToStore,
             lines: vec![CreateAllotmentLineInput {
-                source_site_id: "dc".into(),
+                source_site_id: "ho".into(),
                 source_pool_id: "dc.warehouse".into(),
                 destination_type: DestinationType::Store,
                 destination_id: "store-05".into(),
@@ -1351,7 +1351,7 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
         CreateAllotmentRequest {
             allotment_type: AllotmentType::ToStore,
             lines: vec![CreateAllotmentLineInput {
-                source_site_id: "dc".into(),
+                source_site_id: "ho".into(),
                 source_pool_id: "dc.warehouse".into(),
                 destination_type: DestinationType::Store,
                 destination_id: "store-06".into(),
@@ -1377,7 +1377,7 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
     let count = infrastructure::create_count(
         &pool,
         CreateCountRequest {
-            site_id: "dc".into(),
+            site_id: "ho".into(),
             pool_id: "dc.warehouse".into(),
             kind: CountKind::Targeted,
             sku_ids: vec![cancel_sku],

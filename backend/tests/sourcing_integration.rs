@@ -47,6 +47,10 @@ async fn supplier(pool: &PgPool, code: &str, name: &str) -> Uuid {
             email: None,
             address: None,
             status: SupplierStatus::Active,
+            // 0212 split the vendor book. These are merchandise suppliers —
+            // the column's own default — and they bill no expense account.
+            category: None,
+            expense_account_code: None,
         },
         ACTOR,
         &format!("supplier-{code}"),

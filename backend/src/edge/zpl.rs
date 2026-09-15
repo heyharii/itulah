@@ -187,6 +187,22 @@ enum Mark {
         font: i64,
         text: String,
     },
+    /// Text the PRINTER right-aligns inside a block, rather than text this
+    /// code placed by guessing how wide it would be.
+    ///
+    /// `x` is where the block starts and `width` how far it runs; the glyphs
+    /// end at `x + width` whatever they spell. That matters because the width
+    /// estimate this file uses elsewhere is measured at 0.62 of the cell and
+    /// is honest about being an estimate — good enough to decide where the
+    /// next field starts, not good enough to sit a price against an edge,
+    /// where every millimetre of error is visible against the die cut.
+    RightText {
+        x: i64,
+        y: i64,
+        width: i64,
+        font: i64,
+        text: String,
+    },
     /// Code 128 with its human readable line underneath.
     Barcode {
         x: i64,
@@ -254,6 +270,17 @@ impl Sheet {
                 Mark::Text { x, y, font, text } => {
                     out.push_str(&format!("^FO{x},{y}^A0N,{font},{font}^FD{text}^FS\n"))
                 }
+                // `^FB<width>,1,0,R,0`: one line, no extra leading, right
+                // justified inside the block that follows `^FO`.
+                Mark::RightText {
+                    x,
+                    y,
+                    width,
+                    font,
+                    text,
+                } => out.push_str(&format!(
+                    "^FO{x},{y}^FB{width},1,0,R,0^A0N,{font},{font}^FD{text}^FS\n"
+                )),
                 // ^BY sets the module width and ratio; ^BC is Code 128 with
                 // the human readable line below and no ZPL-computed check
                 // digit — the payload is already exactly what should be
@@ -333,6 +360,23 @@ impl Sheet {
                     "TEXT {x},{y},\"0\",0,{font},{font},\"{}\"\n",
                     tspl_quoted(text)
                 )),
+                // TSPL has no field block, so the right edge is reached by
+                // placing the string — the estimate is unavoidable here and
+                // is at least confined to one printer language.
+                Mark::RightText {
+                    x,
+                    y,
+                    width,
+                    font,
+                    text,
+                } => {
+                    let placed =
+                        (x + width - text_dots(text.chars().count(), *font)).max(*x);
+                    out.push_str(&format!(
+                        "TEXT {placed},{y},\"0\",0,{font},{font},\"{}\"\n",
+                        tspl_quoted(text)
+                    ))
+                }
                 // `BARCODE x,y,"128",height,human,rotation,narrow,wide,"data"`.
                 // Human readable on, rotation zero, and the same module width
                 // the ZPL emitter passes to `^BY`; TSPL takes the wide bar
@@ -388,6 +432,23 @@ impl Sheet {
 
         for mark in &self.marks {
             match mark {
+                Mark::RightText {
+                    x,
+                    y,
+                    width,
+                    font,
+                    text,
+                } => {
+                    let baseline = *y as f64 + *font as f64 * BASELINE_RATIO;
+                    let edge = x + width;
+                    out.push_str(&format!(
+                        "<text x=\"{edge}\" y=\"{baseline:.1}\" font-size=\"{font}\" \
+                         text-anchor=\"end\" \
+                         font-family=\"Helvetica Neue,Helvetica,Arial,sans-serif\" \
+                         fill=\"#111111\" xml:space=\"preserve\">{}</text>",
+                        xml(text)
+                    ));
+                }
                 Mark::Text { x, y, font, text } => {
                     let baseline = *y as f64 + *font as f64 * BASELINE_RATIO;
                     out.push_str(&format!(
@@ -512,8 +573,139 @@ fn xml(value: &str) -> String {
 /// The margin every field on the tag starts at, in baseline dots.
 const MARGIN: i64 = 16;
 
+/// A tag too short to scale the main layout down onto.
+///
+/// Below this the 58x40 column stops being a small version of itself and
+/// starts being unreadable: the brand line lands under the font floor, the
+/// barcode eats a third of the height, and the size in the corner runs off the
+/// edge. 24 mm is where that was measured, not guessed — a 45x18 reel is the
+/// stock this exists for.
+const SHORT_TAG_MM: f64 = 24.0;
+
+/// The hang tag for a short reel, laid out in its own dots.
+///
+/// Not a scaled 58x40. Four bands instead of five, and the corner belongs to
+/// the PRICE rather than the size, because on a tag this small there is one
+/// corner and the price is what the shopper reaches for — the size still rides
+/// the colour line, where it is legible at this height and the corner is not.
+///
+/// Every number here is dots on THIS tag, not a baseline scaled twice. A
+/// second scaling is how the brand line ended up at seven dots high.
+fn lay_out_short_label(data: &LabelData<'_>, size: LabelSize, brand: LabelBrand<'_>) -> Sheet {
+    let (w_dots, h_dots) = size.dots();
+    // Not the same margin either side, and that is the reel rather than the
+    // design: the die cut sits a little right of where the head starts, so an
+    // even margin prints as an uneven one. Measured against printed tags, not
+    // chosen — 34 and 12 is what came out square on the stock this exists for.
+    //
+    // Measured, which is why the reel's own inset is NOT added on top and this
+    // sheet sets `^LH0`: 34 dots is already where the head has to start for
+    // this stock to come out square. Applying the offset as well moved every
+    // band 2 mm right of the tag that was approved, and shrank the room the
+    // bars are fitted into until they dropped a module width.
+    let left = 34;
+    let right = (w_dots - 12).max(left + 40);
+    let font = 18;
+    let mut marks = Vec::with_capacity(6);
+
+    // Band one: whose it is, and what it costs.
+    marks.push(Mark::Text {
+        x: left,
+        y: 18,
+        font,
+        text: truncate_chars(&escape(brand.0), 14),
+    });
+    if data.price_minor > 0 {
+        marks.push(Mark::RightText {
+            x: left,
+            y: 18,
+            width: right - left,
+            font,
+            text: format!("Rp {}", format_rupiah(data.price_minor)),
+        });
+    }
+
+    // Band two: what it is, and what it comes in.
+    //
+    // Two different facts sharing a line, the way colour and size share one on
+    // the tall tag — at 18 mm a band costs more than it is worth, and the one
+    // this frees goes to the bars.
+    let size_label = match escape(data.size_label).trim() {
+        "One Size" | "No Size" => String::new(),
+        other => truncate_chars(other, 6),
+    };
+    let colour = ellipsize(&escape(data.colour_label), 14);
+    let variant = match (colour.as_str(), size_label.as_str()) {
+        ("", "") => String::new(),
+        ("", s) => s.to_string(),
+        (c, "") => c.to_string(),
+        (c, s) => format!("{c} \u{00b7} {s}"),
+    };
+    let name_room = (right - left) - text_dots(variant.chars().count(), font) - 10;
+    let mut name = ellipsize(&escape(data.article_name), 26);
+    while !name.is_empty() && text_dots(name.chars().count(), font) > name_room.max(40) {
+        name.pop();
+    }
+    marks.push(Mark::Text {
+        x: left,
+        y: 44,
+        font,
+        text: name,
+    });
+    if !variant.is_empty() {
+        marks.push(Mark::RightText {
+            x: left,
+            y: 44,
+            width: right - left,
+            font,
+            text: variant,
+        });
+    }
+
+    // Band three: the bars, starting where the words start.
+    //
+    // Left-aligned at the text margin and fixed at `^BY2`, both measured off
+    // the tag that was approved rather than derived. Fitting the module to the
+    // room between the margins is what the tall tag does, and on 45 mm stock
+    // an eleven-character symbol is 312 dots against 314 of room — two dots
+    // over, so the fitter stepped down to `^BY1` and printed a hairline
+    // barcode half the width, floating in the middle of the tag. The bars are
+    // allowed past the right TEXT margin; what they may not pass is paper.
+    let barcode_payload = escape(data.barcode_payload);
+    if !barcode_payload.is_empty() {
+        let chars = barcode_payload.chars().count();
+        let module = (1..=BARCODE_MODULE_DOTS)
+            .rev()
+            .find(|module| left + code128_dots(chars, *module) <= w_dots)
+            .unwrap_or(1);
+        marks.push(Mark::Barcode {
+            x: left,
+            y: 75,
+            height: 26,
+            module,
+            hri_font: font,
+            payload: barcode_payload,
+        });
+    }
+
+    if let Some(hex) = printable_epc(data.epc) {
+        marks.push(Mark::Rfid { hex });
+    }
+
+    Sheet {
+        w_dots,
+        h_dots,
+        offset_dots: 0,
+        copies: data.copies.max(1),
+        marks,
+    }
+}
+
 fn lay_out_label(data: &LabelData<'_>, size: LabelSize, brand: LabelBrand<'_>) -> Sheet {
     let l = Layout::resolve(size);
+    if size.height_mm < SHORT_TAG_MM {
+        return lay_out_short_label(data, size, brand);
+    }
     let mut marks = Vec::with_capacity(7);
 
     // The shop's name, and the SMALLEST thing on the tag.
@@ -545,7 +737,17 @@ fn lay_out_label(data: &LabelData<'_>, size: LabelSize, brand: LabelBrand<'_>) -
     // large setting in the corner — this line is what survives when the corner
     // is under a thumb.
     let colour_label = ellipsize(&escape(data.colour_label), 18);
-    let size_label = truncate_chars(&escape(data.size_label), 6);
+    // A garment that comes in one size has no size to print.
+    //
+    // `One Size` and `No Size` are how the master spells "this does not vary",
+    // and a tag is read at arm's length off a rail: the corner is for the word
+    // somebody is hunting for, and here there is nothing to hunt. Printed, it
+    // was worse than useless — the corner is set at 64 dots for one or two
+    // characters, so eight of them ran off the edge and came out as `One Si`.
+    let size_label = match escape(data.size_label).trim() {
+        "One Size" | "No Size" => String::new(),
+        other => truncate_chars(other, 6),
+    };
     let colour_size = match (colour_label.as_str(), size_label.as_str()) {
         ("", "") => String::new(),
         ("", size) => size.to_string(),
@@ -953,6 +1155,46 @@ mod tests {
     }
 
     #[test]
+    fn the_short_tag_reproduces_the_label_the_owner_approved() {
+        // Byte for byte against the ZPL that was sent by hand to the bridge
+        // and held up as right. Written down because it was arrived at on the
+        // bench, one printed tag at a time, and nothing in the code says why
+        // 34 and 314 and `^BY2` rather than anything else: the next change
+        // that looks reasonable in isolation has to break this to land.
+        let data = LabelData {
+            sku_code: "00000011008",
+            article_name: "D",
+            colour_label: "Black",
+            size_label: "One Size",
+            barcode_payload: "00000011008",
+            price_minor: 480_000,
+            epc: "a00000001100800000000001",
+            copies: 1,
+        };
+        let size = LabelSize {
+            width_mm: 45.0,
+            height_mm: 18.0,
+            left_offset_mm: 2.0,
+        };
+        let expected = concat!(
+            "^XA\n",
+            "^PW360\n",
+            "^LL144\n",
+            "^CI28\n",
+            "^LH0,0\n",
+            "^FO34,18^A0N,18,18^FDCENTRAL^FS\n",
+            "^FO34,18^FB314,1,0,R,0^A0N,18,18^FDRp 480.000^FS\n",
+            "^FO34,44^A0N,18,18^FDD^FS\n",
+            "^FO34,44^FB314,1,0,R,0^A0N,18,18^FDBlack^FS\n",
+            "^FO34,75^BY2,3,26^BCN,26,Y,N,N^FD00000011008^FS\n",
+            "^RFW,H,1,14,1^FD3000A00000001100800000000001^FS\n",
+            "^PQ1,0,1,Y\n",
+            "^XZ\n",
+        );
+        assert_eq!(render_label(&data, size, LabelBrand("CENTRAL")), expected);
+    }
+
+    #[test]
     fn the_colour_starts_after_the_size_however_long_the_size_is() {
         let mut data = sample();
         data.size_label = "XXL";
@@ -1009,7 +1251,6 @@ mod tests {
         assert!(zpl.contains("^FDJacketXZJADELETE^FS"), "{zpl}");
     }
 
-    #[test]
     #[test]
     fn the_rfid_write_leads_with_the_protocol_control_word() {
         let data = sample();

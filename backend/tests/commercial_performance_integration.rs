@@ -447,7 +447,7 @@ async fn a_style_reports_every_price_it_actually_sold_at(pool: PgPool) {
             "INSERT INTO purchase_order
                  (purchase_order_id, po_number, supplier_id, destination_site_id, origin_kind,
                   order_status, currency, created_by, created_at, issued_at)
-             VALUES ($1, $2, 'SUP-1', 'dc', 'DIRECT', $3, 'IDR', 'test', $4, $4)",
+             VALUES ($1, $2, 'SUP-1', 'ho', 'DIRECT', $3, 'IDR', 'test', $4, $4)",
         )
         .bind(order)
         .bind(number)
@@ -853,6 +853,9 @@ async fn a_clearance_authored_with_hours_keeps_them(pool: PgPool) {
     inventory_backend::cloud::postgres::create_commercial_publication(
         &pool,
         CreateCommercialPublicationRequest {
+            // Authored since 0231; this book's subject is the clearance it
+            // carries, not how the change is filed.
+            change_type: None,
             version: 9_000,
             name: "Flash 12-14".into(),
             effective_from: base() - Duration::days(1),

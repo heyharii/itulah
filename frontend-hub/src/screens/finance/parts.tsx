@@ -91,8 +91,8 @@ export function Amount({
 /// Choose a location, or every location.
 ///
 /// This replaced a free-text box on six screens. The box was not a filter, it
-/// was a quiz: the site ids are `dc`, `store-01`… and nothing on any screen
-/// said so, so an accountant typing "DC01" or "Store 07" got an empty report
+/// was a quiz: the site ids are `ho`, `store-01`… and nothing on any screen
+/// said so, so an accountant typing "HO" or "Store 07" got an empty report
 /// and no reason for it. A list of fourteen names cannot be typed wrong.
 ///
 /// The value on the wire is still the `site_id` — the names are the client's

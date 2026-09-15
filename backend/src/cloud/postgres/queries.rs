@@ -332,12 +332,18 @@ WITH ledger_deltas AS (
     WHERE $4
     GROUP BY commitment.source_pool_id
 )
+-- Two id spaces meet in this SELECT and they no longer agree. `pool.id` is a
+-- POOL id and still spells the warehouse `dc.…`; `pool.site_id` is a SITE id
+-- and has been `ho` since 0256 folded `dc` and `dc-01` into head office. A
+-- test written against one and applied to the other passes silently: the
+-- allotted column would be computed for every pool in the fleet, and the
+-- `dc_first` sort key would never fire.
 SELECT pool.id,pool.site_id,site.name site_name,site.kind site_kind,pool.group_code,pool.pool_code,pool.label,
        pool.store_origin_site_id,pool.display_order,pool.is_placement,pool.outbound_stage,pool.destination_store_id,
        COALESCE(normal.quantity,0)::bigint normal,
        COALESCE(missing.quantity,0)::bigint missing,
        COALESCE(observed.quantity,0)::bigint observed,
-       CASE WHEN $4 AND pool.is_placement AND (pool.id IN ('dc.warehouse','dc.reject.dc') OR pool.site_id<>'dc')
+       CASE WHEN $4 AND pool.is_placement AND (pool.id IN ('dc.warehouse','dc.reject.dc') OR pool.site_id<>'ho')
             THEN COALESCE(allotted.quantity,0) ELSE NULL END::bigint allotted,
        risk.lost::bigint lost_quantity,
        CASE WHEN GREATEST(risk.opening,0)+risk.inbound > 0
@@ -348,13 +354,13 @@ SELECT pool.id,pool.site_id,site.name site_name,site.kind site_kind,pool.group_c
        -- Sort keys. Every one non-null: see the note above the constant.
        (COALESCE(normal.quantity,0)+COALESCE(missing.quantity,0))::bigint stock_key,
        (COALESCE(normal.quantity,0)
-        - CASE WHEN $4 AND pool.is_placement AND (pool.id IN ('dc.warehouse','dc.reject.dc') OR pool.site_id<>'dc')
+        - CASE WHEN $4 AND pool.is_placement AND (pool.id IN ('dc.warehouse','dc.reject.dc') OR pool.site_id<>'ho')
                THEN COALESCE(allotted.quantity,0) ELSE 0 END)::bigint on_hand_key,
        COALESCE(missing.quantity,0)::bigint missing_key,
        COALESCE(observed.quantity,0)::bigint observed_key,
        COALESCE(last_count.at,TIMESTAMPTZ '-infinity') last_count_key,
        COALESCE(site.name,pool.site_id) site_key,
-       CASE WHEN pool.site_id='dc' THEN 0 ELSE 1 END dc_first,
+       CASE WHEN pool.site_id='ho' THEN 0 ELSE 1 END dc_first,
        CASE WHEN pool.is_placement THEN 1 ELSE 0 END placement_rank,
        COALESCE(pool.destination_store_id,'') destination_key,
        CASE WHEN last_count.at IS NULL THEN 'NEVER' ELSE 'COUNTED' END counted_state
@@ -1429,6 +1435,11 @@ pub async fn list_fleet_pools(
     // `dc.warehouse` reading 3.589 appeared as two rows on the screen, each
     // presented as authoritative.
     //
+    // 0256 widened that gap rather than closing it: the Cloud rows now sit
+    // under `ho` while the pools they name are still `dc.…` and the Edge is
+    // still `dc-01`. Which is why the canonical name below is the SITE's and
+    // the respelling further down uses the origin's own `runs_as`.
+    //
     // Resolved the way `inventory_dc_owner_tx` already resolves it — the
     // canonical name belongs to the sole registered DC — and left unresolved
     // when there are several, because choosing which of two warehouses is "the"
@@ -1447,9 +1458,9 @@ pub async fn list_fleet_pools(
     match reported_dc_origins.as_slice() {
         [(origin_id, owner)] => {
             let runs_as = owner.get("site_id").and_then(Value::as_str).unwrap_or("");
-            if runs_as != sync::CANONICAL_DC_SITE_ID {
+            if runs_as != sync::CANONICAL_WAREHOUSE_SITE_ID {
                 active_edge_sites
-                    .insert(sync::CANONICAL_DC_SITE_ID.to_string(), (*origin_id).clone());
+                    .insert(sync::CANONICAL_WAREHOUSE_SITE_ID.to_string(), (*origin_id).clone());
             }
         }
         several if several.len() > 1 => {

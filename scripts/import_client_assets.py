@@ -61,10 +61,10 @@ def site_of(account: str) -> str | None:
     unit = found.group(1)
     if unit == "HO":
         # Head office and the distribution centre are one building — see the
-        # co-location note in the project's own docs. There is no separate
-        # `ho` site, and inventing one would put half the register somewhere
-        # nothing else in this system knows about.
-        return "dc"
+        # co-location note in the project's own docs — and since migration
+        # 0256 they are also one `site` row, `ho`, of kind `HO`. This used to
+        # return `dc` because that was the only id the building had.
+        return "ho"
     return f"store-{int(unit[1:]):02d}"
 
 

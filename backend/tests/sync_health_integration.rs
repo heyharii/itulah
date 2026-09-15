@@ -379,7 +379,7 @@ async fn only_an_admin_may_read_the_health_of_the_fleet(pool: PgPool) {
             username: "kasir.01".into(),
             display_name: "Kasir Satu".into(),
             password: "cashier-password-1".into(),
-            role: Role::Cashier,
+            role: Role::Cashier.into(),
         },
         "sync-health-test",
     )

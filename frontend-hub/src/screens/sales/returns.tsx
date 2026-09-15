@@ -58,9 +58,10 @@ const columns: ColumnDef<TableSetup, ReturnRow>[] = [
     header: "Store",
     size: 130,
     /// Faceted from these rows, which is the only spelling that can match
-    /// them: the same shop is `dc` to the centre and `dc-01` to the box
-    /// standing in it, and a list of shops fetched from anywhere else would
-    /// offer a value with a count beside it that selects nothing.
+    /// them: the centre and the box standing in a place do not always agree
+    /// on its name — the warehouse is `ho` to the centre and `dc-01` to its
+    /// own edge node — and a list fetched from anywhere else would offer a
+    /// value with a count beside it that selects nothing.
     meta: { filter: { kind: "option" } },
     cell: ({ row }) => (
       <span className="font-medium text-ink">{row.original.site_id}</span>

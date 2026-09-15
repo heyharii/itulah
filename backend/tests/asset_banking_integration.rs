@@ -13,132 +13,16 @@ use uuid::Uuid;
 
 const ACTOR: &str = "ana";
 
-/// One row of the seeded chart: code, name, parent, whether it is a heading,
-/// and the location it is scoped to.
-type ChartRow = (
-    &'static str,
-    &'static str,
-    Option<&'static str>,
-    bool,
-    Option<&'static str>,
-);
-
-/// Enough of the client's chart to depreciate one machine: the category family,
-/// its accumulated pair, its expense account, and a bank account for the
-/// reconciliation tests.
+/// The months this file posts into.
+///
+/// The chart itself is no longer seeded here. Since 0243 the migrations write
+/// the client's own 219-account chart, and 0244 collapsed the fourteen
+/// unit-suffixed copies of each account into one: `ledger_account` may not
+/// name a unit at all, and `102150400100 Mesin HO` is now `1021504001 Air
+/// Conditioner` with the unit carried by `journal_line.site_id`. A test that
+/// minted its own leaves would be testing a chart the books do not have — and
+/// `ledger_account_carries_no_unit` would refuse it anyway.
 async fn seed(pool: &PgPool) {
-    let rows: [ChartRow; 14] = [
-        ("1", "ASSET", None, true, None),
-        ("102", "NON CURRENT ASSET", Some("1"), true, None),
-        ("10215", "AKTIVA TETAP", Some("102"), true, None),
-        ("1021504", "Machineries", Some("10215"), true, None),
-        (
-            "102150400100",
-            "Mesin HO",
-            Some("1021504"),
-            false,
-            Some("dc"),
-        ),
-        (
-            "10216",
-            "AKUMULASI PENYUSUTAN AKTIVA TETAP",
-            Some("102"),
-            true,
-            None,
-        ),
-        ("1021604", "Akum-Penyusu - Mesin", Some("10216"), true, None),
-        (
-            "102160400100",
-            "Akum-Penyusu - Mesin HO",
-            Some("1021604"),
-            false,
-            Some("dc"),
-        ),
-        ("101", "CURRENT ASSET", Some("1"), true, None),
-        ("10110", "KAS & SETARA KAS", Some("101"), true, None),
-        (
-            "1011003",
-            "CASH IN BANK TABUNGAN",
-            Some("10110"),
-            true,
-            None,
-        ),
-        (
-            "101100300100",
-            "Cash In Bank Tabungan Bank BCA HO",
-            Some("1011003"),
-            false,
-            Some("dc"),
-        ),
-        ("2", "LIABILITIES", None, true, None),
-        (
-            "201200100100",
-            "Hutang Suppliers HO",
-            Some("2"),
-            false,
-            Some("dc"),
-        ),
-    ];
-    for (code, name, parent, is_group, site) in rows {
-        sqlx::query(
-            // `ON CONFLICT` since 0243: the chart migration now writes the
-            // group rows itself — `1`, `7`, `10215`, `70102` — and a test that
-            // insisted on inserting them would fail on a database that is
-            // simply up to date. The leaves below are still ours to seed.
-            "INSERT INTO ledger_account (account_code, name, parent_code, is_group, site_id)
-             VALUES ($1,$2,$3,$4,$5) ON CONFLICT (account_code) DO NOTHING",
-        )
-        .bind(code)
-        .bind(name)
-        .bind(parent)
-        .bind(is_group)
-        .bind(site)
-        .execute(pool)
-        .await
-        .unwrap_or_else(|error| panic!("{code}: {error}"));
-    }
-    // The depreciation expense family, which lives under root 7.
-    for (code, name, parent, is_group, site) in [
-        ("7", "BEBAN USAHA LAINNYA", None, true, None),
-        (
-            "70102",
-            "BIAYA DEPRESIASI DAN AMORTISASI",
-            Some("7"),
-            true,
-            None,
-        ),
-        (
-            "7010212",
-            "BIAYA DEPRESIASI  MESIN",
-            Some("70102"),
-            true,
-            None,
-        ),
-        (
-            "701021200100",
-            "Biaya Depresiasi Mesin HO",
-            Some("7010212"),
-            false,
-            Some("dc"),
-        ),
-    ] {
-        sqlx::query(
-            // `ON CONFLICT` since 0243: the chart migration now writes the
-            // group rows itself — `1`, `7`, `10215`, `70102` — and a test that
-            // insisted on inserting them would fail on a database that is
-            // simply up to date. The leaves below are still ours to seed.
-            "INSERT INTO ledger_account (account_code, name, parent_code, is_group, site_id)
-             VALUES ($1,$2,$3,$4,$5) ON CONFLICT (account_code) DO NOTHING",
-        )
-        .bind(code)
-        .bind(name)
-        .bind(parent)
-        .bind(is_group)
-        .bind(site)
-        .execute(pool)
-        .await
-        .unwrap_or_else(|error| panic!("{code}: {error}"));
-    }
     for (year, month) in [(2026, 1), (2026, 2), (2026, 3)] {
         cloud::open_period(pool, year, month)
             .await
@@ -150,14 +34,14 @@ async fn seed(pool: &PgPool) {
 /// client's own expense and accumulated accounts.
 async fn map_machinery(pool: &PgPool) {
     for (key, code) in [
-        ("depreciation_expense", "701021200100"),
-        ("accumulated_depreciation", "102160400100"),
+        ("depreciation_expense", "7010212001"),
+        ("accumulated_depreciation", "1021604001"),
     ] {
         cloud::set_account_mapping(
             pool,
             &cloud::SetAccountMappingRequest {
                 semantic_key: key.into(),
-                site_id: "dc".into(),
+                site_id: "ho".into(),
                 qualifier: "1021504".into(),
                 account_code: code.into(),
                 note: None,
@@ -165,7 +49,7 @@ async fn map_machinery(pool: &PgPool) {
             ACTOR,
         )
         .await
-        .unwrap_or_else(|error| panic!("map {key}: {error}"));
+        .unwrap_or_else(|error| panic!("map {key}: {error:?}"));
     }
 }
 
@@ -180,7 +64,7 @@ async fn a_machine(pool: &PgPool) -> Uuid {
             asset_number: "AST-000001".into(),
             name: "Mesin jahit Juki".into(),
             category_code: "1021504".into(),
-            site_id: "dc".into(),
+            site_id: "ho".into(),
             acquired_on: date(2026, 1, 5),
             serial_number: Some("JK-99".into()),
             notes: None,
@@ -190,7 +74,7 @@ async fn a_machine(pool: &PgPool) -> Uuid {
         ACTOR,
     )
     .await
-    .unwrap_or_else(|error| panic!("register: {error}"))
+    .unwrap_or_else(|error| panic!("register: {error:?}"))
     .asset_id
 }
 
@@ -382,10 +266,10 @@ async fn a_month_is_charged_once_however_often_it_is_run(pool: PgPool) {
 
     // The expense and the accumulated account both moved, and by the same
     // amount — the entry balances because the poster made it balance.
-    let expense = cloud::account_balance(&pool, "701021200100", None, None)
+    let expense = cloud::account_balance(&pool, "7010212001", None, None)
         .await
         .unwrap_or_else(|error| panic!("expense: {error}"));
-    let accumulated = cloud::account_balance(&pool, "102160400100", None, None)
+    let accumulated = cloud::account_balance(&pool, "1021604001", None, None)
         .await
         .unwrap_or_else(|error| panic!("accumulated: {error}"));
     assert_eq!(expense.balance_minor, 1_000_000);
@@ -456,7 +340,7 @@ async fn a_bkk(pool: &PgPool, number: &str, lines: &[(&str, i64)]) -> Vec<Uuid> 
         "INSERT INTO supplier_invoice
            (invoice_id, invoice_number, supplier_id, supplier_name, site_id, invoice_date,
             currency, subtotal_minor, total_minor, kind, status, recorded_by)
-         VALUES ($1,$2,'SUP-1','Toko Elektronik','dc',$3,'IDR',$4,$4,'EXPENSE','DRAFT',$5)",
+         VALUES ($1,$2,'SUP-1','Toko Elektronik','ho',$3,'IDR',$4,$4,'EXPENSE','DRAFT',$5)",
     )
     .bind(invoice_id)
     .bind(number)
@@ -473,7 +357,7 @@ async fn a_bkk(pool: &PgPool, number: &str, lines: &[(&str, i64)]) -> Vec<Uuid> 
         sqlx::query(
             "INSERT INTO supplier_invoice_expense_line
                (line_id, invoice_id, line_number, account_code, site_id, amount_minor, memo)
-             VALUES ($1,$2,$3,$4,'dc',$5,'AC C4')",
+             VALUES ($1,$2,$3,$4,'ho',$5,'AC C4')",
         )
         .bind(line_id)
         .bind(invoice_id)
@@ -509,16 +393,16 @@ async fn a_purchase_paid_in_several_lines_is_still_one_asset(pool: PgPool) {
         &pool,
         "KK-26-06-00276",
         &[
-            ("102150400100", 25_000_000),
-            ("102150400100", 1_390_000),
+            ("1021504001", 25_000_000),
+            ("1021504001", 1_390_000),
             // The bank's administration fee, on the same document and not part
             // of the asset. This is why the split cannot be read off the
             // document total.
-            ("101100300100", 5_000),
+            ("1011003001", 5_000),
         ],
     )
     .await;
-    let earlier = a_bkk(&pool, "KK-26-06-00101", &[("102150400100", 7_000_000)]).await;
+    let earlier = a_bkk(&pool, "KK-26-06-00101", &[("1021504001", 7_000_000)]).await;
 
     let asset_id = cloud::register_asset(
         &pool,
@@ -526,7 +410,7 @@ async fn a_purchase_paid_in_several_lines_is_still_one_asset(pool: PgPool) {
             asset_number: "AST-000001".into(),
             name: "AC C4".into(),
             category_code: "1021504".into(),
-            site_id: "dc".into(),
+            site_id: "ho".into(),
             acquired_on: date(2026, 6, 1),
             serial_number: None,
             notes: None,
@@ -536,7 +420,7 @@ async fn a_purchase_paid_in_several_lines_is_still_one_asset(pool: PgPool) {
         ACTOR,
     )
     .await
-    .unwrap_or_else(|error| panic!("register: {error}"))
+    .unwrap_or_else(|error| panic!("register: {error:?}"))
     .asset_id;
 
     let assess = |cost: i64, named: Vec<Uuid>| cloud::AssessAssetRequest {
@@ -619,100 +503,26 @@ async fn a_purchase_paid_in_several_lines_is_still_one_asset(pool: PgPool) {
 ///
 /// `1021607` is *Reserve Replacement*, not accumulated depreciation, and
 /// `7010215` is *BIAYA REPLACEMENT*, not a depreciation expense. Racks and
-/// hangers are replaced rather than written down. The category here is the
-/// ten-character SUB-KIND — `1021507027 OE - Hanger Wanita / ABG` — because
-/// that is the granularity the client's own accounts are cut at.
-async fn seed_operating_equipment(pool: &PgPool) {
-    let rows: [ChartRow; 9] = [
-        ("1021507", "Operating Equipment", Some("10215"), true, None),
-        (
-            "1021507027",
-            "OE - Hanger Wanita / ABG",
-            Some("1021507"),
-            true,
-            None,
-        ),
-        (
-            "102150702700",
-            "OE - Hanger Wanita / ABG HO",
-            Some("1021507027"),
-            false,
-            Some("dc"),
-        ),
-        (
-            "1021607",
-            "Reserve Replacement - Operating Equipment",
-            Some("10216"),
-            true,
-            None,
-        ),
-        (
-            "1021607027",
-            "Reserve Replacement OE- Hanger Wanita / ABG",
-            Some("1021607"),
-            true,
-            None,
-        ),
-        (
-            "102160702700",
-            "RR OE- Hanger Wanita / ABG HO",
-            Some("1021607027"),
-            false,
-            Some("dc"),
-        ),
-        (
-            "7010215",
-            "BIAYA REPLACEMENT OPERATING EQUIPMENT",
-            Some("70102"),
-            true,
-            None,
-        ),
-        (
-            "7010215027",
-            "Biaya Replacement OE - Hanger Wanita / ABG",
-            Some("7010215"),
-            true,
-            None,
-        ),
-        (
-            "701021502700",
-            "Biaya Replacement OE - Hanger Wanita / ABG HO",
-            Some("7010215027"),
-            false,
-            Some("dc"),
-        ),
-    ];
-    for (code, name, parent, is_group, site) in rows {
-        sqlx::query(
-            // `ON CONFLICT` since 0243: the chart migration now writes the
-            // group rows itself — `1`, `7`, `10215`, `70102` — and a test that
-            // insisted on inserting them would fail on a database that is
-            // simply up to date. The leaves below are still ours to seed.
-            "INSERT INTO ledger_account (account_code, name, parent_code, is_group, site_id)
-             VALUES ($1,$2,$3,$4,$5) ON CONFLICT (account_code) DO NOTHING",
-        )
-        .bind(code)
-        .bind(name)
-        .bind(parent)
-        .bind(is_group)
-        .bind(site)
-        .execute(pool)
-        .await
-        .unwrap_or_else(|error| panic!("{code}: {error}"));
-    }
-}
-
+/// hangers are replaced rather than written down.
+///
+/// The category is the rung-7 group `1021507 Operating Equipment`, which is
+/// what `account_map` is keyed on. It used to be the ten-character sub-kind
+/// (`1021507027 OE - Hanger Wanita / ABG`), because the client's imported
+/// chart was cut at that granularity; 0244's chart is cut at `1021507001`
+/// instead, and the qualifier the migrations seed is the group. Both the
+/// chart arrives with the database; the mapping does not, so the reserve pair
+/// is bound here.
 async fn map_operating_equipment(pool: &PgPool) {
     for (key, code) in [
-        ("replacement_expense", "701021502700"),
-        ("replacement_reserve", "102160702700"),
+        ("replacement_expense", "7010215001"),
+        ("replacement_reserve", "1021607001"),
     ] {
         cloud::set_account_mapping(
             pool,
             &cloud::SetAccountMappingRequest {
                 semantic_key: key.into(),
-                site_id: "dc".into(),
-                qualifier: "1021507027".into(),
+                site_id: "ho".into(),
+                qualifier: "1021507".into(),
                 account_code: code.into(),
                 note: None,
             },
@@ -730,8 +540,8 @@ async fn a_lot_of_hangers(pool: &PgPool) -> Uuid {
         &cloud::RegisterAssetRequest {
             asset_number: "AST-000426".into(),
             name: "Hanger wanita".into(),
-            category_code: "1021507027".into(),
-            site_id: "dc".into(),
+            category_code: "1021507".into(),
+            site_id: "ho".into(),
             acquired_on: date(2026, 1, 1),
             serial_number: None,
             notes: None,
@@ -741,14 +551,13 @@ async fn a_lot_of_hangers(pool: &PgPool) -> Uuid {
         ACTOR,
     )
     .await
-    .unwrap_or_else(|error| panic!("register: {error}"))
+    .unwrap_or_else(|error| panic!("register: {error:?}"))
     .asset_id
 }
 
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn operating_equipment_accrues_a_reserve_and_leaves_depreciation_alone(pool: PgPool) {
     seed(&pool).await;
-    seed_operating_equipment(&pool).await;
     // Both pairs are mapped, so "the reserve moved" cannot be confused with
     // "only the reserve was mappable".
     map_machinery(&pool).await;
@@ -793,10 +602,10 @@ async fn operating_equipment_accrues_a_reserve_and_leaves_depreciation_alone(poo
     assert_eq!(run.posted_total_minor, 1_000_000);
 
     // The replacement pair moved.
-    let expense = cloud::account_balance(&pool, "701021502700", None, None)
+    let expense = cloud::account_balance(&pool, "7010215001", None, None)
         .await
         .unwrap_or_else(|error| panic!("replacement expense: {error}"));
-    let reserve = cloud::account_balance(&pool, "102160702700", None, None)
+    let reserve = cloud::account_balance(&pool, "1021607001", None, None)
         .await
         .unwrap_or_else(|error| panic!("reserve: {error}"));
     assert_eq!(expense.balance_minor, 1_000_000);
@@ -806,10 +615,10 @@ async fn operating_equipment_accrues_a_reserve_and_leaves_depreciation_alone(poo
     // migration exists for: before 0159 both charges resolved through
     // `accumulated_depreciation`, so a reserve accrual and a write-down landed
     // in the same account and the balance sheet could not tell them apart.
-    let accumulated = cloud::account_balance(&pool, "102160400100", None, None)
+    let accumulated = cloud::account_balance(&pool, "1021604001", None, None)
         .await
         .unwrap_or_else(|error| panic!("accumulated: {error}"));
-    let depreciation = cloud::account_balance(&pool, "701021200100", None, None)
+    let depreciation = cloud::account_balance(&pool, "7010212001", None, None)
         .await
         .unwrap_or_else(|error| panic!("depreciation: {error}"));
     assert_eq!(accumulated.balance_minor, 0);
@@ -901,7 +710,6 @@ async fn an_assessment_that_does_not_say_what_the_charge_is_is_refused(pool: PgP
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn the_pair_reported_as_unmapped_is_the_pair_the_asset_actually_charges(pool: PgPool) {
     seed(&pool).await;
-    seed_operating_equipment(&pool).await;
     // Deliberately no mapping at all.
     let asset_id = a_lot_of_hangers(&pool).await;
     cloud::assess_asset(
@@ -950,8 +758,8 @@ async fn the_pair_reported_as_unmapped_is_the_pair_the_asset_actually_charges(po
 
 fn statement(lines: Vec<cloud::ImportStatementLine>) -> cloud::ImportStatementRequest {
     cloud::ImportStatementRequest {
-        account_code: "101100300100".into(),
-        site_id: "dc".into(),
+        account_code: "1011003001".into(),
+        site_id: "ho".into(),
         period_start: date(2026, 1, 1),
         period_end: date(2026, 1, 31),
         opening_minor: 0,
@@ -1010,9 +818,9 @@ async fn a_bank_line_is_matched_against_our_own_ledger(pool: PgPool) {
         &pool,
         &cloud::SetAccountMappingRequest {
             semantic_key: "bank_savings".into(),
-            site_id: "dc".into(),
+            site_id: "ho".into(),
             qualifier: String::new(),
-            account_code: "101100300100".into(),
+            account_code: "1011003001".into(),
             note: None,
         },
         ACTOR,
@@ -1023,9 +831,9 @@ async fn a_bank_line_is_matched_against_our_own_ledger(pool: PgPool) {
         &pool,
         &cloud::SetAccountMappingRequest {
             semantic_key: "trade_payable".into(),
-            site_id: "dc".into(),
+            site_id: "ho".into(),
             qualifier: String::new(),
-            account_code: "201200100100".into(),
+            account_code: "2012001001".into(),
             note: None,
         },
         ACTOR,
@@ -1048,8 +856,8 @@ async fn a_bank_line_is_matched_against_our_own_ledger(pool: PgPool) {
             currency: "IDR".into(),
             memo: Some("bayar PT Sinar Jaya".into()),
             lines: vec![
-                cloud::PostingLine::debit("trade_payable", "dc", 5_000_000),
-                cloud::PostingLine::credit("bank_savings", "dc", 5_000_000),
+                cloud::PostingLine::debit("trade_payable", "ho", 5_000_000),
+                cloud::PostingLine::credit("bank_savings", "ho", 5_000_000),
             ],
         },
         ACTOR,
@@ -1114,7 +922,7 @@ async fn a_bank_line_is_matched_against_our_own_ledger(pool: PgPool) {
         },
     )
     .await
-    .unwrap_or_else(|error| panic!("register: {error}"));
+    .unwrap_or_else(|error| panic!("register: {error:?}"));
     assert_eq!(entries.total, 1, "reconciling posts nothing");
 
     // And the same journal line cannot be claimed by a second bank line.
@@ -1253,7 +1061,7 @@ async fn an_asset_that_did_not_start_here_is_charged_from_where_it_left_off(pool
     // Only what this system posted is in the client's accounts. The nine
     // million carried in belongs to the ledger that charged it, and posting it
     // again here would double it.
-    let accumulated = cloud::account_balance(&pool, "102160400100", None, None)
+    let accumulated = cloud::account_balance(&pool, "1021604001", None, None)
         .await
         .unwrap_or_else(|error| panic!("accumulated: {error}"));
     assert_eq!(accumulated.balance_minor, -3_000_000);
@@ -1403,57 +1211,21 @@ async fn a_rehearsal_charges_nothing_and_names_what_would_refuse(pool: PgPool) {
 /// The client's CIP account, which is one per unit and not one per family:
 /// work in progress has not become a kind of thing yet.
 async fn seed_work_in_progress(pool: &PgPool) {
-    for (code, name, parent, is_group, site) in [
-        ("103", "OTHER ASSETS", Some("1"), true, None),
-        (
-            "1031803",
-            "Contract In Progress (CIP)",
-            Some("103"),
-            true,
-            None,
-        ),
-        (
-            "1031803001",
-            "Contract In Progress (CIP)",
-            Some("1031803"),
-            true,
-            None,
-        ),
-        (
-            "103180300100",
-            "Contract In Progress (CIP) HO",
-            Some("1031803001"),
-            false,
-            Some("dc"),
-        ),
-    ] {
-        sqlx::query(
-            // `ON CONFLICT` since 0243: the chart migration now writes the
-            // group rows itself — `1`, `7`, `10215`, `70102` — and a test that
-            // insisted on inserting them would fail on a database that is
-            // simply up to date. The leaves below are still ours to seed.
-            "INSERT INTO ledger_account (account_code, name, parent_code, is_group, site_id)
-             VALUES ($1,$2,$3,$4,$5) ON CONFLICT (account_code) DO NOTHING",
-        )
-        .bind(code)
-        .bind(name)
-        .bind(parent)
-        .bind(is_group)
-        .bind(site)
-        .execute(pool)
-        .await
-        .unwrap_or_else(|error| panic!("{code}: {error}"));
-    }
+    // `1031803001 Contract In Progress (CIP)` is a POSTING account in the
+    // client's own chart — 0244 moved CIP to a code of ours, and 0254 put it
+    // back where the client files it. The chart arrives with the migrations;
+    // `account_map` does not, so every meaning this test posts through is
+    // still bound here.
     for (key, qualifier, code) in [
-        ("work_in_progress", "1031803001", "103180300100"),
-        ("fixed_asset", "1021504", "102150400100"),
-        ("trade_payable", "", "201200100100"),
+        ("work_in_progress", "1031803001", "1031803001"),
+        ("fixed_asset", "1021504", "1021504001"),
+        ("trade_payable", "", "2012001001"),
     ] {
         cloud::set_account_mapping(
             pool,
             &cloud::SetAccountMappingRequest {
                 semantic_key: key.into(),
-                site_id: "dc".into(),
+                site_id: "ho".into(),
                 qualifier: qualifier.into(),
                 account_code: code.into(),
                 note: None,
@@ -1461,7 +1233,7 @@ async fn seed_work_in_progress(pool: &PgPool) {
             ACTOR,
         )
         .await
-        .unwrap_or_else(|error| panic!("map {key}: {error}"));
+        .unwrap_or_else(|error| panic!("map {key}: {error:?}"));
     }
 }
 
@@ -1477,7 +1249,7 @@ async fn finished_work_leaves_contract_in_progress_and_the_cost_moves_with_it(po
             asset_number: "AST-000009".into(),
             name: "Renovasi toko".into(),
             category_code: "1031803001".into(),
-            site_id: "dc".into(),
+            site_id: "ho".into(),
             acquired_on: date(2026, 1, 5),
             serial_number: None,
             notes: None,
@@ -1487,7 +1259,7 @@ async fn finished_work_leaves_contract_in_progress_and_the_cost_moves_with_it(po
         ACTOR,
     )
     .await
-    .unwrap_or_else(|error| panic!("register: {error}"))
+    .unwrap_or_else(|error| panic!("register: {error:?}"))
     .asset_id;
 
     let in_progress = cloud::AssessAssetRequest {
@@ -1534,7 +1306,7 @@ async fn finished_work_leaves_contract_in_progress_and_the_cost_moves_with_it(po
         .await
         .expect_err("capitalising out of an empty CIP account should be refused");
     assert!(
-        empty.to_string().contains("103180300100") && empty.to_string().contains("nothing to move"),
+        empty.to_string().contains("1031803001") && empty.to_string().contains("nothing to move"),
         "the refusal should name the account and the fix: {empty}"
     );
 
@@ -1547,9 +1319,9 @@ async fn finished_work_leaves_contract_in_progress_and_the_cost_moves_with_it(po
         currency: "IDR".into(),
         memo: Some("termin kontraktor".into()),
         lines: vec![
-            cloud::PostingLine::debit("work_in_progress", "dc", 5_000_000)
+            cloud::PostingLine::debit("work_in_progress", "ho", 5_000_000)
                 .with_qualifier("1031803001"),
-            cloud::PostingLine::credit("trade_payable", "dc", 5_000_000),
+            cloud::PostingLine::credit("trade_payable", "ho", 5_000_000),
         ],
     };
     let mut tx = pool
@@ -1570,10 +1342,10 @@ async fn finished_work_leaves_contract_in_progress_and_the_cost_moves_with_it(po
     assert_eq!(capitalised.category_code, "1021504");
     assert_eq!(capitalised.decision.as_deref(), Some("CAPITALIZE"));
 
-    let progress = cloud::account_balance(&pool, "103180300100", None, None)
+    let progress = cloud::account_balance(&pool, "1031803001", None, None)
         .await
         .unwrap_or_else(|error| panic!("cip: {error}"));
-    let fixed = cloud::account_balance(&pool, "102150400100", None, None)
+    let fixed = cloud::account_balance(&pool, "1021504001", None, None)
         .await
         .unwrap_or_else(|error| panic!("fixed: {error}"));
     assert_eq!(progress.balance_minor, 0, "work in progress is emptied");

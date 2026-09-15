@@ -326,7 +326,7 @@ DOCUMENTS = [
         "baris yang terlambat, maksimum 10 persen. Pasal 9 Pengakhiran. Kedua "
         "pihak dapat mengakhiri perjanjian dengan pemberitahuan 60 hari.",
         "2026-01-05", ["DENIM", "CELANA"],
-        [("SUPPLIER", "SUP02")], "COMPLETED", "ratih", 640, True,
+        [("supplier", "SUP02")], "COMPLETED", "ratih", 640, True,
     ),
     (
         "faktur-grn-1", "Faktur AGS-2609-0231.pdf",
@@ -338,7 +338,7 @@ DOCUMENTS = [
         "PO-20260902-B492. Jumlah kirim 800 pcs, diterima 786 pcs. Nilai barang "
         "Rp 48.750.000. PPN masukan Rp 5.362.500. Jatuh tempo 2 Oktober 2026.",
         "2026-09-02", [],
-        [("GOODS_RECEIPT", "GRN-dc-01-000001"), ("PURCHASE_ORDER", "PO-20260902-B492")],
+        [("receipt", "GRN-dc-01-000001"), ("purchase_order", "PO-20260902-B492")],
         "COMPLETED", "ratih", 46, True,
     ),
     (
@@ -348,7 +348,7 @@ DOCUMENTS = [
         None,
         None,
         "2026-09-02", [],
-        [("PURCHASE_ORDER", "PO-20260902-B492")], "PENDING", "nina", 44, True,
+        [("purchase_order", "PO-20260902-B492")], "PENDING", "nina", 44, True,
     ),
     (
         "spesifikasi-denim", "Spesifikasi Denim 14oz.pdf",
@@ -362,7 +362,7 @@ DOCUMENTS = [
         "maksimum 3 persen, melebar maksimum 2 persen. Ketahanan luntur terhadap "
         "gosokan basah tingkat 4. Uji tarik minimum 45 kilogram arah lusi.",
         "2026-02-18", ["DENIM", "CELANA"],
-        [("ARTICLE", "ART-0002")], "COMPLETED", "sari", 320, True,
+        [("article", "ART-0002")], "COMPLETED", "sari", 320, True,
     ),
     (
         "sertifikat-tarik", "Sertifikat Uji Tarik Kain.pdf",
@@ -371,7 +371,7 @@ DOCUMENTS = [
         None,
         None,
         "2026-08-28", ["DENIM"],
-        [("SUPPLIER", "SUP02")], "FAILED", "yusuf", 150, True,
+        [("supplier", "SUP02")], "FAILED", "yusuf", 150, True,
     ),
     (
         "katalog-denimco", "Katalog Denim Co 2026-2.pdf",
@@ -380,7 +380,7 @@ DOCUMENTS = [
         None,
         None,
         "2026-07-01", ["DENIM"],
-        [("SUPPLIER", "DENIMCO")], "PROCESSING", "bagus", 92, True,
+        [("supplier", "DENIMCO")], "PROCESSING", "bagus", 92, True,
     ),
     (
         "kebijakan-retur", "Kebijakan Retur dan Potong Harga.pdf",
@@ -406,7 +406,7 @@ DOCUMENTS = [
         "tidak terbaca lagi.",
         None,
         "2026-08-29", [],
-        [("SUPPLIER", "PTKAI")], "COMPLETED", "ratih", 168, False,
+        [("supplier", "PTKAI")], "COMPLETED", "ratih", 168, False,
     ),
     (
         "daftar-harga-sup19", "Daftar Harga SUP19 September.csv",
@@ -416,7 +416,7 @@ DOCUMENTS = [
         "Kode barang, nama, warna, ukuran, harga satuan. Berlaku 1 September "
         "sampai 30 September 2026. Harga sudah termasuk ongkos kirim sampai DC.",
         "2026-09-01", ["AKSESORI"],
-        [("SUPPLIER_ITEM", "0108775015")], "COMPLETED", "bagus", 70, True,
+        [("supplier_item", "0108775015")], "COMPLETED", "bagus", 70, True,
     ),
     (
         "berita-acara-grn-2", "Berita Acara Pemeriksaan GRN-2.pdf",
@@ -428,7 +428,7 @@ DOCUMENTS = [
         "pertama 782 pcs, hitungan kedua 786 pcs. Selisih 4 pcs ditelusuri dan "
         "ditemukan di rak B-12 pada hari yang sama. Tidak ada barang hilang.",
         "2026-09-02", [],
-        [("GOODS_RECEIPT", "GRN-dc-01-000002")], "COMPLETED", "yusuf", 40, True,
+        [("receipt", "GRN-dc-01-000002")], "COMPLETED", "yusuf", 40, True,
     ),
     (
         "panduan-tag-rfid", "Panduan Pemasangan Tag RFID.pdf",

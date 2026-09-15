@@ -17,31 +17,13 @@ use sqlx::{PgPool, Row};
 use std::path::PathBuf;
 
 const ACTOR: &str = "ana";
-/// A postable leaf under `1011002 BANK`, shaped like the client's own codes.
-const GIRO: &str = "101100200100";
-
-async fn seed_chart(pool: &PgPool) {
-    for (code, name, parent, is_group) in [
-        ("1", "ASSET", None, true),
-        ("101", "CURRENT ASSET", Some("1"), true),
-        ("10110", "KAS & SETARA KAS", Some("101"), true),
-        ("1011002", "BANK", Some("10110"), true),
-        (GIRO, "Bank BCA Giro HO", Some("1011002"), false),
-    ] {
-        sqlx::query(
-            "INSERT INTO ledger_account (account_code, name, parent_code, is_group, site_id)
-             VALUES ($1,$2,$3,$4,$5)",
-        )
-        .bind(code)
-        .bind(name)
-        .bind(parent)
-        .bind(is_group)
-        .bind(if is_group { None } else { Some("dc") })
-        .execute(pool)
-        .await
-        .unwrap_or_else(|error| panic!("{code}: {error}"));
-    }
-}
+/// The client's own giro account at BCA, a postable leaf under `1011002 BANK`.
+///
+/// Not seeded here: since 0243 the chart is written by the migrations and is
+/// the client's, so a test that minted its own `…00100` leaf would be inventing
+/// an account the books do not have — and 0244's
+/// `ledger_account_carries_no_unit` would refuse it for naming a unit besides.
+const GIRO: &str = "1011002001";
 
 /// A folder of this test's own, emptied first so a rerun is a fresh run.
 fn folder(name: &str) -> PathBuf {
@@ -84,7 +66,7 @@ async fn add_source(
             label: label.into(),
             enabled: true,
             account_code: GIRO.into(),
-            site_id: "dc".into(),
+            site_id: "ho".into(),
             from_pattern: from.into(),
             subject_pattern: String::new(),
             filename_pattern: filename.into(),
@@ -104,7 +86,6 @@ fn gateway(pool: &PgPool, folder: &PathBuf) -> Gateway {
 
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn a_dropped_file_becomes_a_statement_and_a_second_pass_imports_nothing(pool: PgPool) {
-    seed_chart(&pool).await;
     add_source(&pool, "BCA giro", "klikbca", "*.csv", csv_mapping()).await;
 
     let folder = folder("happy");
@@ -161,7 +142,6 @@ async fn a_dropped_file_becomes_a_statement_and_a_second_pass_imports_nothing(po
 
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn a_file_no_rule_wanted_leaves_a_trace_rather_than_vanishing(pool: PgPool) {
-    seed_chart(&pool).await;
     add_source(&pool, "BCA giro", "klikbca", "*.csv", csv_mapping()).await;
 
     let folder = folder("unmatched");
@@ -194,7 +174,6 @@ async fn a_file_no_rule_wanted_leaves_a_trace_rather_than_vanishing(pool: PgPool
 
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn a_rule_that_claims_a_file_it_cannot_read_says_which_column_is_missing(pool: PgPool) {
-    seed_chart(&pool).await;
     // A mapping that passes validation — it names a date and an amount — but
     // names a column this particular file does not have.
     add_source(
@@ -247,7 +226,6 @@ async fn a_rule_that_claims_a_file_it_cannot_read_says_which_column_is_missing(p
 
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn the_lines_land_where_the_matcher_will_look_for_them(pool: PgPool) {
-    seed_chart(&pool).await;
     add_source(&pool, "BCA giro", "", "*.csv", csv_mapping()).await;
 
     let folder = folder("lines");
@@ -280,7 +258,6 @@ async fn the_lines_land_where_the_matcher_will_look_for_them(pool: PgPool) {
 
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn a_rule_with_a_mapping_that_cannot_work_is_refused_at_the_screen(pool: PgPool) {
-    seed_chart(&pool).await;
     let refused = cloud::save_statement_source(
         &pool,
         None,
@@ -288,7 +265,7 @@ async fn a_rule_with_a_mapping_that_cannot_work_is_refused_at_the_screen(pool: P
             label: "half a rule".into(),
             enabled: true,
             account_code: GIRO.into(),
-            site_id: "dc".into(),
+            site_id: "ho".into(),
             from_pattern: String::new(),
             subject_pattern: String::new(),
             filename_pattern: String::new(),
@@ -317,7 +294,6 @@ async fn a_rule_with_a_mapping_that_cannot_work_is_refused_at_the_screen(pool: P
 
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn deleting_a_rule_keeps_the_record_of_what_it_already_took(pool: PgPool) {
-    seed_chart(&pool).await;
     add_source(&pool, "BCA giro", "", "*.csv", csv_mapping()).await;
 
     let folder = folder("deleted");

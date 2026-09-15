@@ -364,7 +364,7 @@ async fn hr_hires_somebody_and_that_person_can_read_their_own_record(pool: PgPoo
     );
     assert_eq!(profile.body["employee_code"], "K0001");
     assert_eq!(profile.body["job_title"], "Kasir");
-    assert_eq!(profile.body["place_name"], "Store 01");
+    assert_eq!(profile.body["place_name"], "C001");
     // Derived from the first HIRE, not stored beside it.
     assert_eq!(profile.body["joined_on"], "2026-01-06");
     // The whole reason these are two routes: a work profile carries no

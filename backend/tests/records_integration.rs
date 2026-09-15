@@ -30,7 +30,7 @@ use tower::ServiceExt;
 
 const ADMIN_PASSWORD: &str = "admin-password-records-1";
 const CASHIER_PASSWORD: &str = "cashier-password-records-1";
-/// The warehouse that owns site `dc`. An order has to be sent somewhere, and
+/// The warehouse that owns site `ho`. An order has to be sent somewhere, and
 /// `create_purchase_order` resolves the destination to the ONE origin that
 /// owns that site rather than guessing.
 const DC_ORIGIN: &str = "dc-records-edge";
@@ -179,7 +179,7 @@ async fn a_record_carries_what_was_done_to_it_and_what_was_said_about_it(pool: P
         DC_ORIGIN,
         SYNC_KEY,
         Some("DC Uji"),
-        Some("dc"),
+        Some("ho"),
         Some("DC"),
         Some(1),
         Some(true),
@@ -207,7 +207,7 @@ async fn a_record_carries_what_was_done_to_it_and_what_was_said_about_it(pool: P
             "po_number": "PO-RECORDS-0001",
             "supplier_id": "RECORDS01",
             "supplier_name": "Pemasok Uji",
-            "destination_site_id": "dc",
+            "destination_site_id": "ho",
             "origin_kind": "DIRECT",
             "currency": "IDR",
             "created_by": "admin",

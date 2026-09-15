@@ -103,7 +103,11 @@ QUALIFIED: dict[str, list[tuple[str, str]]] = {
     "loan_principal": [("BANK", "2022401001")],
 }
 
-SITES = ["dc"] + [f"store-{n:02d}" for n in range(1, 14)]
+# `site.id`, and these are joined to `site` by every endpoint below — the
+# account map, the bills and the bank imports all carry a foreign key. Head
+# office is `ho` since 0256; the shops kept their ids and only their names
+# changed, so `store-01` is still `store-01` and now reads "C001".
+SITES = ["ho"] + [f"store-{n:02d}" for n in range(1, 14)]
 
 
 # --------------------------------------------------------------------------
@@ -153,13 +157,28 @@ def psql(db: str, sql: str) -> list[list[str]]:
 
 
 def leaves(db: str) -> dict[tuple[str, str], str]:
-    """(10-digit account, site) -> the 12-digit location leaf."""
+    """(10-digit account, site) -> the account to map at that site.
+
+    It used to answer with a TWELVE-digit leaf: the client's imported chart
+    carried the location inside the account code, so `Kas di Tangan` existed
+    fourteen times — `101100100100` for head office, `...101` for the first
+    shop — and a meaning had to be bound to a different account at every site.
+
+    The chart no longer works that way. The unit is a dimension on the ledger
+    row (`journal_line.site_id`), so one account serves all fourteen and the
+    posting accounts are ten digits. This function kept looking for twelve-digit
+    rows, found none, and every binding silently went missing — which is why a
+    freshly seeded database posted nothing and reported `no account is mapped
+    for 'inventory' at store-10`.
+
+    The answer now is the account itself, for every site that keeps books.
+    """
     rows = psql(
         db,
-        "select account_code, site_id from ledger_account "
-        "where length(account_code) = 12 and site_id is not null",
+        "select account_code from ledger_account "
+        "where not is_group and length(account_code) = 10",
     )
-    return {(code[:10], site): code for code, site in rows}
+    return {(code, site): code for (code,) in rows for site in SITES}
 
 
 def month_days(year: int, month: int) -> tuple[date, date]:

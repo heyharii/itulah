@@ -187,6 +187,16 @@ pub struct RecordBillRequest {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub lines: Option<Vec<RecordBillLine>>,
+    /// The deliveries this bill pays for.
+    ///
+    /// Optional, because a bill can arrive before anybody ties it to anything
+    /// and a person should still be able to write it down. Naming them here is
+    /// what takes those deliveries off `unbilled_receipts` — until 0052's join
+    /// table has a row, a receipt is unbilled forever, however many bills have
+    /// been posted for it.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub receipt_ids: Option<Vec<Uuid>>,
 }
 
 /// A delivery nobody has billed for.
@@ -733,6 +743,28 @@ pub async fn bill(pool: &PgPool, invoice_id: Uuid) -> Result<SupplierBill, AppEr
 /// checked first so the sentence names the line somebody just typed rather than
 /// arriving at COMMIT naming a transaction. The same arrangement
 /// `poster::check_balanced` has with the journal's balance trigger.
+
+/// A bare 23505 from this table says nothing a person can act on.
+///
+/// `(supplier_id, invoice_number)` is unique, which is the rule that stops the
+/// same invoice being recorded twice — a real protection, and the one somebody
+/// meets when they re-run a seed or key a bill in twice. Left as
+/// `AppError::Database` it reached the caller as `500 database operation
+/// failed`, which reads as "the system is broken" rather than "you already
+/// have this bill". A whole afternoon went into chasing that message once.
+fn map_bill_write_error(error: sqlx::Error) -> AppError {
+    if let sqlx::Error::Database(database) = &error {
+        return match database.code().as_deref() {
+            Some("23505") => AppError::Conflict(
+                "this supplier already has an invoice with that number".to_owned(),
+            ),
+            Some("23514") | Some("23502") => AppError::Validation(database.message().to_owned()),
+            _ => AppError::Database(error),
+        };
+    }
+    AppError::Database(error)
+}
+
 pub async fn record_bill(
     pool: &PgPool,
     request: &RecordBillRequest,
@@ -879,7 +911,8 @@ pub async fn record_bill(
     .bind(request.note.as_deref())
     .bind(&kind)
     .execute(&mut *tx)
-    .await?;
+    .await
+    .map_err(map_bill_write_error)?;
 
     for (index, line) in lines.iter().enumerate() {
         sqlx::query(
@@ -897,6 +930,91 @@ pub async fn record_bill(
         .execute(&mut *tx)
         .await?;
     }
+    // The deliveries this bill pays for, and what the two of them disagree
+    // about. Same transaction as the header on purpose: a bill that exists
+    // without its link is a delivery that stays on the unbilled list forever,
+    // and nobody would know to go back and add it.
+    let receipts = request.receipt_ids.as_deref().unwrap_or(&[]);
+    if !receipts.is_empty() {
+        if kind == EXPENSE {
+            return Err(AppError::Validation(
+                "an expense bill does not pay for a delivery: electricity and rent arrive as \
+                 costs, not as goods. Record the goods as a MERCHANDISE bill."
+                    .into(),
+            ));
+        }
+        let mut ordered_value: i64 = 0;
+        for receipt_id in receipts {
+            // FOR UPDATE rather than a unique index, because 0052 keyed the
+            // join table on (invoice_id, receipt_id) — which permits the same
+            // delivery on two bills, and paying for one lorry twice is the
+            // error this screen exists to prevent. Locking the delivery makes
+            // two bills claiming it serialise, so the second reads the first
+            // one's link and is refused.
+            let row = sqlx::query(
+                "SELECT r.supplier_id,
+                        COALESCE(SUM(rl.quantity * pl.unit_price_minor), 0)::bigint AS ordered
+                   FROM goods_receipt r
+                   LEFT JOIN goods_receipt_line rl ON rl.receipt_id = r.receipt_id
+                   LEFT JOIN purchase_order_line pl ON pl.po_line_id = rl.po_line_id
+                  WHERE r.receipt_id = $1
+                  GROUP BY r.receipt_id, r.supplier_id
+                    FOR UPDATE OF r",
+            )
+            .bind(receipt_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| AppError::Validation(format!("no delivery {receipt_id} to bill for")))?;
+            let receipt_supplier: String = row.get("supplier_id");
+            if receipt_supplier.trim() != request.supplier_id.trim() {
+                return Err(AppError::Validation(format!(
+                    "delivery {receipt_id} came from {receipt_supplier} and this bill is from \
+                     {}; a bill pays one supplier for their own goods",
+                    request.supplier_id.trim()
+                )));
+            }
+            let already: Option<String> = sqlx::query_scalar(
+                "SELECT i.invoice_number FROM supplier_invoice_receipt sir
+                   JOIN supplier_invoice i ON i.invoice_id = sir.invoice_id
+                  WHERE sir.receipt_id = $1",
+            )
+            .bind(receipt_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+            if let Some(number) = already {
+                return Err(AppError::Validation(format!(
+                    "delivery {receipt_id} is already on bill {number}"
+                )));
+            }
+            sqlx::query(
+                "INSERT INTO supplier_invoice_receipt
+                   (invoice_id, receipt_id, matched_by, matched_at)
+                 VALUES ($1,$2,$3,now())",
+            )
+            .bind(invoice_id)
+            .bind(receipt_id)
+            .bind(actor)
+            .execute(&mut *tx)
+            .await?;
+            ordered_value = ordered_value
+                .checked_add(row.get::<i64, _>("ordered"))
+                .ok_or_else(|| AppError::Validation("the matched value overflows".into()))?;
+        }
+        // What the supplier is charging, against what the order said the goods
+        // cost. Before tax on both sides: the order carries no VAT, so
+        // comparing the bill's total to it would call the tax a variance.
+        sqlx::query(
+            "UPDATE supplier_invoice
+                SET matched_by = $2, matched_at = now(), price_variance_minor = $3
+              WHERE invoice_id = $1",
+        )
+        .bind(invoice_id)
+        .bind(actor)
+        .bind(request.subtotal_minor - request.discount_minor - ordered_value)
+        .execute(&mut *tx)
+        .await?;
+    }
+
     tx.commit().await?;
 
     bill(pool, invoice_id).await
@@ -1076,11 +1194,15 @@ pub async fn unbilled_receipts(
                     -- itself the same on both sides, so this is the whole
                     -- fleet bar the DC and costs one index probe.
                     (SELECT s.id FROM site s WHERE s.id = r.site_id),
-                    -- A DC node calling itself something else. The centre has
-                    -- one distribution centre; `LIMIT 1` says so rather than
-                    -- multiplying the row if that ever stops being true.
+                    -- A DC node calling itself something else — which is now
+                    -- every DC node, because 0256 folded the warehouse into
+                    -- head office and the centre's row for it is `ho` while
+                    -- the box in the building still runs as `dc` or `dc-01`.
+                    -- The node ROLE is still `DC`; the site KIND is `HO`.
+                    -- The centre has one such building; `LIMIT 1` says so
+                    -- rather than multiplying the row if that ever changes.
                     CASE WHEN o.node_role = 'DC'
-                         THEN (SELECT s.id FROM site s WHERE s.kind = 'DC'
+                         THEN (SELECT s.id FROM site s WHERE s.kind = 'HO'
                                 ORDER BY s.id LIMIT 1) END,
                     -- Nothing we can resolve. The raw id, which is at least
                     -- the truth about what arrived.

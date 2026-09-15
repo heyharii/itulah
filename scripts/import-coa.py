@@ -36,7 +36,9 @@ from collections import Counter
 # by the ten-character rung. Everywhere else the suffix is simply the location.
 MATRIX_FAMILIES = ("1011203", "1011204")
 
-# `00` is head office, which is our DC; `01`..`13` are C001..C013.
+# `00` is head office, which is `site.ho` since 0256 folded the warehouse into
+# it; `01`..`13` are C001..C013, which are still `store-01`..`store-13` — only
+# the DC's id moved, and the shops kept theirs and gained the client's name.
 #
 # The client's file never joins a store name to a `C0nn` code, so this ordinal
 # reading is an assumption and is recorded as one. It is the only assumption in
@@ -44,7 +46,7 @@ MATRIX_FAMILIES = ("1011203", "1011204")
 # against the client's own books.
 def site_for_suffix(suffix: str):
     if suffix == "00":
-        return "dc"
+        return "ho"
     if suffix.isdigit() and 1 <= int(suffix) <= 13:
         return f"store-{int(suffix):02d}"
     return None
@@ -144,7 +146,7 @@ def main():
         if family in MATRIX_FAMILIES:
             # `1011203001` is the first source, and 001 is head office.
             sequence = int(code[7:10])
-            row["counterparty"] = "dc" if sequence == 1 else f"store-{sequence - 1:02d}"
+            row["counterparty"] = "ho" if sequence == 1 else f"store-{sequence - 1:02d}"
         else:
             # The leaf names carry `HO` or `C0nn`; disagreement with the suffix
             # is worth reporting rather than silently trusting either one.

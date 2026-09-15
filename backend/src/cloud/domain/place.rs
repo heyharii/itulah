@@ -99,8 +99,12 @@ impl OperationalPool {
             | Self::DcOutboundPacked(_)
             | Self::DcOutboundShipment(_)
             | Self::DcOutboundInTransit(_)
+            // The pool id says `dc`; the site it belongs to is `ho`. Since
+            // 0256 those are two id spaces and not two spellings of one — the
+            // pools kept their names, `site` did not — so this maps between
+            // them rather than reading the first segment back out.
             | Self::DcRejectDc
-            | Self::DcRejectStore(_) => SiteId::dc(),
+            | Self::DcRejectStore(_) => SiteId::head_office(),
             Self::StoreWarehouse(site) | Self::StoreFloor(site) | Self::StoreReject(site) => {
                 site.clone()
             }

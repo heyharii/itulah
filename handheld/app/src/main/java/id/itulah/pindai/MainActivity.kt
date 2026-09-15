@@ -37,17 +37,27 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.itulah.pindai.core.Reader
 import id.itulah.pindai.data.ConfigStore
 import id.itulah.pindai.screens.*
 import id.itulah.pindai.ui.kit.Chip
 import id.itulah.pindai.ui.theme.*
+import java.util.concurrent.Executors
 
 class MainActivity : ComponentActivity() {
 
     private val reader = Reader()
+    // Reader shutdown can wait for a vendor UART call and must not hold the
+    // activity's main thread. Reader operations are synchronized in Reader, so
+    // this teardown cannot free the module while a ViewModel operation uses it.
+    private val readerLifecycle = Executors.newSingleThreadExecutor { task ->
+        Thread(task, "reader-lifecycle").apply { isDaemon = true }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -56,15 +66,9 @@ class MainActivity : ComponentActivity() {
         setContent { ItulahTheme { Shell(reader, store) } }
     }
 
-    override fun onStop() {
-        // The antenna is a radio, not a widget: leaving it sweeping behind a
-        // locked screen drains the pack and keeps reading a room nobody is in.
-        reader.stop()
-        super.onStop()
-    }
-
     override fun onDestroy() {
-        reader.close()
+        readerLifecycle.execute { reader.close() }
+        readerLifecycle.shutdown()
         super.onDestroy()
     }
 }
@@ -85,6 +89,7 @@ private fun Shell(reader: Reader, store: ConfigStore) {
             SweepViewModel(reader, store) as T
     })
     val state by vm.state.collectAsStateWithLifecycle()
+    val lifecycleOwner = LocalLifecycleOwner.current
     var tab by remember { mutableStateOf(Tab.SCAN) }
     var previous by remember { mutableStateOf(Tab.SCAN) }
     // Sessions is a detour, not a destination: it opens over whatever mode you
@@ -92,6 +97,14 @@ private fun Shell(reader: Reader, store: ConfigStore) {
     // doing" rather than "where am I".
     var showSessions by remember { mutableStateOf(false) }
     val pushed = showSessions && tab != Tab.SETTINGS
+
+    DisposableEffect(lifecycleOwner, vm) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) vm.releaseReader()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     LaunchedEffect(tab) {
         tab.mode?.let { vm.setMode(it) }

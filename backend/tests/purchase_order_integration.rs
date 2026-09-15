@@ -520,6 +520,7 @@ async fn a_dc_cannot_count_against_an_order_it_was_never_given(pool: PgPool) {
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn accepting_reports_a_price_difference_without_holding_the_goods(pool: PgPool) {
     use inventory_backend::cloud::domain::PriceAmendmentOutcome;
+    use inventory_backend::cloud::postgres::AmendmentReach;
 
     enrol_dc(&pool).await;
     let dc = distribution_centre();
@@ -589,6 +590,9 @@ async fn accepting_reports_a_price_difference_without_holding_the_goods(pool: Pg
         &pool,
         request_id,
         PriceAmendmentOutcome::Approved,
+        // The reach this decision had before the parameter existed:
+        // settle THIS acceptance and leave the order line's price alone.
+        AmendmentReach::Delivery,
         "buyer-1",
         Some("Sesuai revisi harga Agustus"),
     )
@@ -673,6 +677,7 @@ async fn a_matching_invoice_raises_no_query(pool: PgPool) {
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn a_refused_price_query_leaves_the_order_alone_but_stays_on_record(pool: PgPool) {
     use inventory_backend::cloud::domain::PriceAmendmentOutcome;
+    use inventory_backend::cloud::postgres::AmendmentReach;
 
     enrol_dc(&pool).await;
     let dc = distribution_centre();
@@ -710,6 +715,9 @@ async fn a_refused_price_query_leaves_the_order_alone_but_stays_on_record(pool: 
         &pool,
         request_id,
         PriceAmendmentOutcome::Rejected,
+        // The reach this decision had before the parameter existed:
+        // settle THIS acceptance and leave the order line's price alone.
+        AmendmentReach::Delivery,
         "buyer-1",
         Some("Harga PO sudah benar; tagihan supplier akan disengketakan"),
     )

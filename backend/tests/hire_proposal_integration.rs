@@ -363,7 +363,7 @@ async fn a_shop_asks_head_office_answers_and_the_answer_becomes_a_record(pool: P
     assert_eq!(filed.body["state"], "PROPOSED");
     assert_eq!(filed.body["place_id"], "store-01");
     // The unit's own name travels with it, so no screen has to render `ho`.
-    assert_eq!(filed.body["place_name"], "Store 01");
+    assert_eq!(filed.body["place_name"], "C001");
     assert_eq!(filed.body["current_version"], 1);
     assert_eq!(filed.body["proposed_by"], "budi");
     assert_eq!(filed.body["outstanding"], 1);

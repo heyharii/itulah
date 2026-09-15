@@ -309,13 +309,19 @@ pub struct BookLocation {
 /// The NAME comes from `org_place`, not from `site`, and that is the whole of
 /// the unit-domain decision taken on 2026-09-13. Accounting's fourteen units
 /// are head office and thirteen shops — suffix `00` is HO in the client's own
-/// codes — while `site` is the fourteen places STOCK sits, which has a DC and
-/// no head office. The two lists coincide only because HO and the DC share a
-/// building, and `org_place.site_id` has recorded that all along: `ho → dc`,
-/// under a unique index, so the bridge is total and one-to-one.
+/// codes — while `site` is the fourteen places STOCK sits. The two lists
+/// coincide because HO and the warehouse share a building, and
+/// `org_place.site_id` records that: `ho → ho` since 0256 folded `dc` and
+/// `dc-01` into one row of kind `HO`, under a unique index, so the bridge is
+/// total and one-to-one. It stays a bridge rather than a join on equal ids,
+/// because the day the warehouse moves out again is one row to change.
 ///
 /// Reading `site.name` here is what made every finance screen print "DC" where
 /// the books, the chart and this function's own comment all mean head office.
+/// Since 0256 the row says `ho`/`HO` itself and the two names agree, which is
+/// also why the ordering sorts on kind `HO`: there is no longer a `DC` row to
+/// put first, and sorting on one would have quietly filed head office
+/// fourteenth — between `store-13` and nothing.
 /// `COALESCE` rather than an inner join: a site with no place row is a fault
 /// worth seeing as itself rather than as a missing row.
 pub async fn book_locations(pool: &PgPool) -> Result<Vec<BookLocation>, AppError> {
@@ -326,7 +332,7 @@ pub async fn book_locations(pool: &PgPool) -> Result<Vec<BookLocation>, AppError
                 (SELECT COUNT(*) FROM ledger_account a WHERE a.site_id = s.id)::bigint AS account_count
            FROM site s
            LEFT JOIN org_place p ON p.site_id = s.id
-          ORDER BY (s.kind <> 'DC'), s.id",
+          ORDER BY (s.kind <> 'HO'), s.id",
     )
     .fetch_all(pool)
     .await?;

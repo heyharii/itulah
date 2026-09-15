@@ -380,7 +380,8 @@ pub async fn letter_sources(pool: &PgPool, kind: &str) -> Result<Vec<LetterSourc
             sqlx::query(
                 "SELECT gr.receipt_id::text AS subject_id, gr.receipt_number AS reference,\
                  coalesce(max(po.supplier_name), gr.supplier_id) AS counterparty,\
-                 coalesce(max(site.name), gr.site_id) AS place, gr.arrived_at AS occurred_at,\
+                 coalesce(max(site.name), max(warehouse.name), gr.site_id) AS place,\
+                 gr.arrived_at AS occurred_at,\
                  count(grl.receipt_line_id) AS lines,\
                  coalesce(sum(grl.quantity), 0)::bigint AS quantity \
                  FROM goods_receipt gr \
@@ -389,6 +390,9 @@ pub async fn letter_sources(pool: &PgPool, kind: &str) -> Result<Vec<LetterSourc
                  LEFT JOIN purchase_order po \
                    ON po.purchase_order_id = pol.purchase_order_id \
                  LEFT JOIN site ON site.id = gr.site_id \
+                 LEFT JOIN sync_origin_credential gro ON gro.origin_id = gr.origin_id \
+                 LEFT JOIN site warehouse \
+                   ON gro.node_role = 'DC' AND warehouse.kind = 'HO' \
                  WHERE NOT EXISTS (\
                      SELECT 1 FROM letter \
                      WHERE letter.kind = 'GOODS_RECEIPT' \
@@ -616,11 +620,19 @@ async fn draw(
             // this a numbered document precisely because a truck brings four
             // articles against three orders, and a letter is written for the
             // truck.
+            //
+            // `gr.site_id` is the EDGE node's name for where it stands (`dc`),
+            // which has not been a row of `site` since 0256 renamed the site
+            // to `ho`. So the direct join misses for every DC receipt and the
+            // letter printed the bare id `dc` where it used to print a place.
+            // Resolved the way `unbilled_receipts` resolves the same gap: a
+            // DC-role origin stands in the one head-office site.
             let head = sqlx::query(
                 "SELECT gr.receipt_number, gr.supplier_id, gr.arrived_at, gr.invoice_number,\
                  gr.opened_by, gr.status,\
                  coalesce(max(po.supplier_name), gr.supplier_id) AS supplier,\
-                 coalesce(max(site.name), gr.site_id) AS site_name, gr.site_id,\
+                 coalesce(max(site.name), max(warehouse.name), gr.site_id) AS site_name,\
+                 gr.site_id,\
                  coalesce(sum(grl.quantity), 0)::bigint AS quantity,\
                  coalesce(string_agg(DISTINCT po.po_number, ', '), '') AS orders,\
                  max(grl.counted_by) AS counted_by, max(grl.verified_by) AS verified_by \
@@ -630,6 +642,9 @@ async fn draw(
                  LEFT JOIN purchase_order po \
                    ON po.purchase_order_id = pol.purchase_order_id \
                  LEFT JOIN site ON site.id = gr.site_id \
+                 LEFT JOIN sync_origin_credential gro ON gro.origin_id = gr.origin_id \
+                 LEFT JOIN site warehouse \
+                   ON gro.node_role = 'DC' AND warehouse.kind = 'HO' \
                  WHERE gr.receipt_id = $1 \
                  GROUP BY gr.receipt_id, gr.receipt_number, gr.supplier_id, gr.site_id,\
                  gr.arrived_at, gr.invoice_number, gr.opened_by, gr.status",

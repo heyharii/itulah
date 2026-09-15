@@ -56,6 +56,53 @@ seconds can be missed entirely by a dump started one second in.
 
 ## Measure
 
+### Repeatable frame capture
+
+Use a non-debuggable release build for comparisons. The release manifest allows
+shell profiling; it does not enable debug mode. Preserve the pre-change APK
+before rebuilding, and install with `adb install -r` to preserve app settings.
+Do not uninstall or replace configuration to run a benchmark. Installation
+restarts the app, so finish/preserve any active scan first.
+
+`tools/frame_metrics.py` refuses debug builds and captures normal completed
+frames from Android's rolling frame buffer. It does not start a scan, touch the
+UI, or send observations. The operator performs the named scenario while it
+records. For example, from the repository root:
+
+```sh
+python3 handheld/tools/frame_metrics.py --label release-scroll-scan-duplicates \
+  --seconds 30 --output /tmp/handheld-perf/release-scroll-scan-duplicates-01
+```
+
+Use `--serial` if multiple devices are connected. Every output directory must be
+new. The helper saves frame CSV, summary JSON, Android's own jank counters, and
+before/after CPU, thermal, and memory reports, without exporting credentials or
+unrestricted logcat. Capture adds some overhead; keep the same method for both
+builds, and confirm borderline results with a system trace.
+
+The metric is **IntendedVsync to FrameCompleted**, including scheduling delay;
+it is not just CPU drawing time. p95 <= 10 ms is an aspirational target, not a
+claim that this C5 already achieves it. Check p99, worst frame, percent <= 10 ms,
+and Android missed-frame counters too. The rolling buffer can lose frames if
+ADB stalls, and flagged/incomplete frames are excluded: compare captured count
+with Android's total. A passing percentile with poor capture coverage is not a
+passing test. For definitive deadline analysis, use a system/FrameTimeline
+trace if supported by the device, not just this summary.
+
+Repeat each case at least three times with the same tag set, RF power, network,
+warm-up, and scroll actions: reader off; empty scan; duplicate tags; new tags
+while scrolling; shared session; slow/offline network. Record unique tags and
+time to discover them separately. Test only against an appropriate test session
+because configured scanning auto-files real observations. Follow with 30–60
+minutes of scanning to check sustained load, memory growth, and thermal effects.
+Do not accept smoother frames at the cost of missed tags.
+
+Run capture-parser checks with:
+
+```sh
+python3 -m unittest discover -s handheld/tools -p 'test_*.py'
+```
+
 **Never judge speed on a debug build.** Compose debug is roughly twice as slow;
 the same screen measured 31 ms in debug and 22 ms in release.
 

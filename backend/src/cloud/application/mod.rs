@@ -85,6 +85,21 @@ pub struct AppConfig {
     /// rather than hard-coded because the second DC is a business decision,
     /// not a code change — and an order still names its destination on the
     /// wire, so nothing downstream has to learn about this default.
+    ///
+    /// # This is the EDGE node's site id, not `site.id`
+    ///
+    /// It is matched straight against `sync_origin_credential.site_id` when a
+    /// receipt arrives (`a warehouse cannot receive against another
+    /// warehouse's order`), and `purchase_order.destination_site_id` carries
+    /// no foreign key into `site`. So it stays `dc` after 0256 renamed the
+    /// site to `ho`: the box in the warehouse still registers as `dc`, and
+    /// following the site here would have refused every delivery.
+    ///
+    /// Set it to whatever the DC edge registers as. A rig whose DC runs as
+    /// `dc-01` — several entries in `.claude/launch.json` do — must set
+    /// `INVENTORY_DEFAULT_DESTINATION_SITE_ID=dc-01` to match, because the
+    /// canonical-name fallback in `inventory_dc_owner_tx` now answers to `ho`
+    /// and no longer rescues a mismatched `dc`.
     pub default_destination_site_id: String,
 }
 

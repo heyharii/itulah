@@ -73,7 +73,7 @@ pub async fn balance_matrix(
 
     // The locations the books are kept for, in the same order everywhere:
     // head office first, then the shops.
-    let locations: Vec<String> = sqlx::query("SELECT id FROM site ORDER BY (kind <> 'DC'), id")
+    let locations: Vec<String> = sqlx::query("SELECT id FROM site ORDER BY (kind <> 'HO'), id")
         .fetch_all(pool)
         .await?
         .iter()
@@ -1001,7 +1001,7 @@ const MONEY_ROWS: &str = "
                ELSE 'CARD_RECEIVABLE'
            END AS pot,
            array_position($2::text[], m.semantic_key) AS ord,
-           (st.kind <> 'DC') AS dc_last,
+           (st.kind <> 'HO') AS dc_last,
            COALESCE((SELECT SUM(l.debit_minor - l.credit_minor)
                        FROM journal_line l JOIN journal_entry e USING (entry_id)
                       WHERE l.account_code = m.account_code

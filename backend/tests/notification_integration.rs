@@ -156,7 +156,7 @@ async fn purchase_order_line(pool: &PgPool) -> Uuid {
         "INSERT INTO purchase_order (purchase_order_id, po_number, supplier_id, supplier_name,
                                      destination_site_id, origin_kind, order_status, currency,
                                      created_by, issued_at)
-         VALUES ($1, 'PO-NOTIFY-0001', 'NOTIFY01', 'Pemasok Uji', 'dc', 'DIRECT', 'ISSUED',
+         VALUES ($1, 'PO-NOTIFY-0001', 'NOTIFY01', 'Pemasok Uji', 'ho', 'DIRECT', 'ISSUED',
                  'IDR', 'admin', now())",
     )
     .bind(order_id)
@@ -189,7 +189,7 @@ async fn a_delivery_accepted_at_a_warehouse_tells_head_office(pool: PgPool) {
         ORIGIN,
         SYNC_KEY,
         Some("DC Uji"),
-        Some("dc"),
+        Some("ho"),
         Some("DC"),
         Some(1),
         Some(true),

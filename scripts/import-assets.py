@@ -109,7 +109,7 @@ MEANING_IN_INDONESIAN = {
 
 def unit_name(site_id: str) -> str:
     """Back to the client's own code. They have never seen `store-04`."""
-    if site_id == "dc":
+    if site_id == "ho":
         return "HO"
     return f"C{int(site_id.rsplit('-', 1)[1]):03d}"
 
@@ -133,13 +133,14 @@ COL_STATUS = 17
 FIRST_DATA_ROW = 8
 
 
-# `00` is head office, which is our DC; `01`..`13` are C001..C013. The same
-# ordinal assumption `import-coa.py` records, and the same one to check before
-# anybody compares a balance to the client's books: their files never join a
-# store NAME to a `C0nn` code.
+# `00` is head office, which is `site.ho` since 0256; `01`..`13` are
+# C001..C013, whose ids did not move. The same ordinal assumption
+# `import-coa.py` records, and the same one to check before anybody compares a
+# balance to the client's books: their files never join a store NAME to a
+# `C0nn` code.
 def site_for_suffix(suffix: str):
     if suffix == "00":
-        return "dc"
+        return "ho"
     if suffix.isdigit() and 1 <= int(suffix) <= 13:
         return f"store-{int(suffix):02d}"
     return None

@@ -103,7 +103,14 @@ const BASKET_SELECT: &str = "SELECT b.quantity AS b_quantity,
             s.contact_name AS s_contact_name, s.phone AS s_phone, s.email AS s_email,
             s.address AS s_address, s.status AS s_status, s.version AS s_version,
             s.created_by AS s_created_by, s.created_at AS s_created_at,
-            s.updated_by AS s_updated_by, s.updated_at AS s_updated_at
+            s.updated_by AS s_updated_by, s.updated_at AS s_updated_at,
+            -- Migration 0212 gave a supplier a category and an expense account,
+            -- and `supplier_from_row` reads both. A query that builds a
+            -- `Supplier` and names its columns one by one has to name these
+            -- too: the sourcing search was updated and this one was not, so
+            -- every basket read answered 500 while the search beside it worked.
+            s.category AS s_category,
+            s.expense_account_code AS s_expense_account_code
        FROM sourcing_basket_line b
        JOIN supplier_item i ON i.supplier_item_id = b.supplier_item_id
        JOIN supplier s ON s.supplier_id = i.supplier_id";

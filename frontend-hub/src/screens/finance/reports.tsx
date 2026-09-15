@@ -171,7 +171,7 @@ export function Reports() {
         )}
         {/* One location, or every location broken out — asking for both at once
             is a filter fighting the thing it filters, so the select goes away.
-            It is a select and not a box: the ids are `dc` and `store-01`, which
+            It is a select and not a box: the ids are `ho` and `store-01`, which
             nothing on the page ever said, so typing was a quiz. */}
         {!spread && (
           <LocationSelect

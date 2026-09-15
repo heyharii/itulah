@@ -403,37 +403,51 @@ def build(db: Db, wanted: int, seed: int) -> None:
         sys.exit("the size_code master is empty; there is no size to mint a SKU in")
     stores = [row[0] for row in db.rows("SELECT id FROM site WHERE kind='STORE' ORDER BY id")]
 
-    # Two different names for the distribution centre, and they are NOT
-    # interchangeable. Documents — receipts, setup sessions, tagging jobs — are
-    # filed against the EDGE NODE that produced them (`dc-01`), which is also
-    # the sync origin a receipt's foreign key insists on. The ledger, though,
-    # moves stock between POOLS, and the pool set with inventory places behind
-    # it belongs to the site called `dc`. Writing either name in the other's
-    # place produces rows that insert cleanly and then show up nowhere.
+    # THREE names for the one building, and they are NOT interchangeable.
+    #
+    #   site.id                          `ho`     since migration 0256
+    #   the pool namespace               `dc.…`   0256 left the pools alone
+    #   sync_origin_credential.site_id   `dc`     what the edge box runs as
+    #
+    # Documents — receipts, setup sessions, tagging jobs — are filed against
+    # the EDGE NODE that produced them, which is also the sync origin a
+    # receipt's foreign key insists on, and the name a delivery is checked
+    # against when it reports in. The ledger moves stock between POOLS, whose
+    # ids still begin `dc` whatever the site is called this month. Neither is
+    # read off `site` any more: asking `site` for either name is what 0256
+    # broke, and both are now asked of the table that actually holds them.
+    # Writing one in the other's place produces rows that insert cleanly and
+    # then show up nowhere.
     doc_site = db.one(
         """
-        SELECT s.id FROM site s
-          JOIN sync_origin_credential c ON c.origin_id = s.id
-         WHERE s.kind = 'DC'
-         ORDER BY (SELECT count(*) FROM goods_receipt r WHERE r.site_id = s.id) DESC, s.id
+        SELECT c.site_id FROM sync_origin_credential c
+         WHERE c.node_role = 'DC' AND c.origin_id = c.site_id
+         ORDER BY (SELECT count(*) FROM goods_receipt r WHERE r.origin_id = c.origin_id) DESC,
+                  c.site_id
          LIMIT 1
         """
     )
     pool_site = db.one(
         """
-        SELECT s.id FROM site s
-         WHERE s.kind = 'DC'
-           AND EXISTS (SELECT 1 FROM inventory_place p WHERE p.id = s.id || '.warehouse:on_hand')
-         ORDER BY s.id LIMIT 1
+        SELECT split_part(op.id, '.', 1) FROM operational_pool op
+          JOIN site s ON s.id = op.site_id
+         WHERE s.kind = 'HO' AND op.pool_code = 'WAREHOUSE'
+           AND EXISTS (SELECT 1 FROM inventory_place p
+                        WHERE p.pool_id = op.id AND p.state = 'NORMAL')
+         ORDER BY op.id LIMIT 1
         """
     )
     if not doc_site:
         sys.exit(
-            "no DC site has a registered sync origin; a goods receipt's origin_id is a "
-            "foreign key into sync_origin_credential, so one has to be registered first"
+            "no DC edge origin is registered under its own name; a goods receipt's origin_id "
+            "is a foreign key into sync_origin_credential and its site_id is checked against "
+            "the same row, so one has to be registered first"
         )
     if not pool_site:
-        sys.exit("no DC site has a warehouse inventory place; stock would have nowhere to land")
+        sys.exit(
+            "the head-office site has no warehouse pool with an inventory place behind it; "
+            "stock would have nowhere to land"
+        )
     print(f"  documents filed against {doc_site}, stock moved through the {pool_site} pools")
 
     # Article codes continue the sequence the real ones came from, so the
@@ -498,7 +512,13 @@ def build(db: Db, wanted: int, seed: int) -> None:
                     supplier_code, arrived_at,
                     f"INV/{arrived_on:%Y%m}/{receipt_seq:05d}", arrived_on,
                     None, None, None, None,
-                    "CLOSED", "wh-receiver", arrived_at,
+                    # `COMPLETED`, not `CLOSED`. The receipt's own CHECK allows
+                    # OPEN / COMPLETED / REJECTED, and a second CHECK insists a
+                    # non-OPEN receipt carry a `closed_at` — which the next
+                    # field supplies. `CLOSED` is the PURCHASE ORDER's word and
+                    # was borrowed here by mistake; every database rejected the
+                    # row, so this seed could not build a chain from scratch.
+                    "COMPLETED", "wh-receiver", arrived_at,
                     "wh-supervisor", arrived_at + timedelta(hours=3),
                     1, receipt_seq,
                 )
@@ -546,6 +566,12 @@ def build(db: Db, wanted: int, seed: int) -> None:
                         "wh-receiver", "wh-supervisor",
                         arrived_at, arrived_at + timedelta(hours=3),
                         receipt_group_id, 1, len(receipt_line_rows) + 1,
+                        # Both NOT NULL and neither has a default, so a seed
+                        # that omits them cannot write a line at all. Everything
+                        # here arrives exactly as ordered — that is what makes
+                        # the chain a clean baseline — so the whole quantity is
+                        # matched against the order and nothing is over.
+                        ordered_quantity, 0,
                     )
                 )
 
@@ -712,7 +738,8 @@ def build(db: Db, wanted: int, seed: int) -> None:
     db.copy(
         "goods_receipt_line",
         ["receipt_line_id", "receipt_id", "po_line_id", "quantity", "counted_by", "verified_by",
-         "counted_at", "verified_at", "movement_group_id", "generation", "seq"],
+         "counted_at", "verified_at", "movement_group_id", "generation", "seq",
+         "matched_quantity", "excess_quantity"],
         receipt_line_rows,
     )
 
