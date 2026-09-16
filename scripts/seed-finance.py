@@ -719,7 +719,15 @@ def seed_affiliate_map(api: Api, report: dict, csv_path: str) -> None:
 
 def seed_periods(api: Api, months: list[tuple[int, int]], report: dict) -> None:
     opened = 0
-    for year, month in months:
+    # The month BEFORE the first one too, because that is where the cutover
+    # sits: an opening balance is dated the last day of the old system, and
+    # `opening.rs` refuses a cutover whose period does not exist — "open it
+    # before importing a cutover dated 2026-05-31". Which is right: an entry
+    # has to land in a period somebody opened, and the beginning of the books
+    # is still an entry.
+    year, month = months[0]
+    before = (year - 1, 12) if month == 1 else (year, month - 1)
+    for year, month in [before, *months]:
         if api.post("/api/v1/finance/periods", {"year": year, "month": month}) is not None:
             opened += 1
     report["periods"] = opened
@@ -959,48 +967,55 @@ def seed_bank(api: Api, leaf: dict, months, rng, report) -> None:
 def seed_opening_balances(api: Api, leaf: dict, months, rng, report) -> None:
     """Cash and capital, so the balance sheet is not an empty frame.
 
-    Nothing else in the system puts an opening balance into the books: the
-    poster only ever answers a document. These are ordinary manual entries and
-    say so in their memo.
+    Through the OPENING CUTOVER, not through a hand-written journal. It used to
+    post `/api/v1/finance/journal`, and every one of those calls is now refused —
+    88 of them on a full run:
+
+        1011001001 CASH ON HAND may be corrected but not journalled: raise an
+        adjustment, a reclass or a write-off, and have it approved.
+
+    That refusal is the posting kernel (0261-0268) working exactly as intended:
+    cash carries `manual_je_policy = 'OVERRIDE'`, which admits a correction
+    somebody approved and nothing else. An opening balance is neither a
+    correction nor a hand-keyed entry — it is the beginning of the books, it has
+    its own document and its own `source_kind = 'OPENING'`, and `opening.rs` is
+    the door the system already provides for it.
+
+    The sheet is the client's own shape: one CSV, `site_id,account_code,debit,
+    credit,document_no,memo`, balanced PER SITE because the import refuses a site
+    whose debits and credits disagree. `commit` has to be said out loud; the
+    default is a rehearsal.
     """
     year, month = months[0]
-    posting_date = date(year, month, 1)
-    posted = 0
-    for site in SITES:
-        cash = leaf.get(("1011001001", site))
-        capital = leaf.get(("3013001001", site))  # Modal Setor
-        if cash is None or capital is None:
-            continue
+    # The last day of the old system, which is the day before the books open.
+    cutover = date(year, month, 1) - timedelta(days=1)
+    # Head office only, and that is the model rather than a shortcut.
+    # `3013001001 Modal Setor` carries `dimension = 'company'`, so the poster
+    # refuses it at a shop by name — "belongs to the company and not to a shop;
+    # it posts at dc". A shop's cash is not capital it was given, it is the
+    # float head office sent, and that arrives as a document. The trial balance
+    # also has to agree PER SITE, so a shop's opening cash with no counterpart
+    # at the same shop could not be imported anyway.
+    rows = ["site_id,account_code,debit,credit,document_no,memo"]
+    sites = 0
+    cash = leaf.get(("1011001001", HEAD_OFFICE))
+    capital = leaf.get(("3013001001", HEAD_OFFICE))  # Modal Setor
+    if cash is not None and capital is not None:
         amount = rng.randrange(50_000, 250_000) * 1_000
-        entry = api.post(
-            "/api/v1/finance/journal",
-            {
-                "posting_date": posting_date.isoformat(),
-                "currency": "IDR",
-                "memo": f"Saldo awal kas {site} (seed)",
-                "lines": [
-                    {
-                        "account": {"kind": "account", "account_code": cash},
-                        "site_id": site,
-                        "debit_minor": amount,
-                        "credit_minor": 0,
-                        "supplier_id": None,
-                        "memo": None,
-                    },
-                    {
-                        "account": {"kind": "account", "account_code": capital},
-                        "site_id": site,
-                        "debit_minor": 0,
-                        "credit_minor": amount,
-                        "supplier_id": None,
-                        "memo": None,
-                    },
-                ],
-            },
-            idempotency=True,
-        )
-        posted += entry is not None
-    report["opening_entries"] = posted
+        reference = f"SEED-OB-{cutover.isoformat()}"
+        rows.append(f"{HEAD_OFFICE},{cash},{amount},,{reference},Saldo awal kas (seed)")
+        rows.append(f"{HEAD_OFFICE},{capital},,{amount},{reference},Modal setor awal (seed)")
+        sites += 1
+
+    if sites == 0:
+        report["opening_entries"] = 0
+        return
+    outcome = api.post(
+        "/api/v1/finance/opening/balances",
+        {"cutover_date": cutover.isoformat(), "csv": "\n".join(rows), "commit": True},
+    )
+    report["opening_entries"] = len(outcome.get("entries", [])) if outcome else 0
+    report["opening_cutover"] = cutover.isoformat()
 
 
 def main() -> int:
