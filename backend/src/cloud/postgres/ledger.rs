@@ -375,6 +375,55 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
             false,
             "Payables",
         ),
+        // The four a tax type names and nothing pointed at before 0279. The
+        // accounts existed — `2012101001`, `1011302002`, `2012101006`,
+        // `2012101004` — with no meaning bound to them, so a tax period had a
+        // balance in the chart and no way to resolve it.
+        // Equity, which had accounts and no meanings: `3013001001 Modal Setor`
+        // and `3013001004 Prive`. 0281 gives owners an identity, and a movement
+        // has to resolve an account the same way everything else does.
+        key(
+            "capital_contributed",
+            "Capital put in by an owner",
+            "3013001001 Modal Setor",
+            false,
+            "Equity",
+        ),
+        key(
+            "owner_drawings",
+            "Drawings taken by an owner",
+            "3013001004 Prive",
+            false,
+            "Equity",
+        ),
+        key(
+            "pph21_payable",
+            "PPh 21 owed",
+            "2012101001 Hutang Pajak PPH Pasal 21",
+            false,
+            "Tax",
+        ),
+        key(
+            "pph25_credit",
+            "PPh 25 paid in advance",
+            "1011302002 Prepaid - PPh Pasal 25",
+            false,
+            "Tax",
+        ),
+        key(
+            "pph29_payable",
+            "PPh 29 owed",
+            "2012101006 Hutang Pajak PPh Pasal 29",
+            false,
+            "Tax",
+        ),
+        key(
+            "pbb_payable",
+            "Land and building tax owed",
+            "2012101004 Hutang Pajak Bumi & Bangunan",
+            false,
+            "Tax",
+        ),
         key(
             "vat_in",
             "Input VAT",

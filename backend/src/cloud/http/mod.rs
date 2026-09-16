@@ -62,6 +62,11 @@ pub mod records;
 pub mod reports;
 pub mod roster;
 // lane-A
+pub mod advance;
+pub mod principal;
+pub mod financing;
+pub mod prepaid;
+pub mod tax;
 pub mod sales_posting;
 pub mod statement_intake;
 pub mod stock_ledger;
@@ -824,6 +829,11 @@ pub fn router(state: AppState) -> Router {
     // posting rule that created the document, never by a screen.
     .merge(payment_ledger::lane_p_routes(Router::new()))
     // lane-A routes: a day of takings, and moving a settled tender.
+    .merge(advance::routes(Router::new()))
+    .merge(principal::routes(Router::new()))
+    .merge(financing::routes(Router::new()))
+    .merge(prepaid::routes(Router::new()))
+    .merge(tax::routes(Router::new()))
     .merge(sales_posting::lane_a_routes(Router::new()))
     // lane-H routes: a shop's evening against its own EDC slip, and
     // head office settling what the acquirers owe.

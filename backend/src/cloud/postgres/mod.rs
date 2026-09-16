@@ -95,6 +95,11 @@ mod roster;
 mod sale_day;
 mod sales;
 // lane-A
+mod advance;
+mod principal;
+mod financing;
+mod prepaid;
+mod tax;
 mod sales_posting;
 mod saved_reports;
 mod segments;
@@ -195,6 +200,11 @@ pub use roster::*;
 pub use sale_day::*;
 pub use sales::*;
 // lane-A
+pub use advance::*;
+pub use principal::*;
+pub use financing::*;
+pub use prepaid::*;
+pub use tax::*;
 pub use sales_posting::*;
 pub use saved_reports::*;
 pub use segments::*;
