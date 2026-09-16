@@ -12,6 +12,12 @@
 # ITULAH_SEED_PASSWORD  the password given to the nine workplace accounts.
 #              Set SKIP_ACCOUNTS=1 to leave app_user alone instead.
 #
+# WHAT HAS TO EXIST BEFORE STEP 1. The supplier catalogue: step 1 builds goods
+# out of what a supplier offers, and with none it stops with "only 0 unbought
+# supplier items carry a photograph" — eight steps before anything you changed.
+# `scripts/provision-cloud.sh` takes an empty database all the way and runs this
+# file as its fourth step; prefer it unless you know the node is already there.
+#
 # THE ORDER IS NOT A PREFERENCE. Each step needs what the one above it wrote:
 #
 #   goods      articles and SKUs only exist because a purchase order brought
@@ -35,7 +41,6 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 db="${ITULAH_DB:?set ITULAH_DB to a psql connection string}"
 api="${ITULAH_API:-http://127.0.0.1:8410}"
 articles="${ARTICLES:-500}"
-coa_csv="${COA_CSV:-$HOME/Downloads/Laporan_Master_Account1.csv}"
 
 step() { printf '\n\033[1m── %s\033[0m\n' "$1"; }
 
@@ -52,11 +57,18 @@ step "4/9  counts, handheld sightings, edge sale facts"
 python3 "$here/seed-floor-activity.py" --db "$db"
 
 step "5/9  chart of accounts"
-if [ -f "$coa_csv" ]; then
-  python3 "$here/import-coa.py" --csv "$coa_csv" 2>/dev/null | psql -d "$db" -v ON_ERROR_STOP=1 -q
-  psql -d "$db" -tAc "SELECT count(*)||' accounts' FROM ledger_account"
+# The chart comes from the MIGRATIONS now, and has since 0243/0244 collapsed the
+# client's 7,528 unit-scoped leaves onto one row per meaning. `import-coa.py`
+# still writes the old shape — every INSERT carries a `site_id` — and 0243 adds
+# `CHECK (site_id IS NULL AND counterparty_site_id IS NULL)`, so running it here
+# is refused row by row. That refusal is the correct outcome and it is also a
+# confusing way to spend a step, so this one checks instead of imports.
+accounts=$(psql -d "$db" -tAc "SELECT count(*) FROM ledger_account")
+if [ "${accounts:-0}" -gt 0 ]; then
+  echo "  $accounts accounts, from the migrations — nothing to import"
 else
-  echo "  no chart at $coa_csv — skipping (set COA_CSV); finance below will have nothing to map"
+  echo "  the chart is EMPTY, which means the migrations did not run: finance below"
+  echo "  has nothing to map. Bring the database up with scripts/provision-cloud.sh."
 fi
 
 step "6/9  finance: account map, periods, bills, assets, bank"

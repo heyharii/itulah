@@ -85,8 +85,9 @@ step "3/5  supplier catalogue"
 ITULAH_API="$api" python3 "$here/seed-sourcing.py" | tail -2
 
 step "4/5  the nine seed steps"
-# COA_CSV points nowhere on purpose: the chart is the migrations' now.
-ITULAH_DB="$db" ITULAH_API="$api" COA_CSV=/dev/null \
+# No COA_CSV: step 5 of that script stopped importing the chart when the chart
+# became the migrations' (0243/0244), and now reports what is there instead.
+ITULAH_DB="$db" ITULAH_API="$api" \
   ITULAH_SEED_PASSWORD="${ITULAH_SEED_PASSWORD:?set ITULAH_SEED_PASSWORD}" \
   bash "$here/seed-everything.sh"
 
