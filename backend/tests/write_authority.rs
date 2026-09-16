@@ -354,8 +354,19 @@ fn the_matrix_names_real_tables() {
         .iter()
         .map(|entry| entry.table)
         .filter(|table| {
+            // A table can arrive under its name two ways, and this check knew
+            // only one of them. `commercial_publication_rollout` is
+            // `commercial_publication_activation` renamed by 0179 — it exists
+            // in every migrated database, `price_changes.rs` reads it, and this
+            // test reported it as guarding nothing. A gate that cries wolf
+            // about a real table is how a red tick stops being read.
+            //
+            // The trailing semicolon is load-bearing: every rename in these
+            // folders ends the statement there, and without it a row for
+            // `koli` would be satisfied by `RENAME TO koli_unit`.
             !migrations.contains(&format!("CREATE TABLE {table}"))
                 && !migrations.contains(&format!("CREATE TABLE IF NOT EXISTS {table}"))
+                && !migrations.contains(&format!("RENAME TO {table};"))
         })
         .collect();
     assert!(
