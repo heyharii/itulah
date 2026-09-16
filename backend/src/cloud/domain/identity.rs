@@ -29,7 +29,7 @@
 //!
 //! - **Article code** — 8 ASCII digits.
 //! - **SKU code** — 11 ASCII digits: `article(8) + colour(1) + size(2)`.
-//! - **EPC** — 96 bits, "retail private" header `0xA0`, then the 11 SKU
+//! - **EPC** — 96 bits, "retail private" header `0xA1`, then the 11 SKU
 //!   digits as BCD (44 bits), then a 44-bit per-SKU serial.
 //! - **QR** — `R1:<sku>`, one per SKU.
 //! - **Barcode** — `8<sku>`, one per SKU.
@@ -54,7 +54,7 @@ pub const SKU_LEN: usize = ARTICLE_CODE_LEN + SKU_COLOUR_LEN + SKU_SIZE_LEN;
 /// Marks a tag as ours rather than a GS1 SGTIN (`0x30`), a GIAI (`0x34`) or a
 /// factory TID. A reader that does not recognise this header leaves the tag
 /// opaque and resolves it by exact hex lookup, which still works.
-const RETAIL_PRIVATE_HEADER: u8 = 0xA0;
+const RETAIL_PRIVATE_HEADER: u8 = 0xA1;
 /// Bits of serial inside an EPC.
 pub const EPC_SERIAL_BITS: u32 = 44;
 /// One past the largest usable serial: 2^44, about 17.6 trillion per SKU.
@@ -329,7 +329,7 @@ mod tests {
         // differ on it. Every other digit must match exactly.
         let ours = encode_epc("12345678123", 100).unwrap_or_else(|e| panic!("encode: {e}"));
         assert!(
-            ours.eq_ignore_ascii_case("a01234567812300000000064"),
+            ours.eq_ignore_ascii_case("a11234567812300000000064"),
             "our encoding {ours} is not the one already on garments in the estate"
         );
     }
@@ -435,14 +435,14 @@ mod tests {
         let sgtin = "30".to_string() + &"1".repeat(22);
         assert!(decode_epc(&sgtin).is_err());
         assert!(!is_retail_private_epc(&sgtin));
-        assert!(is_retail_private_epc("a01234567812300000000064"));
+        assert!(is_retail_private_epc("a11234567812300000000064"));
     }
 
     #[test]
     fn a_tag_carrying_hex_where_a_digit_belongs_is_refused() {
         // BCD nibbles above 9 are not decimal digits. Reading one as a digit
         // would silently invent a SKU.
-        assert!(decode_epc("a0ff34567812300000000064").is_err());
+        assert!(decode_epc("a1ff34567812300000000064").is_err());
     }
 
     #[test]
@@ -451,9 +451,9 @@ mod tests {
         // same tag. Refusing it would strand real stock over a formatting
         // difference.
         for rendering in [
-            "  A01234567812300000000064  ",
-            "a01234567812300000000064",
-            "A01234567812300000000064",
+            "  A11234567812300000000064  ",
+            "a11234567812300000000064",
+            "A11234567812300000000064",
         ] {
             let (sku, serial) =
                 decode_epc(rendering).unwrap_or_else(|e| panic!("decode {rendering}: {e}"));

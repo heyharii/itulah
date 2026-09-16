@@ -98,7 +98,23 @@ async fn main() -> Result<(), AppError> {
 /// from the price book, not from this list, so a garment that arrives before
 /// its name does can still be sold. What waits is the catalogue screen.
 async fn run_catalog_publisher(pool: sqlx::PgPool) {
-    let mut interval = tokio::time::interval(std::time::Duration::from_secs(5 * 60));
+    // Five minutes is the shop's number, not the bench's.
+    //
+    // On a rig somebody is minting products by hand, the wait is the whole
+    // experience: a setup is issued, the handheld is asked for a catalogue, and
+    // the honest answer for up to five minutes is the list from before. That
+    // reads as a broken sync rather than as a timer, and the next thing anybody
+    // does is restart something.
+    //
+    // The default is unchanged, so no deployment moves by reading this. A bench
+    // sets CATALOG_PUBLISH_SECONDS=5 and the wait stops being a thing.
+    let seconds = std::env::var("CATALOG_PUBLISH_SECONDS")
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(5 * 60);
+    info!(%seconds, "catalogue publisher interval");
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(seconds));
     loop {
         interval.tick().await;
         match postgres::publish_catalog_if_changed(&pool, "system:catalog-publisher").await {

@@ -370,6 +370,23 @@ pub async fn retire_account(
 /// it and disappears when the last one stops.
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct BankingSetupGap {
+    /// `bank_giro`, `bank_savings` or `time_deposit`.
+    pub semantic_key: String,
+    /// The institution's code as the map spells it, which is `bank.code`.
+    pub qualifier: String,
+    pub site_id: String,
+    pub account_code: String,
+    pub account_name: String,
+    /// What is missing, in a sentence.
+    pub why: String,
+    /// Null when the map's qualifier matches no institution, which is its own
+    /// kind of wrong: the map is naming a bank we do not have.
+    pub expected_bank_code: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct BankInstitution {
     pub bank_id: Uuid,
     /// Our own stable code for it: `BCA`, `MANDIRI`.
@@ -386,6 +403,75 @@ pub struct BankInstitution {
     /// none there, which is different from holding nothing: a bank we only pay
     /// suppliers at has no balance of ours at all.
     pub our_balance_minor: Option<i64>,
+}
+
+/// What is still missing before normal bank posting works.
+///
+/// The gate the validator enforces, read out as a list rather than met as a
+/// refusal. A row here is an account somebody has DECLARED holds money at a bank
+/// — by pointing `bank_giro`, `bank_savings` or `time_deposit` at it — with no
+/// real account of ours registered against it. Until it is registered, postings
+/// to that account are refused and the rest of the estate carries on.
+///
+/// Empty is the whole answer: banking setup is complete when nothing is listed.
+/// A fresh installation with nothing mapped yet is complete by that reading, and
+/// correctly so — there is nothing it has claimed and not delivered.
+///
+/// Company-dimension accounts mapped at a shop are not listed. `1011002001` posts
+/// at head office and nowhere else (0122), so a mapping of it at store-04 is a
+/// mapping nothing can use, and demanding an account for it would be demanding
+/// thirteen bank accounts no shop has.
+pub async fn banking_readiness(
+    pool: &PgPool,
+    head_office: &str,
+) -> Result<Vec<BankingSetupGap>, AppError> {
+    let rows = sqlx::query(
+        "SELECT m.semantic_key, m.qualifier, m.site_id, m.account_code,
+                a.name AS account_name,
+                (SELECT COUNT(*)::bigint FROM company_bank_account c
+                  WHERE c.ledger_account_code = m.account_code
+                    AND c.site_id = m.site_id) AS described,
+                b.code AS expected_bank
+           FROM account_map m
+           JOIN ledger_account a ON a.account_code = m.account_code
+           LEFT JOIN bank b ON b.code = m.qualifier
+          WHERE m.semantic_key IN ('bank_giro', 'bank_savings', 'time_deposit')
+            AND (a.dimension IS DISTINCT FROM 'company' OR m.site_id = $1)
+            AND NOT EXISTS (
+                SELECT 1 FROM company_bank_account c
+                 WHERE c.ledger_account_code = m.account_code
+                   AND c.site_id = m.site_id
+                   AND c.status = 'ACTIVE'
+            )
+          ORDER BY m.site_id, m.semantic_key, m.qualifier",
+    )
+    .bind(head_office)
+    .fetch_all(pool)
+    .await?;
+
+    rows.iter()
+        .map(|row| {
+            let described: i64 = row.try_get("described")?;
+            let expected: Option<String> = row.try_get("expected_bank")?;
+            Ok(BankingSetupGap {
+                semantic_key: row.try_get("semantic_key")?,
+                qualifier: row.try_get("qualifier")?,
+                site_id: row.try_get("site_id")?,
+                account_code: row.try_get("account_code")?,
+                account_name: row.try_get("account_name")?,
+                // The difference between "nobody has described one" and "the one
+                // described is dormant or closed" is the difference between an
+                // unfinished setup and a deliberate decision, and the person
+                // reading this needs to be told which.
+                why: if described == 0 {
+                    "no bank account of ours is described against this".into()
+                } else {
+                    "the accounts described against this are dormant or closed".into()
+                },
+                expected_bank_code: expected,
+            })
+        })
+        .collect()
 }
 
 /// The institutions, from the master, with what we keep at each.

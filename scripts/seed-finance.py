@@ -66,11 +66,11 @@ PLAIN: dict[str, str] = {
     # PROPOSED. Not 4010113001, which their chart already spends on
     # "Penjualan Online Sendiri" — 401011.3 is their online rung, with .3002
     # for the marketplaces. 401011.4 is the next one nobody has taken.
-    "revenue_qris": "4010114001",  # proposed
+    "revenue_qris": "4010114001",  # created by 0274
     "sales_return": "4010214001",
     "sales_discount": "4010213001",
     "vat_out": "2012101003",
-    "voucher_liability": "2012305001",  # proposed
+    "voucher_liability": "2012305001",  # created by 0275
     # end lane-A
     # lane-C: the three lines every statement carries every month, and the
     # accounts the seeded bank rules (migration 0116) propose for them.
@@ -123,11 +123,15 @@ PLAIN: dict[str, str] = {
     "asset_disposal_result": "8010110007",
     # lane-B — the store cash chain.
     #
-    # Two of these do not exist in the client's export and are created by
-    # `seed_proposed_accounts` below. Everything else here is a real leaf,
-    # checked against Laporan_Master_Account1.csv.
-    "cash_in_transit": "1011005001",      # PROPOSED
-    "cash_variance": "8010110008",        # PROPOSED
+    # Every code here is a real leaf, checked against
+    # Laporan_Master_Account1.csv — except the first, which is the one meaning
+    # this estate still has no account for. See UNANSWERED_MEANINGS below.
+    "cash_in_transit": "1011005001",      # NO ACCOUNT: client question
+    # 0254 deleted `8010110008 Selisih Kas` as ours and remapped it onto the
+    # client's own `8010110007 Pendapatan (Biaya) Lain-Lain`. Pointing at the
+    # deleted code made this meaning unmappable, and a cash count that came up
+    # short had nowhere to post.
+    "cash_variance": "8010110007",
     # `store_manager_receivable` — what a store manager is HOLDING for the
     # company, which is not what an employee OWES it — is seeded by lane P
     # above, at the same account. 1011102001 PIUTANG PEGAWAI is the second
@@ -170,11 +174,27 @@ PLAIN: dict[str, str] = {
 # is where this client already keeps differences of exactly this species.
 #
 # (rung code, rung name, leaf code, leaf name, per-site name)
-PROPOSED: list[tuple[str | None, str, str, str, str]] = [
-    ("1011005", "KAS DALAM PERJALANAN", "1011005001", "KAS DALAM PERJALANAN",
-     "Kas Dalam Perjalanan"),
-    (None, "", "8010110008", "SELISIH KAS", "Selisih Kas"),
-]
+# The two accounts this seed used to CREATE, and why it no longer does.
+#
+# `1011005001 Kas Dalam Perjalanan` and `8010110008 Selisih Kas` are both codes
+# 0254 deleted as ours rather than the client's. Recreating them here put the
+# chart back into a state a migration had deliberately taken it out of — and it
+# did so in the PRE-COLLAPSE shape, one leaf per unit with `site_id` set, which
+# 0244's `ledger_account_carries_no_unit` now refuses outright. So the step could
+# not run at all, and the finance seed stopped there.
+#
+# What replaced it:
+#
+#   `cash_variance`    -> `8010110007 Pendapatan (Biaya) Lain-Lain`, which is
+#                         where 0254's own remap sends `8010110008`. A real home,
+#                         no invention.
+#   `cash_in_transit`  -> still has none. Money that left the shop and has not
+#                         reached the bank is a real state, but which account the
+#                         client keeps it in is theirs to say. Reported as an
+#                         open question rather than answered by this script.
+UNANSWERED_MEANINGS = {
+    "cash_in_transit": "0254 deleted 1011005001 as ours; the client has not named a replacement",
+}
 
 # The client writes head office `HO` and shop n `C00n` in every leaf name.
 def unit_suffix(site: str) -> tuple[str, str]:
@@ -300,7 +320,7 @@ QUALIFIED: dict[str, list[tuple[str, str]]] = {
         ("OVO", "1011101003"),
         ("DANA", "1011101003"),
         ("SHOPEEPAY", "1011101003"),
-    ],  # proposed
+    ],  # 1011101003 created by 0274
     # end lane-A
 }
 
@@ -430,43 +450,6 @@ def psql_exec(db: str, sql: str) -> None:
                    capture_output=True, text=True, check=True)
 
 
-def seed_proposed_accounts(db: str, dry: bool, report: dict) -> None:
-    """Create the two accounts lane B proposes, and their fourteen leaves.
-
-    Written straight to Postgres rather than through the API, because that is
-    how the chart itself arrives (`import-coa.py` emits INSERTs) and there is no
-    endpoint for adding an account — deliberately, since the chart is the
-    client's document and not ours to edit from a screen.
-
-    Idempotent: ON CONFLICT DO NOTHING, so running the seed twice is a no-op and
-    a client export that later contains these codes wins.
-    """
-    statements: list[str] = []
-    for rung_code, rung_name, leaf_code, leaf_name, site_name in PROPOSED:
-        if rung_code:
-            statements.append(
-                "INSERT INTO ledger_account "
-                "(account_code,name,parent_code,is_group,is_active,site_id) VALUES "
-                f"('{rung_code}','{rung_name}','{rung_code[:5]}',true,true,NULL) "
-                "ON CONFLICT (account_code) DO NOTHING")
-        statements.append(
-            "INSERT INTO ledger_account "
-            "(account_code,name,parent_code,is_group,is_active,site_id) VALUES "
-            f"('{leaf_code}','{leaf_name}','{leaf_code[:7]}',true,true,NULL) "
-            "ON CONFLICT (account_code) DO NOTHING")
-        for site in SITES:
-            suffix, unit = unit_suffix(site)
-            statements.append(
-                "INSERT INTO ledger_account "
-                "(account_code,name,parent_code,is_group,is_active,site_id) VALUES "
-                f"('{leaf_code}{suffix}','{site_name} {unit}','{leaf_code}',"
-                f"false,true,'{site}') ON CONFLICT (account_code) DO NOTHING")
-    report["proposed_accounts"] = len(statements)
-    if dry:
-        return
-    # One transaction: a half-created family would leave the leaves orphaned of
-    # the rung their foreign key names.
-    psql_exec(db, "BEGIN; " + "; ".join(statements) + "; COMMIT")
 
 
 def leaves(db: str) -> dict[tuple[str, str], str]:
@@ -1033,7 +1016,6 @@ def main() -> int:
     if want in ("all", "map"):
         # lane-B: the two proposed accounts have to exist before anything can
         # be mapped to them, and `leaf` was read before they did.
-        seed_proposed_accounts(args.db, args.dry_run, report)
         if not args.dry_run:
             leaf = leaves(args.db)
         seed_account_map(api, leaf, report)

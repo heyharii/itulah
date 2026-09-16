@@ -61,44 +61,41 @@ async fn seed_chart(pool: &PgPool) {
     // (rung, leaf, name). The rung is the client's own ten-digit account; the
     // leaf is that account at store 01.
     let accounts: [(&str, &str, &str); 13] = [
-        ("1011001001", "101100100101", "Cash On Hand C001"),
-        ("1011101001", "101110100101", "Piutang kartu Kredit C001"),
-        ("1011101002", "101110100201", "Piutang Debit Card C001"),
-        ("1011101003", "101110100301", "Piutang QRIS C001"),
-        ("2012101003", "201210100301", "Hutang PPN Keluaran C001"),
-        ("2012305001", "201230500101", "Hutang Voucher C001"),
-        ("4010110001", "401011000101", "Penjualan Tunai C001"),
-        ("4010111001", "401011100101", "Penjualan Debit BCA C001"),
+        ("1011001001", "1011001001", "Cash On Hand C001"),
+        ("1011101001", "1011101001", "Piutang kartu Kredit C001"),
+        ("1011101002", "1011101002", "Piutang Debit Card C001"),
+        ("1011101003", "1011101003", "Piutang QRIS C001"),
+        ("2012101003", "2012101003", "Hutang PPN Keluaran C001"),
+        ("2012305001", "2012305001", "Hutang Voucher C001"),
+        ("4010110001", "4010110001", "Penjualan Tunai C001"),
+        ("4010111001", "4010111001", "Penjualan Debit BCA C001"),
         (
             "4010112001",
-            "401011200101",
+            "4010112001",
             "Penjualan Kartu Kredit VISA C001",
         ),
-        ("4010114001", "401011400101", "Penjualan QRIS C001"),
-        ("4010213001", "401021300101", "Potongan Penjualan C001"),
-        ("4010214001", "401021400101", "Retur Penjualan C001"),
-        ("8010110002", "801011000201", "Selisih pembulatan C001"),
+        ("4010114001", "4010114001", "Penjualan QRIS C001"),
+        ("4010213001", "4010213001", "Potongan Penjualan C001"),
+        ("4010214001", "4010214001", "Retur Penjualan C001"),
+        ("8010110002", "8010110002", "Selisih pembulatan C001"),
     ];
-    for (rung, leaf, name) in accounts {
+    // The client's own ten-digit account IS the postable leaf, and it carries no
+    // unit: 0243/0244 took the two-digit shop suffix off the code and moved the
+    // unit onto `journal_line.site_id`, and 0244 enforces that with
+    // `ledger_account_carries_no_unit`. This fixture predates the collapse — it
+    // inserted `101100100101`, the same account AT STORE 01 — so every test in it
+    // failed on that constraint before it reached anything it was written to
+    // prove. `ON CONFLICT DO NOTHING` because since 0243 the migrations load the
+    // client's chart and these accounts are already there, under their own names.
+    for (leaf, _old_per_unit_code, name) in accounts {
         sqlx::query(
-            "INSERT INTO ledger_account (account_code, name, parent_code, is_group)
-             VALUES ($1,$2,$3,true) ON CONFLICT DO NOTHING",
-        )
-        .bind(rung)
-        .bind(name)
-        .bind(&rung[..1])
-        .execute(pool)
-        .await
-        .unwrap_or_else(|error| panic!("{rung}: {error}"));
-        sqlx::query(
-            "INSERT INTO ledger_account (account_code, name, parent_code, is_group, site_id)
-             VALUES ($1,$2,$3,false,$4)
+            "INSERT INTO ledger_account (account_code, name, parent_code, is_group, dimension)
+             VALUES ($1,$2,$3,false,'unit')
              ON CONFLICT (account_code) DO NOTHING",
         )
         .bind(leaf)
         .bind(name)
-        .bind(rung)
-        .bind(SITE)
+        .bind(&leaf[..1])
         .execute(pool)
         .await
         .unwrap_or_else(|error| panic!("{leaf}: {error}"));
@@ -126,23 +123,23 @@ async fn map(pool: &PgPool, key: &str, qualifier: &str, code: &str) {
 /// plain.
 async fn map_everything(pool: &PgPool) {
     for (key, code) in [
-        ("cash", "101100100101"),
-        ("vat_out", "201210100301"),
-        ("voucher_liability", "201230500101"),
-        ("revenue_cash", "401011000101"),
-        ("revenue_qris", "401011400101"),
-        ("sales_discount", "401021300101"),
-        ("sales_return", "401021400101"),
-        ("rounding", "801011000201"),
+        ("cash", "1011001001"),
+        ("vat_out", "2012101003"),
+        ("voucher_liability", "2012305001"),
+        ("revenue_cash", "4010110001"),
+        ("revenue_qris", "4010114001"),
+        ("sales_discount", "4010213001"),
+        ("sales_return", "4010214001"),
+        ("rounding", "8010110002"),
     ] {
         map(pool, key, "", code).await;
     }
-    map(pool, "card_receivable_debit", "BCA", "101110100201").await;
-    map(pool, "card_receivable_debit", "MANDIRI", "101110100201").await;
-    map(pool, "card_receivable_credit", "VISA", "101110100101").await;
-    map(pool, "revenue_debit", "BCA", "401011100101").await;
-    map(pool, "revenue_credit", "VISA", "401011200101").await;
-    map(pool, "qris_receivable", "GOPAY", "101110100301").await;
+    map(pool, "card_receivable_debit", "BCA", "1011101002").await;
+    map(pool, "card_receivable_debit", "MANDIRI", "1011101002").await;
+    map(pool, "card_receivable_credit", "VISA", "1011101001").await;
+    map(pool, "revenue_debit", "BCA", "4010111001").await;
+    map(pool, "revenue_credit", "VISA", "4010112001").await;
+    map(pool, "qris_receivable", "GOPAY", "1011101003").await;
 }
 
 async fn open_september(pool: &PgPool) {
@@ -352,25 +349,25 @@ async fn a_mixed_day_becomes_one_balanced_entry(pool: PgPool) {
 
     // The drawer holds the cash tender less the change handed back, which is
     // the figure a shop counts at close.
-    assert_eq!(balance(&pool, "101100100101").await.0, 1_110_000);
+    assert_eq!(balance(&pool, "1011001001").await.0, 1_110_000);
     // The acquirers, each under their own qualifier.
-    assert_eq!(balance(&pool, "101110100201").await.0, 2_220_000);
-    assert_eq!(balance(&pool, "101110100101").await.0, 3_330_000);
-    assert_eq!(balance(&pool, "101110100301").await.0, 555_000);
+    assert_eq!(balance(&pool, "1011101002").await.0, 2_220_000);
+    assert_eq!(balance(&pool, "1011101001").await.0, 3_330_000);
+    assert_eq!(balance(&pool, "1011101003").await.0, 555_000);
     // A voucher settles a liability the shop has been carrying; it brings no
     // money in today.
-    assert_eq!(balance(&pool, "201230500101").await.0, 200_000);
+    assert_eq!(balance(&pool, "2012305001").await.0, 200_000);
     // PPN inside each bucket, summed. 11% of the tax-exclusive part.
-    assert_eq!(balance(&pool, "201210100301").await.1, 734_819);
+    assert_eq!(balance(&pool, "2012101003").await.1, 734_819);
     // Contra revenue: what the promotion cost, visible rather than netted
     // silently off the sale.
-    assert_eq!(balance(&pool, "401021300101").await.0, 111_000);
+    assert_eq!(balance(&pool, "4010213001").await.0, 111_000);
     // And income in four places, because that is how the client reads it.
     for code in [
-        "401011000101",
-        "401011100101",
-        "401011200101",
-        "401011400101",
+        "4010110001",
+        "4010111001",
+        "4010112001",
+        "4010114001",
     ] {
         assert!(
             balance(&pool, code).await.1 > 0,
@@ -547,8 +544,8 @@ async fn reversing_a_day_lets_it_be_generated_again(pool: PgPool) {
     assert_eq!(entries, 2, "the original and its replacement");
 
     // The books carry the day exactly once, not twice and not not at all.
-    assert_eq!(balance(&pool, "101100100101").await.0, 1_110_000 * 2);
-    assert_eq!(balance(&pool, "101100100101").await.1, 1_110_000);
+    assert_eq!(balance(&pool, "1011001001").await.0, 1_110_000 * 2);
+    assert_eq!(balance(&pool, "1011001001").await.1, 1_110_000);
 }
 
 #[sqlx::test(migrations = "./migrations/postgres")]
@@ -584,15 +581,15 @@ async fn a_return_reduces_the_income_and_unwinds_its_tax(pool: PgPool) {
         .unwrap_or_else(|error| panic!("post: {error}"));
 
     // The drawer is the takings less the refund paid out of it.
-    assert_eq!(balance(&pool, "101100100101").await.0, 999_000);
+    assert_eq!(balance(&pool, "1011001001").await.0, 999_000);
     // Contra revenue carries the refund, net of the tax it unwound.
-    assert_eq!(balance(&pool, "401021400101").await.0, 100_000);
+    assert_eq!(balance(&pool, "4010214001").await.0, 100_000);
     // The income account is untouched by the refund: a return is a return, not
     // a smaller sale.
-    assert_eq!(balance(&pool, "401011000101").await.1, 1_000_000);
-    assert_eq!(balance(&pool, "201210100301").await.1, 99_000);
+    assert_eq!(balance(&pool, "4010110001").await.1, 1_000_000);
+    assert_eq!(balance(&pool, "2012101003").await.1, 99_000);
     // Nothing reached rounding: the return document and its refund row agree.
-    assert_eq!(balance(&pool, "801011000201").await, (0, 0));
+    assert_eq!(balance(&pool, "8010110002").await, (0, 0));
 
     let trial = cloud::trial_balance(
         &pool,
@@ -963,8 +960,11 @@ async fn a_cash_refund(pool: &PgPool, amount_minor: i64) {
     .unwrap_or_else(|error| panic!("return: {error}"));
 
     sqlx::query(
-        "INSERT INTO sale_return_payment (id, return_id, method, amount_minor)
-         VALUES ($1,$2,'CASH',$3)",
+        // `status` arrived with the refund lifecycle after this fixture was
+        // written, and `SUCCEEDED` is the only state that is money actually given
+        // back — which is what a return the ledger unwinds has to be.
+        "INSERT INTO sale_return_payment (id, return_id, method, amount_minor, status)
+         VALUES ($1,$2,'CASH',$3,'SUCCEEDED')",
     )
     .bind(Uuid::new_v4())
     .bind(return_id)

@@ -24,6 +24,7 @@ const SAVINGS_BCA: &str = "1011003001";
 const GIRO_MANDIRI: &str = "1011002002";
 const CASH: &str = "1011001001";
 const HO: &str = "dc";
+const SHOP: &str = "store-01";
 
 fn september(day: u32) -> NaiveDate {
     NaiveDate::from_ymd_opt(2026, 9, day).expect("date")
@@ -182,7 +183,9 @@ async fn an_account_points_at_a_real_bank_and_a_postable_ledger_account(pool: Pg
     let mut heading = describe("1011002", "1234567891", "GIRO");
     heading.bank_code = Some("BCA".into());
     assert!(
-        cloud::describe_account(&pool, &heading, ACTOR).await.is_err(),
+        cloud::describe_account(&pool, &heading, ACTOR)
+            .await
+            .is_err(),
         "a heading cannot hold a bank account"
     );
 }
@@ -372,10 +375,7 @@ async fn a_transfer_keeps_both_ends(pool: PgPool) {
         rule_version: "bank_probe/1".into(),
         currency: "IDR".into(),
         memo: Some("giro to giro".into()),
-        lines: vec![
-            line(GIRO_MANDIRI, 250_000, 0),
-            line(GIRO_BCA, 0, 250_000),
-        ],
+        lines: vec![line(GIRO_MANDIRI, 250_000, 0), line(GIRO_BCA, 0, 250_000)],
     };
     let entry_id = post(&pool, &intent).await.expect("a transfer posts");
 
@@ -517,7 +517,8 @@ async fn reconciliation_cannot_cross_two_accounts(pool: PgPool) {
     .execute(&pool)
     .await;
 
-    let error = crossed.expect_err("a line on one account cannot be agreed with a voucher on another");
+    let error =
+        crossed.expect_err("a line on one account cannot be agreed with a voucher on another");
     let message = error.to_string();
     assert!(
         message.contains("two different accounts at this bank"),
@@ -548,14 +549,144 @@ async fn a_statement_must_name_a_real_account(pool: PgPool) {
         "0271's NOT VALID check enforces every new row, exempting only the ones already there"
     );
 
-    let legacy: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM bank_statement WHERE bank_account_id IS NULL",
-    )
-    .fetch_one(&pool)
-    .await
-    .expect("count the exempt rows");
+    let legacy: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM bank_statement WHERE bank_account_id IS NULL")
+            .fetch_one(&pool)
+            .await
+            .expect("count the exempt rows");
     assert_eq!(
         legacy, 0,
         "a migrated-from-blank database has no statement history to exempt"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2B: banking setup readiness
+// ---------------------------------------------------------------------------
+
+/// Map a meaning at a place, the way the seed and the Account Map screen do.
+async fn point(pool: &PgPool, key: &str, qualifier: &str, site: &str, code: &str) {
+    cloud::set_account_mapping(
+        pool,
+        &cloud::SetAccountMappingRequest {
+            semantic_key: key.into(),
+            site_id: site.into(),
+            qualifier: qualifier.into(),
+            account_code: code.into(),
+            note: None,
+        },
+        ACTOR,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("map {key}/{qualifier}: {error}"));
+}
+
+/// An unmapped bank GL is not a bank GL as far as the estate knows, so a fresh
+/// installation migrates and runs before the client's bank data arrives.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn nothing_is_demanded_of_an_account_nobody_called_a_bank_account(pool: PgPool) {
+    open_september(&pool).await;
+
+    post(&pool, &entry("TRANSFER", GIRO_BCA, None))
+        .await
+        .expect("nothing maps this account, so nothing is owed about it");
+
+    let gaps = cloud::banking_readiness(&pool, HO)
+        .await
+        .expect("read readiness");
+    assert!(
+        gaps.is_empty(),
+        "a chain that has claimed nothing has delivered nothing to claim: {gaps:?}"
+    );
+}
+
+/// Saying "our BCA giro money lives here" and registering no account is the state
+/// that must not run quietly forever.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn declaring_a_bank_account_without_describing_one_stops_the_posting(pool: PgPool) {
+    open_september(&pool).await;
+    point(&pool, "bank_giro", "BCA", HO, GIRO_BCA).await;
+
+    let gaps = cloud::banking_readiness(&pool, HO)
+        .await
+        .expect("read readiness");
+    assert_eq!(gaps.len(), 1, "one thing declared, one thing missing");
+    assert_eq!(gaps[0].account_code, GIRO_BCA);
+    assert_eq!(gaps[0].qualifier, "BCA");
+    assert_eq!(gaps[0].expected_bank_code.as_deref(), Some("BCA"));
+    assert!(
+        gaps[0].why.contains("no bank account of ours is described"),
+        "the reason says which of the two states it is: {}",
+        gaps[0].why
+    );
+
+    refusal(
+        post(&pool, &entry("TRANSFER", GIRO_BCA, None))
+            .await
+            .expect_err("a declared bank account with none registered is refused"),
+        "banking setup is incomplete",
+    );
+
+    // And describing it completes the setup, without anything else being touched.
+    account_at(&pool, "BCA", GIRO_BCA, "1234567890", "GIRO").await;
+    let after = cloud::banking_readiness(&pool, HO)
+        .await
+        .expect("read readiness again");
+    assert!(after.is_empty(), "setup is complete: {after:?}");
+    post(&pool, &entry("TRANSFER", GIRO_BCA, None))
+        .await
+        .expect("and the posting goes through");
+}
+
+/// An opening balance still lands. History arriving is not a thing to hold up
+/// for a master that did not exist when it happened.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn an_opening_balance_is_not_held_up_by_an_unfinished_setup(pool: PgPool) {
+    open_september(&pool).await;
+    point(&pool, "bank_giro", "BCA", HO, GIRO_BCA).await;
+
+    post(&pool, &entry("OPENING", GIRO_BCA, None))
+        .await
+        .expect("an opening balance reaches an account the setup has not finished");
+}
+
+/// A dormant bank GL needs no fake account: it is simply not mapped, and mapping
+/// is the declaration. A registered account that is DORMANT is not coverage
+/// either — "exists, unused" is not "use this one".
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_dormant_account_is_not_coverage(pool: PgPool) {
+    open_september(&pool).await;
+    point(&pool, "bank_savings", "BCA", HO, SAVINGS_BCA).await;
+    let dormant = account_at(&pool, "BCA", SAVINGS_BCA, "9234567890", "SAVINGS").await;
+    sqlx::query("UPDATE company_bank_account SET status = 'DORMANT' WHERE account_id = $1")
+        .bind(dormant)
+        .execute(&pool)
+        .await
+        .expect("mark it dormant");
+
+    let gaps = cloud::banking_readiness(&pool, HO)
+        .await
+        .expect("read readiness");
+    assert_eq!(gaps.len(), 1);
+    assert!(
+        gaps[0].why.contains("dormant or closed"),
+        "the reason distinguishes an unfinished setup from a decision: {}",
+        gaps[0].why
+    );
+}
+
+/// A company-dimension account mapped at a shop is a mapping nothing can use, so
+/// it is not a gap. Demanding coverage for it would demand thirteen bank accounts
+/// no shop has.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_bank_mapping_at_a_shop_is_not_a_gap(pool: PgPool) {
+    point(&pool, "bank_giro", "BCA", SHOP, GIRO_BCA).await;
+
+    let gaps = cloud::banking_readiness(&pool, HO)
+        .await
+        .expect("read readiness");
+    assert!(
+        gaps.is_empty(),
+        "1011002001 posts at head office and nowhere else, so a shop mapping asks for nothing: {gaps:?}"
     );
 }

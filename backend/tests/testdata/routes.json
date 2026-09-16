@@ -114,6 +114,7 @@ cloud	GET	/api/v1/finance/bank-accounts	Supervisor	-
 cloud	GET	/api/v1/finance/bank-statements	Supervisor	-
 cloud	GET	/api/v1/finance/bank-statements/{id}/lines	Supervisor	-
 cloud	GET	/api/v1/finance/bank-statements/{id}/suggestions	Supervisor	-
+cloud	GET	/api/v1/finance/banking-readiness	Supervisor	-
 cloud	GET	/api/v1/finance/banks	Supervisor	-
 cloud	GET	/api/v1/finance/bills	Supervisor	-
 cloud	GET	/api/v1/finance/bills/{id}	Supervisor	-
@@ -373,7 +374,6 @@ cloud	POST	/api/v1/finance/payments/{id}/post	Admin	payment
 cloud	POST	/api/v1/finance/periods	Admin	-
 cloud	POST	/api/v1/finance/periods/close	Admin	-
 cloud	POST	/api/v1/finance/periods/{id}/reopen	Admin	fiscal_period
-cloud	POST	/api/v1/finance/sale-days/{site}/{day}/post	Admin	-
 cloud	POST	/api/v1/finance/statement-intake/run	Admin	-
 cloud	POST	/api/v1/finance/statement-sources	Admin	-
 cloud	POST	/api/v1/hire-proposals	Supervisor	hire_proposal

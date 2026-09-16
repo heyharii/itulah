@@ -1,0 +1,3 @@
+bank_code,account_no,account_holder,kind,currency,status,ledger_account_code,site_id,is_primary,opened_at,branch,note
+BCA,1234567890,PT Contoh Busana Nusantara,GIRO,IDR,ACTIVE,1011002001,dc,true,2019-03-01,KCP Sudirman,operating account
+MANDIRI,,,GIRO,IDR,,1011002002,dc,false,,,

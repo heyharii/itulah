@@ -425,7 +425,6 @@ export type { PoolFacets } from "./contract/PoolFacets";
 export type { PoolPage } from "./contract/PoolPage";
 export type { PoolRow } from "./contract/PoolRow";
 export type { PostCountRequest } from "./contract/PostCountRequest";
-export type { PostSaleDayRequest } from "./contract/PostSaleDayRequest";
 export type { PriceAmendmentFacet } from "./contract/PriceAmendmentFacet";
 export type { PriceAmendmentFacets } from "./contract/PriceAmendmentFacets";
 export type { PriceAmendmentPage } from "./contract/PriceAmendmentPage";

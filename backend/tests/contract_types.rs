@@ -944,15 +944,15 @@ fn the_wire_types_are_written_for_the_browser() {
     inventory_backend::cloud::postgres::PostCountRequest::export_all(&config)
         .unwrap_or_else(|e| panic!("PostCountRequest: {e}"));
 
-    // A day's takings reaching the ledger. `SaleDayPage` pulls `SaleDayRow` in
+    // A day's takings, as the unposted-days list shows them. The request that
+    // used to post one went with the retired writer in 0273; the authority's
+    // own document is `SalesPosting`. `SaleDayPage` pulls `SaleDayRow` in
     // with it, and it is named here anyway for the reason the comment below
     // gives: a derive writes nothing until something asks it to.
     inventory_backend::cloud::postgres::SaleDayRow::export_all(&config)
         .unwrap_or_else(|e| panic!("SaleDayRow: {e}"));
     inventory_backend::cloud::postgres::SaleDayPage::export_all(&config)
         .unwrap_or_else(|e| panic!("SaleDayPage: {e}"));
-    inventory_backend::cloud::postgres::PostSaleDayRequest::export_all(&config)
-        .unwrap_or_else(|e| panic!("PostSaleDayRequest: {e}"));
 
     inventory_backend::cloud::postgres::CompanyBankAccount::export_all(&config)
         .unwrap_or_else(|e| panic!("CompanyBankAccount: {e}"));

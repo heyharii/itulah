@@ -1394,6 +1394,11 @@ pub fn router(state: AppState) -> Router {
     // counts, and the difference is a separate decision to post.
     // Gathered from the accounts that name them, never maintained.
     .route("/api/v1/finance/banks", get(finance::bank_institutions))
+    // What is still missing before bank postings work. Empty means complete.
+    .route(
+        "/api/v1/finance/banking-readiness",
+        get(finance::banking_readiness),
+    )
     // What our accounts ARE, beside the map that says where they post.
     .route(
         "/api/v1/finance/bank-accounts",
@@ -1413,14 +1418,9 @@ pub fn router(state: AppState) -> Router {
     )
     // A day's takings. The list is built from the SALES, so it can say
     // which days are NOT in the book — which is the question, and which a
-    // list of postings cannot answer. The post is keyed by unit and
-    // trading day because that is what a day IS; calling it twice books it
-    // once and answers with the first entry.
+    // list of postings cannot answer. Read only: the day is POSTED through
+    // `/sales-postings`, which 0273 made the one authority for it.
     .route("/api/v1/finance/sale-days", get(finance::sale_days))
-    .route(
-        "/api/v1/finance/sale-days/{site}/{day}/post",
-        post(finance::post_sale_day),
-    )
     // A shop asking head office to pay something. Six routes and not one
     // of them posts: the document is a lifecycle with no accounting
     // consequence until head office acts, and the bill and the payment it

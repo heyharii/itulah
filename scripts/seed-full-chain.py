@@ -70,7 +70,7 @@ from datetime import date, datetime, timedelta
 # identity: the formats already on garments in the estate
 # --------------------------------------------------------------------------
 
-RETAIL_PRIVATE_HEADER = 0xA0
+RETAIL_PRIVATE_HEADER = 0xA1
 EPC_SERIAL_BITS = 44
 EPC_MAX_SERIAL = 1 << EPC_SERIAL_BITS
 
@@ -87,7 +87,7 @@ def sku_code(article_code: str, colour_digit: str, size_code: str) -> str:
 
 
 def encode_epc(sku: str, serial: int) -> str:
-    """96 bits: header 0xA0, the 11 SKU digits as BCD, then a 44-bit serial.
+    """96 bits: header 0xA1, the 11 SKU digits as BCD, then a 44-bit serial.
 
     The serial bound is checked BEFORE anything is allocated. The Go original
     checked it after advancing its counter, which refused the last legitimate

@@ -2447,6 +2447,20 @@ pub struct PostingFacts<'a> {
 /// approves — which is the distinction `manual_je_policy = 'OVERRIDE'` exists to
 /// draw.
 const HAND_KEYED_KINDS: [&str; 4] = ["MANUAL", "RECLASS", "ADJUSTMENT", "WRITE_OFF"];
+
+/// The meanings that say "this natural account holds money at a bank".
+///
+/// The list is here rather than a column on `ledger_account`, and rather than a
+/// range of account codes in Rust, because the account map ALREADY declares it:
+/// pointing `bank_giro`/`BCA` at an account at a place is somebody saying that
+/// account is our BCA giro money there, and the qualifier they use is the
+/// institution's own code (0269). Nothing else has to be configured, and nothing
+/// can drift out of step with it.
+///
+/// `bank_admin_fee` is not here: it is an expense the bank charges, not money
+/// held at one. `giro_outstanding` is not here either — an unpresented giro is a
+/// liability of ours, not a balance at the bank.
+const BANK_MEANINGS: [&str; 3] = ["bank_giro", "bank_savings", "time_deposit"];
 const CORRECTION_KINDS: [&str; 3] = ["RECLASS", "ADJUSTMENT", "WRITE_OFF"];
 
 /// Refuse a posting the account's own policy does not permit.
@@ -2510,7 +2524,7 @@ pub async fn validate_account_posting(
                     '{}'
                 ) AS denied,
                 held.ids AS bank_ids, held.states AS bank_states,
-                held.labels AS bank_labels
+                held.labels AS bank_labels, meant.is_bank
            FROM ledger_account a
            LEFT JOIN account_source_rule r ON r.account_code = a.account_code
            -- The real accounts registered against this ledger binding, in the
@@ -2518,6 +2532,16 @@ pub async fn validate_account_posting(
            -- rather than three correlated subqueries so the whole of this check
            -- stays ONE round trip, which is what made it affordable in the
            -- posting path to begin with.
+           -- Whether the map says this account holds money at a bank, at this
+           -- place. The declaration of intent, and the only one needed: an
+           -- account nobody has pointed a bank meaning at is not a bank account
+           -- as far as this estate is concerned, and posts as it always did.
+           LEFT JOIN LATERAL (
+               SELECT COUNT(*) > 0 AS is_bank
+                 FROM account_map m
+                WHERE m.account_code = a.account_code AND m.site_id = $2
+                  AND m.semantic_key = ANY($3)
+           ) meant ON true
            LEFT JOIN LATERAL (
                SELECT COALESCE(ARRAY_AGG(c.account_id
                           ORDER BY c.is_primary DESC, c.account_no_digits), '{}') AS ids,
@@ -2531,10 +2555,12 @@ pub async fn validate_account_posting(
            ) held ON true
           WHERE a.account_code = $1
           GROUP BY a.name, a.posting_mode, a.manual_je_policy, a.dimension,
-                   a.requires_counter_site, held.ids, held.states, held.labels",
+                   a.requires_counter_site, held.ids, held.states, held.labels,
+                   meant.is_bank",
     )
     .bind(code)
     .bind(facts.site_id)
+    .bind(BANK_MEANINGS.as_slice())
     .fetch_optional(executor)
     .await?;
     // Absent is not this function's refusal to make: `assert_postable` has
@@ -2661,10 +2687,27 @@ pub async fn validate_account_posting(
         .filter(|at| bank_states[*at] == "ACTIVE")
         .collect();
     match live.as_slice() {
-        // Nothing registered — or only accounts marked DORMANT, which is the
-        // word for "exists, unused" and so is not something to resolve TO. The
-        // line posts without naming an account, exactly as every line did before
-        // this master existed.
+        // Nothing registered — or only accounts marked DORMANT, which is the word
+        // for "exists, unused" and so is not something to resolve TO.
+        //
+        // Whether that is a state to refuse depends on whether anybody has SAID
+        // this account holds money at a bank. Unmapped, it is not a bank account
+        // as far as the estate knows and the line posts as every line did before
+        // the master existed — which is what lets a fresh installation migrate and
+        // be configured before the client's bank data arrives.
+        //
+        // Mapped and uncovered is the state this refusal exists for: somebody has
+        // declared "our BCA giro money lives here" and nobody has said which
+        // account that is. Left alone it is a bank balance that reconciles against
+        // nothing, quietly, for as long as nobody looks.
+        [] if row.try_get::<bool, _>("is_bank").unwrap_or(false) && !opening => {
+            Err(AppError::Validation(format!(
+                "banking setup is incomplete: {code} {name} is mapped as money we hold at a bank, \
+                 and no bank account of ours is registered against it at {}. Describe the account \
+                 under Bank Accounts — its bank, number and holder — and this posts.",
+                facts.site_id
+            )))
+        }
         [] => Ok(None),
         // One candidate. Asking a rule to name the only possible answer would be
         // ceremony, and would have meant touching two dozen posting rules to

@@ -19,15 +19,15 @@ use crate::cloud::{
     postgres::{
         self as infrastructure, AccountBalance, AccountMapPage, AccountPage, AcquisitionGap,
         AdjustmentRequest, AssessAssetRequest, AssetPage, AssetRow, AssetSchedule, BalanceMatrix,
-        BankInstitution, BankStatementLineRow, BankStatementPage, BillPage, BookBankLineRequest,
-        CashCountRow, CompanyBankAccount, ConfirmMatchRequest, CorrectionDocument,
-        DecideInstructionRequest, DepositPage, DepreciationRun, DescribeBankAccountRequest,
-        DisposeAssetRequest, GeneralLedger, ImportOutcome, ImportStatementRequest, InstructionPage,
-        JournalEntryDetail, JournalPage, LandDepositRequest, LedgerAccount, LineSuggestions,
-        MoneyOverview, PayablesAging, PaymentInstruction, PaymentPage, PeriodPage,
-        PostCountRequest, PostSaleDayRequest, PostingIntent, PostingLine, RaiseInstructionRequest,
-        ReclassRequest, RecordBillRequest, RecordCountRequest, RecordDepositRequest,
-        RecordPaymentRequest, RegisterAssetRequest, SaleDayPage, SaleDayRow,
+        BankInstitution, BankStatementLineRow, BankStatementPage, BankingSetupGap, BillPage,
+        BookBankLineRequest, CashCountRow, CompanyBankAccount, ConfirmMatchRequest,
+        CorrectionDocument, DecideInstructionRequest, DepositPage, DepreciationRun,
+        DescribeBankAccountRequest, DisposeAssetRequest, GeneralLedger, ImportOutcome,
+        ImportStatementRequest, InstructionPage, JournalEntryDetail, JournalPage,
+        LandDepositRequest, LedgerAccount, LineSuggestions, MoneyOverview, PayablesAging,
+        PaymentInstruction, PaymentPage, PeriodPage, PostCountRequest, PostingIntent, PostingLine,
+        RaiseInstructionRequest, ReclassRequest, RecordBillRequest, RecordCountRequest,
+        RecordDepositRequest, RecordPaymentRequest, RegisterAssetRequest, SaleDayPage,
         SetAccountMappingRequest, SettleInstructionRequest, Statement, StoreDeposit, SupplierBill,
         SupplierPayment, TransferAssetRequest, TrialBalance, UnbilledReceipt,
         UpdateBankLineRequest, WriteOffRequest,
@@ -1311,7 +1311,23 @@ pub async fn company_bank_accounts(
     ))
 }
 
-/// Every bank anybody has named. Gathered, not maintained.
+/// What is still missing before normal bank posting works.
+///
+/// An empty list is the answer "banking setup is complete". Every row is an
+/// account somebody declared holds money at a bank, with no real account of ours
+/// registered against it — and a posting to one of those is refused rather than
+/// quietly landing on a balance that reconciles against nothing.
+pub async fn banking_readiness(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<BankingSetupGap>>, AppError> {
+    Ok(Json(
+        // One constant, in one place: the head office is `dc` until the rename
+        // 0256 holds lands, and `poster` is where that fact lives.
+        infrastructure::banking_readiness(&state.db, infrastructure::HEAD_OFFICE_SITE).await?,
+    ))
+}
+
+/// The institutions, from the master, with what we keep at each.
 pub async fn bank_institutions(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<BankInstitution>>, AppError> {
@@ -1705,41 +1721,6 @@ pub async fn sale_days(
         )
         .await?,
     ))
-}
-
-/// Put one unit's day in the book.
-///
-/// The same two-step shape as `POST /finance/bills/{id}/post`: the fact is
-/// already recorded — the till recorded it — and this is somebody deciding it
-/// belongs in the ledger.
-///
-/// **Calling it twice books it once.** The second call answers with the first
-/// call's entry rather than refusing, because re-posting a day is what a
-/// retry, a double click and a script re-run all look like, and each of them
-/// wants the same answer: here is the entry for that day. The guarantee is the
-/// primary key of `sale_day_posting`, held inside the same transaction as the
-/// entry — see `postgres::sale_day::post_sale_day`.
-pub async fn post_sale_day(
-    State(state): State<AppState>,
-    Extension(principal): Extension<Principal>,
-    Extension(acted_on): Extension<DeclaredSubject>,
-    Path((site_id, trading_day)): Path<(String, NaiveDate)>,
-    Json(request): Json<PostSaleDayRequest>,
-) -> Result<Json<SaleDayRow>, AppError> {
-    let day = infrastructure::post_sale_day(
-        &state.db,
-        &site_id,
-        trading_day,
-        &request,
-        &principal.username,
-    )
-    .await?;
-    // Filed against the journal entry, which is the record somebody opens when
-    // they ask what this day did to the books.
-    if let Some(entry_id) = day.entry_id {
-        acted_on.set(RecordKind::Journal, entry_id.to_string());
-    }
-    Ok(Json(day))
 }
 
 /// A period named the way a person names one: `2026-09`.

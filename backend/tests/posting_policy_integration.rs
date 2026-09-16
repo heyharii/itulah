@@ -22,6 +22,7 @@ use chrono::NaiveDate;
 use inventory_backend::cloud::application::AppError;
 use inventory_backend::cloud::postgres::{self as cloud, LineAccount, PostingIntent, PostingLine};
 use sqlx::PgPool;
+use uuid;
 
 const ACTOR: &str = "ana";
 const APPROVER: &str = "budi";
@@ -64,8 +65,11 @@ async fn set_policy(pool: &PgPool, code: &str, mode: &str, manual: &str) {
 
 async fn rule(pool: &PgPool, code: &str, kind: &str, effect: &str) {
     sqlx::query(
+        // Restating rather than inserting: 0268 ships the reserve's own DENY row
+        // in the chain, so a test that wants it there finds it already there.
         "INSERT INTO account_source_rule (account_code, source_kind, effect, set_by)
-         VALUES ($1,$2,$3,$4)",
+         VALUES ($1,$2,$3,$4)
+         ON CONFLICT (account_code, source_kind) DO UPDATE SET effect = EXCLUDED.effect",
     )
     .bind(code)
     .bind(kind)
@@ -103,10 +107,13 @@ fn entry(
         source_kind: kind.into(),
         // `MANUAL` is the one kind 0083 forbids a source on; everything else
         // requires one.
+        // A uuid, not a sentence: 0273 requires a `SALE_DAY` entry to be named by
+        // its posting's id, and these probes use whichever kinds the policy under
+        // test admits. `MANUAL` is the one kind 0083 forbids a source on.
         source_id: if kind == "MANUAL" {
             None
         } else {
-            Some(format!("policy-probe-{kind}"))
+            Some(uuid::Uuid::new_v4().to_string())
         },
         rule_version: "policy_probe/1".into(),
         currency: "IDR".into(),

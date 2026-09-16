@@ -309,3 +309,181 @@ bukan efek samping Phase 2.
 3. **Time deposit**: empat akun ada, `TIME_DEPOSIT` sudah bisa dinyatakan, tapi
    tanggal jatuh tempo belum punya tempat. Ditunda sampai ada aliran nyata (§10
    brief: jangan bangun modul treasury).
+
+---
+
+# Phase 2B — kesiapan produksi
+
+## A. Gerbang kesiapan, tanpa flag baru
+
+Keadaan yang harus dibedakan: **sengaja tak ada rekening nyata** vs **rekening
+ada, master-nya lupa diisi**. Sebelum menambah kolom, saya periksa apa yang sudah
+ada: `ledger_account.is_active` (deklarasi KLIEN soal chart-nya, bukan sikap kita
+soal operasinya), `posting_mode` + `manual_je_policy` + `posting_policy_configured`
+(soal kebijakan posting, bukan soal rekening), dan `company_bank_account.status`.
+Tak satu pun menjawabnya.
+
+Tapi ada yang menjawabnya, dan bukan kolom: **peta akun**. Menunjuk
+`bank_giro`/`BCA` ke sebuah akun di sebuah tempat ADALAH seseorang menyatakan
+"uang giro BCA kita ada di situ" — dan qualifier yang dipakainya kebetulan kode
+institusi yang sama dengan `bank.code` (0269). Jadi niat sudah dinyatakan, dan
+tak perlu dinyatakan dua kali.
+
+Aturannya, di validator yang sama dengan Phase 1:
+
+| peta menyebutnya rekening bank? | rekening ACTIVE terdaftar | perilaku |
+|---|---|---|
+| tidak | — | posting seperti biasa |
+| ya | 0 | **ditolak**: "banking setup is incomplete" |
+| ya / tidak | 1 | diselesaikan sendiri oleh poster |
+| ya / tidak | ≥2 | harus disebutkan yang mana |
+
+`OPENING` dikecualikan. Konsekuensinya persis yang diminta:
+
+- akun bank yang **dimaksudkan untuk dipakai** tak bisa berjalan diam-diam
+  selamanya tanpa rekening nyata — ia berhenti pada posting pertama;
+- akun bank **dormant** tak butuh rekening palsu: cukup tidak dipetakan, dan
+  memetakan adalah pernyataannya;
+- migrasi dan saldo awal tetap jalan;
+- instalasi baru bisa menyelesaikan seluruh rantai sebelum data bank klien
+  masuk — karena belum ada yang dipetakan, belum ada yang dijanjikan.
+
+`GET /api/v1/finance/banking-readiness` membacakannya sebagai daftar, bukan
+sebagai penolakan. **Kosong berarti selesai.** Tiap baris menyebut alasannya:
+"no bank account of ours is described against this" atau "the accounts described
+against this are dormant or closed" — beda antara setup yang belum selesai dan
+keputusan yang memang diambil.
+
+Akun ber-`dimension = 'company'` yang dipetakan di TOKO tidak dihitung sebagai
+celah: `1011002001` hanya bisa diposting di kantor pusat (0122), jadi pemetaan di
+store-04 adalah pemetaan yang tak bisa dipakai apa pun — menuntut rekening
+untuknya berarti menuntut 13 rekening bank yang tak dimiliki toko mana pun.
+
+## C. Akun bank di chart, dan bukti yang kita punya
+
+Empat belas akun saldo bank. Diperiksa terhadap rantai penuh: **`is_active = true`
+semuanya** (itu deklarasi klien), **nol baris jurnal**, **nol rekening terdaftar**.
+
+| akun | bukti | klasifikasi |
+|---|---|---|
+| `1011002001` Giro BCA | satu-satunya bank yang punya `2012002001 Outstanding Giro`; satu-satunya yang punya akun pinjaman (`2012502001`, `2022402001`); satu-satunya yang pernah dideskripsikan di data mana pun | **kemungkinan besar nyata** — tetap butuh nomor rekening dari klien |
+| `1011002002-005` Giro Mandiri/BRI/BNI/Danamon | chart punya barisnya; tak ada outstanding-giro, tak ada pinjaman, tak ada transaksi | **tidak diketahui** |
+| `1011003001-005` Tabungan BCA/Mandiri/BRI/BNI/BTN | idem; BTN hanya muncul di tabungan dan di mana pun tidak | **tidak diketahui** |
+| `1011004001-004` Time Deposit BCA/Mandiri/BRI/BNI | idem. `docs/finance-posting-kernel.md` §6 sudah mencatat Time Deposit sebagai kandidat DORMANT | **tidak diketahui, condong dormant** |
+
+**Tak satu pun ditandai ACTIVE hanya karena akun naturalnya ada.** Adanya baris
+di chart berarti klien PERNAH menyiapkan tempat untuk jenis saldo itu — bukan
+bahwa fasilitasnya hidup hari ini.
+
+### Pertanyaan untuk klien
+
+1. Dari enam bank di chart, **di bank mana rekening yang benar-benar dipakai
+   hari ini**, dan berapa nomornya masing-masing? (Template:
+   `docs/templates/company-bank-accounts.csv`.)
+2. Apakah ada **lebih dari satu rekening di satu bank** untuk jenis yang sama —
+   mis. dua giro BCA? Kalau ya, posting otomatis akan minta disebutkan yang mana,
+   dan `cash_document` perlu dua kolom yang sengaja ditunda.
+3. **Giro ditarik di bank mana saja?** Chart hanya punya
+   `2012002001 Outstanding Giro Bank BCA`. Kalau giro juga ditulis atas Mandiri
+   atau BNI, empat akun outstanding-giro perlu dibuat — dan sampai itu dijawab,
+   giro selain BCA tidak bisa diposting.
+4. **Time deposit**: masih berjalan, atau peninggalan? Kalau berjalan, tanggal
+   jatuh temponya belum punya tempat di skema ini (sengaja — §10 brief melarang
+   membangun modul treasury di fase ini).
+5. **Setoran dalam perjalanan** (`cash_in_transit`): 0254 menghapus
+   `1011005001` sebagai karangan kita. Uang yang sudah keluar dari toko dan belum
+   sampai di bank adalah keadaan nyata — **akun klien yang mana** yang menampung
+   itu?
+6. **Rekening bank atas nama toko**: ada atau tidak? Seluruh kode hari ini
+   berasumsi tidak (toko punya TUJUAN setoran, bukan rekening). Kalau ternyata
+   ada, itu perubahan asumsi bisnis, bukan perubahan konfigurasi.
+
+## E. QRIS — keadaan sebenarnya, dan koreksi terkecil
+
+**Bukan "QRIS menumpang piutang kartu debit"**, yang dicatat audit rekonsiliasi
+sebelumnya. **QRIS sama sekali tidak bisa diposting.** Peta yang dikirim estate
+menunjuk `qris_receivable` ke `1011101003` dan `revenue_qris` ke `4010114001`,
+dan **kedua akun itu tidak ada**: 0254 menghapus yang pertama sebagai karangan,
+yang kedua diusulkan dan tak pernah dibuat. `account_map` ber-FK komposit ke
+`ledger_account`, jadi kedua pemetaan ditolak mentah — dan setiap hari dagang
+yang berisi satu tender QRIS tidak bisa diposting.
+
+Ditelusuri dari alirannya, bukan dari nama metodenya:
+
+```
+penjualan POS, metode QRIS, provider tercatat (GOPAY/OVO/DANA/SHOPEEPAY/BCA)
+  -> domain::sales_posting memetakannya ke `qris_receivable`, ber-qualifier PROVIDER
+  -> sales_posting_open_receivables membuka Payment Ledger item atas provider itu
+  -> acquirer.rs: SETTLEMENT_TENDERS = [CARD_DEBIT, CARD_CREDIT, QRIS];
+     tender QRIS wajib menyebut terminal; acq_settlement_settle_ledger_items
+     menutup item saat provider membayar
+  -> uangnya mendarat di rekening bank perusahaan, terlambat dan neto
+```
+
+Itu **piutang settlement** dalam segala hal seperti kartu, dan tiga modul sudah
+memperlakukannya begitu. Memposting ke Bank atau Kas akan mengklaim uang yang
+belum dipegang toko.
+
+**Koreksi terkecil (0274):** hidupkan kembali `1011101003 Piutang QRIS` dengan
+kode dan nama yang 0248 pilih, dan buat `4010114 / 4010114001 Penjualan QRIS`
+karena chart klien punya satu grup per kanal (`4010110` tunai, `4010111` debit,
+`4010112` kredit, `4010113` online) dan tak punya QRIS sama sekali. Pengecualian
+kedua terhadap 0254 sesudah 0265, dibuat dengan cara yang sama.
+
+Pemisahannya **tidak bisa** dipulihkan dari qualifier: meaning + qualifier
+me-RESOLVE ke akun, dan qualifier tidak disimpan di `journal_line`. Jadi QRIS dan
+kartu debit yang berbagi `1011101002` adalah satu saldo tanpa jalan kembali.
+
+`1011101004 Piutang Tender Lain-Lain` **tidak** dihidupkan: otoritas menolak
+tender yang tak dikenalnya dan menawarkan `retender`, jadi tak ada utang
+tender-tanpa-nama untuk ditampung. Itu milik `other_tender_clearing` si penulis
+pensiunan.
+
+### Cacat sekeluarga yang ikut ketahuan
+
+Sapuan yang sama atas seluruh peta seed menemukan **enam** meaning yang menunjuk
+akun tak ada, bukan dua:
+
+| meaning | menunjuk | tindakan |
+|---|---|---|
+| `qris_receivable` | `1011101003` | dibuat (0274) |
+| `revenue_qris` | `4010114001` | dibuat (0274) |
+| `voucher_liability` | `2012305001` | **dibuat (0275)** — setiap penukaran voucher membuat harinya tak bisa diposting |
+| `cash_variance` | `8010110008` | **diperbaiki di seed** → `8010110007`, yang memang tujuan remap 0254 |
+| `cash_in_transit` | `1011005001` | **pertanyaan klien** (C-5) |
+| `giro_outstanding` ×4 | `2012002002-005` | **pertanyaan klien** (C-3) |
+
+Dan `seed_proposed_accounts` — langkah yang membuat ulang dua akun yang 0254
+hapus, dalam bentuk pra-collapse ber-`site_id` yang 0244 tolak — **dihapus**. Itu
+sebabnya seed finance berhenti di situ.
+
+## F. `supplier_bank_account` vs `payment_destination`
+
+Tidak dilebur, sesuai instruksi. Batasnya:
+
+| | `supplier_bank_account` (0221) | `payment_destination` (0151) |
+|---|---|---|
+| cakupan | hanya supplier | `SUPPLIER‖EMPLOYEE‖OTHER` |
+| nomor rekening | teks biasa + digit ternormalisasi | **terenkripsi** (`account_number_enc`), + mask + fingerprint |
+| verifikasi | tak ada | `verification_status`, `verified_by`, `verified_at`, `verification_note` |
+| penonaktifan | `retired_at` | `active` + `deactivated_by/at/reason` |
+| institusi | `bank_id` sejak 0270 | `bank_code` sebagai teks |
+| **dirujuk oleh** | **tak ada apa pun** | `payment_batch_item`, `payment_destination_snapshot` |
+| dipakai di | layar supplier, cetak giro | mesin pembayaran (`batches.rs`, `payment_allocation.rs`, `payment_context.rs`) |
+
+**Sumber kebenaran hari ini: `payment_destination`.** Ia yang dipegang mesin
+pembayaran lewat foreign key, ia yang punya snapshot (sehingga pembayaran yang
+sudah jalan mengingat ke mana uangnya dikirim, meski rekeningnya kemudian
+berubah), dan ia yang punya alur verifikasi.
+
+**`supplier_bank_account` hari ini efektif konfigurasi/presentasi**: nol rujukan
+masuk, dan gunanya menjawab "rekening supplier ini apa" di layar supplier dan
+saat mencetak giro.
+
+Konsolidasi nanti butuh, berurutan: (1) keputusan pemilik tentang mana yang
+kanon; (2) memindahkan enkripsi + verifikasi ke pemenangnya — menghapus enkripsi
+adalah kemunduran keamanan, jadi arah yang masuk akal adalah 0221 luruh ke 0151;
+(3) `bank_id` di `payment_destination` menggantikan `bank_code` teks; (4) layar
+supplier dan pencetakan giro dialihkan; (5) migrasi data dengan pencocokan
+`(supplier, digit nomor)`. **Tak satu pun dikerjakan sekarang**, dan tak ada
+penghapusan destruktif.
