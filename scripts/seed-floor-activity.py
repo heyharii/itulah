@@ -270,6 +270,20 @@ def seed_edge_sales(db: Db, rng: random.Random, wanted: int) -> None:
         print("no shop has a registered sync origin — skipping edge sales")
         return
 
+    # The rate the book in force charges at, read rather than assumed. A till
+    # writes the tax it actually took on every sale (`edge_sale.tax_total_minor`
+    # and the line's own `tax_minor`), and since 0276 a day's posting uses those
+    # recorded figures instead of extracting VAT from a rate. Seeding them NULL
+    # is not "no tax": it is "this till did not say", which sends the whole day
+    # back to the rate and leaves the recorded path unexercised in dev.
+    rate_bps = db.one(
+        """
+        SELECT MAX(tr.rate_bps) FROM commercial_tax_rule tr
+          JOIN commercial_publication p ON p.id = tr.publication_id
+         WHERE p.version = (SELECT MAX(version) FROM commercial_publication)
+        """
+    )
+    rate_bps = int(rate_bps) if str(rate_bps).strip().isdigit() else 0
     rules = [r[0] for r in db.rows("SELECT rule_id FROM commercial_rule ORDER BY rule_id")]
     campaigns = {r[0]: r[1] for r in db.rows("SELECT campaign_id, name FROM commercial_campaign ORDER BY campaign_id")}
     coupons = [r[0] for r in db.rows("SELECT code FROM commercial_coupon WHERE active ORDER BY code")]
@@ -309,35 +323,58 @@ def seed_edge_sales(db: Db, rng: random.Random, wanted: int) -> None:
             total = price - benefit
             occurred = datetime.fromisoformat(sold_at)
 
+            # Tax-inclusive, and rounded once per sale — which is exactly the
+            # granularity the difference between recorded and recomputed tax
+            # lives at, because the posting rounds once per tender bucket.
+            tax = (total * rate_bps) // (10_000 + rate_bps) if rate_bps else 0
             sales.append(
                 (sale_id, origin_id, 1, seq, rid(f"edge-group:{sale_id}"), site_id,
                  f"{site_id}-till", occurred, "IDR", total, total, 0, occurred,
                  benefit, total // 10000,
-                 None, rng.choice(members) if members and rng.random() < 0.45 else None)
+                 None, rng.choice(members) if members and rng.random() < 0.45 else None,
+                 total - tax, tax)
             )
             lines.append(
                 (sale_id, subject_id, epc, sku_code, 1, total, total,
-                 "PUBLICATION", None, price, None)
+                 "PUBLICATION", None, price, None, total - tax, tax)
             )
             if rule:
                 promotions.append((sale_id, rule, campaign, coupon, benefit))
-            tenders.append(
-                (sale_id, 1, rng.choices(["CASH", "CARD", "QRIS", "VOUCHER"],
-                                         weights=[36, 30, 30, 4])[0], total, None)
-            )
+            # A card or a QRIS tender names WHO WILL PAY US, because that is
+            # what the till records and what the day's posting resolves its
+            # receivable and its income account by (`qualifiers_for` in
+            # `domain::sales_posting`). Seeding them bare left every seeded day
+            # unpostable: "no account is mapped for 'revenue_debit' at
+            # store-01", because the map is per acquirer and the tender named
+            # none. Cash and vouchers need no narrowing -- cash is cash.
+            method = rng.choices(
+                ["CASH", "CARD", "QRIS", "VOUCHER"], weights=[36, 30, 30, 4]
+            )[0]
+            acquirer = card_kind = None
+            if method == "CARD":
+                card_kind = rng.choices(["DEBIT", "CREDIT"], weights=[70, 30])[0]
+                acquirer = (
+                    rng.choice(["BCA", "MANDIRI"])
+                    if card_kind == "DEBIT"
+                    else rng.choice(["VISA", "MASTER"])
+                )
+            elif method == "QRIS":
+                acquirer = rng.choice(["BCA", "GOPAY", "OVO", "DANA", "SHOPEEPAY"])
+            tenders.append((sale_id, 1, method, total, None, acquirer, card_kind))
 
     db.copy(
         "edge_sale",
         ["sale_id", "origin_id", "generation", "seq", "movement_group_id", "site_id",
          "actor_id", "occurred_at", "currency", "total_minor", "paid_minor", "change_minor",
-         "received_at", "discount_total_minor", "points_earned", "pricing_trace_id", "customer_id"],
+         "received_at", "discount_total_minor", "points_earned", "pricing_trace_id", "customer_id",
+         "net_ex_tax_minor", "tax_total_minor"],
         sales,
     )
     db.copy(
         "edge_sale_line",
         ["sale_id", "subject_id", "epc", "sku_code", "quantity", "unit_price_minor",
          "line_total_minor", "price_source", "publication_version", "base_unit_price_minor",
-         "markdown_id"],
+         "markdown_id", "net_ex_tax_minor", "tax_minor"],
         lines,
     )
     db.copy(
@@ -347,7 +384,8 @@ def seed_edge_sales(db: Db, rng: random.Random, wanted: int) -> None:
     )
     db.copy(
         "edge_sale_tender",
-        ["sale_id", "tender_seq", "method", "amount_minor", "reference"],
+        ["sale_id", "tender_seq", "method", "amount_minor", "reference",
+         "acquirer", "card_kind"],
         tenders,
     )
     print(f"  {len(sales)} edge sales from {len(origins)} shops, {len(promotions)} carrying an offer")

@@ -469,9 +469,20 @@ def seed_sales(db: Db, publication: str, version: int, rng: random.Random,
                 )
 
             method = rng.choices(["CASH", "CARD", "QRIS", "OTHER"], weights=[34, 30, 33, 3])[0]
+            # Who will pay us. A day's posting resolves both the receivable and
+            # the income account per acquirer, so a card payment that names none
+            # asks the map for an unqualified `revenue_debit` and the day cannot
+            # be posted at all. `classify_card` reads a network name as a credit
+            # card and anything else as debit, which is why these are the names
+            # the client's own chart keeps accounts for.
+            acquirer = None
+            if method == "CARD":
+                acquirer = rng.choice(["BCA", "MANDIRI", "VISA", "MASTER"])
+            elif method == "QRIS":
+                acquirer = rng.choice(["BCA", "GOPAY", "OVO", "DANA", "SHOPEEPAY"])
             payment_rows.append(
                 (rid(f"pay:{sale_id}"), sale_id, method, gross, None,
-                 f"{site}-till", f"seed-pay:{sale_id}", sold_at)
+                 f"{site}-till", f"seed-pay:{sale_id}", sold_at, acquirer)
             )
 
             # The stock this receipt took away. One group per shop per day, so
@@ -526,7 +537,7 @@ def seed_sales(db: Db, publication: str, version: int, rng: random.Random,
         db.copy(
             "sale_payment",
             ["id", "sale_id", "method", "amount_minor", "reference", "actor_id",
-             "idempotency_key", "recorded_at"],
+             "idempotency_key", "recorded_at", "acquirer"],
             payment_rows[start:start + 20000],
         )
     for start in range(0, len(movement_rows), 20000):
