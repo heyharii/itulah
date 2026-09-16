@@ -211,8 +211,13 @@ async fn the_authority_posted(pool: &PgPool, day: u32, gross_minor: i64) -> Uuid
         "INSERT INTO sales_posting
            (posting_id, site_id, business_date, status, gross_minor, settled_minor,
             discount_minor, returns_minor, vat_minor, revenue_minor, sale_count,
-            vat_rate_bps, generated_by, journal_entry_id, posted_at, posted_by)
-         VALUES ($1,$2,$3,'POSTED',$4,$4,0,0,0,$4,1,1100,$5,$6,now(),$5)",
+            vat_rate_bps, generated_by, journal_entry_id, posted_at, posted_by,
+            -- A day of nought tax, so the rate's answer is nought too and
+            -- saying so costs nothing. 0276 keeps this column NOT NULL rather
+            -- than defaulting it: a default would let a document claim the two
+            -- authorities agreed on a day nobody ever compared.
+            vat_source, vat_recomputed_minor)
+         VALUES ($1,$2,$3,'POSTED',$4,$4,0,0,0,$4,1,1100,$5,$6,now(),$5,'RATE',0)",
     )
     .bind(Uuid::new_v4())
     .bind(SHOP)

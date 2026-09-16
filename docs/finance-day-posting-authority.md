@@ -69,8 +69,13 @@ selisih                     10.850   (0,0008%)
 Jadi bukan salah tarif — pembulatan per-penjualan yang menumpuk, karena
 `sales_posting` membulatkan sekali per keranjang tender sementara struk
 membulatkan per penjualan. Angka tercatat tetap sumber yang lebih benar.
-**Tidak diubah di sini**, karena mengubahnya mengubah angka dan itu keputusan
-tersendiri. Tercatat sebagai tindak lanjut.
+
+**Sudah diambil, di commit berikutnya.** Migrasi `0276` dan audit di
+`docs/finance-sales-tax-source.md`: hari yang seluruh sumbernya mencatat pajak
+diposting dari angka tercatat (`vat_source = 'RECORDED'`), hari yang tidak tetap
+memakai tarif seperti sebelumnya (`'RATE'`), tak pernah campuran, dan hitungan
+tarif disimpan berdampingan sebagai validasi. Tidak ada angka yang berubah pada
+hari yang sumbernya memang tak mencatat pajak.
 
 **Fee acquirer per hari.** Bukan kehilangan: fee milik settlement, bukan milik
 hari. Acquirer membayar belakangan dan neto (0135), dan `acquirer_settlement`

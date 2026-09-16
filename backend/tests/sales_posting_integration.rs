@@ -363,12 +363,7 @@ async fn a_mixed_day_becomes_one_balanced_entry(pool: PgPool) {
     // silently off the sale.
     assert_eq!(balance(&pool, "4010213001").await.0, 111_000);
     // And income in four places, because that is how the client reads it.
-    for code in [
-        "4010110001",
-        "4010111001",
-        "4010112001",
-        "4010114001",
-    ] {
+    for code in ["4010110001", "4010111001", "4010112001", "4010114001"] {
         assert!(
             balance(&pool, code).await.1 > 0,
             "{code} should carry this day's income"
@@ -1182,4 +1177,378 @@ async fn a_retender_moves_the_debt_to_the_acquirer_that_took_it(pool: PgPool) {
         day(),
         "the debt is as old as the sale"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Whose tax the day posts
+// ---------------------------------------------------------------------------
+//
+// A receipt is a transaction that happened: the tax on it was quoted from the
+// product's own category on the book that priced it, and the customer paid it.
+// Extracting a day's tax from a rate instead replaces that with an inference,
+// and the two do not agree — measured over 21,829 real sales, by Rp 10,850.
+// See `docs/finance-sales-tax-source.md`.
+
+/// The tax a till recorded on a sale it synced up.
+///
+/// `edge_sale.tax_total_minor` is nullable and NULL there means UNKNOWN — a
+/// basket priced with no book in force — so a fixture that wants a recorded day
+/// has to say so, which is exactly what a real till does.
+async fn recorded_tax(pool: &PgPool, tender_id: Uuid, tax_minor: i64) {
+    // `synced_sale` hands back the TENDER's id, so the sale is reached through
+    // it rather than guessed at.
+    let updated = sqlx::query(
+        "UPDATE edge_sale s
+            SET tax_total_minor = $2, net_ex_tax_minor = s.total_minor - $2
+           FROM edge_sale_tender t
+          WHERE t.tender_id = $1 AND s.sale_id = t.sale_id",
+    )
+    .bind(tender_id)
+    .bind(tax_minor)
+    .execute(pool)
+    .await
+    .unwrap_or_else(|error| panic!("recorded tax: {error}"));
+    assert_eq!(updated.rows_affected(), 1, "no sale behind that tender");
+}
+
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_day_posts_the_tax_its_tills_recorded(pool: PgPool) {
+    seed_chart(&pool).await;
+    map_everything(&pool).await;
+    open_september(&pool).await;
+    let sale = synced_sale(&pool, midday(), 1_110_000, 0, 0, "CASH", None, None).await;
+    recorded_tax(&pool, sale, 110_000).await;
+
+    let document = cloud::sales_posting_generate(&pool, &ask(), ACTOR)
+        .await
+        .unwrap_or_else(|error| panic!("generate: {error}"));
+    assert_eq!(document.posting.vat_source, "RECORDED");
+    assert_eq!(document.posting.vat_minor, 110_000);
+    assert_eq!(document.posting.vat_recorded_minor, Some(110_000));
+    // The rate agrees here, and the column says so rather than leaving a reader
+    // to work out whether it was ever checked.
+    assert_eq!(document.posting.vat_recomputed_minor, 110_000);
+    assert_eq!(document.posting.revenue_minor, 1_000_000);
+
+    cloud::sales_posting_post(&pool, document.posting.posting_id, ACTOR)
+        .await
+        .unwrap_or_else(|error| panic!("post: {error}"));
+    assert_eq!(balance(&pool, "2012101003").await.1, 110_000);
+    assert_eq!(balance(&pool, "4010110001").await.1, 1_000_000);
+}
+
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn per_sale_rounding_is_posted_rather_than_rounded_again_per_bucket(pool: PgPool) {
+    seed_chart(&pool).await;
+    map_everything(&pool).await;
+    open_september(&pool).await;
+    // Three small sales, each rounded on its own receipt: 100 inclusive of 11%
+    // is 9.909 of tax, and the receipt keeps 9. The same three as one bucket of
+    // 300 comes to 29.7, which rounds to 29. That two-rupiah gap IS the whole
+    // difference between the two authorities, scaled down to where it can be
+    // read: the rate is not wrong, the rounding happens somewhere else.
+    for _ in 0..3 {
+        let sale = synced_sale(&pool, midday(), 100, 0, 0, "CASH", None, None).await;
+        recorded_tax(&pool, sale, 9).await;
+    }
+
+    let document = cloud::sales_posting_generate(&pool, &ask(), ACTOR)
+        .await
+        .unwrap_or_else(|error| panic!("generate: {error}"));
+    assert_eq!(document.posting.vat_source, "RECORDED");
+    assert_eq!(
+        document.posting.vat_minor, 27,
+        "what the three receipts say"
+    );
+    assert_eq!(
+        document.posting.vat_recomputed_minor, 29,
+        "what the rate would have said, kept beside it"
+    );
+    assert_eq!(document.posting.revenue_minor, 300 - 27);
+
+    cloud::sales_posting_post(&pool, document.posting.posting_id, ACTOR)
+        .await
+        .unwrap_or_else(|error| panic!("post: {error}"));
+    // Posted, not merely recorded on the document.
+    assert_eq!(balance(&pool, "2012101003").await.1, 27);
+    assert_eq!(balance(&pool, "4010110001").await.1, 273);
+    let trial = cloud::trial_balance(
+        &pool,
+        cloud::TrialBalanceScope {
+            as_of: Some(day()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap_or_else(|error| panic!("trial balance: {error}"));
+    assert!(trial.balanced, "the allocation still sums back to the day");
+}
+
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_refund_unwinds_the_tax_the_line_was_sold_with(pool: PgPool) {
+    seed_chart(&pool).await;
+    map_everything(&pool).await;
+    open_september(&pool).await;
+    let sale = synced_sale(&pool, midday(), 1_110_000, 0, 0, "CASH", None, None).await;
+    recorded_tax(&pool, sale, 110_000).await;
+    // Sold on an older book at 10%: 1,100 carrying 100 of tax. Today's rate
+    // would unwind 109 of it. The line says 100, and the line is what the
+    // customer was charged.
+    a_refund_of_a_recorded_line(&pool, 1_100, 100).await;
+
+    let document = cloud::sales_posting_generate(&pool, &ask(), ACTOR)
+        .await
+        .unwrap_or_else(|error| panic!("generate: {error}"));
+    assert_eq!(document.posting.vat_source, "RECORDED");
+    assert_eq!(document.posting.returns_minor, 1_100);
+    assert_eq!(
+        document.posting.vat_minor,
+        110_000 - 100,
+        "the tax that was taken, less the tax that was given back"
+    );
+    assert_eq!(
+        document.posting.vat_recomputed_minor,
+        110_000 - 109,
+        "the rate's answer, kept for comparison only"
+    );
+    assert_eq!(document.posting.revenue_minor, 1_000_000 - (1_100 - 100));
+
+    cloud::sales_posting_post(&pool, document.posting.posting_id, ACTOR)
+        .await
+        .unwrap_or_else(|error| panic!("post: {error}"));
+    assert_eq!(balance(&pool, "2012101003").await.1, 110_000 - 100);
+    assert_eq!(balance(&pool, "4010214001").await.0, 1_000);
+}
+
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_recorded_day_generates_the_same_figures_however_often_it_is_replayed(pool: PgPool) {
+    seed_chart(&pool).await;
+    map_everything(&pool).await;
+    open_september(&pool).await;
+    let sale = synced_sale(&pool, midday(), 1_110_000, 0, 0, "CASH", None, None).await;
+    recorded_tax(&pool, sale, 110_000).await;
+    a_refund_of_a_recorded_line(&pool, 1_100, 100).await;
+
+    let first = cloud::sales_posting_generate(&pool, &ask(), ACTOR)
+        .await
+        .unwrap_or_else(|error| panic!("generate: {error}"));
+    let again = cloud::sales_posting_generate(&pool, &ask(), ACTOR)
+        .await
+        .unwrap_or_else(|error| panic!("regenerate: {error}"));
+    assert_eq!(first.posting.posting_id, again.posting.posting_id);
+    assert_eq!(first.posting.vat_source, again.posting.vat_source);
+    assert_eq!(first.posting.vat_minor, again.posting.vat_minor);
+    assert_eq!(
+        first.posting.vat_recorded_minor,
+        again.posting.vat_recorded_minor
+    );
+    assert_eq!(
+        first.posting.vat_recomputed_minor,
+        again.posting.vat_recomputed_minor
+    );
+
+    cloud::sales_posting_post(&pool, again.posting.posting_id, ACTOR)
+        .await
+        .unwrap_or_else(|error| panic!("post: {error}"));
+    let posted = cloud::sales_posting_detail(&pool, again.posting.posting_id)
+        .await
+        .unwrap_or_else(|error| panic!("read: {error}"));
+    assert_eq!(posted.posting.status, "POSTED");
+    assert_eq!(posted.posting.vat_minor, first.posting.vat_minor);
+    assert_eq!(posted.posting.vat_source, "RECORDED");
+    // Posting is what makes the day unrepeatable; nothing about reading the
+    // recorded tax made it repeatable by accident.
+    let refused = cloud::sales_posting_generate(&pool, &ask(), ACTOR).await;
+    assert!(refused.is_err(), "a posted day cannot be generated over");
+}
+
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn one_till_that_recorded_no_tax_takes_the_whole_day_back_to_the_rate(pool: PgPool) {
+    seed_chart(&pool).await;
+    map_everything(&pool).await;
+    open_september(&pool).await;
+    let recorded = synced_sale(&pool, midday(), 1_110_000, 0, 0, "CASH", None, None).await;
+    recorded_tax(&pool, recorded, 110_000).await;
+    // A basket priced with no book in force. NULL is not nought, and half a day
+    // of receipts plus half a day of arithmetic is a figure nobody can defend —
+    // so the whole day goes back to the rate and says so.
+    synced_sale(&pool, midday(), 1_110_000, 0, 0, "CASH", None, None).await;
+
+    let document = cloud::sales_posting_generate(&pool, &ask(), ACTOR)
+        .await
+        .unwrap_or_else(|error| panic!("generate: {error}"));
+    assert_eq!(document.posting.vat_source, "RATE");
+    assert_eq!(document.posting.vat_recorded_minor, None);
+    assert_eq!(document.posting.vat_minor, 220_000);
+    assert_eq!(
+        document.posting.vat_recomputed_minor,
+        document.posting.vat_minor
+    );
+}
+
+/// A return the ledger can trace: a central sale, its line, and a return line
+/// pointing back at it.
+///
+/// `sale_return_line.sale_line_id` is NOT NULL and references `sale_line`, so
+/// this is the only shape a return with traceable tax can have. The sale is
+/// dated an earlier day on purpose — what is under test is the refund, and a
+/// refund of something sold under a different book is the case the rate gets
+/// wrong.
+async fn a_refund_of_a_recorded_line(pool: &PgPool, refund_minor: i64, tax_minor: i64) {
+    let publication: Uuid =
+        sqlx::query("SELECT id FROM commercial_publication ORDER BY version DESC LIMIT 1")
+            .fetch_one(pool)
+            .await
+            .unwrap_or_else(|error| panic!("publication: {error}"))
+            .try_get("id")
+            .unwrap_or_else(|error| panic!("publication id: {error}"));
+
+    let article = Uuid::new_v4();
+    sqlx::query("INSERT INTO article (id, article_code, name) VALUES ($1,'ART-RET','Kaos')")
+        .bind(article)
+        .execute(pool)
+        .await
+        .unwrap_or_else(|error| panic!("article: {error}"));
+    let sku = Uuid::new_v4();
+    sqlx::query("INSERT INTO sku (id, article_id, sku_code) VALUES ($1,$2,'RET-01-M')")
+        .bind(sku)
+        .bind(article)
+        .execute(pool)
+        .await
+        .unwrap_or_else(|error| panic!("sku: {error}"));
+    let subject = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO inventory_subject (id, subject_type, sku_id, quantity, uom)
+         VALUES ($1,'QUANTITY',$2,1,'EA')",
+    )
+    .bind(subject)
+    .bind(sku)
+    .execute(pool)
+    .await
+    .unwrap_or_else(|error| panic!("subject: {error}"));
+
+    let group = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO movement_group
+           (id, cause, reason, actor_id, idempotency_key, payload_digest, occurred_at)
+         VALUES ($1,'SALE','a sale','kasir',$2,'digest',now())",
+    )
+    .bind(group)
+    .bind(Uuid::new_v4().to_string())
+    .execute(pool)
+    .await
+    .unwrap_or_else(|error| panic!("group: {error}"));
+
+    let sale = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO sale
+           (id, sale_number, site_id, channel, status, commercial_publication_id,
+            commercial_version, currency, net_minor, tax_minor, total_minor, paid_minor,
+            change_minor, movement_group_id, actor_id, idempotency_key, created_at,
+            completed_at)
+         VALUES ($1,'S-RET',$2,'STORE','OPEN',$3,1,'IDR',$4,$5,$6,$6,0,$7,'kasir',$8,
+                 '2026-09-01T05:00:00Z',NULL)",
+    )
+    .bind(sale)
+    .bind(SITE)
+    .bind(publication)
+    .bind(refund_minor - tax_minor)
+    .bind(tax_minor)
+    .bind(refund_minor)
+    .bind(group)
+    .bind(Uuid::new_v4().to_string())
+    .execute(pool)
+    .await
+    .unwrap_or_else(|error| panic!("sale: {error}"));
+
+    let sale_line = Uuid::new_v4();
+    sqlx::query(
+        // 10%, and inclusive: the book this was sold under, not the one in
+        // force now.
+        "INSERT INTO sale_line
+           (id, sale_id, subject_id, sku_id, quantity, unit_price_minor, net_minor,
+            tax_minor, total_minor, currency, tax_category, tax_rate_bps, tax_inclusive,
+            commercial_publication_id, commercial_version, price_snapshot_digest,
+            actor_id, idempotency_key)
+         VALUES ($1,$2,$3,$4,1,$5,$6,$7,$5,'IDR','STANDARD',1000,true,$8,1,'digest',
+                 'kasir',$9)",
+    )
+    .bind(sale_line)
+    .bind(sale)
+    .bind(subject)
+    .bind(sku)
+    .bind(refund_minor)
+    .bind(refund_minor - tax_minor)
+    .bind(tax_minor)
+    .bind(publication)
+    .bind(Uuid::new_v4().to_string())
+    .execute(pool)
+    .await
+    .unwrap_or_else(|error| panic!("sale line: {error}"));
+
+    // A sale takes its lines while it is OPEN and is completed after — the
+    // same order the till writes in, and a trigger holds it to that.
+    sqlx::query(
+        "UPDATE sale SET status = 'COMPLETED', completed_at = '2026-09-01T05:00:00Z'
+          WHERE id = $1",
+    )
+    .bind(sale)
+    .execute(pool)
+    .await
+    .unwrap_or_else(|error| panic!("complete: {error}"));
+
+    let refund_group = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO movement_group
+           (id, cause, reason, actor_id, idempotency_key, payload_digest, occurred_at)
+         VALUES ($1,'CUSTOMER_RETURN','a return','kasir',$2,'digest',now())",
+    )
+    .bind(refund_group)
+    .bind(Uuid::new_v4().to_string())
+    .execute(pool)
+    .await
+    .unwrap_or_else(|error| panic!("refund group: {error}"));
+
+    let return_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO sale_return
+           (id, return_number, sale_id, site_id, reason, refund_total_minor,
+            movement_group_id, actor_id, idempotency_key, created_at)
+         VALUES ($1,'R-RET',$2,$3,'did not fit',$4,$5,'kasir',$6,'2026-09-15T05:00:00Z')",
+    )
+    .bind(return_id)
+    .bind(sale)
+    .bind(SITE)
+    .bind(refund_minor)
+    .bind(refund_group)
+    .bind(Uuid::new_v4().to_string())
+    .execute(pool)
+    .await
+    .unwrap_or_else(|error| panic!("return: {error}"));
+
+    sqlx::query(
+        "INSERT INTO sale_return_line
+           (id, return_id, sale_line_id, subject_id, sku_id, quantity, refund_minor, restock)
+         VALUES ($1,$2,$3,$4,$5,1,$6,true)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(return_id)
+    .bind(sale_line)
+    .bind(subject)
+    .bind(sku)
+    .bind(refund_minor)
+    .execute(pool)
+    .await
+    .unwrap_or_else(|error| panic!("return line: {error}"));
+
+    sqlx::query(
+        "INSERT INTO sale_return_payment (id, return_id, method, amount_minor, status)
+         VALUES ($1,$2,'CASH',$3,'SUCCEEDED')",
+    )
+    .bind(Uuid::new_v4())
+    .bind(return_id)
+    .bind(refund_minor)
+    .execute(pool)
+    .await
+    .unwrap_or_else(|error| panic!("refund: {error}"));
 }

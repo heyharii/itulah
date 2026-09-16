@@ -52,7 +52,7 @@ use super::payment_ledger;
 use super::poster::{post, reverse, PostingIntent, PostingLine};
 use crate::cloud::application::AppError;
 use crate::cloud::domain::sales_posting::{
-    build, classify_card, CardKind, DayFigures, LedgerSide, TenderBucket,
+    build, classify_card, CardKind, DayFigures, LedgerSide, RecordedVat, TenderBucket,
 };
 use crate::reporting::DEFAULT_UTC_OFFSET_MINUTES;
 use chrono::{DateTime, Duration, NaiveDate, NaiveTime, TimeZone, Utc};
@@ -105,6 +105,14 @@ pub struct SalesPosting {
     pub untendered_minor: i64,
     pub sale_count: i64,
     pub vat_rate_bps: i32,
+    /// `RECORDED` when `vat_minor` is the tax the tills wrote on the receipts,
+    /// `RATE` when no source carried one and `vat_rate_bps` stood in.
+    pub vat_source: String,
+    /// What the sources recorded, net of returns. Null on a `RATE` day.
+    pub vat_recorded_minor: Option<i64>,
+    /// What `vat_rate_bps` says the same day comes to — the validation figure,
+    /// carried on every day so the two are comparable.
+    pub vat_recomputed_minor: i64,
     pub generated_at: DateTime<Utc>,
     pub generated_by: String,
     pub journal_entry_id: Option<Uuid>,
@@ -391,6 +399,116 @@ async fn day_vat_rate_bps(pool: &PgPool) -> Result<i32, AppError> {
     Ok(declared.unwrap_or(FALLBACK_VAT_RATE_BPS))
 }
 
+/// The tax the day's own documents recorded, when all of them did.
+///
+/// Three readings, and the day is only `Some` if none of them has a hole in it:
+///
+///   * `sale.tax_minor` is NOT NULL and comes from `commercial_tax_rule` for
+///     the product's own tax category on the publication that priced the line
+///     (`sales.rs`), so a central sale always carries its tax;
+///   * `edge_sale.tax_total_minor` is the till's own quote, summed per line,
+///     and is NULL when the basket was priced with no book in force. NULL there
+///     means UNKNOWN, not nought, which is why one such sale takes the whole
+///     day back to the rate;
+///   * a refund carries no tax of its own — `sale_return` has no such column —
+///     so it is taken from the line the thing was SOLD on, scaled by how much
+///     of that line came back. A return whose lines cannot be traced, or whose
+///     lines do not add up to the refund on its head, is a hole.
+///
+/// Returning `None` rather than a partial figure is the point. Half the day
+/// from the receipts and half from a rate is a number nobody can defend.
+async fn read_recorded_vat(
+    pool: &PgPool,
+    site_id: &str,
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+) -> Result<Option<RecordedVat>, AppError> {
+    let central = sqlx::query(
+        "SELECT COALESCE(SUM(tax_minor),0)::bigint AS tax_minor
+           FROM sale
+          WHERE site_id = $1 AND status = 'COMPLETED'
+            AND completed_at >= $2 AND completed_at < $3",
+    )
+    .bind(site_id)
+    .bind(start)
+    .bind(end)
+    .fetch_one(pool)
+    .await?;
+    let central_tax: i64 = central.try_get("tax_minor")?;
+
+    let synced = sqlx::query(
+        // `charge_tax_minor` is added because the fees it taxes are inside the
+        // tenders this day is posted from: `paid - change` comes to
+        // `total + charges`. Leaving it out would post the tax of the goods
+        // against the takings of the goods AND the fees.
+        "SELECT COUNT(*) FILTER (WHERE tax_total_minor IS NULL)::bigint AS unrecorded,
+                (COALESCE(SUM(tax_total_minor),0)
+                 + COALESCE(SUM(charge_tax_minor),0))::bigint AS tax_minor
+           FROM edge_sale
+          WHERE site_id = $1 AND occurred_at >= $2 AND occurred_at < $3",
+    )
+    .bind(site_id)
+    .bind(start)
+    .bind(end)
+    .fetch_one(pool)
+    .await?;
+    let unrecorded_sales: i64 = synced.try_get("unrecorded")?;
+    let synced_tax: i64 = synced.try_get("tax_minor")?;
+
+    let returned = sqlx::query(
+        "WITH returned_line AS (
+             SELECT r.id AS return_id,
+                    rl.refund_minor,
+                    COALESCE(sl.tax_minor, esl.tax_minor) AS line_tax_minor,
+                    COALESCE(sl.total_minor, esl.line_total_minor) AS line_total_minor
+               FROM sale_return r
+               JOIN sale_return_line rl ON rl.return_id = r.id
+               LEFT JOIN sale_line sl ON sl.id = rl.sale_line_id
+               LEFT JOIN edge_sale_line esl
+                      ON esl.sale_id = r.sale_id AND esl.subject_id = rl.subject_id
+              WHERE r.site_id = $1 AND r.created_at >= $2 AND r.created_at < $3
+         ), per_return AS (
+             SELECT r.id,
+                    r.refund_total_minor,
+                    COALESCE(SUM(l.refund_minor),0)::bigint AS lines_refund_minor,
+                    COUNT(*) FILTER (
+                        WHERE l.line_tax_minor IS NULL OR COALESCE(l.line_total_minor,0) <= 0
+                    )::bigint AS unresolved_lines,
+                    COALESCE(SUM(
+                        CASE WHEN l.line_tax_minor IS NOT NULL AND l.line_total_minor > 0
+                             THEN (l.line_tax_minor::numeric * l.refund_minor
+                                   / l.line_total_minor)::bigint
+                             ELSE 0 END
+                    ),0)::bigint AS tax_minor
+               FROM sale_return r
+               LEFT JOIN returned_line l ON l.return_id = r.id
+              WHERE r.site_id = $1 AND r.created_at >= $2 AND r.created_at < $3
+              GROUP BY r.id, r.refund_total_minor
+         )
+         SELECT COALESCE(SUM(tax_minor),0)::bigint AS tax_minor,
+                COUNT(*) FILTER (
+                    WHERE unresolved_lines > 0
+                       OR lines_refund_minor <> refund_total_minor
+                )::bigint AS unresolved_returns
+           FROM per_return",
+    )
+    .bind(site_id)
+    .bind(start)
+    .bind(end)
+    .fetch_one(pool)
+    .await?;
+    let unresolved_returns: i64 = returned.try_get("unresolved_returns")?;
+    let returned_tax: i64 = returned.try_get("tax_minor")?;
+
+    if unrecorded_sales > 0 || unresolved_returns > 0 {
+        return Ok(None);
+    }
+    Ok(Some(RecordedVat {
+        taken_minor: central_tax + synced_tax,
+        returned_minor: returned_tax,
+    }))
+}
+
 struct DayReading {
     figures: DayFigures,
     gross_minor: i64,
@@ -566,12 +684,15 @@ async fn read_day(
     let expected = gross + change;
     let untendered = (expected - tendered).max(0);
 
+    let recorded_vat = read_recorded_vat(pool, site_id, start, end).await?;
+
     Ok(DayReading {
         figures: DayFigures {
             buckets: buckets.into_vec(untendered - change)?,
             discount_minor: discount,
             returns_minor: returns,
             vat_rate_bps: day_vat_rate_bps(pool).await?,
+            recorded_vat,
         },
         gross_minor: gross,
         untendered_minor: untendered,
@@ -586,7 +707,8 @@ async fn read_day(
 const POSTING_COLUMNS: &str = "p.posting_id, p.site_id, p.business_date, p.status,
      p.currency::text AS currency, p.gross_minor, p.settled_minor, p.discount_minor,
      p.returns_minor, p.vat_minor, p.revenue_minor, p.untendered_minor, p.sale_count,
-     p.vat_rate_bps::int AS vat_rate_bps, p.generated_at, p.generated_by,
+     p.vat_rate_bps::int AS vat_rate_bps, p.vat_source, p.vat_recorded_minor,
+     p.vat_recomputed_minor, p.generated_at, p.generated_by,
      p.journal_entry_id, e.entry_number, p.posted_at, p.posted_by,
      p.reversal_entry_id, p.reversed_at, p.reversed_by, p.reversal_reason";
 
@@ -606,6 +728,9 @@ fn to_posting(row: &sqlx::postgres::PgRow) -> Result<SalesPosting, AppError> {
         untendered_minor: row.try_get("untendered_minor")?,
         sale_count: row.try_get("sale_count")?,
         vat_rate_bps: row.try_get("vat_rate_bps")?,
+        vat_source: row.try_get("vat_source")?,
+        vat_recorded_minor: row.try_get("vat_recorded_minor")?,
+        vat_recomputed_minor: row.try_get("vat_recomputed_minor")?,
         generated_at: row.try_get("generated_at")?,
         generated_by: row.try_get("generated_by")?,
         journal_entry_id: row.try_get("journal_entry_id")?,
@@ -752,8 +877,9 @@ pub async fn sales_posting_generate(
         "INSERT INTO sales_posting
            (posting_id, site_id, business_date, status, gross_minor, settled_minor,
             discount_minor, returns_minor, vat_minor, revenue_minor, untendered_minor,
-            sale_count, vat_rate_bps, generated_by)
-         VALUES ($1,$2,$3,'DRAFT',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+            sale_count, vat_rate_bps, generated_by,
+            vat_source, vat_recorded_minor, vat_recomputed_minor)
+         VALUES ($1,$2,$3,'DRAFT',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
          ON CONFLICT (site_id, business_date) DO UPDATE SET
              gross_minor = EXCLUDED.gross_minor,
              settled_minor = EXCLUDED.settled_minor,
@@ -764,6 +890,9 @@ pub async fn sales_posting_generate(
              untendered_minor = EXCLUDED.untendered_minor,
              sale_count = EXCLUDED.sale_count,
              vat_rate_bps = EXCLUDED.vat_rate_bps,
+             vat_source = EXCLUDED.vat_source,
+             vat_recorded_minor = EXCLUDED.vat_recorded_minor,
+             vat_recomputed_minor = EXCLUDED.vat_recomputed_minor,
              generated_at = now(),
              generated_by = EXCLUDED.generated_by,
              -- A regenerated day is a draft again, whatever it was. On a
@@ -797,6 +926,9 @@ pub async fn sales_posting_generate(
     .bind(reading.sale_count)
     .bind(reading.figures.vat_rate_bps)
     .bind(actor)
+    .bind(posting.vat_source)
+    .bind(posting.vat_recorded_minor)
+    .bind(posting.vat_recomputed_minor)
     .execute(&mut *tx)
     .await?;
 

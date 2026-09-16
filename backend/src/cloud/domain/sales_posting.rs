@@ -165,6 +165,23 @@ pub struct DayFigures {
     pub returns_minor: i64,
     /// The rate the prices were quoted at, in basis points, VAT inclusive.
     pub vat_rate_bps: i32,
+    /// The tax the sources themselves recorded, when every one of them did.
+    ///
+    /// `None` is not "no tax": it is a day where at least one till recorded
+    /// none, or a return whose lines could not be traced back to what they
+    /// were sold as. On such a day the rate above stands in, which is what
+    /// this rule did for every day before 0276. Never half of each — a day is
+    /// posted from one authority or the other, and the document says which.
+    pub recorded_vat: Option<RecordedVat>,
+}
+
+/// What the sale rows and the returned lines recorded as tax, in the window.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RecordedVat {
+    /// PPN inside the day's sales, as the tills wrote it.
+    pub taken_minor: i64,
+    /// PPN inside what went back, taken from the lines it was sold on.
+    pub returned_minor: i64,
 }
 
 /// One side of one posting, named by meaning.
@@ -226,6 +243,15 @@ pub struct DayPosting {
     pub revenue_minor: i64,
     /// What the tenders came to, before refunds and net of change given.
     pub receipts_minor: i64,
+    /// `RECORDED` when `vat_minor` is what the sources recorded, `RATE` when
+    /// the rate had to stand in for a source that recorded nothing.
+    pub vat_source: &'static str,
+    /// What the sources recorded, net of returns. `None` on a `RATE` day,
+    /// because on that day there is no such figure.
+    pub vat_recorded_minor: Option<i64>,
+    /// What `vat_rate_bps` says the same day comes to. Posted on a `RATE` day,
+    /// carried as validation on a `RECORDED` one.
+    pub vat_recomputed_minor: i64,
 }
 
 /// Which meanings a bucket resolves to: the asset it became, and the income
@@ -346,6 +372,30 @@ pub fn build(figures: &DayFigures) -> Result<DayPosting, String> {
         }
     }
 
+    let receipts_total: i64 = figures
+        .buckets
+        .iter()
+        .map(|bucket| bucket.receipts_minor)
+        .sum();
+    if let Some(recorded) = &figures.recorded_vat {
+        if recorded.taken_minor < 0 || recorded.returned_minor < 0 {
+            return Err("recorded tax is a positive amount on both sides".to_string());
+        }
+        if recorded.taken_minor > receipts_total {
+            return Err(format!(
+                "the sources recorded {} of tax on takings of {receipts_total}; that is \
+                 not a day, it is a reading of the wrong window",
+                recorded.taken_minor
+            ));
+        }
+        if recorded.returned_minor > figures.returns_minor {
+            return Err(format!(
+                "the returned lines recorded {} of tax against refunds of {}",
+                recorded.returned_minor, figures.returns_minor
+            ));
+        }
+    }
+
     // Resolved before anything is built, so an unpostable method is refused
     // without half an entry to reason about.
     let mut meanings = Vec::with_capacity(figures.buckets.len());
@@ -359,6 +409,28 @@ pub fn build(figures: &DayFigures) -> Result<DayPosting, String> {
         .map(|bucket| bucket.receipts_minor)
         .collect();
     let discounts = allocate(figures.discount_minor, &weights);
+    // What the rate says, kept whatever the day is posted from: on a RECORDED
+    // day this is the validation figure, and a column somebody can query beats
+    // a line in a log nobody reads.
+    let recomputed_taken: i64 = figures
+        .buckets
+        .iter()
+        .map(|bucket| vat_within(bucket.receipts_minor, figures.vat_rate_bps))
+        .sum();
+    let recomputed_returned = vat_within(figures.returns_minor, figures.vat_rate_bps);
+    // A recorded figure is one number for the day and the entry wants one per
+    // bucket, so it is split the same way the discount is: largest remainder,
+    // which sums back to exactly what the tills recorded. Rounding each bucket
+    // at the rate instead is how the recorded total stopped being the posted
+    // total in the first place.
+    let bucket_vat: Vec<i64> = match &figures.recorded_vat {
+        Some(recorded) => allocate(recorded.taken_minor, &weights),
+        None => figures
+            .buckets
+            .iter()
+            .map(|bucket| vat_within(bucket.receipts_minor, figures.vat_rate_bps))
+            .collect(),
+    };
 
     let mut sides: Vec<LedgerSide> = Vec::new();
     let mut outcomes = Vec::with_capacity(figures.buckets.len());
@@ -370,7 +442,7 @@ pub fn build(figures: &DayFigures) -> Result<DayPosting, String> {
     for (index, bucket) in figures.buckets.iter().enumerate() {
         let (asset_key, income_key) = meanings[index];
         let (asset_qualifier, income_qualifier) = qualifiers_for(&bucket.method, &bucket.acquirer);
-        let vat = vat_within(bucket.receipts_minor, figures.vat_rate_bps);
+        let vat = bucket_vat[index];
         let share = discounts[index];
         let income = bucket.receipts_minor - vat + share;
         let net = bucket.receipts_minor - bucket.refunds_minor;
@@ -424,7 +496,10 @@ pub fn build(figures: &DayFigures) -> Result<DayPosting, String> {
         ));
     }
 
-    let vat_returned = vat_within(figures.returns_minor, figures.vat_rate_bps);
+    let vat_returned = match &figures.recorded_vat {
+        Some(recorded) => recorded.returned_minor,
+        None => recomputed_returned,
+    };
     let returns_net = figures.returns_minor - vat_returned;
     if returns_net > 0 {
         sides.push(LedgerSide::debit(
@@ -492,6 +567,16 @@ pub fn build(figures: &DayFigures) -> Result<DayPosting, String> {
         vat_minor: vat,
         revenue_minor: revenue - figures.discount_minor - returns_net,
         receipts_minor: receipts,
+        vat_source: if figures.recorded_vat.is_some() {
+            "RECORDED"
+        } else {
+            "RATE"
+        },
+        vat_recorded_minor: figures
+            .recorded_vat
+            .as_ref()
+            .map(|recorded| recorded.taken_minor - recorded.returned_minor),
+        vat_recomputed_minor: recomputed_taken - recomputed_returned,
     })
 }
 
@@ -518,6 +603,7 @@ mod tests {
             discount_minor: 0,
             returns_minor: 0,
             vat_rate_bps: 1_100,
+            recorded_vat: None,
         };
         let posted = build(&day).unwrap_or_else(|error| panic!("{error}"));
         assert_eq!(posted.total_minor, 1_110_000);
@@ -546,6 +632,7 @@ mod tests {
             discount_minor: 117_000,
             returns_minor: 0,
             vat_rate_bps: 1_100,
+            recorded_vat: None,
         };
         let posted = build(&day).unwrap_or_else(|error| panic!("{error}"));
         let debits: i64 = posted.sides.iter().map(|s| s.debit_minor).sum();
@@ -580,6 +667,7 @@ mod tests {
             discount_minor: 0,
             returns_minor: 111_000,
             vat_rate_bps: 1_100,
+            recorded_vat: None,
         };
         let posted = build(&day).unwrap_or_else(|error| panic!("{error}"));
         assert_eq!(posted.receipts_minor, 1_110_000);
@@ -600,6 +688,7 @@ mod tests {
             // A return document for 50,000 with no refund rows behind it.
             returns_minor: 50_000,
             vat_rate_bps: 1_100,
+            recorded_vat: None,
         };
         let posted = build(&day).unwrap_or_else(|error| panic!("{error}"));
         let rounding = posted
@@ -620,6 +709,7 @@ mod tests {
             discount_minor: 0,
             returns_minor: 0,
             vat_rate_bps: 1_100,
+            recorded_vat: None,
         };
         let refusal = build(&day).err().unwrap_or_else(|| panic!("should refuse"));
         assert!(refusal.contains("OTHER"), "said: {refusal}");

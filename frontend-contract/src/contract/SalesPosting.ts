@@ -25,7 +25,21 @@ revenue_minor: number,
  * Takings no tender accounts for, treated as cash. Zero on a well-formed
  * day; shown because treating it as cash is an assumption.
  */
-untendered_minor: number, sale_count: number, vat_rate_bps: number, generated_at: string, generated_by: string, journal_entry_id: string | null, 
+untendered_minor: number, sale_count: number, vat_rate_bps: number, 
+/**
+ * `RECORDED` when `vat_minor` is the tax the tills wrote on the receipts,
+ * `RATE` when no source carried one and `vat_rate_bps` stood in.
+ */
+vat_source: string, 
+/**
+ * What the sources recorded, net of returns. Null on a `RATE` day.
+ */
+vat_recorded_minor: number | null, 
+/**
+ * What `vat_rate_bps` says the same day comes to — the validation figure,
+ * carried on every day so the two are comparable.
+ */
+vat_recomputed_minor: number, generated_at: string, generated_by: string, journal_entry_id: string | null, 
 /**
  * The entry number, so a list can name the journal without a second
  * fetch.
