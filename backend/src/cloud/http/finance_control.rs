@@ -5,8 +5,8 @@ use crate::cloud::{
     application::{AppError, AppState},
     domain::{role_allows, Role},
     postgres::{
-        self as infrastructure, BalanceSheet, ControlRow, FinanceCloseReadiness, ProfitAndLoss,
-        UnitResult,
+        self as infrastructure, BalanceSheet, ControlRow, FinanceCloseReadiness, LedgerTrace,
+        ProfitAndLoss, UnitResult,
     },
 };
 use axum::{
@@ -131,11 +131,75 @@ pub async fn unit_results(
     ))
 }
 
+#[derive(Debug, Deserialize)]
+pub struct CloseRequest {
+    pub year: i32,
+    pub month: u32,
+    /// Naming a reason is what lets a month close over its own blockers. It is
+    /// kept on the period, because somebody will ask.
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+/// Close the month, or refuse and name what stands in the way.
+pub async fn close_month(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Json(request): Json<CloseRequest>,
+) -> Result<Json<FinanceCloseReadiness>, AppError> {
+    allowed(&principal, Role::Admin, "close a month")?;
+    Ok(Json(
+        infrastructure::finance_close_month(
+            &state.db,
+            request.year,
+            request.month,
+            request.reason.as_deref(),
+            &principal.username,
+        )
+        .await?,
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TraceQuery {
+    pub account: String,
+    pub from: NaiveDate,
+    pub to: NaiveDate,
+    pub site: Option<String>,
+    pub limit: Option<i64>,
+}
+
+/// Report → GL line → journal → subledger → source document.
+pub async fn trace(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Query(query): Query<TraceQuery>,
+) -> Result<Json<Vec<LedgerTrace>>, AppError> {
+    allowed(
+        &principal,
+        Role::Supervisor,
+        "follow a figure to its documents",
+    )?;
+    Ok(Json(
+        infrastructure::ledger_trace(
+            &state.db,
+            &query.account,
+            query.from,
+            query.to,
+            query.site.as_deref(),
+            query.limit.unwrap_or(200),
+        )
+        .await?,
+    ))
+}
+
 pub fn routes(router: Router<AppState>) -> Router<AppState> {
     router
         .route("/api/v1/finance/controls", get(controls))
         .route("/api/v1/finance/close/readiness", get(close_readiness))
         .route("/api/v1/finance/close/soft", post(soft_close))
+        .route("/api/v1/finance/close/month", post(close_month))
+        .route("/api/v1/finance/reports/trace", get(trace))
         .route("/api/v1/finance/reports/balance-sheet", get(balance_sheet))
         .route(
             "/api/v1/finance/reports/profit-and-loss",

@@ -494,3 +494,158 @@ async fn the_balance_sheet_balances_after_a_days_worth_of_movements(pool: PgPool
     assert_eq!(sheet.assets_minor, 30_000_000);
     assert_eq!(sheet.equity_minor, 30_000_000);
 }
+
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_month_with_blockers_does_not_close_without_a_reason(pool: PgPool) {
+    ready(&pool).await;
+    // A prepaid schedule whose month has not been allocated is a blocker, and
+    // the cheapest one to make: a bill that posted, and a plan to consume it.
+    let entry_id = uuid::Uuid::new_v4();
+    let source_id = uuid::Uuid::new_v4().to_string();
+    let mut tx = pool
+        .begin()
+        .await
+        .unwrap_or_else(|error| panic!("begin: {error}"));
+    sqlx::query(
+        "INSERT INTO journal_entry
+           (entry_id, entry_number, posting_date, source_kind, source_id, purpose,
+            rule_version, total_minor, currency, memo, posted_by)
+         VALUES ($1,$2,'2026-09-30','SUPPLIER_INVOICE',$3,'MAIN','bill/1',1200000,'IDR','x',$4)",
+    )
+    .bind(entry_id)
+    .bind(format!("JV-{}", &entry_id.to_string()[..8]))
+    .bind(&source_id)
+    .bind(ACTOR)
+    .execute(&mut *tx)
+    .await
+    .unwrap_or_else(|error| panic!("entry: {error}"));
+    for (index, (code, debit, credit)) in [
+        ("1011301001", 1_200_000_i64, 0_i64),
+        ("2012001001", 0, 1_200_000),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        sqlx::query(
+            "INSERT INTO journal_line
+               (line_id, entry_id, line_number, account_code, site_id, debit_minor, credit_minor)
+             VALUES ($1,$2,$3,$4,$5,$6,$7)",
+        )
+        .bind(uuid::Uuid::new_v4())
+        .bind(entry_id)
+        .bind(index as i32 + 1)
+        .bind(code)
+        .bind(SITE)
+        .bind(debit)
+        .bind(credit)
+        .execute(&mut *tx)
+        .await
+        .unwrap_or_else(|error| panic!("line: {error}"));
+    }
+    tx.commit()
+        .await
+        .unwrap_or_else(|error| panic!("commit: {error}"));
+
+    map(&pool, "prepaid_expense", "", "1011301001").await;
+    cloud::prepaid_schedule_create(
+        &pool,
+        &cloud::CreatePrepaidScheduleRequest {
+            site_id: SITE.into(),
+            prepaid_account_code: "1011301001".into(),
+            expense_account_code: "7010310001".into(),
+            source_kind: "SUPPLIER_INVOICE".into(),
+            source_id,
+            amount_minor: 1_200_000,
+            start_period: NaiveDate::from_ymd_opt(2026, 10, 1).unwrap_or_default(),
+            end_period: NaiveDate::from_ymd_opt(2026, 12, 1).unwrap_or_default(),
+            currency: None,
+            memo: None,
+        },
+        ACTOR,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("schedule: {error}"));
+
+    let readiness = cloud::finance_close_readiness(&pool, 2026, 10)
+        .await
+        .unwrap_or_else(|error| panic!("readiness: {error}"));
+    assert!(
+        readiness.blockers > 0,
+        "an unallocated prepaid month is a blocker: {:?}",
+        readiness.checks
+    );
+
+    let refused = cloud::finance_close_month(&pool, 2026, 10, None, ACTOR)
+        .await
+        .err()
+        .unwrap_or_else(|| panic!("a month with blockers must not close silently"));
+    assert!(
+        refused.to_string().contains("blockers"),
+        "the refusal names them: {refused}"
+    );
+
+    // With a reason, it closes — and the reason stays on the period.
+    let closed = cloud::finance_close_month(&pool, 2026, 10, Some("audit deadline"), ACTOR)
+        .await
+        .unwrap_or_else(|error| panic!("forced close: {error}"));
+    assert_eq!(closed.period_status, "CLOSED");
+    let reason: Option<String> = sqlx::query_scalar(
+        "SELECT closed_over_reason FROM fiscal_period WHERE year = 2026 AND month = 10",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("reason: {error}"));
+    assert!(
+        reason.unwrap_or_default().contains("audit deadline"),
+        "the reason a month was closed over its blockers is kept"
+    );
+}
+
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_figure_can_be_followed_to_the_document_behind_it(pool: PgPool) {
+    ready(&pool).await;
+    let owner = cloud::principal_create(
+        &pool,
+        &CreatePrincipalRequest {
+            code: "OWN1".into(),
+            name: "Ibu Sari".into(),
+            kind: None,
+            note: None,
+        },
+        ACTOR,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("owner: {error}"));
+    cloud::principal_movement(
+        &pool,
+        &PrincipalMovementRequest {
+            principal_id: owner.principal.principal_id,
+            site_id: SITE.into(),
+            kind: "CONTRIBUTION".into(),
+            amount_minor: 10_000_000,
+            posting_date: day(3),
+            cash_key: "bank_giro".into(),
+            cash_qualifier: "BCA".into(),
+            evidence: None,
+            note: None,
+        },
+        ACTOR,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("contribution: {error}"));
+
+    let trace = cloud::ledger_trace(&pool, CAPITAL, day(1), day(30), None, 50)
+        .await
+        .unwrap_or_else(|error| panic!("trace: {error}"));
+    let line = trace
+        .first()
+        .unwrap_or_else(|| panic!("the capital account has a line to follow"));
+    assert_eq!(line.credit_minor, 10_000_000);
+    assert_eq!(line.source_kind, "EQUITY_MOVEMENT");
+    assert_eq!(
+        line.subledger.as_deref(),
+        Some("principal_transaction"),
+        "a reader following a figure is told which subledger holds its document"
+    );
+    assert!(line.source_id.is_some());
+}

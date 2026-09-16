@@ -15,6 +15,7 @@ use serde::Serialize;
 use sqlx::{PgPool, Row};
 
 use crate::cloud::application::AppError;
+use uuid::Uuid;
 
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
@@ -188,6 +189,163 @@ pub async fn finance_controls(
         covered: true,
         note: Some("Setiap piutang antar unit adalah hutang unit lain; totalnya nol.".into()),
     });
+
+    // ── bank ───────────────────────────────────────────────────────────────
+    //
+    // The ledger against the last statement the bank sent. Not against our own
+    // running total of what we posted — that would be the ledger checked
+    // against itself. A difference here is either a posting the bank has not
+    // seen or money the bank saw and nobody booked, which is exactly what a
+    // reconciliation is for.
+    let bank = sqlx::query(
+        "WITH mapped AS (
+             SELECT DISTINCT m.site_id, m.account_code
+               FROM account_map m
+              WHERE m.semantic_key IN ('bank_giro', 'bank_savings')
+         ), latest AS (
+             SELECT DISTINCT ON (s.site_id, s.account_code)
+                    s.site_id, s.account_code, s.closing_minor, s.period_end
+               FROM bank_statement s
+               JOIN mapped ON mapped.site_id = s.site_id
+                          AND mapped.account_code = s.account_code
+              ORDER BY s.site_id, s.account_code, s.period_end DESC
+         )
+         SELECT
+            COALESCE((SELECT SUM(l.debit_minor - l.credit_minor)
+                        FROM journal_line l
+                        JOIN mapped ON mapped.site_id = l.site_id
+                                   AND mapped.account_code = l.account_code), 0)::bigint
+                AS gl_minor,
+            COALESCE((SELECT SUM(closing_minor) FROM latest), 0)::bigint AS subledger_minor,
+            (SELECT COUNT(*) FROM mapped)::bigint AS accounts,
+            (SELECT COUNT(*) FROM latest)::bigint AS with_statement",
+    )
+    .fetch_one(pool)
+    .await?;
+    let bank_gl: i64 = bank.try_get("gl_minor")?;
+    let bank_sub: i64 = bank.try_get("subledger_minor")?;
+    let bank_accounts: i64 = bank.try_get("accounts")?;
+    let with_statement: i64 = bank.try_get("with_statement")?;
+    rows.push(ControlRow {
+        domain: "BANK".into(),
+        label: "Bank".into(),
+        gl_minor: bank_gl,
+        subledger_minor: bank_sub,
+        difference_minor: bank_gl - bank_sub,
+        unmatched: bank_accounts - with_statement,
+        covered: with_statement > 0,
+        note: if with_statement == 0 {
+            Some(
+                "Belum ada rekening koran yang diimpor, jadi belum ada pembanding dari bank."
+                    .into(),
+            )
+        } else if bank_accounts > with_statement {
+            Some(format!(
+                "{} rekening belum punya rekening koran",
+                bank_accounts - with_statement
+            ))
+        } else {
+            None
+        },
+    });
+
+    // ── fixed assets ───────────────────────────────────────────────────────
+    //
+    // The register against the ledger, at cost. Capitalisation is what puts a
+    // figure on an asset — `fixed_asset` carries what the thing IS and the
+    // decision carries what it cost — so the register's total is the sum of
+    // the capitalised costs of everything not yet disposed of.
+    let asset = sqlx::query(
+        "SELECT
+            COALESCE((SELECT SUM(l.debit_minor - l.credit_minor)
+                        FROM journal_line l
+                       WHERE l.account_code IN (
+                             SELECT account_code FROM account_map
+                              WHERE semantic_key = 'fixed_asset')), 0)::bigint AS gl_minor,
+            COALESCE((SELECT SUM(c.capitalized_cost_minor)
+                        FROM asset_capitalization c
+                        JOIN fixed_asset a ON a.asset_id = c.asset_id
+                       WHERE a.disposed_on IS NULL), 0)::bigint AS subledger_minor,
+            COALESCE((SELECT COUNT(*) FROM fixed_asset a
+                       WHERE a.disposed_on IS NULL
+                         AND NOT EXISTS (SELECT 1 FROM asset_capitalization c
+                                          WHERE c.asset_id = a.asset_id)), 0)::bigint
+                AS uncapitalised",
+    )
+    .fetch_one(pool)
+    .await;
+    match asset {
+        Ok(row) => {
+            let gl: i64 = row.try_get("gl_minor")?;
+            let sub: i64 = row.try_get("subledger_minor")?;
+            let uncapitalised: i64 = row.try_get("uncapitalised")?;
+            rows.push(ControlRow {
+                domain: "FIXED_ASSET".into(),
+                label: "Aset tetap".into(),
+                gl_minor: gl,
+                subledger_minor: sub,
+                difference_minor: gl - sub,
+                unmatched: uncapitalised,
+                covered: true,
+                note: if uncapitalised == 0 {
+                    None
+                } else {
+                    Some(format!(
+                        "{uncapitalised} aset terdaftar belum punya keputusan kapitalisasi"
+                    ))
+                },
+            });
+        }
+        Err(_) => rows.push(ControlRow {
+            domain: "FIXED_ASSET".into(),
+            label: "Aset tetap".into(),
+            gl_minor: 0,
+            subledger_minor: 0,
+            difference_minor: 0,
+            unmatched: 0,
+            covered: false,
+            note: Some("register aset belum ada di database ini".into()),
+        }),
+    }
+
+    // ── payroll ────────────────────────────────────────────────────────────
+    //
+    // What the slips say is owed against what the ledger holds. A run that has
+    // been posted and not yet handed over IS the accrual, so the subledger is
+    // the net of its slips.
+    let payroll = sqlx::query(
+        "SELECT
+            COALESCE((SELECT SUM(l.credit_minor - l.debit_minor)
+                        FROM journal_line l
+                       WHERE l.account_code IN (
+                             SELECT account_code FROM account_map
+                              WHERE semantic_key = 'payroll_payable')), 0)::bigint AS gl_minor,
+            COALESCE((SELECT SUM(s.net_minor) FROM payroll_slip s
+                        JOIN payroll_run r ON r.id = s.run_id
+                       WHERE r.state <> 'DRAFT'), 0)::bigint AS subledger_minor,
+            COALESCE((SELECT COUNT(*) FROM payroll_run r WHERE r.state = 'DRAFT'), 0)::bigint
+                AS drafts",
+    )
+    .fetch_one(pool)
+    .await;
+    if let Ok(row) = payroll {
+        let gl: i64 = row.try_get("gl_minor")?;
+        let sub: i64 = row.try_get("subledger_minor")?;
+        rows.push(ControlRow {
+            domain: "PAYROLL".into(),
+            label: "Gaji terutang".into(),
+            gl_minor: gl,
+            subledger_minor: sub,
+            difference_minor: gl - sub,
+            unmatched: row.try_get("drafts")?,
+            covered: true,
+            note: Some(
+                "Slip dari run yang sudah tidak draft; yang sudah dibayarkan mengurangi \
+                 saldo lewat jurnalnya sendiri."
+                    .into(),
+            ),
+        });
+    }
 
     // ── the ones nothing can answer yet ────────────────────────────────────
     rows.push(ControlRow {
@@ -463,4 +621,172 @@ pub async fn period_soft_close(
         ));
     }
     finance_close_readiness(pool, year, month).await
+}
+
+/// Close the month, or say why it cannot be closed.
+///
+/// The readiness check is not advisory here: a month with blockers does not
+/// close unless somebody names a reason, and the reason is kept on the period.
+/// A close that silently went through over its own blockers would make the
+/// check decorative.
+pub async fn finance_close_month(
+    pool: &PgPool,
+    year: i32,
+    month: u32,
+    force_reason: Option<&str>,
+    actor: &str,
+) -> Result<FinanceCloseReadiness, AppError> {
+    let readiness = finance_close_readiness(pool, year, month).await?;
+    if readiness.blockers > 0 {
+        let reason = force_reason
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let Some(reason) = reason else {
+            let named: Vec<&str> = readiness
+                .checks
+                .iter()
+                .filter(|check| check.status == "BLOCKER")
+                .map(|check| check.label.as_str())
+                .collect();
+            return Err(AppError::Conflict(format!(
+                "{} blockers stand in the way of closing {year}-{month:02}: {}. Clear them, \
+                 or close over them with a reason somebody can read later.",
+                readiness.blockers,
+                named.join("; ")
+            )));
+        };
+        // Its own columns (0286), not `reopen_reason`: a reopening is a reason,
+        // a date and a person together, and a period that reads as reopened and
+        // never was is worse than no record at all.
+        sqlx::query(
+            "UPDATE fiscal_period
+                SET closed_over_reason = $3, closed_over_blockers = $4
+              WHERE year = $1 AND month = $2",
+        )
+        .bind(i16::try_from(year).unwrap_or_default())
+        .bind(i16::try_from(month).unwrap_or_default())
+        .bind(reason)
+        .bind(i32::try_from(readiness.blockers).unwrap_or_default())
+        .execute(pool)
+        .await?;
+    }
+
+    // OPEN or SOFT_CLOSED: 0283 added the middle state, and a month is normally
+    // closed FROM it.
+    let done = sqlx::query(
+        "UPDATE fiscal_period
+            SET status = 'CLOSED', closed_by = $3, closed_at = now()
+          WHERE year = $1 AND month = $2 AND status IN ('OPEN', 'SOFT_CLOSED')",
+    )
+    .bind(i16::try_from(year).unwrap_or_default())
+    .bind(i16::try_from(month).unwrap_or_default())
+    .bind(actor)
+    .execute(pool)
+    .await?;
+    if done.rows_affected() == 0 {
+        return Err(AppError::Conflict(format!(
+            "{year}-{month:02} is not a month that can be closed"
+        )));
+    }
+    finance_close_readiness(pool, year, month).await
+}
+
+/// One line of the ledger, with what caused it.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct LedgerTrace {
+    pub line_id: Uuid,
+    pub entry_id: Uuid,
+    pub entry_number: String,
+    pub posting_date: NaiveDate,
+    pub account_code: String,
+    pub account_name: String,
+    pub site_id: String,
+    pub debit_minor: i64,
+    pub credit_minor: i64,
+    pub source_kind: String,
+    pub source_id: Option<String>,
+    /// Which subledger document the source names, when this estate keeps one.
+    pub subledger: Option<String>,
+    /// What a person would call that document.
+    pub subledger_reference: Option<String>,
+    pub memo: Option<String>,
+}
+
+/// The drill-down: a figure on a report, down to the documents behind it.
+///
+/// Report → GL line → journal → subledger → source document, in one query,
+/// because a reader following a number should not have to know which module
+/// wrote it.
+pub async fn ledger_trace(
+    pool: &PgPool,
+    account_code: &str,
+    from: NaiveDate,
+    to: NaiveDate,
+    site_id: Option<&str>,
+    limit: i64,
+) -> Result<Vec<LedgerTrace>, AppError> {
+    let rows = sqlx::query(
+        "SELECT l.line_id, l.entry_id, e.entry_number, e.posting_date, l.account_code,
+                a.name AS account_name, l.site_id, l.debit_minor, l.credit_minor,
+                e.source_kind, e.source_id, e.memo,
+                CASE e.source_kind
+                    WHEN 'PREPAID_ALLOCATION' THEN 'prepaid_schedule'
+                    WHEN 'TAX_SETTLEMENT'     THEN 'tax_period'
+                    WHEN 'ADVANCE'            THEN 'advance'
+                    WHEN 'EQUITY_MOVEMENT'    THEN 'principal_transaction'
+                    WHEN 'SALE_DAY'           THEN 'sales_posting'
+                    WHEN 'STORE_DEPOSIT'      THEN 'store_deposit'
+                    WHEN 'SUPPLIER_INVOICE'   THEN 'supplier_invoice'
+                    WHEN 'DEPRECIATION'       THEN 'asset_depreciation_run'
+                    WHEN 'PAYROLL_RUN'        THEN 'payroll_run'
+                    ELSE NULL
+                END AS subledger,
+                COALESCE(
+                    (SELECT s.schedule_number FROM prepaid_schedule s
+                      WHERE e.source_kind = 'PREPAID_ALLOCATION'
+                        AND s.schedule_id::text = e.source_id),
+                    (SELECT ad.advance_number FROM advance ad
+                      WHERE e.source_kind = 'ADVANCE' AND ad.advance_id::text = e.source_id),
+                    (SELECT si.invoice_number FROM supplier_invoice si
+                      WHERE e.source_kind = 'SUPPLIER_INVOICE'
+                        AND si.invoice_id::text = e.source_id)
+                ) AS subledger_reference
+           FROM journal_line l
+           JOIN journal_entry e ON e.entry_id = l.entry_id
+           JOIN ledger_account a ON a.account_code = l.account_code
+          WHERE l.account_code = $1
+            AND e.posting_date BETWEEN $2 AND $3
+            AND ($4::text IS NULL OR l.site_id = $4)
+          ORDER BY e.posting_date, e.entry_number
+          LIMIT $5",
+    )
+    .bind(account_code)
+    .bind(from)
+    .bind(to)
+    .bind(site_id)
+    .bind(limit.clamp(1, 1000))
+    .fetch_all(pool)
+    .await?;
+
+    rows.iter()
+        .map(|row| {
+            Ok(LedgerTrace {
+                line_id: row.try_get("line_id")?,
+                entry_id: row.try_get("entry_id")?,
+                entry_number: row.try_get("entry_number")?,
+                posting_date: row.try_get("posting_date")?,
+                account_code: row.try_get("account_code")?,
+                account_name: row.try_get("account_name")?,
+                site_id: row.try_get("site_id")?,
+                debit_minor: row.try_get("debit_minor")?,
+                credit_minor: row.try_get("credit_minor")?,
+                source_kind: row.try_get("source_kind")?,
+                source_id: row.try_get("source_id")?,
+                subledger: row.try_get("subledger")?,
+                subledger_reference: row.try_get("subledger_reference")?,
+                memo: row.try_get("memo")?,
+            })
+        })
+        .collect()
 }
