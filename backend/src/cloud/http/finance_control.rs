@@ -91,7 +91,9 @@ pub async fn balance_sheet(
     Query(query): Query<AsOfQuery>,
 ) -> Result<Json<BalanceSheet>, AppError> {
     allowed(&principal, Role::Supervisor, "read the balance sheet")?;
-    let as_of = query.as_of.unwrap_or_else(|| chrono::Utc::now().date_naive());
+    let as_of = query
+        .as_of
+        .unwrap_or_else(|| chrono::Utc::now().date_naive());
     Ok(Json(
         infrastructure::balance_sheet(&state.db, as_of, query.site.as_deref()).await?,
     ))
@@ -135,6 +137,9 @@ pub fn routes(router: Router<AppState>) -> Router<AppState> {
         .route("/api/v1/finance/close/readiness", get(close_readiness))
         .route("/api/v1/finance/close/soft", post(soft_close))
         .route("/api/v1/finance/reports/balance-sheet", get(balance_sheet))
-        .route("/api/v1/finance/reports/profit-and-loss", get(profit_and_loss))
+        .route(
+            "/api/v1/finance/reports/profit-and-loss",
+            get(profit_and_loss),
+        )
         .route("/api/v1/finance/reports/unit-results", get(unit_results))
 }

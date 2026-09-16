@@ -317,9 +317,10 @@ async fn period_for(
     year: i32,
     month: u32,
 ) -> Result<Uuid, AppError> {
-    let year16 = i16::try_from(year).map_err(|_| AppError::Validation(format!("{year} is not a year")))?;
-    let month16 =
-        i16::try_from(month).map_err(|_| AppError::Validation(format!("{month} is not a month")))?;
+    let year16 =
+        i16::try_from(year).map_err(|_| AppError::Validation(format!("{year} is not a year")))?;
+    let month16 = i16::try_from(month)
+        .map_err(|_| AppError::Validation(format!("{month} is not a month")))?;
     if !(1..=12).contains(&month16) {
         return Err(AppError::Validation(format!("{month} is not a month")));
     }
@@ -370,20 +371,20 @@ pub async fn tax_item_record(
 ) -> Result<TaxPeriodDocument, AppError> {
     if request.kind != "OBLIGATION" && request.kind != "CREDIT" {
         return Err(AppError::Validation(
-            "a recorded item is an OBLIGATION or a CREDIT; a settlement is made by paying"
-                .into(),
+            "a recorded item is an OBLIGATION or a CREDIT; a settlement is made by paying".into(),
         ));
     }
     if request.amount_minor <= 0 {
-        return Err(AppError::Validation("a tax item is a positive amount".into()));
+        return Err(AppError::Validation(
+            "a tax item is a positive amount".into(),
+        ));
     }
     let nature: Option<String> = sqlx::query_scalar("SELECT nature FROM tax_type WHERE code = $1")
         .bind(&request.tax_type_code)
         .fetch_optional(pool)
         .await?;
-    let nature = nature.ok_or_else(|| {
-        AppError::Validation(format!("no tax type {}", request.tax_type_code))
-    })?;
+    let nature = nature
+        .ok_or_else(|| AppError::Validation(format!("no tax type {}", request.tax_type_code)))?;
     // A credit type cannot owe and a payable type cannot be held as a credit.
     // This is the netting guard, and it lives here rather than in a report.
     if nature == "CREDIT" && request.kind == "OBLIGATION" {
@@ -468,10 +469,7 @@ pub async fn tax_settle(
         source_id: Some(period_id.to_string()),
         rule_version: RULE_VERSION.into(),
         currency: "IDR".into(),
-        memo: Some(format!(
-            "{name} {}-{:02}",
-            request.year, request.month
-        )),
+        memo: Some(format!("{name} {}-{:02}", request.year, request.month)),
         lines: vec![
             PostingLine::debit(&semantic_key, &request.site_id, request.amount_minor),
             PostingLine::credit(&request.bank_key, &request.site_id, request.amount_minor)

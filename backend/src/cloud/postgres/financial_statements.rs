@@ -144,14 +144,8 @@ pub async fn balance_sheet(
     site_id: Option<&str>,
 ) -> Result<BalanceSheet, AppError> {
     let lines = statement_lines(pool, None, as_of, site_id, &["1", "2", "3"]).await?;
-    let result_lines = statement_lines(
-        pool,
-        None,
-        as_of,
-        site_id,
-        &["4", "5", "6", "7", "8"],
-    )
-    .await?;
+    let result_lines =
+        statement_lines(pool, None, as_of, site_id, &["4", "5", "6", "7", "8"]).await?;
 
     let assets: i64 = lines
         .iter()
@@ -198,8 +192,7 @@ pub async fn profit_and_loss(
     to: NaiveDate,
     site_id: Option<&str>,
 ) -> Result<ProfitAndLoss, AppError> {
-    let lines =
-        statement_lines(pool, Some(from), to, site_id, &["4", "5", "6", "7", "8"]).await?;
+    let lines = statement_lines(pool, Some(from), to, site_id, &["4", "5", "6", "7", "8"]).await?;
     let sum = |section: &str| -> i64 {
         lines
             .iter()

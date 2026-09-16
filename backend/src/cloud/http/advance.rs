@@ -123,13 +123,8 @@ pub async fn cancel(
 ) -> Result<Json<AdvanceDocument>, AppError> {
     allowed(&principal, Role::Admin, "cancel an advance")?;
     Ok(Json(
-        infrastructure::advance_cancel(
-            &state.db,
-            advance_id,
-            &request.reason,
-            &principal.username,
-        )
-        .await?,
+        infrastructure::advance_cancel(&state.db, advance_id, &request.reason, &principal.username)
+            .await?,
     ))
 }
 
@@ -138,7 +133,9 @@ pub async fn reconciliation(
     Extension(principal): Extension<Principal>,
 ) -> Result<Json<Vec<AdvanceReconciliationRow>>, AppError> {
     allowed(&principal, Role::Supervisor, "read the advance control")?;
-    Ok(Json(infrastructure::advance_reconciliation(&state.db).await?))
+    Ok(Json(
+        infrastructure::advance_reconciliation(&state.db).await?,
+    ))
 }
 
 pub fn routes(router: Router<AppState>) -> Router<AppState> {

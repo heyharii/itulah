@@ -72,16 +72,12 @@ pub async fn finance_controls(
             gl_minor: slice.iter().map(|row| row.gl_minor).sum(),
             subledger_minor: slice.iter().map(|row| row.subledger_minor).sum(),
             difference_minor: slice.iter().map(|row| row.difference_minor).sum(),
-            unmatched: slice
-                .iter()
-                .filter(|row| row.difference_minor != 0)
-                .count() as i64,
+            unmatched: slice.iter().filter(|row| row.difference_minor != 0).count() as i64,
             covered: true,
             // Said on the row, because the one mistake this domain invites is
             // adding the two lines together.
             note: Some(
-                "Kredit dan utang pajak tidak pernah dijaringkan; keduanya dibaca terpisah."
-                    .into(),
+                "Kredit dan utang pajak tidak pernah dijaringkan; keduanya dibaca terpisah.".into(),
             ),
         });
     }
