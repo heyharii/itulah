@@ -132,6 +132,31 @@ export const financeFinalNav: AppModule = {
           icon: CalendarClock,
         },
         {
+          path: "/finance-final/prepaid-schedules",
+          label: "Prepaid schedules",
+          icon: CalendarClock,
+        },
+        {
+          path: "/finance-final/tax",
+          label: "Tax",
+          icon: Scale,
+        },
+        {
+          path: "/finance-final/advances",
+          label: "Advances",
+          icon: HandCoins,
+        },
+        {
+          path: "/finance-final/financing",
+          label: "Financing & owners",
+          icon: Landmark,
+        },
+        {
+          path: "/finance-final/controls",
+          label: "Controls & close",
+          icon: BookOpenCheck,
+        },
+        {
           path: "/finance-final/period-close",
           label: "Period close",
           icon: Lock,

@@ -31,7 +31,7 @@ use crate::cloud::application::AppError;
 
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
-pub struct StatementLine {
+pub struct FinancialStatementLine {
     pub account_code: String,
     pub account_name: String,
     /// The section this line belongs to: `ASSET`, `LIABILITY`, `EQUITY`,
@@ -55,7 +55,7 @@ pub struct BalanceSheet {
     /// Assets less liabilities and equity. Zero on a ledger that balances.
     pub difference_minor: i64,
     pub balanced: bool,
-    pub lines: Vec<StatementLine>,
+    pub lines: Vec<FinancialStatementLine>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -70,7 +70,7 @@ pub struct ProfitAndLoss {
     pub expenses_minor: i64,
     pub other_minor: i64,
     pub net_minor: i64,
-    pub lines: Vec<StatementLine>,
+    pub lines: Vec<FinancialStatementLine>,
 }
 
 fn section_of(root_class: &str) -> &'static str {
@@ -92,7 +92,7 @@ async fn statement_lines(
     to: NaiveDate,
     site_id: Option<&str>,
     classes: &[&str],
-) -> Result<Vec<StatementLine>, AppError> {
+) -> Result<Vec<FinancialStatementLine>, AppError> {
     let owned: Vec<String> = classes.iter().map(|class| (*class).to_string()).collect();
     let rows = sqlx::query(
         "SELECT l.account_code, a.name AS account_name, a.root_class::text AS root_class,
@@ -127,7 +127,7 @@ async fn statement_lines(
                 "ASSET" | "COST_OF_SALES" | "EXPENSE" => movement,
                 _ => -movement,
             };
-            Ok(StatementLine {
+            Ok(FinancialStatementLine {
                 account_code: row.try_get("account_code")?,
                 account_name: row.try_get("account_name")?,
                 section: section.to_string(),

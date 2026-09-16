@@ -16,6 +16,18 @@
 
 use ts_rs::TS;
 
+/// One name per line, exported the same way, so a new domain is a list and not
+/// forty copies of the same three lines. A type NOT named here is not written,
+/// whatever its derive says.
+macro_rules! for_contract {
+    ($config:expr, $($ty:ident),* $(,)?) => {
+        $(
+            inventory_backend::cloud::postgres::$ty::export_all($config)
+                .unwrap_or_else(|e| panic!("{}: {e}", stringify!($ty)));
+        )*
+    };
+}
+
 #[test]
 fn the_wire_types_are_written_for_the_browser() {
     // Where the browser's package expects them.
@@ -949,6 +961,26 @@ fn the_wire_types_are_written_for_the_browser() {
     // own document is `SalesPosting`. `SaleDayPage` pulls `SaleDayRow` in
     // with it, and it is named here anyway for the reason the comment below
     // gives: a derive writes nothing until something asks it to.
+    // The five subledgers 0278-0282 added, the control panel above them and the
+    // two statements. A type not NAMED here is not written, whatever its derive
+    // says — which is how `TaxRule` once reached the browser as a type nobody
+    // could import.
+    for_contract!(
+        &config,
+        PrepaidSchedule, PrepaidAllocation, PrepaidScheduleDocument,
+        CreatePrepaidScheduleRequest, PrepaidAllocationRequest, PrepaidAllocationRun,
+        PrepaidReconciliationRow,
+        TaxType, TaxPeriod, TaxLedgerItem, TaxPeriodDocument, RecordTaxItemRequest,
+        SettleTaxRequest, FileTaxPeriodRequest, TaxReconciliationRow,
+        Advance, AdvanceSettlement, AdvanceDocument, CreateAdvanceRequest,
+        PayAdvanceRequest, SettleAdvanceRequest, AdvanceReconciliationRow,
+        Principal, PrincipalTransaction, PrincipalDocument, CreatePrincipalRequest,
+        PrincipalMovementRequest,
+        FinancingFacility, FinancingInstallment, FinancingFacilityDocument,
+        ScheduledInstallment, CreateFacilityRequest, PayInstallmentRequest,
+        ControlRow, FinanceCloseCheck, FinanceCloseReadiness,
+        FinancialStatementLine, BalanceSheet, ProfitAndLoss, UnitResult
+    );
     inventory_backend::cloud::postgres::SaleDayRow::export_all(&config)
         .unwrap_or_else(|e| panic!("SaleDayRow: {e}"));
     inventory_backend::cloud::postgres::SaleDayPage::export_all(&config)

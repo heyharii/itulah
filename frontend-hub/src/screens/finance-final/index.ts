@@ -8,7 +8,12 @@ import { AccountsPayable } from "@/screens/finance-final/payable"
 import { PaymentInstructions } from "@/screens/finance-final/payment-instructions"
 import { PaymentReconciliation } from "@/screens/finance-final/payment-reconciliation"
 import { Payments } from "@/screens/finance-final/payments"
+import { Advances } from "@/screens/finance-final/advances"
+import { FinanceControls } from "@/screens/finance-final/controls"
+import { Financing } from "@/screens/finance-final/financing"
 import { PeriodClose } from "@/screens/finance-final/period-close"
+import { PrepaidSchedules } from "@/screens/finance-final/prepaid-schedules"
+import { Tax } from "@/screens/finance-final/tax"
 import { PrepaidsAndAccruals } from "@/screens/finance-final/prepaids"
 import { AccountsReceivable } from "@/screens/finance-final/receivable"
 import { Ageing } from "@/screens/finance-final/reports/ageing"
@@ -66,6 +71,14 @@ export const screens: ScreenMap = {
   "/finance-final/receivable": AccountsReceivable,
   "/finance-final/prepaids": PrepaidsAndAccruals,
   "/finance-final/period-close": PeriodClose,
+
+  // The subledgers that had accounts and no documents until 0278-0282, and
+  // the control panel that reads all of them at once.
+  "/finance-final/prepaid-schedules": PrepaidSchedules,
+  "/finance-final/tax": Tax,
+  "/finance-final/advances": Advances,
+  "/finance-final/financing": Financing,
+  "/finance-final/controls": FinanceControls,
 
   // Reports — reads the book, belongs to neither.
   "/finance-final/reports/general-ledger": GeneralLedger,
