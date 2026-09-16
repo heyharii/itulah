@@ -1,13 +1,34 @@
 #!/usr/bin/env python3
-"""Seed `ledger_account`'s posting policy from the COA 162 workbook.
+"""Audit the committed posting policy against the COA 162 workbook.
 
-    python3 scripts/seed-posting-profile.py --xlsx ~/Downloads/Retail_OS_COA_v1_162_Merged_Master.xlsx --dry-run
-    python3 scripts/seed-posting-profile.py --xlsx ... | psql -d inventory_edge_dev
+    python3 scripts/seed-posting-profile.py --xlsx ~/Downloads/Retail_OS_COA_v1_162_Merged_Master.xlsx
+    python3 scripts/seed-posting-profile.py --xlsx ... --database inventory_edge_dev
+    python3 scripts/seed-posting-profile.py --xlsx ... --database "$DATABASE_URL" --strict
 
-Same shape as `import-coa.py`: the report goes to stderr, the SQL to stdout, so a
-dry run is the run with stdout discarded. Read the report first — it names every
-judgement the script had to make, and every part of the workbook it refused to
-act on.
+# This script no longer seeds anything
+
+It used to. Until 0268, 179 of the 186 postable accounts got their posting policy
+from THIS FILE, run by hand, once per environment, with the spreadsheet to hand.
+That made accounting policy a thing an environment could simply not have — a
+freshly migrated database ran with 179 accounts on the permissive default and
+nothing to say so.
+
+0268 moved the reviewed result into the migration chain, where every environment
+gets it by being migrated. So the job left here is the one a migration cannot do:
+say where the workbook and the committed chart have since come apart.
+
+The name is kept because 0268 and `docs/finance-posting-kernel.md` cite it. What
+it does is read the workbook, read the database, and print the difference. There
+is no flag that makes it write; adding one would recreate the hole.
+
+# When the workbook changes
+
+Run it, read the drift, and write a NEW MIGRATION for whatever should become
+policy — in the shape 0268 uses, generated from a reviewed database state rather
+than typed. The chain stays the thing that decides what production believes.
+
+Exit code is 0 unless `--strict`, which fails on drift so a scheduled run can
+notice that the two have separated without anybody looking.
 
 # The bridge, and why it runs this way round
 
@@ -30,36 +51,38 @@ not exist in the client's export at all. This chart sits off its own ladder in
 places, and "Gabung / petakan ke akun baru" is the sheet saying a row carries a
 balance somewhere.
 
-Measured on the 2026-09-16 workbook: **156 of 162** codes reach an account and
-**403** ten-digit codes are addressed — which is NOT a count of accounts. The
-client's legacy chart had 496 ten-digit accounts; ours keeps 302 rows, of which
-181 are postable. So a large share of the 403 match no row and their UPDATE is a
-no-op: 168 of the 181 postable accounts are reached, 13 are not, and the 121
-headings are untouched because nothing posts to a heading anyway.
+Measured on the 2026-09-16 workbook against the 0268 chain: **all 162** codes
+reach an account and **406** ten-digit codes are addressed — which is NOT a count
+of accounts. The client's legacy chart had 496 ten-digit accounts; ours keeps 311
+rows, of which 186 are postable. 227 of those 406 match no row at all, and the
+report says so rather than leaving the number to be guessed at.
 
 NO account receives contradictory policy from two 162 codes. If that stops being
 true the script refuses rather than picking, and the report says which accounts.
 
 # What this script will not do
 
-**`account_source_rule` is left almost empty.** The workbook's `Source Document`
+**It will not decide `account_source_rule`.** The workbook's `Source Document`
 column is prose naming ERPNext documents — "Purchase Invoice / Expense Entry /
-Payment Entry" — and the backend's `source_kind` is a closed 35-value vocabulary
-guarded by a CHECK. Translating one to the other is a policy decision per
-phrase, not a string operation, and an allow-list seeded from a guess would
-refuse real postings for reasons nobody chose. The report prints the phrases so
-somebody can decide; until then every account's allow-list is empty, which the
-table defines as "any source may post".
+Payment Entry" — and the backend's `source_kind` is a closed vocabulary guarded
+by a CHECK. Translating one to the other is a policy decision per phrase, not a
+string operation, and an allow-list seeded from a guess would refuse real
+postings for reasons nobody chose. The report prints the phrases so somebody can
+decide; `docs/finance-source-kind-mapping.md` is where those decisions land.
 
 **`Department` and `Legal Entity` are ignored.** 41 accounts ask for a
 Department dimension and 2 for a Legal Entity. The owner's ruling is that
 neither becomes a journal dimension. They are counted in the report and
 otherwise dropped.
 
-**`requires_counterparty` is reported, never written.** 0243 set it on exactly
-three accounts. The workbook asks for seven. That is a disagreement about which
-accounts are two-sided, and it is the chart's business rather than this
-script's.
+**`requires_counter_site` is reported, never written.** 0243 set it on exactly
+three accounts, 0264 widened it to seven. The workbook asks for seven. That is
+the chart's business rather than this script's.
+
+**It will not overrule an owner.** The seven accounts 0267 decided are newer than
+the workbook, and for three of them the workbook's own answer is the permissive
+default. They appear in the drift report marked as owner decisions and never
+count as failures under `--strict`.
 
 # The five Posting Mode values, mapped onto three
 
@@ -75,12 +98,14 @@ is below and it adds no meaning the workbook did not already carry:
     MANUAL_APPROVED -> MANUAL       and its `Manual JE` already says OVERRIDE,
                                     which is where "approved" is expressed
 
-Note the workbook never says plain `MANUAL`. `MANUAL` is the column's DEFAULT —
-what an unseeded account has — so an account this script does not reach keeps
-refusing nothing.
+Note the workbook never says plain `MANUAL`. `MANUAL` is the column's DEFAULT --
+what an unclassified account has. Since 0268 no postable account is left there by
+accident: `posting_policy_configured` records that somebody chose it, and
+`tests/posting_policy_coverage.rs` refuses a chain where one was not.
 """
 
 import argparse
+import subprocess
 import sys
 from collections import defaultdict
 
@@ -191,9 +216,22 @@ def sheet(wb, name):
 
 
 def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--xlsx", required=True)
-    ap.add_argument("--dry-run", action="store_true")
+    ap = argparse.ArgumentParser(
+        description="Audit the committed posting policy against the COA 162 workbook.",
+        epilog="This script writes nothing. It reads.",
+    )
+    ap.add_argument("--xlsx", required=True, help="the COA 162 workbook")
+    ap.add_argument(
+        "--database",
+        help="database to read the committed policy from, as psql -d takes it"
+        " (a name or a URL). Without it the report covers the workbook only.",
+    )
+    ap.add_argument(
+        "--strict",
+        action="store_true",
+        help="exit non-zero when the database has drifted or left an account"
+        " unconfigured, for a scheduled check",
+    )
     args = ap.parse_args()
 
     try:
@@ -362,8 +400,8 @@ def main():
     for ignored, n in sorted(dims.items()):
         print(f"  {ignored} dimension ignored on {n} code(s) — owner's ruling", file=out)
     print(
-        f"  requires_counterparty: workbook asks for {len(counterparty)},"
-        " 0243 set 3 — reported, not written",
+        f"  requires_counter_site: workbook asks for {len(counterparty)},"
+        " 0243 set 3 and 0264 widened it to 7 — reported here, decided there",
         file=out,
     )
 
@@ -378,55 +416,119 @@ def main():
                 file=out,
             )
 
-    if args.dry_run:
-        print("\n(dry run: no SQL on stdout)", file=out)
+    committed = read_committed(args.database)
+    if committed is None:
+        print(
+            "\nNo database given, so nothing was compared. Pass --database to see"
+            " the drift between the workbook above and what the chain actually"
+            " committed:\n"
+            "    python3 scripts/seed-posting-profile.py --xlsx ... --database inventory_edge_dev",
+            file=out,
+        )
         return
 
-    # Grouped by decided policy so the output is a handful of statements rather
-    # than four hundred, and so a reader can see the shape of the decision.
-    by_policy = defaultdict(list)
-    for account, decided in policy_of.items():
-        by_policy[decided].append(account)
-    print("BEGIN;")
-    for (mode, policy), accounts in sorted(by_policy.items()):
-        codes = ",".join(sql_str(a) for a in sorted(accounts))
-        print(
-            f"UPDATE ledger_account SET posting_mode={sql_str(mode)},"
-            f" manual_je_policy={sql_str(policy)}"
-            f" WHERE account_code IN ({codes});"
-        )
-    # The one path the owner has ruled on: refused by kind, not by account.
-    for code, paths in sorted(PENDING_PATHS.items()):
-        account = SEMANTIC_BRIDGE.get(code)
-        if not account:
-            continue
-        for kind, why in paths:
-            print(
-                "INSERT INTO account_source_rule"
-                " (account_code, source_kind, effect, set_by, note) VALUES ("
-                f"{sql_str(account)},{sql_str(kind)},'DENY','coa162-seed',"
-                f"{sql_str(why)}) ON CONFLICT (account_code, source_kind) DO NOTHING;"
-            )
-    print("COMMIT;")
-    # What actually landed. Printed as SQL rather than asserted in Python
-    # because this script never opens a connection: the operator pipes it, and
-    # this is how they see whether the codes above were rows.
+    postable = {code: row for code, row in committed.items() if not row["is_group"]}
+    intended = {a: p for a, p in policy_of.items() if a in postable}
+    print(f"\nAGAINST THE DATABASE  ({args.database})", file=out)
+    print(f"  postable accounts       {len(postable)}", file=out)
+    print(f"  the workbook reaches    {len(intended)}", file=out)
     print(
-        "-- verification: how many rows the policy above actually reached\n"
-        "SELECT posting_mode, manual_je_policy, count(*)\n"
-        "  FROM ledger_account WHERE NOT is_group GROUP BY 1, 2 ORDER BY 3 DESC;\n"
-        "\n"
-        "-- Every postable account still on the permissive default. These are NOT\n"
-        "-- decided: the workbook files each of them as `Hierarki — cek posting\n"
-        "-- aktual` with no target, which is the sheet saying somebody has to look.\n"
-        "-- Permissive is acceptable while migrating and is not a final policy\n"
-        "-- state, so this query is printed every run rather than left to be\n"
-        "-- remembered.\n"
-        "SELECT account_code, name\n"
-        "  FROM ledger_account\n"
-        " WHERE NOT is_group AND posting_mode = 'MANUAL' AND manual_je_policy = 'YES'\n"
-        " ORDER BY account_code;"
+        f"  it does not reach       {len(postable) - len(intended)}"
+        f" (of which {sum(1 for a in postable if a in OWNER_DECIDED)} are owner decisions)",
+        file=out,
     )
+    addressed_nothing = len(policy_of) - len(intended)
+    print(f"  codes matching no row   {addressed_nothing}", file=out)
+
+    unconfigured = sorted(a for a, row in postable.items() if not row["configured"])
+    drift = []
+    for account, (mode, policy) in sorted(intended.items()):
+        row = postable[account]
+        if (row["mode"], row["policy"]) != (mode, policy):
+            drift.append((account, row["name"], (row["mode"], row["policy"]), (mode, policy)))
+
+    print("\nDRIFT", file=out)
+    if unconfigured:
+        print(
+            f"  {len(unconfigured)} postable account(s) carry no decision at all"
+            " (posting_policy_configured = false):",
+            file=out,
+        )
+        for account in unconfigured[:20]:
+            print(f"      {account}  {postable[account]['name'][:50]}", file=out)
+        if len(unconfigured) > 20:
+            print(f"      … and {len(unconfigured) - 20} more", file=out)
+    else:
+        print("  every postable account carries a deliberate decision", file=out)
+
+    if drift:
+        print(f"  {len(drift)} account(s) differ from the workbook:", file=out)
+        for account, name, have, want in drift:
+            marker = "  (owner decision, newer than the workbook)" if account in OWNER_DECIDED else ""
+            print(
+                f"      {account}  {name[:40]:40}  database {have[0]}/{have[1]}"
+                f"  workbook {want[0]}/{want[1]}{marker}",
+                file=out,
+            )
+    else:
+        print("  the database agrees with the workbook on every account it reaches", file=out)
+
+    real_drift = [d for d in drift if d[0] not in OWNER_DECIDED]
+    if unconfigured or real_drift:
+        print(
+            "\nThese are for a person to read, not for this script to write. A"
+            " difference that should become policy belongs in a NEW MIGRATION, in"
+            " the shape 0268 uses — so that every environment gets it by being"
+            " migrated.",
+            file=out,
+        )
+        if args.strict:
+            sys.exit(
+                f"{len(unconfigured)} unconfigured + {len(real_drift)} drifted"
+                " (--strict)"
+            )
+
+
+def read_committed(database):
+    """What the chain actually committed, read through `psql`.
+
+    Through `psql` and not a driver because this script has never had a database
+    dependency and should not grow one to do a read. The connection string is
+    whatever `psql -d` accepts: a database name or a full URL.
+    """
+    if not database:
+        return None
+    query = (
+        "SELECT account_code, name, is_group, posting_mode, manual_je_policy,"
+        " posting_policy_configured FROM ledger_account ORDER BY account_code"
+    )
+    try:
+        result = subprocess.run(
+            ["psql", "-d", database, "-t", "-A", "-F", "\x1f", "-c", query],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except FileNotFoundError:
+        sys.exit("psql is not on PATH, and --database needs it to read the chart")
+    except subprocess.CalledProcessError as error:
+        sys.exit(f"could not read {database}: {error.stderr.strip()}")
+
+    committed = {}
+    for line in result.stdout.splitlines():
+        if not line.strip():
+            continue
+        code, name, is_group, mode, policy, configured = line.split("\x1f")
+        committed[code] = {
+            "name": name,
+            "is_group": is_group == "t",
+            "mode": mode,
+            "policy": policy,
+            "configured": configured == "t",
+        }
+    if not committed:
+        sys.exit(f"{database} holds no chart; is it migrated?")
+    return committed
 
 
 if __name__ == "__main__":

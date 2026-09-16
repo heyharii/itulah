@@ -52,11 +52,13 @@ baris **DENY** menolak SATU kind dan membiarkan akunnya tetap terpakai — itu y
 Reserve Replacement OE butuhkan, di mana penarikannya disetujui dan pembentukannya
 belum. Sehimpunan **ALLOW** berarti "ini saja". DENY diperiksa lebih dulu.
 
-## 3b. Tujuh akun postable yang belum diputuskan
+## 3b. Tujuh akun postable yang belum diputuskan — lalu diputuskan (0267)
 
 Sesudah jembatan semantik diperbaiki (§3c) dan empat akun afiliasi dipulihkan
 (0264), chart punya **185 akun postable** dan **178 di antaranya berkebijakan**.
-Tujuh masih pada default permisif `MANUAL` / `YES`.
+Tujuh masih pada default permisif `MANUAL` / `YES`. (0265 menambah satu akun
+postable lagi — `2012101006 Hutang Pajak PPh Pasal 29` — sehingga angka akhirnya
+**186 postable**.)
 
 Permisif boleh saat migrasi dan **bukan keadaan akhir**. Ketujuhnya bukan
 kelalaian seed: workbook memberi tiap satu `Hierarki — cek posting aktual`
@@ -74,8 +76,21 @@ mereka setiap run, supaya tak pernah diam.
 | `7010216002` | Biaya Amortisasi Biaya Pre Opening | **migration-only** | Pre Opening tak punya mesin dan kontranya (`1202892`) tak ada di chart kita. Sampai ada, hanya saldo awal yang menyentuhnya. |
 | `8010110007` | Pendapatan (Biaya) Lain-Lain | **governed by COA-162** | Tempat jatuh empat arti (`bad_debt_expense`, `other_income_expense`, `asset_disposal_result`, `cash_variance`). `MANUAL`/`YES` mungkin memang jawabannya, tapi harus dinyatakan, bukan diwarisi dari default. |
 
-Tak satu pun saya putuskan. Tiga di antaranya (ekuitas, prive, pajak) menunggu
-modul yang belum ada; `6010310018` dan `8010110007` bisa diputuskan hari ini.
+Tak satu pun saya putuskan. Pemilik yang memutuskan, dan **0267** menuliskannya:
+
+| akun | putusan | bentuknya |
+|---|---|---|
+| `1011302003` Prepaid PPh 29 | migration-only | `AUTO_ONLY` / `NO`, allow-list `OPENING` saja — prepayment-nya ikut pindah dan tidak boleh bertambah |
+| `3013001001` Modal Setor | manual berpersetujuan | `MANUAL` / `OVERRIDE` |
+| `3013001003` Laba bulan berjalan | hanya sistem | `AUTO_ONLY` / `NO` — hanya tutup buku yang menulisnya |
+| `3013001004` Prive | manual berpersetujuan | `MANUAL` / `OVERRIDE` |
+| `6010310018` Tools (Peralatan) | beban biasa | `SEMI_AUTO` / `YES` |
+| `7010216002` Amortisasi Pre Opening | migration-only | `AUTO_ONLY` / `NO`, allow-list `OPENING` + `AMORTIZATION_RUN` |
+| `8010110007` Pendapatan (Biaya) Lain-Lain | manual berpersetujuan | `MANUAL` / `OVERRIDE` — jawabannya memang permisif, tapi kini **dinyatakan**, bukan diwarisi |
+
+Tiga di antaranya berakhir `MANUAL` / `OVERRIDE`, dan itu persis alasan §7 butuh
+kolom terpisah: nilai kebijakannya sendiri tak bisa membedakan "diputuskan
+begitu" dari "tak pernah disentuh".
 
 ## 3c. Enam "akun baru" yang ternyata sudah ada
 
@@ -204,3 +219,71 @@ Kandidat yang sudah diketahui saat dokumen ini ditulis:
 Lifecycle tidak ditambahkan di Phase 1 karena tak ada yang akan membacanya —
 yang persis kesalahan 0243, empat kolom yang duduk tak terpakai. Ia mendarat
 bersama hal yang bertindak atasnya.
+
+## 7. Phase 1C — kebijakan tak lagi bergantung pada langkah seed
+
+Sampai 0267, hanya **tujuh** akun mendapat kebijakannya dari migrasi. 179 sisanya
+mendapatnya dari `scripts/seed-posting-profile.py` — satu langkah manual, per
+environment, dengan spreadsheet di tangan. Artinya database yang baru dimigrasi
+menjalankan 179 akun postable pada default permisif, tanpa apa pun yang
+mengatakannya. Kebijakan akuntansi produksi tidak boleh punya bentuk itu.
+
+**0268** memindahkan hasil yang sudah ditinjau ke dalam rantai:
+
+- 179 UPDATE dalam **lima kelompok** `(posting_mode, manual_je_policy)`, hanya
+  berisi kode yang benar-benar ada di chart. Isinya **bukan penurunan kedua**
+  dari jembatan workbook — ia keadaan database yang diamati setelah skrip
+  dijalankan, dibaca balik lalu ditinjau per kelompok. Migrasinya sengaja **tak
+  bisa** membaca workbook: deployment yang butuh spreadsheet adalah deployment
+  yang bisa gagal karena sebab di luar database, dan rantai yang sama akan
+  menghasilkan kebijakan berbeda tergantung salinan file mana yang terpegang.
+- Tujuh akun 0267 **dikecualikan by name**. Keputusan pemilik lebih baru dari
+  workbook, dan untuk tiga di antaranya jawaban workbook justru default permisif.
+  Pernyataan yang dibangkitkan tidak boleh melebarkan keputusan yang dibuat
+  dengan sengaja.
+- Baris **DENY `ASSET_RESERVE` pada `1021607001`** ikut pindah ke migrasi. Ia
+  dulu hidup di skrip, yang berarti database yang melewatkan skrip punya reserve
+  terbuka lebar pada jalur yang justru belum diputuskan pemilik.
+- Kolom baru **`posting_policy_configured boolean NOT NULL DEFAULT false`**,
+  di-set `true` untuk 186 akun — 179 dari kelompok di atas, tujuh dari 0267,
+  dinamai terpisah. Kolom terpisah karena `MANUAL` / `YES` adalah **default kolom
+  sekaligus jawaban sah**: tiga akun memakainya atas keputusan pemilik. Nilai
+  kebijakan sendiri tak bisa membedakan keduanya.
+- Headings tak diberi penanda. `journal_line` mengunci `is_group = false` lewat
+  foreign key komposit, jadi tak ada yang bisa memposting ke group.
+
+`backend/tests/posting_policy_coverage.rs` menjaganya dengan `#[sqlx::test]` —
+database baru, rantai penuh, tanpa seed apa pun:
+
+1. nol akun postable dengan `posting_policy_configured = false`, dan kalau ada,
+   pesannya **menamai akunnya** beserta kebijakan yang sedang ia duduki;
+2. nol heading yang ikut tertandai (penjaga terhadap `UPDATE … WHERE NOT
+   is_group` yang menyapu rata dan membuat gate pertama tak berarti);
+3. DENY reserve ada, dan akunnya **bukan** `BLOCKED`.
+
+Jadi migrasi masa depan yang menambah akun postable harus memutuskan
+kebijakannya di perubahan yang sama. Dibuktikan: satu akun postable disisipkan
+ke database hasil rantai, dan query gate langsung menemukannya
+(`6010310777 (MANUAL/YES) configured=false`).
+
+### Skrip seed berubah jadi alat audit
+
+`scripts/seed-posting-profile.py` **tidak lagi menulis apa pun** — tak ada flag
+yang membuatnya menulis, karena menambahkannya berarti membuka kembali lubang
+yang sama. Sekarang ia membaca workbook, membaca database lewat `psql`, dan
+mencetak selisihnya:
+
+```
+python3 scripts/seed-posting-profile.py --xlsx <workbook> --database <db> [--strict]
+```
+
+Terhadap database rantai-saja hari ini: **186 postable, workbook menjangkau 179,
+tujuh sisanya keputusan pemilik, 227 kode workbook tak cocok dengan baris mana
+pun, nol drift, nol akun tanpa keputusan.** `--strict` keluar non-nol saat drift,
+supaya pemeriksaan terjadwal bisa melihat keduanya berpisah tanpa ada yang
+menengok. Keputusan pemilik (0267) ditandai di laporan dan tidak pernah dihitung
+sebagai kegagalan.
+
+Kalau workbook berubah: jalankan, baca drift-nya, lalu tulis **migrasi baru**
+dalam bentuk yang 0268 pakai. Rantai tetap satu-satunya yang menentukan apa yang
+dipercaya produksi.
