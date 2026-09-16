@@ -2799,27 +2799,57 @@ pub async fn resolve_account(
     site_id: &str,
     qualifier: &str,
 ) -> Result<String, AppError> {
-    let row = sqlx::query(
-        "SELECT account_code FROM account_map
-          WHERE semantic_key = $1 AND site_id = $2 AND qualifier = $3",
+    // Every qualifier this meaning has at this place, not just the one asked
+    // for. The extra rows are free — the primary key is
+    // (semantic_key, site_id, qualifier), so this is the same index walk — and
+    // they turn the commonest failure from a dead end into a diagnosis.
+    //
+    // That failure is a posting that names NO acquirer meeting a map that is
+    // kept per acquirer: the refusal read "no account is mapped for
+    // 'revenue_debit' at store-01", the reader opened the Account Map screen,
+    // saw `revenue_debit` sitting there under BCA and MANDIRI, and concluded
+    // the error was lying. It was not — an unqualified lookup does not match a
+    // qualified row — but nothing in it said so.
+    let rows = sqlx::query(
+        "SELECT qualifier, account_code FROM account_map
+          WHERE semantic_key = $1 AND site_id = $2
+          ORDER BY qualifier",
     )
     .bind(semantic_key)
     .bind(site_id)
-    .bind(qualifier)
-    .fetch_optional(executor)
+    .fetch_all(executor)
     .await?;
-    row.map(|r| r.get::<String, _>("account_code"))
-        .ok_or_else(|| {
-            AppError::Validation(format!(
-                "no account is mapped for '{semantic_key}' at {site_id}{}; \
-                 set it on the Account Map screen before posting",
-                if qualifier.is_empty() {
-                    String::new()
-                } else {
-                    format!(" ({qualifier})")
-                }
-            ))
-        })
+    if let Some(row) = rows
+        .iter()
+        .find(|row| row.get::<String, _>("qualifier") == qualifier)
+    {
+        return Ok(row.get::<String, _>("account_code"));
+    }
+
+    let known: Vec<String> = rows
+        .iter()
+        .map(|row| row.get::<String, _>("qualifier"))
+        .filter(|q| !q.is_empty())
+        .collect();
+    let asked = if qualifier.is_empty() {
+        String::new()
+    } else {
+        format!(" ({qualifier})")
+    };
+    let hint = if known.is_empty() {
+        String::new()
+    } else if qualifier.is_empty() {
+        format!(
+            " — the map has it under {}, and this posting named none of them",
+            known.join(", ")
+        )
+    } else {
+        format!(" — the map has it under {}", known.join(", "))
+    };
+    Err(AppError::Validation(format!(
+        "no account is mapped for '{semantic_key}' at {site_id}{asked}{hint}; \
+         set it on the Account Map screen before posting"
+    )))
 }
 
 // ---------------------------------------------------------------------------

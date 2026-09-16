@@ -1668,3 +1668,40 @@ async fn a_central_card_sale(pool: &PgPool, total_minor: i64, acquirer: &str) {
     .await
     .unwrap_or_else(|error| panic!("complete: {error}"));
 }
+
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_card_that_names_no_acquirer_is_told_which_ones_the_map_has(pool: PgPool) {
+    seed_chart(&pool).await;
+    map_everything(&pool).await;
+    open_september(&pool).await;
+    // A card tender with no acquirer on it — an older till, or a receipt whose
+    // EDC slip was never captured. The map keeps card income per acquirer, so
+    // this resolves nothing.
+    synced_sale(&pool, midday(), 555_000, 0, 0, "CARD", None, None).await;
+
+    // The document generates: it is a working paper, and resolving meanings to
+    // accounts is the poster's job, not the reading's.
+    let document = cloud::sales_posting_generate(&pool, &ask(), ACTOR)
+        .await
+        .unwrap_or_else(|error| panic!("generate: {error}"));
+    let refused = cloud::sales_posting_post(&pool, document.posting.posting_id, ACTOR)
+        .await
+        .err()
+        .unwrap_or_else(|| panic!("a day with nowhere to post its card income cannot post"));
+    let said = refused.to_string();
+    // The receivable is resolved before the income, so it is the one named.
+    assert!(
+        said.contains("card_receivable_debit"),
+        "the meaning that could not be resolved: {said}"
+    );
+    // The point of the message: the reader is looking at a screen that DOES
+    // show `revenue_debit`, and without this they conclude the refusal is lying.
+    assert!(
+        said.contains("BCA") && said.contains("MANDIRI"),
+        "the qualifiers the map does have: {said}"
+    );
+    assert!(
+        said.contains("named none of them"),
+        "why the qualified rows did not match: {said}"
+    );
+}
