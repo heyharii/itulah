@@ -43,6 +43,33 @@ async fn map(pool: &PgPool, key: &str, qualifier: &str, code: &str) {
     .unwrap_or_else(|error| panic!("map {key}: {error}"));
 }
 
+/// Our own BCA giro account, described the way Bank Accounts describes one.
+///
+/// Phase 2's rule: pointing `bank_giro`/`BCA` at a ledger account is somebody
+/// saying "our BCA giro money lives here", and posting into it then requires a
+/// real account of ours to be registered against it. A test that skips this is
+/// testing a database no shop could run.
+async fn a_registered_bank_account(pool: &PgPool) {
+    cloud::describe_account(
+        pool,
+        &cloud::DescribeBankAccountRequest {
+            ledger_account_code: BANK.into(),
+            site_id: SITE.into(),
+            bank_code: Some("BCA".into()),
+            bank_name: String::new(),
+            account_no: "1234567890".into(),
+            account_holder: "PT Itulah Busana Nusantara".into(),
+            branch: None,
+            kind: "GIRO".into(),
+            is_primary: None,
+            note: None,
+        },
+        ACTOR,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("bank account: {error}"));
+}
+
 async fn ready(pool: &PgPool) {
     map(pool, "cash", "", CASH).await;
     map(pool, "bank_giro", "BCA", BANK).await;
@@ -57,6 +84,7 @@ async fn ready(pool: &PgPool) {
             .await
             .unwrap_or_else(|error| panic!("open 2026-{month}: {error}"));
     }
+    a_registered_bank_account(pool).await;
 }
 
 async fn balance(pool: &PgPool, code: &str) -> i64 {
@@ -136,7 +164,7 @@ async fn an_advance_is_paid_spent_and_partly_returned(pool: PgPool) {
     // Receipts for most of it.
     let settled = cloud::advance_settle(
         &pool,
-        &paid.advance.advance_id,
+        paid.advance.advance_id,
         &SettleAdvanceRequest {
             kind: "EXPENSE".into(),
             amount_minor: 700_000,
@@ -159,7 +187,7 @@ async fn an_advance_is_paid_spent_and_partly_returned(pool: PgPool) {
     assert!(
         cloud::advance_settle(
             &pool,
-            &settled.advance.advance_id,
+            settled.advance.advance_id,
             &SettleAdvanceRequest {
                 kind: "REFUND".into(),
                 amount_minor: 500_000,
@@ -180,7 +208,7 @@ async fn an_advance_is_paid_spent_and_partly_returned(pool: PgPool) {
     // The change comes back.
     let done = cloud::advance_settle(
         &pool,
-        &settled.advance.advance_id,
+        settled.advance.advance_id,
         &SettleAdvanceRequest {
             kind: "REFUND".into(),
             amount_minor: 300_000,
@@ -208,9 +236,7 @@ async fn an_advance_is_paid_spent_and_partly_returned(pool: PgPool) {
         .await
         .unwrap_or_else(|error| panic!("control: {error}"));
     assert!(
-        control
-            .iter()
-            .all(|row| row.difference_minor == 0),
+        control.iter().all(|row| row.difference_minor == 0),
         "the subledger and the ledger agree: {control:?}"
     );
 }
@@ -343,20 +369,18 @@ async fn an_instalment_splits_into_principal_and_interest(pool: PgPool) {
     assert_eq!(balance(&pool, BANK).await, -4_120_000);
 
     // Paying the same instalment twice is refused.
-    assert!(
-        cloud::financing_installment_pay(
-            &pool,
-            first.installment_id,
-            &PayInstallmentRequest {
-                posting_date: NaiveDate::from_ymd_opt(2026, 10, 1).unwrap_or_default(),
-                bank_key: "bank_giro".into(),
-                bank_qualifier: "BCA".into(),
-            },
-            ACTOR,
-        )
-        .await
-        .is_err()
-    );
+    assert!(cloud::financing_installment_pay(
+        &pool,
+        first.installment_id,
+        &PayInstallmentRequest {
+            posting_date: NaiveDate::from_ymd_opt(2026, 10, 1).unwrap_or_default(),
+            bank_key: "bank_giro".into(),
+            bank_qualifier: "BCA".into(),
+        },
+        ACTOR,
+    )
+    .await
+    .is_err());
 }
 
 #[sqlx::test(migrations = "./migrations/postgres")]
@@ -398,7 +422,14 @@ async fn the_control_panel_reads_every_domain_and_says_what_it_cannot(pool: PgPo
         .await
         .unwrap_or_else(|error| panic!("controls: {error}"));
 
-    for domain in ["PREPAID", "TAX_PAYABLE", "TAX_CREDIT", "ADVANCE", "FINANCING", "INTERUNIT"] {
+    for domain in [
+        "PREPAID",
+        "TAX_PAYABLE",
+        "TAX_CREDIT",
+        "ADVANCE",
+        "FINANCING",
+        "INTERUNIT",
+    ] {
         assert!(
             controls.iter().any(|row| row.domain == domain),
             "{domain} has to appear in the control panel"

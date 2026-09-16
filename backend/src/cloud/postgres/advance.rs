@@ -147,12 +147,14 @@ const ADVANCE_COLUMNS: &str = "a.advance_id, a.advance_number, a.site_id, a.part
      a.employee_id, a.supplier_id, a.party_name, a.advance_qualifier, a.purpose,
      a.currency::text AS currency, a.amount_minor, a.status, a.requested_by,
      a.requested_at, a.approved_by, a.paid_at, a.note,
-     COALESCE(e.name, s.name, a.party_name, a.employee_id, '—') AS party_label,
+     COALESCE(ep.full_name, s.name, a.party_name, a.employee_id, '—') AS party_label,
      COALESCE(t.expense_minor, 0)::bigint AS settled_minor,
      COALESCE(t.refund_minor, 0)::bigint  AS refunded_minor";
 
 const ADVANCE_FROM: &str = "FROM advance a
-       LEFT JOIN employee e ON e.id = a.employee_id
+       -- A person's name lives on their profile; `employee` carries the code
+       -- and the employment history and no name at all.
+       LEFT JOIN employee_profile ep ON ep.employee_id = a.employee_id
        LEFT JOIN supplier s ON s.supplier_id = a.supplier_id
        LEFT JOIN (
             SELECT advance_id,
@@ -266,7 +268,9 @@ pub async fn advance_create(
     actor: &str,
 ) -> Result<AdvanceDocument, AppError> {
     if request.amount_minor <= 0 {
-        return Err(AppError::Validation("an advance is a positive amount".into()));
+        return Err(AppError::Validation(
+            "an advance is a positive amount".into(),
+        ));
     }
     match request.party_kind.as_str() {
         "EMPLOYEE" | "SUPPLIER" | "OTHER" => {}
@@ -277,11 +281,10 @@ pub async fn advance_create(
         }
     }
     let advance_id = Uuid::new_v4();
-    let number: String = sqlx::query_scalar(
-        "SELECT 'ADV-' || to_char(nextval('advance_number_seq'), 'FM000000')",
-    )
-    .fetch_one(pool)
-    .await?;
+    let number: String =
+        sqlx::query_scalar("SELECT 'ADV-' || to_char(nextval('advance_number_seq'), 'FM000000')")
+            .fetch_one(pool)
+            .await?;
     sqlx::query(
         "INSERT INTO advance
            (advance_id, advance_number, site_id, party_kind, employee_id, supplier_id,
@@ -396,7 +399,10 @@ pub async fn advance_settle(
         ));
     }
     let document = advance_detail(pool, advance_id).await?;
-    if !matches!(document.advance.status.as_str(), "PAID" | "PARTIALLY_SETTLED") {
+    if !matches!(
+        document.advance.status.as_str(),
+        "PAID" | "PARTIALLY_SETTLED"
+    ) {
         return Err(AppError::Conflict(format!(
             "an advance is settled after it is paid; this one is {}",
             document.advance.status.to_lowercase()

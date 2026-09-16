@@ -7,9 +7,7 @@
 //! statement makes possible.
 
 use chrono::NaiveDate;
-use inventory_backend::cloud::postgres::{
-    self as cloud, RecordTaxItemRequest, SettleTaxRequest,
-};
+use inventory_backend::cloud::postgres::{self as cloud, RecordTaxItemRequest, SettleTaxRequest};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
@@ -36,6 +34,33 @@ async fn map(pool: &PgPool, key: &str, qualifier: &str, code: &str) {
     .unwrap_or_else(|error| panic!("map {key}: {error}"));
 }
 
+/// Our own BCA giro account, described the way Bank Accounts describes one.
+///
+/// Phase 2's rule: pointing `bank_giro`/`BCA` at a ledger account is somebody
+/// saying "our BCA giro money lives here", and posting into it then requires a
+/// real account of ours to be registered against it. A test that skips this is
+/// testing a database no shop could run.
+async fn a_registered_bank_account(pool: &PgPool) {
+    cloud::describe_account(
+        pool,
+        &cloud::DescribeBankAccountRequest {
+            ledger_account_code: BANK.into(),
+            site_id: SITE.into(),
+            bank_code: Some("BCA".into()),
+            bank_name: String::new(),
+            account_no: "1234567890".into(),
+            account_holder: "PT Itulah Busana Nusantara".into(),
+            branch: None,
+            kind: "GIRO".into(),
+            is_primary: None,
+            note: None,
+        },
+        ACTOR,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("bank account: {error}"));
+}
+
 async fn ready(pool: &PgPool) {
     map(pool, "pph29_payable", "", PPH29).await;
     map(pool, "pph25_credit", "", PPH25).await;
@@ -43,6 +68,7 @@ async fn ready(pool: &PgPool) {
     cloud::open_period(pool, 2026, 9)
         .await
         .unwrap_or_else(|error| panic!("open september: {error}"));
+    a_registered_bank_account(pool).await;
 }
 
 /// A document that has already posted, so an obligation has something to point
@@ -68,10 +94,9 @@ async fn a_posted_document(pool: &PgPool, amount_minor: i64) -> String {
     .execute(&mut *tx)
     .await
     .unwrap_or_else(|error| panic!("entry: {error}"));
-    for (index, (code, debit, credit)) in
-        [(PPH29, 0, amount_minor), (BANK, amount_minor, 0)]
-            .into_iter()
-            .enumerate()
+    for (index, (code, debit, credit)) in [(PPH29, 0, amount_minor), (BANK, amount_minor, 0)]
+        .into_iter()
+        .enumerate()
     {
         sqlx::query(
             "INSERT INTO journal_line

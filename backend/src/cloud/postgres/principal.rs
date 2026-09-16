@@ -14,9 +14,13 @@ use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
 use super::poster::{post, PostingIntent, PostingLine};
+
+// `EQUITY_MOVEMENT` and not `MANUAL`: capital arriving is a document, and the
+// posting kernel refuses a hand-keyed entry on a bank account by design (0261).
+// 0284 adds the kind, for the reason 0266 gave when it added `PAYROLL_RUN`.
 use crate::cloud::application::AppError;
 
-const SOURCE_KIND: &str = "MANUAL";
+const SOURCE_KIND: &str = "EQUITY_MOVEMENT";
 const RULE_VERSION: &str = "principal/1";
 const CAPITAL_MEANING: &str = "capital_contributed";
 const DRAWING_MEANING: &str = "owner_drawings";
@@ -225,10 +229,11 @@ pub async fn principal_movement(
             "a movement is a positive amount; the direction is the kind".into(),
         ));
     }
-    let name: Option<String> = sqlx::query_scalar("SELECT name FROM principal WHERE principal_id = $1")
-        .bind(request.principal_id)
-        .fetch_optional(pool)
-        .await?;
+    let name: Option<String> =
+        sqlx::query_scalar("SELECT name FROM principal WHERE principal_id = $1")
+            .bind(request.principal_id)
+            .fetch_optional(pool)
+            .await?;
     let name =
         name.ok_or_else(|| AppError::NotFound(format!("principal {}", request.principal_id)))?;
 
@@ -242,10 +247,7 @@ pub async fn principal_movement(
     let lines = match request.kind.as_str() {
         // Capital arriving: the company holds more money and owes its owners
         // more of itself.
-        "CONTRIBUTION" => vec![
-            cash_in,
-            PostingLine::credit(CAPITAL_MEANING, site, amount),
-        ],
+        "CONTRIBUTION" => vec![cash_in, PostingLine::credit(CAPITAL_MEANING, site, amount)],
         // Money taken out against equity. `Prive` and not an expense: a drawing
         // is not a cost of trading.
         "DRAWING" => vec![PostingLine::debit(DRAWING_MEANING, site, amount), cash],
