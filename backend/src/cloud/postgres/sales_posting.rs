@@ -253,9 +253,25 @@ type BucketKey = (String, String, Option<CardKind>);
 /// A card kind is only a fact about a card. Carrying one on a cash row would
 /// split the drawer into two buckets the moment a stray value reached the
 /// column, and the day would post two cash lines that mean the same thing.
-fn bucket_key(method: &str, acquirer: String, card_kind: Option<CardKind>) -> BucketKey {
-    let kind = if method == "CARD" { card_kind } else { None };
-    (method.to_string(), acquirer, kind)
+/// The bucket a tender falls in, and whether its card kind was a guess.
+///
+/// The kind is SETTLED here rather than in `into_vec`, and that is the whole
+/// point. A till that declares `DEBIT` and a central receipt that declares
+/// nothing are the same tender to the client's chart — both are BCA debit money
+/// — but keying on what was DECLARED made them two buckets that then resolved
+/// to the same `(method, acquirer, card_kind)`, and `sales_posting_line` is
+/// unique on exactly that triple. The day died on a unique violation rendered
+/// as "database operation failed", which says nothing to anybody.
+///
+/// It stayed invisible while no source declared a kind. The moment one did —
+/// a shop's own till, which records it — every mixed day stopped generating.
+fn bucket_key(method: &str, acquirer: String, declared: Option<CardKind>) -> (BucketKey, bool) {
+    if method == "CARD" {
+        let (kind, inferred) = classify_card(declared, &acquirer);
+        ((method.to_string(), acquirer, Some(kind)), inferred)
+    } else {
+        ((method.to_string(), acquirer, None), false)
+    }
 }
 
 fn parse_card_kind(raw: Option<String>) -> Option<CardKind> {
@@ -294,16 +310,24 @@ fn acquirer_of(method: &str, acquirer: Option<&str>, reference: Option<&str>) ->
 struct Buckets {
     receipts: BTreeMap<BucketKey, (i64, i64)>,
     refunds: BTreeMap<BucketKey, i64>,
+    /// True where any leg of the bucket had its card kind guessed. Merged
+    /// rather than keyed on: one declared tender does not make the guessed one
+    /// beside it declared, and the working paper says so on the row.
+    inferred: BTreeMap<BucketKey, bool>,
 }
 
 impl Buckets {
-    fn take(&mut self, key: BucketKey, amount: i64, count: i64) {
+    fn take(&mut self, keyed: (BucketKey, bool), amount: i64, count: i64) {
+        let (key, inferred) = keyed;
+        *self.inferred.entry(key.clone()).or_insert(false) |= inferred;
         let slot = self.receipts.entry(key).or_insert((0, 0));
         slot.0 += amount;
         slot.1 += count;
     }
 
-    fn give_back(&mut self, key: BucketKey, amount: i64) {
+    fn give_back(&mut self, keyed: (BucketKey, bool), amount: i64) {
+        let (key, inferred) = keyed;
+        *self.inferred.entry(key.clone()).or_insert(false) |= inferred;
         *self.refunds.entry(key).or_insert(0) += amount;
     }
 
@@ -321,15 +345,10 @@ impl Buckets {
         let mut cash_seen = false;
         let mut out = Vec::with_capacity(keys.len().max(1));
         for key in keys {
-            let (method, acquirer, declared) = key.clone();
+            let (method, acquirer, card_kind) = key.clone();
             let (mut receipts, count) = self.receipts.get(&key).copied().unwrap_or((0, 0));
             let refunds = self.refunds.get(&key).copied().unwrap_or(0);
-            let (card_kind, inferred) = if method == "CARD" {
-                let (kind, inferred) = classify_card(declared, &acquirer);
-                (Some(kind), inferred)
-            } else {
-                (None, false)
-            };
+            let inferred = self.inferred.get(&key).copied().unwrap_or(false);
             if method == "CASH" && !cash_seen {
                 cash_seen = true;
                 receipts += cash_adjustment;

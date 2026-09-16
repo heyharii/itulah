@@ -1552,3 +1552,119 @@ async fn a_refund_of_a_recorded_line(pool: &PgPool, refund_minor: i64, tax_minor
     .await
     .unwrap_or_else(|error| panic!("refund: {error}"));
 }
+
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_declared_card_and_a_guessed_one_are_the_same_bucket(pool: PgPool) {
+    seed_chart(&pool).await;
+    map_everything(&pool).await;
+    open_september(&pool).await;
+    // The same money, twice, from the two tills this estate actually has: a
+    // shop's own, which records the card kind, and the centre's, which has no
+    // column for it and leaves it to be inferred from the acquirer.
+    synced_sale(
+        &pool,
+        midday(),
+        500_000,
+        0,
+        0,
+        "CARD",
+        Some("BCA"),
+        Some("DEBIT"),
+    )
+    .await;
+    a_central_card_sale(&pool, 300_000, "BCA").await;
+
+    // Before the kind was settled ahead of grouping, these were two buckets
+    // that resolved to one `(method, acquirer, card_kind)` — and
+    // `sales_posting_line` is unique on exactly that, so the day died on a
+    // unique violation the API renders as "database operation failed".
+    let document = cloud::sales_posting_generate(&pool, &ask(), ACTOR)
+        .await
+        .unwrap_or_else(|error| panic!("generate: {error}"));
+
+    let cards: Vec<_> = document
+        .lines
+        .iter()
+        .filter(|line| line.method == "CARD")
+        .collect();
+    assert_eq!(cards.len(), 1, "one bucket, not one per till");
+    assert_eq!(cards[0].acquirer, "BCA");
+    assert_eq!(cards[0].card_kind.as_deref(), Some("DEBIT"));
+    assert_eq!(cards[0].gross_minor, 800_000, "both tills' money");
+    assert!(
+        cards[0].card_kind_inferred,
+        "half of it was guessed, and the working paper has to say so"
+    );
+
+    cloud::sales_posting_post(&pool, document.posting.posting_id, ACTOR)
+        .await
+        .unwrap_or_else(|error| panic!("post: {error}"));
+    assert_eq!(balance(&pool, "1011101002").await.0, 800_000);
+}
+
+/// A completed central sale paid by card, with the acquirer named and the kind
+/// left to be inferred — which is all `sale_payment` can carry: it has an
+/// `acquirer` column and no `card_kind` one.
+async fn a_central_card_sale(pool: &PgPool, total_minor: i64, acquirer: &str) {
+    let publication: Uuid =
+        sqlx::query("SELECT id FROM commercial_publication ORDER BY version DESC LIMIT 1")
+            .fetch_one(pool)
+            .await
+            .unwrap_or_else(|error| panic!("publication: {error}"))
+            .try_get("id")
+            .unwrap_or_else(|error| panic!("publication id: {error}"));
+    let group = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO movement_group
+           (id, cause, reason, actor_id, idempotency_key, payload_digest, occurred_at)
+         VALUES ($1,'SALE','a sale','kasir',$2,'digest',now())",
+    )
+    .bind(group)
+    .bind(Uuid::new_v4().to_string())
+    .execute(pool)
+    .await
+    .unwrap_or_else(|error| panic!("group: {error}"));
+
+    let sale = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO sale
+           (id, sale_number, site_id, channel, status, commercial_publication_id,
+            commercial_version, currency, net_minor, tax_minor, total_minor, paid_minor,
+            change_minor, movement_group_id, actor_id, idempotency_key, created_at)
+         VALUES ($1,'S-CARD',$2,'STORE','OPEN',$3,1,'IDR',$4,$5,$6,$6,0,$7,'kasir',$8,
+                 '2026-09-15T05:00:00Z')",
+    )
+    .bind(sale)
+    .bind(SITE)
+    .bind(publication)
+    .bind(total_minor - total_minor * 100 / 1110)
+    .bind(total_minor * 100 / 1110)
+    .bind(total_minor)
+    .bind(group)
+    .bind(Uuid::new_v4().to_string())
+    .execute(pool)
+    .await
+    .unwrap_or_else(|error| panic!("sale: {error}"));
+
+    sqlx::query(
+        "INSERT INTO sale_payment
+           (id, sale_id, method, amount_minor, acquirer, actor_id, idempotency_key)
+         VALUES ($1,$2,'CARD',$3,$4,'kasir',$5)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(sale)
+    .bind(total_minor)
+    .bind(acquirer)
+    .bind(Uuid::new_v4().to_string())
+    .execute(pool)
+    .await
+    .unwrap_or_else(|error| panic!("payment: {error}"));
+
+    sqlx::query(
+        "UPDATE sale SET status='COMPLETED', completed_at='2026-09-15T05:00:00Z' WHERE id=$1",
+    )
+    .bind(sale)
+    .execute(pool)
+    .await
+    .unwrap_or_else(|error| panic!("complete: {error}"));
+}
