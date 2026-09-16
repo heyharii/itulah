@@ -431,7 +431,13 @@ def build(db: Db, wanted: int, seed: int) -> None:
         """
         SELECT split_part(op.id, '.', 1) FROM operational_pool op
           JOIN site s ON s.id = op.site_id
-         WHERE s.kind = 'HO' AND op.pool_code = 'WAREHOUSE'
+         -- `HO` is what the site is called AFTER the head-office rename, and
+         -- 0256 is still held: `9b273f83` took that migration back out of the
+         -- deploy it broke, so on this branch the building is `dc` with kind
+         -- `DC`. It is the same warehouse either way -- 0236 put head office
+         -- where the warehouse works -- so both names are accepted rather than
+         -- the seed insisting on the one that has not landed.
+         WHERE s.kind IN ('HO', 'DC') AND op.pool_code = 'WAREHOUSE'
            AND EXISTS (SELECT 1 FROM inventory_place p
                         WHERE p.pool_id = op.id AND p.state = 'NORMAL')
          ORDER BY op.id LIMIT 1
@@ -970,6 +976,18 @@ COMMIT;
     )
 
 
+EPC_HEADER_HEX = f"{RETAIL_PRIVATE_HEADER:02x}"
+
+
+def audit_sql() -> str:
+    """`AUDIT` with the encoder's own header in it.
+
+    A plain string and not an f-string: the checks below carry regexes like
+    `{24}`, which an f-string would read as an expression.
+    """
+    return AUDIT.replace("{EPC_HEADER_HEX}", EPC_HEADER_HEX)
+
+
 AUDIT = """
 \\pset border 2
 SELECT 'articles with no setup session'      AS link, count(*) AS broken FROM article a
@@ -998,7 +1016,12 @@ UNION ALL SELECT 'units whose SKU has no PO behind it', count(*) FROM inventory_
   WHERE k.created_by_session_id IS NULL
 UNION ALL SELECT 'units with no SKU at all', count(*) FROM inventory_subject WHERE sku_id IS NULL
 UNION ALL SELECT 'UNIT subjects with a malformed EPC', count(*) FROM inventory_subject
-  WHERE subject_type='UNIT' AND (epc IS NULL OR epc !~ '^[0-9a-f]{24}$' OR left(epc,2) <> 'a0')
+  WHERE subject_type='UNIT' AND (epc IS NULL OR epc !~ '^[0-9a-f]{24}$'
+     -- The header the encoder above actually writes, rather than a second copy
+     -- of it: the handheld lane moved the estate from `0xa0` to `0xa1` and this
+     -- literal stayed behind, so every one of 32,426 correctly minted units
+     -- audited as malformed.
+     OR left(epc,2) <> '{EPC_HEADER_HEX}')
 UNION ALL SELECT 'SKU codes that are not 11 digits', count(*) FROM sku WHERE sku_code !~ '^[0-9]{11}$'
 UNION ALL SELECT 'movements into a place that does not exist', count(*) FROM movement m
   WHERE NOT EXISTS (SELECT 1 FROM inventory_place p WHERE p.id=m.to_place_id)
@@ -1032,7 +1055,7 @@ def main() -> int:
     db = Db(args.db)
 
     if args.audit:
-        subprocess.run(["psql", "-d", args.db, "-q", "-f", "-"], input=AUDIT, text=True)
+        subprocess.run(["psql", "-d", args.db, "-q", "-f", "-"], input=audit_sql(), text=True)
         return 0
 
     if args.repair:
@@ -1043,7 +1066,7 @@ def main() -> int:
         build(db, args.articles, args.seed)
 
     print()
-    subprocess.run(["psql", "-d", args.db, "-q", "-f", "-"], input=AUDIT, text=True)
+    subprocess.run(["psql", "-d", args.db, "-q", "-f", "-"], input=audit_sql(), text=True)
     return 0
 
 
