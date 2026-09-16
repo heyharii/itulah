@@ -450,8 +450,7 @@ pub async fn post(
     .await
     .map_err(|error| as_already_posted(error, intent, purpose))?;
 
-    for (index, (line, (account_code, bank_account_id))) in
-        lines.iter().zip(&resolved).enumerate()
+    for (index, (line, (account_code, bank_account_id))) in lines.iter().zip(&resolved).enumerate()
     {
         sqlx::query(
             "INSERT INTO journal_line

@@ -7182,7 +7182,6 @@ async fn apply_goods_receipt_invoice(
         return Ok(InvoiceApplication::NoSuchReceipt);
     }
     Ok(InvoiceApplication::Applied)
-
 }
 
 /// A purchase order with what has actually arrived against it.

@@ -484,9 +484,7 @@ impl DatedRoster {
                 })
         });
         match (overnight_still_running, yesterday) {
-            (true, Some(yesterday)) => {
-                PunchTime::new(yesterday, DayOffset::NEXT_DAY, local_minute)
-            }
+            (true, Some(yesterday)) => PunchTime::new(yesterday, DayOffset::NEXT_DAY, local_minute),
             _ => PunchTime::same_day(local_date, local_minute),
         }
     }

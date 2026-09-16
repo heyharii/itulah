@@ -682,7 +682,13 @@ impl Punch {
             return Err(AttendanceError::PunchProvenanceMismatch { field: "employee" });
         }
         match (&record.provenance, terminal) {
-            (PunchProvenance::Terminal { terminal: id, method }, Some(station)) => {
+            (
+                PunchProvenance::Terminal {
+                    terminal: id,
+                    method,
+                },
+                Some(station),
+            ) => {
                 station.require_persisted_provenance(id, &record.place, *method)?;
             }
             (PunchProvenance::EmployeeApp, None) => {}
@@ -1073,13 +1079,23 @@ mod tests {
         )
         .expect("register");
         assert!(matches!(
-            Punch::rehydrate(punch.to_persisted(), Some(&elsewhere), &employee, &assignment),
+            Punch::rehydrate(
+                punch.to_persisted(),
+                Some(&elsewhere),
+                &employee,
+                &assignment
+            ),
             Err(AttendanceError::PunchProvenanceMismatch { .. })
         ));
         // The right terminal loads it back unchanged.
         let terminal = terminal();
-        let reloaded = Punch::rehydrate(punch.to_persisted(), Some(&terminal), &employee, &assignment)
-            .expect("rehydrate");
+        let reloaded = Punch::rehydrate(
+            punch.to_persisted(),
+            Some(&terminal),
+            &employee,
+            &assignment,
+        )
+        .expect("rehydrate");
         assert_eq!(reloaded, punch);
     }
 
@@ -1097,9 +1113,13 @@ mod tests {
                 authority(actions::ATTENDANCE_TERMINAL_MANAGE),
             )
             .expect("revoke");
-        assert!(
-            Punch::rehydrate(punch.to_persisted(), Some(&terminal), &employee, &assignment).is_ok()
-        );
+        assert!(Punch::rehydrate(
+            punch.to_persisted(),
+            Some(&terminal),
+            &employee,
+            &assignment
+        )
+        .is_ok());
         // But it attests nothing new.
         assert!(terminal.attest(employee.id().clone()).is_err());
     }
