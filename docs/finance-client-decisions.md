@@ -130,3 +130,97 @@ shop"* dan empat tes di `store_documents_integration` merah karenanya.
 **Perlu keputusan.** Satu otoritas dipilih dan yang lain dihapus, seperti 0273 —
 atau `deposits.rs` diperbaiki kaki banknya dan keduanya tetap hidup. Ini
 menyentuh dua modul dan dicatat di sini alih-alih diputuskan sepihak.
+
+---
+
+## 8. Uang muka: empat akun, keperluan mana?
+
+**Pertanyaan.** Bagan klien punya `1011303001 Advanced - Travelling`,
+`002 Purchase`, `003 To Contractors`, `004 Others`. Keperluan apa yang masuk ke
+masing-masing?
+
+**Kenapa penting.** Setiap uang muka menyebut satu qualifier (`PERJALANAN`,
+`PURCHASE`, `CONTRACTORS`, `OTHERS`) dan itulah yang memilih akunnya.
+
+**Aman sekarang.** Qualifier diisi oleh yang membuat dokumen; yang belum
+dipetakan ditolak dengan menyebut namanya, bukan ditebak.
+
+**Blocking?** TIDAK.
+
+---
+
+## 9. Siapa pemiliknya
+
+**Pertanyaan.** Nama dan kode pemilik/investor, dan siapa yang pernah menyetor
+modal, mengambil prive, atau meminjamkan uang ke perusahaan.
+
+**Kenapa penting.** `3013001001 Modal Setor`, `3013001004 Prive` dan
+`2022401001 Pinjaman Principal` adalah akun perusahaan; tanpa identitas, tidak
+ada yang bisa menjawab "berapa punya siapa".
+
+**Aman sekarang.** Tabel `principal` kosong. Tidak ada gerakan pemilik yang bisa
+dicatat sampai ada namanya — dan itu benar: mencatatnya atas nama "pemilik"
+tanpa identitas adalah menebak.
+
+**Blocking?** YA untuk modul pemilik; TIDAK untuk yang lain.
+
+---
+
+## 10. Fasilitas pembiayaan yang berjalan
+
+**Pertanyaan.** Pinjaman bank atau pinjaman pemilik yang masih berjalan: pemberi,
+pokok, tanggal, bunga, dan jadwal angsurannya.
+
+**Kenapa penting.** Jadwal diambil dari kontrak, bukan dari rumus. Tanpa jadwal,
+tidak ada angsuran yang bisa diposting dan bagian lancar tidak bisa dihitung.
+
+**Aman sekarang.** `financing_facility` kosong; bunga pinjaman tetap bisa dicatat
+sebagai beban biasa.
+
+**Blocking?** YA untuk modul pembiayaan; TIDAK untuk yang lain.
+
+---
+
+## 11. Leasing: ada kontrak aktif?
+
+**Pertanyaan.** `8020111002 Biaya Bunga Leasing` ada di bagan. Ada kontrak
+leasing berjalan?
+
+**Aman sekarang.** Tipe `LEASE` ada di `financing_facility` dan **dorman**: sisi
+asetnya (right-of-use dan penyusutannya) tidak dibangun, karena membangunnya di
+atas sebuah akun bunga berarti mengarang fakta bisnis.
+
+**Blocking?** TIDAK.
+
+---
+
+## 12. Prepaid dan pajak yang berjalan saat cutover
+
+**Pertanyaan.** Saat pindah sistem: prepayment apa yang masih berjalan (asuransi,
+sewa, maintenance) dengan sisa dan periodenya; dan untuk pajak — saldo PPh 29,
+angsuran PPh 25 yang sudah disetor tahun ini, masa PPN yang belum dilaporkan.
+
+**Kenapa penting.** Saldo awal akun kontrol harus cocok dengan jadwal
+pendukungnya. Tanpa jadwal, `1011301*` akan punya saldo yang tidak ada yang
+mengamortisasi, dan panel kontrol akan menampilkannya sebagai selisih — yang
+memang benar, dan bukan sesuatu yang boleh ditutup dengan akun penyeimbang.
+
+**Aman sekarang.** Selisih ditampilkan, tidak ditambal.
+
+**Blocking?** TIDAK untuk kode; YA untuk cutover.
+
+---
+
+## 13. Metode penilaian persediaan
+
+**Pertanyaan.** Persediaan dinilai dengan metode apa — FIFO, rata-rata bergerak,
+atau harga beli terakhir?
+
+**Kenapa penting.** Ini satu-satunya kontrol yang tidak bisa dijawab sama sekali:
+stok punya jumlah dan tidak punya nilai, jadi `1011201001 Persediaan Barang
+Dagangan` tidak bisa direkonsiliasi ke gudang, dan HPP tidak bisa dihitung.
+
+**Aman sekarang.** Panel kontrol menampilkan persediaan sebagai `covered = false`
+dengan alasannya; tutup bulan melaporkannya UNKNOWN, bukan OK.
+
+**Blocking?** YA untuk penilaian persediaan dan HPP; TIDAK untuk yang lain.
