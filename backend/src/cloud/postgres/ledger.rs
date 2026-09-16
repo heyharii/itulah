@@ -351,6 +351,15 @@ pub async fn book_locations(pool: &PgPool) -> Result<Vec<BookLocation>, AppError
 
 /// Every meaning the posting rules use, in the order a person would set them.
 pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
+    // Four meanings were removed here in 0277, and it is worth saying which and
+    // why: `revenue`, `output_tax`, `qris_clearing` and `other_tender_clearing`
+    // belonged to the day-posting writer 0273 deleted. Nothing in the estate
+    // asks for them any more — the authority names `revenue_cash`,
+    // `revenue_debit`, `revenue_credit`, `revenue_qris`, `vat_out` and
+    // `qris_receivable`, and it refuses an unnamed tender rather than clearing
+    // it — so every one of them was a pair this screen counted as unset for
+    // ever, 56 of them across fourteen places. A required list that demands
+    // what nothing reads teaches people to ignore the number.
     vec![
         key(
             "inventory",
@@ -587,51 +596,6 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         // chart was imported. QRIS settles exactly the same way — the money
         // reaches the bank a day or two later, net of a fee — and had nothing
         // at all, so it could not be followed from the till to the statement.
-        // 0238 adds the accounts; these are the meanings that reach them.
-        //
-        // 0244 then collapsed the chart against a fixture derived before 0238
-        // existed, which knew no QRIS meaning and folded both of these onto
-        // `1011101002 Piutang Kartu Debit` — so for six days a QRIS sale and a
-        // debit-card sale were the same row in the ledger. 0248 gives each its
-        // own account again, ONE account and not fourteen leaves: the unit is
-        // `journal_line.site_id` now.
-        key(
-            "qris_clearing",
-            "QRIS taken, not yet settled",
-            "1011101003 Piutang QRIS",
-            false,
-            "Receivables",
-        ),
-        // There is no TRANSFER tender, so a transfer made at the counter
-        // arrives as OTHER. It goes to a clearing account of its own rather
-        // than into cash: money nobody has named is money that has to stay
-        // visible until somebody names it, and a drawer that was credited with
-        // it would reconcile against a count it can never match.
-        key(
-            "other_tender_clearing",
-            "Other tender, not yet settled",
-            "1011101004 Piutang Tender Lain-Lain",
-            false,
-            "Receivables",
-        ),
-        // What the counter sold. QUALIFIED, and the qualifier is the tender.
-        //
-        // The client's chart splits sales by tender — `4010110` Tunai,
-        // `4010111` Kartu Debit per bank, `4010112` Kartu Kredit per scheme —
-        // and whether this estate should follow it that far is an open owner
-        // decision (`docs/finance-menu.md` §6, decision 2). So the day's rule
-        // asks rather than decides: bind `revenue` per tender here —
-        // `CASH`, `CARD_DEBIT`, `CARD_CREDIT`, `QRIS`, `VOUCHER`, `OTHER` —
-        // and the credit splits to match; leave only the plain binding and it
-        // is one line. Either way the TENDER SPLIT is on the debits beside it,
-        // which is where it reconciles to the bank.
-        key(
-            "revenue",
-            "Counter sales",
-            "4010114001* Penjualan Barang Dagangan",
-            true,
-            "Sales",
-        ),
         // The tax that was already inside the price, and is not revenue.
         //
         // Indonesian retail prices are tax-INCLUSIVE: the shelf price is what
@@ -650,18 +614,6 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         //
         // Nothing was missing from either chart, and nothing is invented for
         // this: `2012101003` is the CLIENT'S own account and the name below is
-        // theirs verbatim, double space and all. Our collapsed chart currently
-        // shows it as `Hutang PPN Keluaran` — one of the 139 renames the
-        // owner's audit of 2026-09-14 found and put on the list to reverse —
-        // so this line is the client's spelling and the chart is the one that
-        // is wrong, not this.
-        key(
-            "output_tax",
-            "Output VAT (PPN Keluaran)",
-            "2012101003 Hutang  VAT PPN Keluaran",
-            false,
-            "Sales",
-        ),
         // A voucher presented at the counter is not money arriving. The money
         // arrived when the card was sold, possibly at another shop, possibly
         // last year; this is the liability being settled.

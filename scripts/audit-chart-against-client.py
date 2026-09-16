@@ -92,7 +92,15 @@ def client_chart() -> dict[str, str]:
 
 
 def our_chart(database: str) -> dict[str, str]:
-    query = "select account_code||'\t'||name from ledger_account order by account_code"
+    # Accounts we minted are excluded by `code_provenance`, not by a list in
+    # this file. 0277 made provenance a column precisely so this audit could
+    # stop reporting six deliberate exceptions as a failure — a check that is
+    # permanently red is a check nobody reads — while still failing the day a
+    # SEVENTH appears without anybody declaring it.
+    query = (
+        "select account_code||'\t'||name from ledger_account "
+        "where code_provenance = 'CLIENT' order by account_code"
+    )
     out = subprocess.run(
         ["psql", "-d", database, "-tAc", query], capture_output=True, text=True
     )
@@ -101,6 +109,24 @@ def our_chart(database: str) -> dict[str, str]:
     return dict(
         line.split("\t", 1) for line in out.stdout.strip().split("\n") if "\t" in line
     )
+
+
+def declared(database: str) -> list[tuple[str, str]]:
+    """The accounts we minted, which the client's chart is not expected to hold."""
+    query = (
+        "select account_code||'\t'||name from ledger_account "
+        "where code_provenance = 'PENDING_CLIENT_CODE' order by account_code"
+    )
+    out = subprocess.run(
+        ["psql", "-d", database, "-tAc", query], capture_output=True, text=True
+    )
+    if out.returncode != 0:
+        sys.exit(f"cannot read {database}: {out.stderr.strip()}")
+    return [
+        tuple(line.split("\t", 1))
+        for line in out.stdout.strip().split("\n")
+        if "\t" in line
+    ]
 
 
 def audit(database: str) -> bool:
@@ -117,11 +143,15 @@ def audit(database: str) -> bool:
         else:
             reworded.append((code, client[code], name))
 
-    print(f"  akun di bagan            : {len(ours)}")
+    pending = declared(database)
+    print(f"  akun di bagan            : {len(ours) + len(pending)}")
+    print(f"  kode kita, menunggu klien: {len(pending)}  (dideklarasikan)")
     print(f"  BUKAN akun klien         : {len(invented)}")
     print(f"  BEDA KATA dari klien     : {len(reworded)}")
     print(f"  singkatan dieja          : {expanded}  (diizinkan)")
     print(f"  beda kapital/spasi       : {cosmetic}  (diizinkan)")
+    for code, name in pending:
+        print(f"     MENUNGGU     {code:12} {name}")
     for code, name in invented:
         print(f"     BUKAN KLIEN  {code:12} {name}")
     for code, theirs, mine in reworded:

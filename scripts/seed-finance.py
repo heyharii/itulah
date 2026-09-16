@@ -124,9 +124,13 @@ PLAIN: dict[str, str] = {
     # lane-B — the store cash chain.
     #
     # Every code here is a real leaf, checked against
-    # Laporan_Master_Account1.csv — except the first, which is the one meaning
-    # this estate still has no account for. See UNANSWERED_MEANINGS below.
-    "cash_in_transit": "1011005001",      # NO ACCOUNT: client question
+    # Laporan_Master_Account1.csv — except the first, which is ours: 0277 put
+    # `1011005001 Setoran Dalam Perjalanan` back, marked
+    # `code_provenance = 'PENDING_CLIENT_CODE'`, because two deposit documents
+    # post through the meaning and the client's chart has no slot for money in
+    # transit. That migration also writes the mapping, so this line agrees with
+    # it rather than competing.
+    "cash_in_transit": "1011005001",      # ours, declared; awaiting a client code
     # 0254 deleted `8010110008 Selisih Kas` as ours and remapped it onto the
     # client's own `8010110007 Pendapatan (Biaya) Lain-Lain`. Pointing at the
     # deleted code made this meaning unmappable, and a cash count that came up
@@ -192,9 +196,10 @@ PLAIN: dict[str, str] = {
 #                         reached the bank is a real state, but which account the
 #                         client keeps it in is theirs to say. Reported as an
 #                         open question rather than answered by this script.
-UNANSWERED_MEANINGS = {
-    "cash_in_transit": "0254 deleted 1011005001 as ours; the client has not named a replacement",
-}
+# Meanings a posting path needs and no account answers. Empty since 0277 —
+# `cash_in_transit` was the last one, and it is answered by an account of ours
+# that says so in `ledger_account.code_provenance` rather than by silence.
+UNANSWERED_MEANINGS: dict[str, str] = {}
 
 # The client writes head office `HO` and shop n `C00n` in every leaf name.
 def unit_suffix(site: str) -> tuple[str, str]:

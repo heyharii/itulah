@@ -553,7 +553,15 @@ async fn a_deposit_is_recorded_without_the_transit_account_and_cannot_be_banked(
     open_september(&pool).await;
     map(&pool, "cash", "", DRAWER).await;
     map(&pool, "bank_savings", "BCA", BANK).await;
-    // `cash_in_transit` is deliberately not mapped.
+    // `cash_in_transit` is deliberately UNmapped — and since 0277 that takes a
+    // delete, because the migration chain now ships the mapping at every place
+    // rather than leaving it to a seed. The refusal is still worth guarding:
+    // somebody can retire the row on the Account Map screen, and the day they
+    // do, a deposit has to say which key it could not resolve.
+    sqlx::query("DELETE FROM account_map WHERE semantic_key = 'cash_in_transit'")
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("unmap: {error}"));
 
     let recorded = cloud::record_deposit(&pool, &a_deposit(), ACTOR)
         .await
