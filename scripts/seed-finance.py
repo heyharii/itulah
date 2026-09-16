@@ -637,6 +637,15 @@ def client_chart(path: str) -> dict[str, str]:
     return chart
 
 
+def family_leaf(family: str) -> str:
+    """The one posting account our chart keeps for an affiliate family.
+
+    `1021402` -> `1021402001`. The client writes a leaf per unit pair and we
+    write one per meaning; `ledger_account_remap` records the fold.
+    """
+    return family + "001"
+
+
 def affiliate_rows(chart: dict[str, str]) -> tuple[list[dict], list[str]]:
     """The 52 mappings, and the codes the client's chart does not carry."""
     # suffix and rung index for each unit. `001` is head office, so a shop's
@@ -658,7 +667,7 @@ def affiliate_rows(chart: dict[str, str]) -> tuple[list[dict], list[str]]:
         for site, suffix, index in units:
             if site == HEAD_OFFICE:
                 continue
-            for key, owner, counterparty, code in (
+            for key, owner, counterparty, client_code in (
                 # Head office books the receivable, named for the shop, at 00.
                 ("affiliate_receivable", HEAD_OFFICE, site,
                  receivable + index + ho_suffix),
@@ -666,8 +675,18 @@ def affiliate_rows(chart: dict[str, str]) -> tuple[list[dict], list[str]]:
                 ("affiliate_payable", site, HEAD_OFFICE,
                  payable + ho_index + suffix),
             ):
-                if chart and code not in chart:
-                    missing.append(f"{key}/{owner}/{kind}:{counterparty}/{code}")
+                # The client's twelve-digit leaf is what gets CHECKED; the
+                # ten-digit family leaf is what gets WRITTEN. Our chart keeps one
+                # row per meaning (0243): the unit is `journal_line.site_id` and
+                # the counterparty is in the qualifier, so all 196 of the
+                # client's leaves in a family collapse onto `<family>001`.
+                # Posting their code instead is what made every one of these 52
+                # rows fail with "no account 102140200200 in the chart" — the
+                # codes were verified against the right chart and sent to the
+                # wrong one.
+                code = family_leaf(receivable if key == "affiliate_receivable" else payable)
+                if chart and client_code not in chart:
+                    missing.append(f"{key}/{owner}/{kind}:{counterparty}/{client_code}")
                     continue
                 rows.append({
                     "semantic_key": key,
@@ -678,7 +697,9 @@ def affiliate_rows(chart: dict[str, str]) -> tuple[list[dict], list[str]]:
                     # resolves without the poster ever naming a code.
                     "qualifier": f"{kind}:{counterparty}",
                     "account_code": code,
-                    "note": chart.get(code, "inter-unit pair"),
+                    # Which of the client's leaves this row stands for, so the
+                    # collapse can still be read back on the map screen.
+                    "note": chart.get(client_code, "inter-unit pair"),
                 })
     return rows, missing
 
