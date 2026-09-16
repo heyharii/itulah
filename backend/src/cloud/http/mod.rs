@@ -63,6 +63,7 @@ pub mod reports;
 pub mod roster;
 // lane-A
 pub mod advance;
+pub mod finance_control;
 pub mod principal;
 pub mod financing;
 pub mod prepaid;
@@ -830,6 +831,7 @@ pub fn router(state: AppState) -> Router {
     .merge(payment_ledger::lane_p_routes(Router::new()))
     // lane-A routes: a day of takings, and moving a settled tender.
     .merge(advance::routes(Router::new()))
+    .merge(finance_control::routes(Router::new()))
     .merge(principal::routes(Router::new()))
     .merge(financing::routes(Router::new()))
     .merge(prepaid::routes(Router::new()))

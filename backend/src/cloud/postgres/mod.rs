@@ -96,6 +96,8 @@ mod sale_day;
 mod sales;
 // lane-A
 mod advance;
+mod finance_control;
+mod financial_statements;
 mod principal;
 mod financing;
 mod prepaid;
@@ -201,6 +203,8 @@ pub use sale_day::*;
 pub use sales::*;
 // lane-A
 pub use advance::*;
+pub use finance_control::*;
+pub use financial_statements::*;
 pub use principal::*;
 pub use financing::*;
 pub use prepaid::*;
