@@ -41,7 +41,7 @@ API road cannot reach in a reasonable time against a remote database.
 The EPCs are real. `encode_epc` below is a transliteration of
 `backend/src/cloud/domain/identity.rs`, checked at import time against the same
 golden vector that file is checked against — `encode("12345678123", 100) ==
-"a01234567812300000000064"` — because a seeded tag that a handheld cannot read
+"a11234567812300000000064"` — because a seeded tag that a handheld cannot read
 is worse than no tag: in the warehouse it looks like missing stock, not like a
 bad fixture.
 
@@ -119,7 +119,7 @@ def encode_epc(sku: str, serial: int) -> str:
 
 # The assertion that makes the rest of this file trustworthy. If it ever fails,
 # every tag this script writes is unreadable by the handhelds in the field.
-assert encode_epc("12345678123", 100) == "a01234567812300000000064", (
+assert encode_epc("12345678123", 100) == "a11234567812300000000064", (
     "EPC encoder does not agree with the one already on garments in the estate"
 )
 
