@@ -238,6 +238,9 @@ fn request_for(
     ImportStatementRequest {
         account_code: source.account_code.clone(),
         site_id: source.site_id.clone(),
+        // What the route was configured with, which may be nothing: the import
+        // then resolves it, and refuses if the ledger binding is ambiguous.
+        bank_account_id: source.bank_account_id,
         period_start: parsed.period_start,
         period_end: parsed.period_end,
         // A file with no running balance imports with zeroes and says so in the

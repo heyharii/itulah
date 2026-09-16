@@ -8,15 +8,19 @@
  * both halves compute the same way. A bank appears the moment an account names
  * it and disappears when the last one stops.
  */
-export type BankInstitution = { 
+export type BankInstitution = { bank_id: string, 
 /**
- * As it will be printed — the spelling the most recent account used.
+ * Our own stable code for it: `BCA`, `MANDIRI`.
+ */
+code: string, 
+/**
+ * As it will be printed.
  */
 name: string, 
 /**
  * What uniqueness is judged on. "BCA", "Bank BCA" and "bank bca" are one.
  */
-normalized: string, our_accounts: number, supplier_accounts: number, 
+normalized: string, country_code: string, active: boolean, our_accounts: number, supplier_accounts: number, 
 /**
  * What the books hold across our accounts at this bank. Null when we hold
  * none there, which is different from holding nothing: a bank we only pay

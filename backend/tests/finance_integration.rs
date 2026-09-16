@@ -334,6 +334,7 @@ async fn a_heading_cannot_be_posted_to(pool: PgPool) {
                 credit_minor: 0,
                 supplier_id: None,
                 asset_id: None,
+                bank_account_id: None,
                 memo: None,
                 counter_site_id: None,
             },

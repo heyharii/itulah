@@ -2432,6 +2432,12 @@ pub struct PostingFacts<'a> {
     pub source_kind: &'a str,
     pub site_id: &'a str,
     pub counter_site_id: Option<&'a str>,
+    /// Which of our real bank accounts the line says it moved, when it says.
+    ///
+    /// A rule that knows sets it. Everything else leaves it `None` and lets the
+    /// validator resolve it, which it can do whenever the ledger binding has
+    /// exactly one active account — and must refuse when it has two.
+    pub bank_account_id: Option<uuid::Uuid>,
 }
 
 /// The kinds a PERSON writes, as opposed to the kinds a rule writes.
@@ -2488,7 +2494,7 @@ pub async fn validate_account_posting(
     executor: impl sqlx::PgExecutor<'_>,
     account_code: &str,
     facts: PostingFacts<'_>,
-) -> Result<(), AppError> {
+) -> Result<Option<uuid::Uuid>, AppError> {
     let code = account_code.trim();
     // One query and not two: the allow-list is folded in as an array so that
     // adding this check costs the posting path a single round trip.
@@ -2502,19 +2508,38 @@ pub async fn validate_account_posting(
                 COALESCE(
                     ARRAY_AGG(r.source_kind) FILTER (WHERE r.effect = 'DENY'),
                     '{}'
-                ) AS denied
+                ) AS denied,
+                held.ids AS bank_ids, held.states AS bank_states,
+                held.labels AS bank_labels
            FROM ledger_account a
            LEFT JOIN account_source_rule r ON r.account_code = a.account_code
+           -- The real accounts registered against this ledger binding, in the
+           -- order a person would be offered them: the primary first. Lateral
+           -- rather than three correlated subqueries so the whole of this check
+           -- stays ONE round trip, which is what made it affordable in the
+           -- posting path to begin with.
+           LEFT JOIN LATERAL (
+               SELECT COALESCE(ARRAY_AGG(c.account_id
+                          ORDER BY c.is_primary DESC, c.account_no_digits), '{}') AS ids,
+                      COALESCE(ARRAY_AGG(c.status
+                          ORDER BY c.is_primary DESC, c.account_no_digits), '{}') AS states,
+                      COALESCE(ARRAY_AGG(b.code || ' ' || c.account_no
+                          ORDER BY c.is_primary DESC, c.account_no_digits), '{}') AS labels
+                 FROM company_bank_account c
+                 JOIN bank b ON b.bank_id = c.bank_id
+                WHERE c.ledger_account_code = a.account_code AND c.site_id = $2
+           ) held ON true
           WHERE a.account_code = $1
           GROUP BY a.name, a.posting_mode, a.manual_je_policy, a.dimension,
-                   a.requires_counter_site",
+                   a.requires_counter_site, held.ids, held.states, held.labels",
     )
     .bind(code)
+    .bind(facts.site_id)
     .fetch_optional(executor)
     .await?;
     // Absent is not this function's refusal to make: `assert_postable` has
     // already said "no account {code} in the chart" in the poster's own words.
-    let Some(row) = row else { return Ok(()) };
+    let Some(row) = row else { return Ok(None) };
 
     let name: String = row.try_get("name")?;
     let posting_mode: String = row.try_get("posting_mode")?;
@@ -2593,7 +2618,72 @@ pub async fn validate_account_posting(
             facts.site_id
         )));
     }
-    Ok(())
+
+    // Which real bank account moved, when the chart knows of any.
+    //
+    // There is no `requires_bank_account` column, on purpose. The requirement is
+    // already a fact the database holds — whether this ledger binding has
+    // registered accounts — and a flag would be a second place for that fact to
+    // live, needing to be switched on in every environment by hand. That is the
+    // Phase 1C lesson restated: policy that depends on somebody remembering is
+    // policy some environment does not have. Here the control arrives with the
+    // accounts.
+    let bank_ids: Vec<uuid::Uuid> = row.try_get("bank_ids")?;
+    let bank_states: Vec<String> = row.try_get("bank_states")?;
+    let bank_labels: Vec<String> = row.try_get("bank_labels")?;
+    // An opening balance is history arriving, and the account it sat in may have
+    // closed before this master existed. The one exemption, and it exempts only
+    // the naming — every other refusal above still applies to it.
+    let opening = kind == "OPENING";
+
+    if let Some(named) = facts.bank_account_id {
+        let Some(at) = bank_ids.iter().position(|id| *id == named) else {
+            return Err(AppError::Validation(format!(
+                "the bank account this line names is not one of {code} {name}'s at {}. \
+                 A bank account belongs to one ledger account at one place, and this one belongs elsewhere.",
+                facts.site_id
+            )));
+        };
+        // Closed takes new money only through a document somebody approved. The
+        // account stays readable on everything it ever paid — what it stops
+        // doing is receiving ordinary postings.
+        if bank_states[at] == "CLOSED" && !(correction || opening) {
+            return Err(AppError::Validation(format!(
+                "{} is closed, so a {kind} posting cannot move it. If the closing itself needs \
+                 correcting, raise an adjustment and have it approved.",
+                bank_labels[at]
+            )));
+        }
+        return Ok(Some(named));
+    }
+
+    let live: Vec<usize> = (0..bank_ids.len())
+        .filter(|at| bank_states[*at] == "ACTIVE")
+        .collect();
+    match live.as_slice() {
+        // Nothing registered — or only accounts marked DORMANT, which is the
+        // word for "exists, unused" and so is not something to resolve TO. The
+        // line posts without naming an account, exactly as every line did before
+        // this master existed.
+        [] => Ok(None),
+        // One candidate. Asking a rule to name the only possible answer would be
+        // ceremony, and would have meant touching two dozen posting rules to
+        // teach them a fact the chart already knows.
+        [only] => Ok(Some(bank_ids[*only])),
+        // Two or more, and this is the refusal the whole column exists for: the
+        // statement of one BCA account must not be reconciled against a voucher
+        // that could have moved the other.
+        _ if opening => Ok(None),
+        _ => Err(AppError::Validation(format!(
+            "{code} {name} at {} has {} accounts, so a posting has to say which one moved: {}.",
+            facts.site_id,
+            live.len(),
+            live.iter()
+                .map(|at| bank_labels[*at].as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ))),
+    }
 }
 
 /// Point a meaning at an account, or move it.

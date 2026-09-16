@@ -1314,6 +1314,7 @@ pub async fn credit_note_post(
                 credit_minor: note.subtotal_minor,
                 supplier_id: None,
                 asset_id: None,
+                bank_account_id: None,
                 memo: None,
             },
             None => PostingLine::credit("inventory", &note.site_id, note.subtotal_minor),

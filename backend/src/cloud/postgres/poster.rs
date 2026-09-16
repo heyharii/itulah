@@ -109,6 +109,15 @@ pub struct PostingLine {
     /// inference would be wrong the first time a shop owned two racks.
     #[serde(default)]
     pub asset_id: Option<Uuid>,
+    /// Which of our real bank accounts this line moved.
+    ///
+    /// The third typed sub-ledger reference, set the same way the other two are:
+    /// by the rule that KNOWS. The reconciliation booking knows, because the line
+    /// it is settling came from a statement of one account. Nothing else needs
+    /// to: where the ledger binding has exactly one active account the validator
+    /// fills it in, and where it has two it refuses rather than guess.
+    #[serde(default)]
+    pub bank_account_id: Option<Uuid>,
     pub memo: Option<String>,
 }
 
@@ -125,6 +134,7 @@ impl PostingLine {
             credit_minor: 0,
             supplier_id: None,
             asset_id: None,
+            bank_account_id: None,
             memo: None,
         }
     }
@@ -141,6 +151,7 @@ impl PostingLine {
             credit_minor: amount_minor,
             supplier_id: None,
             asset_id: None,
+            bank_account_id: None,
             memo: None,
         }
     }
@@ -277,6 +288,7 @@ fn balanced_per_site(intent: &PostingIntent) -> Result<(Vec<PostingLine>, i64), 
             supplier_id: None,
             // An affiliate leg is about a unit, never about a machine.
             asset_id: None,
+            bank_account_id: None,
             // The memo says which side of which pair this is, because on a
             // shop's ledger the account name alone reads as "Hutang Affiliasi"
             // and every one of them looks the same.
@@ -386,13 +398,14 @@ pub async fn post(
         // Here rather than in the twenty-four callers because this function is
         // the only writer of `journal_entry` and `journal_line` in the estate,
         // which makes it the only place a check cannot be gone round.
-        validate_account_posting(
+        let bank_account_id = validate_account_posting(
             &mut **tx,
             &code,
             PostingFacts {
                 source_kind: &intent.source_kind,
                 site_id: &line.site_id,
                 counter_site_id: line.counter_site_id.as_deref(),
+                bank_account_id: line.bank_account_id,
             },
         )
         .await
@@ -402,7 +415,11 @@ pub async fn post(
             }
             other => other,
         })?;
-        resolved.push(code);
+        // The validator hands back which of our real bank accounts this line
+        // moved: the one the line named, or the only active one the ledger
+        // binding has. `None` where the chart knows of none, which is every line
+        // in the estate until the client's accounts are registered.
+        resolved.push((code, bank_account_id));
     }
 
     let entry_id = Uuid::new_v4();
@@ -433,12 +450,14 @@ pub async fn post(
     .await
     .map_err(|error| as_already_posted(error, intent, purpose))?;
 
-    for (index, (line, account_code)) in lines.iter().zip(&resolved).enumerate() {
+    for (index, (line, (account_code, bank_account_id))) in
+        lines.iter().zip(&resolved).enumerate()
+    {
         sqlx::query(
             "INSERT INTO journal_line
                (line_id, entry_id, line_number, account_code, site_id, counter_site_id,
-                debit_minor, credit_minor, supplier_id, asset_id, memo)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
+                debit_minor, credit_minor, supplier_id, asset_id, memo, bank_account_id)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
         )
         .bind(Uuid::new_v4())
         .bind(entry_id)
@@ -451,6 +470,7 @@ pub async fn post(
         .bind(line.supplier_id.as_deref())
         .bind(line.asset_id)
         .bind(line.memo.as_deref())
+        .bind(*bank_account_id)
         .execute(&mut **tx)
         .await?;
     }
@@ -501,7 +521,7 @@ pub async fn reverse(
     // rather than by a check somebody could forget to write.
     let lines = sqlx::query(
         "SELECT line_number, account_code, site_id, counter_site_id,
-                debit_minor, credit_minor, supplier_id, asset_id, memo
+                debit_minor, credit_minor, supplier_id, asset_id, memo, bank_account_id
            FROM journal_line WHERE entry_id = $1 ORDER BY line_number",
     )
     .bind(entry_id)
@@ -538,8 +558,8 @@ pub async fn reverse(
         sqlx::query(
             "INSERT INTO journal_line
                (line_id, entry_id, line_number, account_code, site_id, counter_site_id,
-                debit_minor, credit_minor, supplier_id, asset_id, memo)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
+                debit_minor, credit_minor, supplier_id, asset_id, memo, bank_account_id)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
         )
         .bind(Uuid::new_v4())
         .bind(reversal_id)
@@ -559,6 +579,10 @@ pub async fn reverse(
         // out and never coming back.
         .bind(row.try_get::<Option<Uuid>, _>("asset_id")?)
         .bind(row.try_get::<Option<String>, _>("memo")?)
+        // Carried, not re-resolved: a reversal moves the same real account the
+        // original moved, even if that account has since been closed or a second
+        // one opened beside it.
+        .bind(row.try_get::<Option<Uuid>, _>("bank_account_id")?)
         .execute(&mut **tx)
         .await?;
     }

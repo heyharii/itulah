@@ -89,6 +89,11 @@ pub struct ResolvedSource {
     pub rule: SourceRule,
     pub account_code: String,
     pub site_id: String,
+    /// Which of our real accounts this route files statements for (0271). A route
+    /// configured before the account master knows the ledger binding only, and
+    /// the import resolves it — refusing when the binding has two accounts,
+    /// which is the day this route needs editing.
+    pub bank_account_id: Option<uuid::Uuid>,
     pub format: StatementFormat,
     pub settings: Settings,
 }
@@ -220,8 +225,8 @@ fn mapping_fault(format: &str, settings: &serde_json::Value) -> Option<String> {
 /// shows up, next to the rule.
 pub async fn active_statement_sources(pool: &PgPool) -> Result<Vec<ResolvedSource>, AppError> {
     let rows = sqlx::query(
-        "SELECT source_id, label, account_code, site_id, from_pattern, subject_pattern,
-                filename_pattern, format, settings
+        "SELECT source_id, label, account_code, site_id, bank_account_id, from_pattern,
+                subject_pattern, filename_pattern, format, settings
            FROM bank_statement_source
           WHERE enabled
           ORDER BY priority, created_at",
@@ -252,6 +257,7 @@ pub async fn active_statement_sources(pool: &PgPool) -> Result<Vec<ResolvedSourc
             },
             account_code: row.try_get("account_code")?,
             site_id: row.try_get("site_id")?,
+            bank_account_id: row.try_get("bank_account_id")?,
             format,
             settings,
         });

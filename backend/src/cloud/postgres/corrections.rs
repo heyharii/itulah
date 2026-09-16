@@ -860,6 +860,7 @@ pub async fn correction_post(
                 credit_minor: 0,
                 supplier_id: None,
                 asset_id: None,
+                bank_account_id: None,
                 memo: Some(sides.memo.clone()),
             },
             PostingLine {
@@ -870,6 +871,7 @@ pub async fn correction_post(
                 credit_minor: existing.amount_minor,
                 supplier_id: None,
                 asset_id: None,
+                bank_account_id: None,
                 memo: Some(sides.memo.clone()),
             },
         ],

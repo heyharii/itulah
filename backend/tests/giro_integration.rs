@@ -122,6 +122,7 @@ async fn seed(pool: &PgPool) {
     map(pool, "trade_payable", "", "201200100100").await;
     map(pool, "inventory", "", "101120100100").await;
     map(pool, "bank_admin_fee", "", "601031000400").await;
+    register_bank_account(pool, "101100200100", "dc").await;
 }
 
 async fn map(pool: &PgPool, key: &str, qualifier: &str, code: &str) {
@@ -489,6 +490,7 @@ fn statement(lines: Vec<ImportStatementLine>) -> ImportStatementRequest {
     ImportStatementRequest {
         account_code: "101100200100".into(),
         site_id: "dc".into(),
+        bank_account_id: None,
         period_start: day(9, 1),
         period_end: day(9, 30),
         opening_minor: 0,
@@ -738,4 +740,28 @@ fn a_payment_body_without_the_giro_fields_still_parses() {
     assert_eq!(parsed.giro_number, None);
     assert_eq!(parsed.giro_due_date, None);
     assert_eq!(parsed.total_minor, None);
+}
+
+/// 0271: a bank statement is of a real account, so the fixture registers one.
+///
+/// Digits derived from the ledger binding rather than typed, so two accounts in
+/// one fixture cannot collide on `UNIQUE (bank_id, account_no_digits)`.
+async fn register_bank_account(pool: &sqlx::PgPool, code: &str, site: &str) {
+    sqlx::query(
+        "INSERT INTO company_bank_account
+           (account_id, ledger_account_code, site_id, bank_id, bank_name,
+            bank_name_normalized, account_no, account_no_digits, account_holder,
+            kind, created_by, updated_by)
+         SELECT gen_random_uuid(), $1, $2, b.bank_id, b.name, b.normalized_name,
+                left(lpad(regexp_replace(md5($1 || $2), '[^0-9]', '', 'g'), 10, '0'), 10),
+                left(lpad(regexp_replace(md5($1 || $2), '[^0-9]', '', 'g'), 10, '0'), 10),
+                'PT Itulah Busana Nusantara', 'GIRO', 'fixture', 'fixture'
+           FROM bank b WHERE b.code = 'BCA'
+         ON CONFLICT (bank_id, account_no_digits) DO NOTHING",
+    )
+    .bind(code)
+    .bind(site)
+    .execute(pool)
+    .await
+    .unwrap_or_else(|error| panic!("register a bank account on {code} at {site}: {error}"));
 }

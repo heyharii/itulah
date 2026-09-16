@@ -884,8 +884,33 @@ def seed_reserve(api: Api, months, rng, report) -> None:
 
 
 def seed_bank(api: Api, leaf: dict, months, rng, report) -> None:
+    """A statement of a real account of ours, at head office.
+
+    This used to file one statement per site over `SITES[:4]`, which produced
+    "Rekening koran store-01" — a bank account no shop has. Shops do not hold
+    external accounts; what a shop holds is a DESTINATION for its takings
+    (`store_bank_destination`, 0111). Since 0271 a statement must name a real
+    company bank account, so the invention is now refused outright, which is the
+    right answer arriving late.
+
+    So: one account, described first, and the statements are of it.
+    """
     imported = 0
-    for index, site in enumerate(SITES[:4]):
+    described = api.post(
+        "/api/v1/finance/bank-accounts",
+        {
+            "ledger_account_code": "1011002001",
+            "site_id": "dc",
+            "bank_code": "BCA",
+            "account_no": "1234567890",
+            "account_holder": "PT Itulah Busana Nusantara",
+            "kind": "GIRO",
+            "is_primary": True,
+        },
+    )
+    report["bank_accounts"] = 1 if described is not None else 0
+
+    for index, site in enumerate(["dc"]):
         year, month = months[-1]
         first, last = month_days(year, month)
         account = leaf.get(("1011002001", site))
@@ -919,7 +944,7 @@ def seed_bank(api: Api, leaf: dict, months, rng, report) -> None:
                 "period_end": last.isoformat(),
                 "opening_minor": opening,
                 "closing_minor": balance,
-                "source_name": f"Rekening koran {site}",
+                "source_name": f"Rekening koran BCA giro {site}",
                 "lines": lines,
             },
         )

@@ -130,6 +130,15 @@ pub struct ImportStatementLine {
 pub struct ImportStatementRequest {
     pub account_code: String,
     pub site_id: String,
+    /// Which of our real accounts this is a statement of.
+    ///
+    /// Absent means "work it out", which the import can do whenever the ledger
+    /// binding has exactly one account — and must refuse when it has two, because
+    /// filing a BCA statement against the wrong BCA account is a reconciliation
+    /// that agrees with the wrong month's money.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub bank_account_id: Option<Uuid>,
     pub period_start: NaiveDate,
     pub period_end: NaiveDate,
     pub opening_minor: i64,
@@ -204,6 +213,11 @@ pub async fn import_statement(
     let statement_id = Uuid::new_v4();
     let mut tx = pool.begin().await?;
 
+    // Which real account this is a statement of (0271). Resolved the same way a
+    // posting resolves it, and refused in the same case: one candidate is an
+    // answer, two is a question only the person holding the paper can settle.
+    let bank_account_id = resolve_statement_account(&mut tx, request, account).await?;
+
     // At most one statement per account, unit and period is IN FORCE (0245).
     // A second import of the same month replaces the first rather than joining
     // it — a bank reissues a statement, a first upload is cut short, a
@@ -233,8 +247,8 @@ pub async fn import_statement(
     sqlx::query(
         "INSERT INTO bank_statement
            (statement_id, account_code, site_id, period_start, period_end,
-            opening_minor, closing_minor, source_name, imported_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+            opening_minor, closing_minor, source_name, imported_by, bank_account_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
     )
     .bind(statement_id)
     .bind(account)
@@ -245,6 +259,7 @@ pub async fn import_statement(
     .bind(request.closing_minor)
     .bind(request.source_name.as_deref())
     .bind(actor)
+    .bind(bank_account_id)
     .execute(&mut *tx)
     .await?;
 
@@ -1037,6 +1052,72 @@ async fn remaining_on(
     .await?
     .ok_or_else(|| AppError::NotFound("bank line".into()))?;
     Ok(row.try_get("remaining")?)
+}
+
+/// Which real account a statement is of.
+///
+/// `bank_statement` carried (`account_code`, `site_id`) and nothing else until
+/// 0271, which worked only while one ledger binding meant one account. The
+/// statement source (0142) can name the account outright; an upload by hand
+/// usually cannot, and does not have to while there is only one candidate.
+async fn resolve_statement_account(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    request: &ImportStatementRequest,
+    account: &str,
+) -> Result<Uuid, AppError> {
+    let rows = sqlx::query(
+        "SELECT c.account_id, c.status, b.code || ' ' || c.account_no AS label
+           FROM company_bank_account c
+           JOIN bank b ON b.bank_id = c.bank_id
+          WHERE c.ledger_account_code = $1 AND c.site_id = $2
+          ORDER BY c.is_primary DESC, c.account_no_digits",
+    )
+    .bind(account)
+    .bind(&request.site_id)
+    .fetch_all(&mut **tx)
+    .await?;
+
+    if let Some(named) = request.bank_account_id {
+        // Named, and it has to be one of this binding's — the composite foreign
+        // key would refuse otherwise, with SQLSTATE 23503 and no sentence.
+        if rows
+            .iter()
+            .any(|row| row.try_get::<Uuid, _>("account_id").ok() == Some(named))
+        {
+            return Ok(named);
+        }
+        return Err(AppError::Validation(format!(
+            "the account this statement names is not one of {account}'s at {}",
+            request.site_id
+        )));
+    }
+
+    let live: Vec<&sqlx::postgres::PgRow> = rows
+        .iter()
+        .filter(|row| {
+            row.try_get::<String, _>("status")
+                .map(|status| status != "CLOSED")
+                .unwrap_or(false)
+        })
+        .collect();
+
+    match live.as_slice() {
+        [] => Err(AppError::Validation(format!(
+            "there is no bank account of ours registered on {account} at {}, so there is nothing \
+             this statement can be a statement of. Describe the account first, under Bank Accounts.",
+            request.site_id
+        ))),
+        [only] => Ok(only.try_get("account_id")?),
+        many => Err(AppError::Validation(format!(
+            "{account} at {} has {} accounts, so the import has to say which one this statement is of: {}.",
+            request.site_id,
+            many.len(),
+            many.iter()
+                .filter_map(|row| row.try_get::<String, _>("label").ok())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ))),
+    }
 }
 
 /// Agree that a bank line and a journal line are the same event.

@@ -137,6 +137,7 @@ fn to_account(code: &str, debit: i64, credit: i64) -> PostingLine {
         supplier_id: None,
         counter_site_id: None,
         asset_id: None,
+        bank_account_id: None,
         memo: None,
     }
 }

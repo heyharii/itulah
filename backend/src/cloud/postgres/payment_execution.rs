@@ -287,6 +287,7 @@ pub(super) async fn payment_execution_pay(
                 credit_minor: 0,
                 supplier_id: supplier_id.map(str::to_string),
                 asset_id: None,
+                bank_account_id: None,
                 memo: Some(instruction.memo.clone()),
             },
             PostingLine {
@@ -300,6 +301,7 @@ pub(super) async fn payment_execution_pay(
                 credit_minor: instruction.amount_minor,
                 supplier_id: None,
                 asset_id: None,
+                bank_account_id: None,
                 memo: Some(instruction.memo.clone()),
             },
         ],

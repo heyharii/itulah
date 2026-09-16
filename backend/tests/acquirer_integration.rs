@@ -147,6 +147,7 @@ async fn seed_chart(pool: &PgPool) {
         .await
         .unwrap_or_else(|error| panic!("{leaf}: {error}"));
     }
+    register_bank_account(pool, "101100200100", "dc").await;
 }
 
 async fn map(pool: &PgPool, key: &str, site: &str, qualifier: &str, code: &str) {
@@ -576,6 +577,7 @@ async fn bank_credit(pool: &PgPool, amount: i64) -> Uuid {
         &cloud::ImportStatementRequest {
             account_code: "101100200100".into(),
             site_id: HQ.into(),
+            bank_account_id: None,
             period_start: date(2026, 9, 1),
             period_end: date(2026, 9, 30),
             opening_minor: 0,
@@ -1073,4 +1075,28 @@ async fn an_exception_is_a_cost_and_not_a_smaller_debt(pool: PgPool) {
         15_000 + 40_000,
         "the stated MDR and the charge that was not stated, both costs"
     );
+}
+
+/// 0271: a bank statement is of a real account, so the fixture registers one.
+///
+/// Digits derived from the ledger binding rather than typed, so two accounts in
+/// one fixture cannot collide on `UNIQUE (bank_id, account_no_digits)`.
+async fn register_bank_account(pool: &sqlx::PgPool, code: &str, site: &str) {
+    sqlx::query(
+        "INSERT INTO company_bank_account
+           (account_id, ledger_account_code, site_id, bank_id, bank_name,
+            bank_name_normalized, account_no, account_no_digits, account_holder,
+            kind, created_by, updated_by)
+         SELECT gen_random_uuid(), $1, $2, b.bank_id, b.name, b.normalized_name,
+                left(lpad(regexp_replace(md5($1 || $2), '[^0-9]', '', 'g'), 10, '0'), 10),
+                left(lpad(regexp_replace(md5($1 || $2), '[^0-9]', '', 'g'), 10, '0'), 10),
+                'PT Itulah Busana Nusantara', 'GIRO', 'fixture', 'fixture'
+           FROM bank b WHERE b.code = 'BCA'
+         ON CONFLICT (bank_id, account_no_digits) DO NOTHING",
+    )
+    .bind(code)
+    .bind(site)
+    .execute(pool)
+    .await
+    .unwrap_or_else(|error| panic!("register a bank account on {code} at {site}: {error}"));
 }

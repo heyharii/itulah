@@ -94,6 +94,7 @@ fn entry(
         credit_minor,
         supplier_id: None,
         asset_id: None,
+        bank_account_id: None,
         memo: None,
         counter_site_id: counter.map(str::to_string),
     };

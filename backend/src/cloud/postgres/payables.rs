@@ -1264,6 +1264,7 @@ pub async fn post_bill(
                         credit_minor: 0,
                         supplier_id: None,
                         asset_id: None,
+                        bank_account_id: None,
                         memo: line.memo.clone(),
                     },
                 };

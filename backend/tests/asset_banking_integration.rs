@@ -756,10 +756,16 @@ async fn the_pair_reported_as_unmapped_is_the_pair_the_asset_actually_charges(po
 // Bank reconciliation
 // ---------------------------------------------------------------------------
 
+/// Files at `ho`, which is not a site this chain has: the rename that creates it
+/// (0256) is held by another lane. So these statements cannot import, with or
+/// without 0271's requirement that they name a real account — the suite is red
+/// on the site before it reaches the account. Nothing registered here for that
+/// reason; see `docs/finance-bank-audit.md` §7.
 fn statement(lines: Vec<cloud::ImportStatementLine>) -> cloud::ImportStatementRequest {
     cloud::ImportStatementRequest {
         account_code: "1011003001".into(),
         site_id: "ho".into(),
+        bank_account_id: None,
         period_start: date(2026, 1, 1),
         period_end: date(2026, 1, 31),
         opening_minor: 0,

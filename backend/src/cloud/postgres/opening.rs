@@ -688,6 +688,7 @@ pub async fn opening_import_balances(
                     credit_minor: line.credit_minor,
                     supplier_id: None,
                     asset_id: None,
+                    bank_account_id: None,
                     memo: line
                         .memo
                         .clone()

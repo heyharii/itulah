@@ -695,6 +695,7 @@ fn side_line(
         credit_minor: credit,
         supplier_id: None,
         asset_id: None,
+        bank_account_id: None,
         memo: Some(memo.to_string()),
     }
 }

@@ -26,12 +26,16 @@ pub struct CompanyBankAccount {
     pub ledger_account_code: String,
     pub ledger_account_name: String,
     pub site_id: String,
+    /// The institution's code, authoritative since 0269.
+    pub bank_code: String,
     pub bank_name: String,
     pub account_no: String,
     pub account_holder: String,
     pub branch: Option<String>,
-    /// `GIRO` or `SAVINGS`.
+    /// `GIRO`, `SAVINGS` or `TIME_DEPOSIT`.
     pub kind: String,
+    /// `ACTIVE`, `DORMANT` (exists, unused) or `CLOSED` (terminated).
+    pub status: String,
     /// The account this place pays out of unless somebody says otherwise.
     pub is_primary: bool,
     pub note: Option<String>,
@@ -45,6 +49,16 @@ pub struct CompanyBankAccount {
 pub struct DescribeBankAccountRequest {
     pub ledger_account_code: String,
     pub site_id: String,
+    /// The institution's own code — `BCA`, `MANDIRI` — which is the way to name
+    /// it now that 0269 made institutions rows.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub bank_code: Option<String>,
+    /// The old way, kept because the screens still send it. Resolved against
+    /// `bank.normalized_name`, and REFUSED when it resolves to nothing: typing a
+    /// bank name used to create a bank, which is the duplication 0269 exists to
+    /// end.
+    #[serde(default)]
     pub bank_name: String,
     pub account_no: String,
     pub account_holder: String,
@@ -64,17 +78,79 @@ pub struct DescribeBankAccountRequest {
     pub note: Option<String>,
 }
 
-const KINDS: [&str; 2] = ["GIRO", "SAVINGS"];
+/// `GIRO` rather than ERPNext's `CURRENT`: giro IS the Indonesian current
+/// account, it is the client's own word, and it is the word printed on
+/// `1011002 CASH IN BANK GIRO`. `TIME_DEPOSIT` joined them in 0269 — the chart
+/// holds four of them (`1011004001` onwards) and they were unrepresentable here.
+const KINDS: [&str; 3] = ["GIRO", "SAVINGS", "TIME_DEPOSIT"];
 
 fn check_kind(kind: &str) -> Result<String, AppError> {
     let upper = kind.trim().to_uppercase();
     if !KINDS.contains(&upper.as_str()) {
         return Err(AppError::Validation(format!(
-            "an account is {} — '{kind}' is neither",
-            KINDS.join(" or ")
+            "an account is one of {} — '{kind}' is none of them",
+            KINDS.join(", ")
         )));
     }
     Ok(upper)
+}
+
+/// Which institution the caller means, refusing rather than inventing one.
+///
+/// Before 0269 a bank existed because an account had named it, so a typo made a
+/// bank and the Banks screen showed BCA twice. Now the institution is a row, and
+/// the only two ways to name it are its code and a name that resolves to one.
+/// Neither creates anything: a bank we genuinely start using is a deliberate act,
+/// not a side effect of describing an account at half past six.
+async fn resolve_institution(
+    pool: &PgPool,
+    request: &DescribeBankAccountRequest,
+) -> Result<(Uuid, String, String), AppError> {
+    let by_code = request
+        .bank_code
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_uppercase);
+
+    let normalized = match &by_code {
+        Some(_) => None,
+        None => Some(normalize_bank(&request.bank_name)?.1),
+    };
+
+    let row = sqlx::query(
+        "SELECT bank_id, code, name, normalized_name FROM bank
+          WHERE ($1::text IS NOT NULL AND code = $1)
+             OR ($2::text IS NOT NULL AND normalized_name = $2)",
+    )
+    .bind(by_code.as_deref())
+    .bind(normalized.as_deref())
+    .fetch_optional(pool)
+    .await?;
+
+    let Some(row) = row else {
+        let known: Vec<String> = sqlx::query("SELECT code FROM bank WHERE active ORDER BY code")
+            .fetch_all(pool)
+            .await?
+            .iter()
+            .map(|row| row.try_get::<String, _>("code"))
+            .collect::<Result<_, _>>()?;
+        let asked = by_code
+            .clone()
+            .unwrap_or_else(|| request.bank_name.trim().to_string());
+        return Err(AppError::Validation(format!(
+            "there is no institution '{asked}'. We bank at {}. Starting to bank somewhere new is a \
+             decision of its own, and it is made once for every environment by a migration — not as \
+             a side effect of describing an account at half past six.",
+            known.join(", ")
+        )));
+    };
+
+    Ok((
+        row.try_get("bank_id")?,
+        row.try_get("name")?,
+        row.try_get("normalized_name")?,
+    ))
 }
 
 fn row_to_account(row: &sqlx::postgres::PgRow) -> Result<CompanyBankAccount, AppError> {
@@ -83,11 +159,13 @@ fn row_to_account(row: &sqlx::postgres::PgRow) -> Result<CompanyBankAccount, App
         ledger_account_code: row.try_get("ledger_account_code")?,
         ledger_account_name: row.try_get("ledger_account_name")?,
         site_id: row.try_get("site_id")?,
+        bank_code: row.try_get("bank_code")?,
         bank_name: row.try_get("bank_name")?,
         account_no: row.try_get("account_no")?,
         account_holder: row.try_get("account_holder")?,
         branch: row.try_get("branch")?,
         kind: row.try_get("kind")?,
+        status: row.try_get("status")?,
         is_primary: row.try_get("is_primary")?,
         note: row.try_get("note")?,
         retired_at: row.try_get("retired_at")?,
@@ -97,10 +175,17 @@ fn row_to_account(row: &sqlx::postgres::PgRow) -> Result<CompanyBankAccount, App
 }
 
 const SELECT: &str = "SELECT c.account_id, c.ledger_account_code, a.name AS ledger_account_name,
-                             c.site_id, c.bank_name, c.account_no, c.account_holder, c.branch,
-                             c.kind, c.is_primary, c.note, c.retired_at, c.updated_by, c.updated_at
+                             c.site_id, b.code AS bank_code, b.name AS bank_name,
+                             c.account_no, c.account_holder, c.branch,
+                             c.kind, c.status, c.is_primary, c.note, c.retired_at,
+                             c.updated_by, c.updated_at
                         FROM company_bank_account c
-                        JOIN ledger_account a ON a.account_code = c.ledger_account_code";
+                        JOIN ledger_account a ON a.account_code = c.ledger_account_code
+                        -- The institution, since 0269. `c.bank_name` still
+                        -- exists on the row; it is no longer what anybody is
+                        -- shown, so that one correction to a bank's name reaches
+                        -- every account at it.
+                        JOIN bank b ON b.bank_id = c.bank_id";
 
 /// Every account we have described. Retired ones come too, marked: they are
 /// still what a statement from last March was filed against.
@@ -130,7 +215,7 @@ pub async fn describe_account(
     request: &DescribeBankAccountRequest,
     actor: &str,
 ) -> Result<CompanyBankAccount, AppError> {
-    let (bank_name, bank_normalized) = normalize_bank(&request.bank_name)?;
+    let (bank_id, bank_name, bank_normalized) = resolve_institution(pool, request).await?;
     let (account_no, account_digits) = normalize_account_no(&request.account_no)?;
     let kind = check_kind(&request.kind)?;
     let holder = request.account_holder.trim();
@@ -145,16 +230,21 @@ pub async fn describe_account(
     // First live account at a place is that place's primary unless told
     // otherwise. Asked inside the transaction so two people describing the
     // first two accounts at once cannot both be told they are the first.
+    //
+    // "Other than this one" is judged on the account's identity — the number at
+    // the bank — and not on its ledger binding, which since 0269 no longer
+    // identifies anything: two accounts may share one.
     let primary = match request.is_primary {
         Some(value) => value,
         None => {
             let existing: i64 = sqlx::query(
                 "SELECT COUNT(*)::bigint AS n FROM company_bank_account
                   WHERE site_id = $1 AND retired_at IS NULL
-                    AND ledger_account_code <> $2",
+                    AND NOT (bank_id = $2 AND account_no_digits = $3)",
             )
             .bind(&request.site_id)
-            .bind(&request.ledger_account_code)
+            .bind(bank_id)
+            .bind(&account_digits)
             .fetch_one(&mut *tx)
             .await?
             .try_get("n")?;
@@ -181,19 +271,27 @@ pub async fn describe_account(
         "INSERT INTO company_bank_account
            (account_id, ledger_account_code, site_id, bank_name, bank_name_normalized,
             account_no, account_no_digits, account_holder, branch, kind, is_primary, note,
-            created_by, updated_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13)
-         ON CONFLICT (ledger_account_code, site_id) DO UPDATE
-            SET bank_name = EXCLUDED.bank_name,
+            created_by, updated_by, bank_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13,$14)
+         -- Identity is the number at the institution (0269). Describing the same
+         -- account again is a correction; describing a DIFFERENT number on the
+         -- same ledger account is a second account, which is the whole point of
+         -- what 0269 unlocked.
+         ON CONFLICT (bank_id, account_no_digits) DO UPDATE
+            SET ledger_account_code = EXCLUDED.ledger_account_code,
+                site_id = EXCLUDED.site_id,
+                bank_name = EXCLUDED.bank_name,
                 bank_name_normalized = EXCLUDED.bank_name_normalized,
                 account_no = EXCLUDED.account_no,
-                account_no_digits = EXCLUDED.account_no_digits,
                 account_holder = EXCLUDED.account_holder,
                 branch = EXCLUDED.branch,
                 kind = EXCLUDED.kind,
                 is_primary = EXCLUDED.is_primary,
                 note = EXCLUDED.note,
                 retired_at = NULL,
+                -- Re-describing a closed account reopens it, and `status` has to
+                -- move with `retired_at` or 0269's check refuses the pair.
+                status = 'ACTIVE',
                 version = company_bank_account.version + 1,
                 updated_by = EXCLUDED.updated_by,
                 updated_at = now()
@@ -224,6 +322,7 @@ pub async fn describe_account(
             .filter(|v| !v.is_empty()),
     )
     .bind(actor)
+    .bind(bank_id)
     .fetch_one(&mut *tx)
     .await?;
     let account_id: Uuid = row.try_get("account_id")?;
@@ -244,7 +343,7 @@ pub async fn retire_account(
 ) -> Result<CompanyBankAccount, AppError> {
     let row = sqlx::query(
         "UPDATE company_bank_account
-            SET retired_at = now(), updated_by = $2, updated_at = now(),
+            SET retired_at = now(), status = 'CLOSED', updated_by = $2, updated_at = now(),
                 version = version + 1
           WHERE account_id = $1 AND retired_at IS NULL
       RETURNING account_id",
@@ -272,10 +371,15 @@ pub async fn retire_account(
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct BankInstitution {
-    /// As it will be printed — the spelling the most recent account used.
+    pub bank_id: Uuid,
+    /// Our own stable code for it: `BCA`, `MANDIRI`.
+    pub code: String,
+    /// As it will be printed.
     pub name: String,
     /// What uniqueness is judged on. "BCA", "Bank BCA" and "bank bca" are one.
     pub normalized: String,
+    pub country_code: String,
+    pub active: bool,
     pub our_accounts: i64,
     pub supplier_accounts: i64,
     /// What the books hold across our accounts at this bank. Null when we hold
@@ -284,66 +388,51 @@ pub struct BankInstitution {
     pub our_balance_minor: Option<i64>,
 }
 
-/// Every bank anybody has named, with what we keep there.
+/// The institutions, from the master, with what we keep at each.
+///
+/// Until 0269 this derived the list with a `UNION ALL` over two text columns, so
+/// a bank existed only while some account named it and a typo was a new bank. It
+/// reads the table now. The counts still come from the accounts, because that is
+/// genuinely what they are.
 pub async fn bank_institutions(pool: &PgPool) -> Result<Vec<BankInstitution>, AppError> {
     let rows = sqlx::query(
-        "WITH ours AS (
-             SELECT bank_name_normalized AS k,
-                    COUNT(*)::bigint      AS n,
-                    MAX(updated_at)       AS newest
-               FROM company_bank_account
-              WHERE retired_at IS NULL
-              GROUP BY 1
-         ), theirs AS (
-             SELECT bank_name_normalized AS k, COUNT(*)::bigint AS n
-               FROM supplier_bank_account
-              WHERE retired_at IS NULL
-              GROUP BY 1
-         ), held AS (
-             -- The ledger's own sum over the accounts we described, the same
-             -- subtraction `/finance/money` makes. Two different sums of one
-             -- account would be two answers.
-             SELECT c.bank_name_normalized AS k,
-                    SUM(l.debit_minor - l.credit_minor)::bigint AS balance
-               FROM company_bank_account c
-               JOIN journal_line l
-                 ON l.account_code = c.ledger_account_code AND l.site_id = c.site_id
-              WHERE c.retired_at IS NULL
-              GROUP BY 1
-         ), names AS (
-             SELECT DISTINCT ON (bank_name_normalized)
-                    bank_name_normalized AS k, bank_name AS display
-               FROM (
-                    SELECT bank_name_normalized, bank_name, updated_at
-                      FROM company_bank_account WHERE retired_at IS NULL
-                    UNION ALL
-                    SELECT bank_name_normalized, bank_name, updated_at
-                      FROM supplier_bank_account WHERE retired_at IS NULL
-               ) every_name
-              ORDER BY bank_name_normalized, updated_at DESC
-         )
-         SELECT COALESCE(ours.k, theirs.k)          AS normalized,
-                names.display                       AS name,
-                COALESCE(ours.n, 0)                 AS our_accounts,
-                COALESCE(theirs.n, 0)               AS supplier_accounts,
-                held.balance                        AS our_balance_minor
-           FROM ours
-           FULL OUTER JOIN theirs ON theirs.k = ours.k
-           LEFT JOIN names ON names.k = COALESCE(ours.k, theirs.k)
-           LEFT JOIN held  ON held.k  = COALESCE(ours.k, theirs.k)
-          ORDER BY COALESCE(ours.n, 0) DESC, 1",
+        "SELECT b.bank_id, b.code, b.name, b.normalized_name AS normalized,
+                b.country_code, b.active,
+                COALESCE(ours.n, 0)      AS our_accounts,
+                COALESCE(theirs.n, 0)    AS supplier_accounts,
+                held.balance             AS our_balance_minor
+           FROM bank b
+           LEFT JOIN LATERAL (
+               SELECT COUNT(*)::bigint AS n FROM company_bank_account c
+                WHERE c.bank_id = b.bank_id AND c.retired_at IS NULL
+           ) ours ON true
+           LEFT JOIN LATERAL (
+               SELECT COUNT(*)::bigint AS n FROM supplier_bank_account s
+                WHERE s.bank_id = b.bank_id AND s.retired_at IS NULL
+           ) theirs ON true
+           -- The ledger's own sum over the accounts we described, the same
+           -- subtraction `/finance/money` makes. Two different sums of one
+           -- account would be two answers.
+           LEFT JOIN LATERAL (
+               SELECT SUM(l.debit_minor - l.credit_minor)::bigint AS balance
+                 FROM company_bank_account c
+                 JOIN journal_line l
+                   ON l.account_code = c.ledger_account_code AND l.site_id = c.site_id
+                WHERE c.bank_id = b.bank_id AND c.retired_at IS NULL
+           ) held ON true
+          ORDER BY b.active DESC, b.code",
     )
     .fetch_all(pool)
     .await?;
-
     rows.iter()
         .map(|row| {
-            let normalized: String = row.try_get("normalized")?;
             Ok(BankInstitution {
-                name: row
-                    .try_get::<Option<String>, _>("name")?
-                    .unwrap_or_else(|| normalized.clone()),
-                normalized,
+                bank_id: row.try_get("bank_id")?,
+                code: row.try_get("code")?,
+                name: row.try_get("name")?,
+                normalized: row.try_get("normalized")?,
+                country_code: row.try_get("country_code")?,
+                active: row.try_get("active")?,
                 our_accounts: row.try_get("our_accounts")?,
                 supplier_accounts: row.try_get("supplier_accounts")?,
                 our_balance_minor: row.try_get("our_balance_minor")?,

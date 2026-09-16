@@ -97,6 +97,7 @@ async fn seed_chart(pool: &PgPool) {
         .await
         .unwrap_or_else(|error| panic!("{code}: {error}"));
     }
+    register_bank_account(pool, "101100200100", "dc").await;
 }
 
 async fn map_at(pool: &PgPool, key: &str, site: &str, code: &str) {
@@ -412,10 +413,13 @@ async fn import_statement(pool: &PgPool, lines: &[(u32, i64, &str)]) -> Uuid {
     let statement_id = Uuid::new_v4();
     let closing: i64 = lines.iter().map(|(_, amount, _)| *amount).sum();
     sqlx::query(
+        // 0271: the statement names the real account the fixture registered.
         "INSERT INTO bank_statement
            (statement_id, account_code, site_id, period_start, period_end,
-            opening_minor, closing_minor, imported_by)
-         VALUES ($1,'101100200100','dc',$2,$3,0,$4,$5)",
+            opening_minor, closing_minor, imported_by, bank_account_id)
+         SELECT $1,'101100200100','dc',$2,$3,0,$4,$5, c.account_id
+           FROM company_bank_account c
+          WHERE c.ledger_account_code = '101100200100' AND c.site_id = 'dc'",
     )
     .bind(statement_id)
     .bind(september(1))
@@ -848,4 +852,28 @@ async fn crossing_into_trouble_is_news_and_staying_there_is_not(pool: PgPool) {
         after_second, 1,
         "the same standing exception must not be announced twice"
     );
+}
+
+/// 0271: a bank statement is of a real account, so the fixture registers one.
+///
+/// Digits derived from the ledger binding rather than typed, so two accounts in
+/// one fixture cannot collide on `UNIQUE (bank_id, account_no_digits)`.
+async fn register_bank_account(pool: &sqlx::PgPool, code: &str, site: &str) {
+    sqlx::query(
+        "INSERT INTO company_bank_account
+           (account_id, ledger_account_code, site_id, bank_id, bank_name,
+            bank_name_normalized, account_no, account_no_digits, account_holder,
+            kind, created_by, updated_by)
+         SELECT gen_random_uuid(), $1, $2, b.bank_id, b.name, b.normalized_name,
+                left(lpad(regexp_replace(md5($1 || $2), '[^0-9]', '', 'g'), 10, '0'), 10),
+                left(lpad(regexp_replace(md5($1 || $2), '[^0-9]', '', 'g'), 10, '0'), 10),
+                'PT Itulah Busana Nusantara', 'GIRO', 'fixture', 'fixture'
+           FROM bank b WHERE b.code = 'BCA'
+         ON CONFLICT (bank_id, account_no_digits) DO NOTHING",
+    )
+    .bind(code)
+    .bind(site)
+    .execute(pool)
+    .await
+    .unwrap_or_else(|error| panic!("register a bank account on {code} at {site}: {error}"));
 }

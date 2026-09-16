@@ -7,11 +7,19 @@ export type CompanyBankAccount = { account_id: string,
 /**
  * The ledger account this describes, and the place it is kept for.
  */
-ledger_account_code: string, ledger_account_name: string, site_id: string, bank_name: string, account_no: string, account_holder: string, branch: string | null, 
+ledger_account_code: string, ledger_account_name: string, site_id: string, 
 /**
- * `GIRO` or `SAVINGS`.
+ * The institution's code, authoritative since 0269.
+ */
+bank_code: string, bank_name: string, account_no: string, account_holder: string, branch: string | null, 
+/**
+ * `GIRO`, `SAVINGS` or `TIME_DEPOSIT`.
  */
 kind: string, 
+/**
+ * `ACTIVE`, `DORMANT` (exists, unused) or `CLOSED` (terminated).
+ */
+status: string, 
 /**
  * The account this place pays out of unless somebody says otherwise.
  */
