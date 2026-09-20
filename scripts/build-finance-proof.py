@@ -1,5 +1,16 @@
 """Reconcile the supplied COA against executable prototype evidence.
 Owner assignments are explicit design proposals, never runtime proof.
+
+HISTORICAL — this produced `outputs/finance-proof-20260910` on 10 September
+2026 and is kept so that report can be re-derived, not because it can be run
+against the chart as it stands. It asserts `source.keys() == app.keys()`: every
+one of the client's 7,528 codes present in the application, name for name. That
+was true of the pre-0243 chart. It is not true of the 190-account chart and it
+is not true of the 40-account one (0287-0292), where the seven-digit families
+this file assigns menus to — `1011001`, `6010310`, `7010215` — are not accounts
+at all any more and the distinctions they carried are `line_category` values.
+Re-running it against a current database fails on the first assert, which is
+the correct outcome and not a bug to fix here.
 """
 import csv, json, collections, hashlib, re
 from pathlib import Path

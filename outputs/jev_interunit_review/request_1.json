@@ -1,0 +1,138 @@
+{
+  "model": "jev-latest",
+  "state": {
+    "objective": "Determine the proper treatment of 70 legacy affiliate/interunit account families under a centralized HO-unit operating model. Do not assume accounts are valid merely because they exist.",
+    "confirmed_operating_facts": [
+      "HO controls all finance and bank access.",
+      "Units handle limited physical operations and cannot transact directly with other units.",
+      "Allowed operational relationship is HO-unit only; no unit-to-unit route.",
+      "Unit/site is already stored as site_id and removed from the natural account suffix.",
+      "No general counter_site_id or related_site_id will be added to journal lines.",
+      "Operational transfers can carry origin_site_id and destination_site_id on shipment/transfer documents.",
+      "It is still unknown whether all named sites are branches of one legal entity or whether any are separate legal entities/affiliates.",
+      "No balances, posting history, settlement, elimination process or legal-entity master has been supplied."
+    ],
+    "actual_legacy_pattern": {
+      "receivable_42": [
+        "Piutang Affiliasi Pembiayaan: 14 named HO/site counterpart families",
+        "Piutang Affiliasi Atas Barang: 14 named HO/site counterpart families",
+        "Piutang Affiliasi Lain-lain: 14 named HO/site counterpart families"
+      ],
+      "payable_28": [
+        "Hutang Affiliasi Pembiayaan: 14 named HO/site counterpart families",
+        "Hutang Affiliasi Atas Barang: 14 named HO/site counterpart families"
+      ],
+      "historical_matrix": "Each family was also repeated through the old E1 site suffix, implying a possible owning-site by named-counterparty matrix. This structure permits unit-to-unit combinations even though the confirmed process disallows them."
+    }
+  },
+  "questions": {
+    "same_entity_receivable": {
+      "type": "choice",
+      "instructions": "If HO and every unit are branches/sites of the same legal entity, are balances between those sites external receivables and payables of that legal entity?",
+      "criteria": {
+        "no": "They are internal branch/clearing balances, not third-party receivables/payables in entity-level financial statements.",
+        "yes": "Every site relationship is an external receivable/payable.",
+        "always_affiliate": "The word Affiliasi proves separate legal entities."
+      }
+    },
+    "same_entity_target": {
+      "type": "choice",
+      "instructions": "If all sites are one legal entity and books are centralized, what is the safest target for the 70 families?",
+      "criteria": {
+        "audit_reclass_close": "Audit balances; reclassify to the underlying cash/inventory/expense/clearing nature, retain only necessary temporary clearing controls, and block obsolete route accounts.",
+        "keep_70": "Keep all affiliate receivable/payable GLs by site.",
+        "merge_one_ar": "Merge all 70 into one external receivable account."
+      }
+    },
+    "branch_clearing": {
+      "type": "choice",
+      "instructions": "For one legal entity, is a permanent due-to/from account required for every HO-unit route?",
+      "criteria": {
+        "no": "Only use limited clearing accounts if a real timing/control need exists; reconcile and clear them through the underlying workflow.",
+        "yes": "Create permanent receivable and payable GLs for each site route.",
+        "matrix": "Maintain the full all-to-all site matrix."
+      }
+    },
+    "separate_entity_target": {
+      "type": "choice",
+      "instructions": "If some sites are separate legal entities, should counterparty names remain encoded in natural GL accounts?",
+      "criteria": {
+        "dimension": "Use counterparty_legal_entity_id/intercompany partner; retain natural accounts by receivable/payable and transaction nature needed for reporting/elimination.",
+        "gl_names": "Keep one natural GL per named counterparty site.",
+        "site_only": "Use operational site_id as a substitute for legal entity."
+      }
+    },
+    "five_natures": {
+      "type": "choice",
+      "instructions": "Under a separate-legal-entity scenario, can the 70 location-specific families provisionally reduce to the five existing natures: receivable-financing, receivable-goods, receivable-other, payable-financing and payable-goods, with counterparty legal entity detail?",
+      "criteria": {
+        "conditional": "Yes, if classification, maturity, currency, settlement, eliminations and reporting align.",
+        "retain_70": "Counterparty identity must stay in GL.",
+        "one": "Combine all receivables and payables into one net account."
+      }
+    },
+    "ar_ap_netting": {
+      "type": "choice",
+      "instructions": "Can receivable and payable balances be netted into one natural account merely because the counterparty is related?",
+      "criteria": {
+        "no": "Keep asset and liability presentation unless enforceable set-off criteria and settlement intent are demonstrated.",
+        "yes": "Related-party status permits automatic netting.",
+        "site": "Same site name permits automatic netting."
+      }
+    },
+    "ho_unit_route": {
+      "type": "choice",
+      "instructions": "Where should the HO-unit-only route restriction be enforced?",
+      "criteria": {
+        "workflow": "In transfer/funding documents and permissions, with allowed origin/destination rules.",
+        "coa": "By creating a GL for each allowed pair.",
+        "free_text": "Through optional journal descriptions."
+      }
+    },
+    "counter_site_again": {
+      "type": "choice",
+      "instructions": "Does resolving the 70 legacy families require reversing the decision and adding a general counter_site_id to journals?",
+      "criteria": {
+        "no": "Use legal-entity partner only when legally relevant and document-level route fields for operations.",
+        "yes": "Every journal line needs counter_site_id.",
+        "gl": "Encode counter-site into natural GL instead."
+      }
+    },
+    "inactive_zero_accounts": {
+      "type": "choice",
+      "instructions": "If unit-to-unit route accounts have zero balances and no valid transactions, should they be migrated as active posting accounts?",
+      "criteria": {
+        "no": "Preserve legacy mapping/history but deactivate or omit them from active posting COA.",
+        "yes": "Migrate all as active because they existed historically.",
+        "merge": "Post their zero balances into miscellaneous expense."
+      }
+    },
+    "nonzero_invalid_routes": {
+      "type": "choice",
+      "instructions": "If disallowed unit-to-unit accounts contain balances, can they simply be deleted?",
+      "criteria": {
+        "no": "Trace transactions, counterpart balances, ownership and settlement; reclassify/reconcile with an auditable migration entry.",
+        "yes": "Delete balances because the future workflow disallows them.",
+        "writeoff": "Write all balances to expense."
+      }
+    },
+    "minimum_evidence": {
+      "type": "choice",
+      "instructions": "What evidence is required to close this domain?",
+      "criteria": {
+        "full": "Legal-entity/site master, trial balances by account/site, transaction samples, counterpart matching, settlement process, consolidation/elimination policy and aging.",
+        "names": "Account names alone.",
+        "jev": "Repeated Jev answers alone."
+      }
+    },
+    "safe_now": {
+      "type": "choice",
+      "instructions": "What may be approved before that evidence arrives?",
+      "criteria": {
+        "architecture": "Approve HO-unit route workflow, no general counter_site, conditional legal-entity partner model, and an audit/deactivation plan; do not approve balance mappings yet.",
+        "delete70": "Delete all 70 accounts and balances immediately.",
+        "keep70": "Approve all 70 permanently."
+      }
+    }
+  }
+}

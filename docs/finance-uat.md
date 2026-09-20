@@ -24,6 +24,32 @@ bawah punya tes integrasi yang memeriksa jurnalnya: debit, kredit, unit,
 | Akun yang kita cetak dideklarasikan | `accounting_closure` |
 | Saldo awal lewat jalur OPENING | `opening_cutover_integration` |
 
+## Yang dituntut bagan 40 akun
+
+Tidak ada skenario di atas yang berubah **isinya**: sebuah hari dagang tetap
+menjadi satu jurnal, sebuah retur tetap mengembalikan pajak pada tarif saat
+dijual. Yang berubah adalah apa yang diperiksa tesnya di baris jurnal — akun
+yang lebih sedikit, ditambah kategori. Fixture memakai bagan milik migrasi, jadi
+sebagian besar ikut otomatis.
+
+Yang **baru** dan harus punya skenarionya sendiri:
+
+| skenario | apa yang membuktikan |
+|---|---|
+| Baris pada akun berkeluarga tanpa kategori **ditolak** | `assert_category_matches_account` butir 1 — dan pesannya menyebut keluarganya |
+| Baris berkategori pada akun tanpa keluarga **ditolak** | butir 2; ini arah yang mudah terlewat |
+| Kategori dari keluarga yang salah **ditolak** | butir 3 — mis. `PPH21` pada `1101` |
+| Kategori non-aktif ditolak untuk posting baru, tetapi riwayatnya tetap terbaca | butir 4 |
+| Pembalikan membawa kategori entri aslinya | `reverse` menyalin, tidak me-resolve ulang |
+| `1501` berjumlah nol setelah pergerakan antar-unit dua arah | invarian satu badan hukum |
+| `1501` **tidak** nol memblokir tutup bulan | bahwa invariannya ditegakkan, bukan dilaporkan |
+| Neraca saldo dalam kode klien mencetak angka yang sama dengan neraca saldo 4 digit | `legacy_code()` + `ledger_account_remap` |
+| Saldo tiap akun baru = jumlah saldo akun lama yang dilebur ke dalamnya | peleburan tidak memindahkan uang |
+
+Dua terakhir adalah bentuk panjang dari apa yang `DO $$` di 0290 periksa saat
+migrasi berjalan; sebagai skenario, keduanya harus bisa dijalankan kapan saja,
+bukan sekali saat migrasi.
+
 ## Yang belum punya skenario
 
 - Rekonsiliasi rekening koran ujung ke ujung (ada di modul Banking, belum di
@@ -31,3 +57,6 @@ bawah punya tes integrasi yang memeriksa jurnalnya: debit, kredit, unit,
 - Penutupan bulan penuh: `finance_close_readiness` diuji lewat panel kontrol,
   belum lewat skenario tutup-buka.
 - Persediaan bernilai uang — menunggu metode kos (lihat client decisions).
+- Seluruh tabel *Yang dituntut bagan 40 akun* di atas: ditulis sebagai daftar
+  yang harus ada, bukan sebagai daftar yang sudah ada. `backend/tests/` dipegang
+  lane lain dan belum diperiksa ulang terhadap daftar ini.

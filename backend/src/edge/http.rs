@@ -325,6 +325,25 @@ pub fn store_router_with_sync(
         // stays answerable with the line to the centre down — the shopper
         // asking whether the promo is still on is standing in the shop.
         .route("/api/v1/store/offers", get(store_offers))
+        // A voucher hold: the one thing at this counter that CANNOT be answered
+        // out of the shop's own SQLite. A card is a bearer instrument and one
+        // card can be presented in two shops at once, so the lock that stops
+        // the same 200,000 being spent twice lives at the centre, where both
+        // shops can see it. These three relay to head office and say so when
+        // the line is down, rather than minting a hold the centre has never
+        // seen — see `relay_voucher`.
+        .route(
+            "/api/v1/store/vouchers/{code}/authorize",
+            post(relay_voucher_authorize),
+        )
+        .route(
+            "/api/v1/store/vouchers/{code}/commit",
+            post(relay_voucher_commit),
+        )
+        .route(
+            "/api/v1/store/vouchers/{code}/release",
+            post(relay_voucher_release),
+        )
         // ── The till's day ──────────────────────────────────────────────
         //
         // A drawer that opens and closes, and a sale the shop can take back.
@@ -1472,6 +1491,208 @@ async fn store_sale(
     Ok((StatusCode::CREATED, Json(serde_json::to_value(result)?)))
 }
 
+/// The three voucher calls a counter cannot answer on its own.
+///
+/// Everything else in this router is served out of the shop's SQLite and keeps
+/// working with the line to head office down. A voucher hold is the exception,
+/// and a real one: the value belongs to a card that can be presented in another
+/// shop in the same minute, so the only place the answer can be true is the
+/// centre, against its own row for that code.
+///
+/// So the node **relays** rather than mints. It signs the call with its own
+/// machine credential — the same `SYNC_UPLOAD_KEY` its outbox uploads under,
+/// which proves WHICH SHOP is asking — names the cashier who is asking, and
+/// stamps the shop's own site id, so a till cannot hold a card against another
+/// shop's counter. When the line is down the answer is 503 and a sentence, not
+/// a locally-invented authorisation: a hold nobody else can see is a hold that
+/// lets the same card be spent twice, which is the failure this design exists
+/// to prevent.
+#[derive(Debug, Deserialize)]
+struct RelayVoucherCall {
+    /// The basket this hold belongs to — the till's own id for the sale it is
+    /// building, which has no server-side row yet at either node.
+    checkout_id: String,
+    /// How much of the card this basket takes. Absent on commit and release.
+    #[serde(default)]
+    amount_minor: Option<i64>,
+    #[serde(default)]
+    sale_id: Option<Uuid>,
+    #[serde(default)]
+    reason: Option<String>,
+    #[serde(default)]
+    hold_seconds: Option<i64>,
+}
+
+/// One client, built once. A relay per basket is a connection setup per basket
+/// otherwise, and the timeout is short on purpose: a cashier standing at a
+/// counter with a customer is not going to wait thirty seconds to be told the
+/// line is down.
+static RELAY: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+
+fn relay_client() -> Result<&'static reqwest::Client, EdgeError> {
+    if let Some(client) = RELAY.get() {
+        return Ok(client);
+    }
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|error| EdgeError::Configuration(format!("voucher relay client: {error}")))?;
+    Ok(RELAY.get_or_init(|| client))
+}
+
+/// A voucher code as a path segment, or a refusal.
+///
+/// A code is minted from an alphabet that drops the characters people misread,
+/// so the safe set is the whole alphabet and a hyphen for a pre-printed card.
+/// Checked rather than percent-encoded: this build has no encoder for a path
+/// segment, and pulling one in to encode a string that may not contain anything
+/// needing encoding would be the tail wagging the dog.
+fn voucher_code_segment(code: &str) -> Result<&str, EdgeError> {
+    let trimmed = code.trim();
+    if trimmed.is_empty()
+        || !trimmed
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-')
+    {
+        return Err(EdgeError::Validation(
+            "a voucher code is letters, digits and hyphens".into(),
+        ));
+    }
+    Ok(trimmed)
+}
+
+async fn relay_voucher(
+    state: &EdgeState,
+    code: &str,
+    verb: &str,
+    actor: &str,
+    call: RelayVoucherCall,
+) -> Result<Value, EdgeError> {
+    let Some(sync) = state.sync.as_ref() else {
+        return Err(EdgeError::Upstream(
+            "this node has no upload URL configured, so it cannot reach head office".into(),
+        ));
+    };
+    let Some((base, key)) = sync.cloud() else {
+        return Err(EdgeError::Configuration(
+            "SYNC_UPLOAD_URL is empty, so the relay cannot work out where head office is".into(),
+        ));
+    };
+    let url = format!(
+        "{base}/api/v1/sync/vouchers/{}/{}",
+        voucher_code_segment(code)?,
+        verb
+    );
+    let node = state.inventory.node();
+    let body = json!({
+        // The credential proves this, and the centre checks it against its own
+        // register rather than taking the field's word.
+        "origin_id": &node.node_id,
+        "checkout_id": call.checkout_id,
+        "amount_minor": call.amount_minor,
+        "sale_id": call.sale_id,
+        "reason": call.reason,
+        "hold_seconds": call.hold_seconds,
+        // Stamped, never taken from the client: a till in store-01 must not be
+        // able to hold a card against store-07.
+        "site_id": node.site_id.as_str(),
+        "actor_id": actor,
+    });
+    let response = relay_client()?
+        .post(&url)
+        .header("x-sync-key", key)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|error| EdgeError::Upstream(error.to_string()))?;
+    let status = response.status();
+    let text = response
+        .text()
+        .await
+        .map_err(|error| EdgeError::Upstream(error.to_string()))?;
+    let parsed: Value = serde_json::from_str(&text).unwrap_or_else(|_| json!({ "detail": text }));
+    if status.is_success() {
+        return Ok(parsed);
+    }
+    // The centre's own refusal, relayed in its own words. A card that has
+    // expired or is held by another basket is the cashier's problem to solve,
+    // and "that voucher expired on Friday" is the sentence that solves it.
+    let said = parsed
+        .get("error")
+        .or_else(|| parsed.get("detail"))
+        .and_then(Value::as_str)
+        .unwrap_or("head office refused the voucher call")
+        .to_string();
+    Err(match status {
+        StatusCode::BAD_REQUEST => EdgeError::Validation(said),
+        StatusCode::NOT_FOUND => EdgeError::NotFound(said),
+        StatusCode::CONFLICT => EdgeError::Conflict(said),
+        StatusCode::UNAUTHORIZED => EdgeError::Unauthorized(said),
+        StatusCode::FORBIDDEN => EdgeError::Forbidden(said),
+        other => EdgeError::Upstream(format!("{other}: {said}")),
+    })
+}
+
+/// The cashier's name is the only thing that comes from the request body's
+/// neighbourhood, and even that is taken from the session rather than trusted:
+/// `require_permission` has already refused anybody without the StoreSale rung.
+fn relay_actor(
+    state: &EdgeState,
+    principal: Option<Extension<EdgePrincipal>>,
+    what: &str,
+) -> Result<String, ApiError> {
+    match require_permission(state, principal, EdgePermission::StoreSale)? {
+        Some(principal) => Ok(principal.username),
+        None => Err(ApiError(EdgeError::Unauthorized(format!(
+            "{what} has to be attributable to somebody"
+        )))),
+    }
+}
+
+async fn relay_voucher_authorize(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Path(code): Path<String>,
+    Json(call): Json<RelayVoucherCall>,
+) -> Result<Json<Value>, ApiError> {
+    let actor = relay_actor(&state, principal, "holding a voucher")?;
+    if call.amount_minor.unwrap_or(0) <= 0 {
+        return Err(ApiError(EdgeError::Validation(
+            "a hold has to say how much of the card the basket takes".into(),
+        )));
+    }
+    let held = relay_voucher(&state, &code, "authorize", &actor, call)
+        .await
+        .map_err(ApiError)?;
+    Ok(Json(held))
+}
+
+async fn relay_voucher_commit(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Path(code): Path<String>,
+    Json(call): Json<RelayVoucherCall>,
+) -> Result<Json<Value>, ApiError> {
+    let actor = relay_actor(&state, principal, "settling a voucher")?;
+    let committed = relay_voucher(&state, &code, "commit", &actor, call)
+        .await
+        .map_err(ApiError)?;
+    Ok(Json(committed))
+}
+
+async fn relay_voucher_release(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Path(code): Path<String>,
+    Json(call): Json<RelayVoucherCall>,
+) -> Result<Json<Value>, ApiError> {
+    let actor = relay_actor(&state, principal, "releasing a voucher")?;
+    let released = relay_voucher(&state, &code, "release", &actor, call)
+        .await
+        .map_err(ApiError)?;
+    Ok(Json(released))
+}
+
 /// What this shop took, bucketed by day, week or month.
 ///
 /// Read from the shop's own SQLite, so it still answers when the link to the
@@ -1845,6 +2066,10 @@ impl IntoResponse for ApiError {
             EdgeError::Conflict(_) => StatusCode::CONFLICT,
             EdgeError::Unauthorized(_) => StatusCode::UNAUTHORIZED,
             EdgeError::Forbidden(_) => StatusCode::FORBIDDEN,
+            // A relay that cannot reach head office is not this node's fault and
+            // not the request's: 503 is what tells a client to try the same
+            // thing again when the line comes back.
+            EdgeError::Upstream(_) => StatusCode::SERVICE_UNAVAILABLE,
             EdgeError::Configuration(_) | EdgeError::Persistence(_) => {
                 StatusCode::INTERNAL_SERVER_ERROR
             }

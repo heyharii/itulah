@@ -25,7 +25,11 @@ import {
   Th,
   TotalRow,
 } from "@/screens/finance-final/parts"
-import { LocationSelect, SiteName, WindowControl } from "@/screens/finance/parts"
+import {
+  LocationSelect,
+  SiteName,
+  WindowControl,
+} from "@/screens/finance/parts"
 import { useWindow } from "@/screens/finance/hooks"
 import type {
   GeneralLedgerRow,
@@ -111,9 +115,7 @@ export function Transactions() {
 
   const accounts = useMemo(
     () =>
-      (overview.data?.rows ?? []).filter((row) =>
-        MONEY_POTS.includes(row.pot)
-      ),
+      (overview.data?.rows ?? []).filter((row) => MONEY_POTS.includes(row.pot)),
     [overview.data]
   )
 
@@ -380,7 +382,22 @@ function MovementRow({
     <tr>
       <Td>{day(row.posting_date)}</Td>
       <Td>
-        <span className="font-medium text-ink">{account.account_name}</span>
+        <span className="font-medium text-ink">
+          {account.account_name}
+          {/* The category, where the account declares a family. Without it a
+              store's day of movements reads as the same three account names
+              repeated, which is exactly what the forty-account chart trades
+              away and this is the half it trades it for. */}
+          {row.category_name !== null && (
+            <span
+              className="font-normal text-mute"
+              title={row.category_code ?? undefined}
+            >
+              {" · "}
+              {row.category_name}
+            </span>
+          )}
+        </span>
         <span className="block">
           <Code>{account.account_code}</Code>
           {account.qualifier !== "" && (

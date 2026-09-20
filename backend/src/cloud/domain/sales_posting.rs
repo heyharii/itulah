@@ -37,7 +37,8 @@
 //!   Dr  sales_discount                    what promotions gave away
 //!   Dr  sales_return                      what came back, less its VAT
 //!   Cr  vat_out                           VAT taken, less VAT unwound
-//!   Cr  rounding                          the residue, and only the residue
+//!   Cr  rounding                          the residue, when the documents exceed their rows
+//!   Dr  rounding_loss                     the residue, when the rows exceed their documents
 //! ```
 //!
 //! # Why the discount is grossed back up
@@ -66,6 +67,14 @@
 //! refunded and what their refund ROWS add up to. Nothing else lands there. A
 //! rounding account that absorbs whatever did not tie is a rounding account
 //! that hides the thing it was supposed to reveal.
+//!
+//! It is two meanings since 0296, one per side. Documents over rows is money
+//! the shop kept and credits `rounding` on `4301`; rows over documents is
+//! money the shop paid out with nothing to show for it and debits
+//! `rounding_loss` on `8301`. The sign is known here, when the residue is
+//! computed, and nowhere else — and a debit to `rounding` would put a cost
+//! inside a revenue account, which is the one presentation defect the chart
+//! of forty was meant to cure.
 //!
 //! # No cost of goods
 //!
@@ -161,7 +170,7 @@ pub struct DayFigures {
     pub discount_minor: i64,
     /// What the return documents say went back, VAT inclusive. Compared
     /// against the refund rows inside the buckets; the difference is the only
-    /// thing that reaches `rounding`.
+    /// thing that reaches `rounding` or `rounding_loss`.
     pub returns_minor: i64,
     /// The rate the prices were quoted at, in basis points, VAT inclusive.
     pub vat_rate_bps: i32,
@@ -278,6 +287,15 @@ fn meanings_for(
         // ordinary sales income, which is why it credits the same account cash
         // does — the customer's money arrived as cash, on some earlier day.
         "VOUCHER" => Ok(("voucher_liability", "revenue_cash")),
+        // The catch-all the till keeps for a tender that is none of the four —
+        // a marketplace payout, a bank transfer the customer sent a screenshot
+        // of, a payment link. Refusing it did not stop the shop taking the
+        // money; it stopped the DAY from posting, which is the one outcome a
+        // posting rule may never cause. The money is a receivable from whoever
+        // the reference names until it settles, and the income is sales income
+        // like any other — kept on its own key so a report can still tell it
+        // from the counter's cash.
+        "OTHER" => Ok(("other_receivable", "revenue_other")),
         other => Err(format!(
             "tender method {other:?} has no posting rule; retender it to a method the \
              ledger knows before posting the day"
@@ -291,10 +309,12 @@ fn meanings_for(
 /// acquirer, because the client keeps an account per bank and per network. A
 /// QRIS receivable is per provider — that is who owes the money — while their
 /// chart keeps one QRIS income account, so the income side is unqualified.
+/// OTHER follows QRIS exactly: the receivable is per counterparty (which
+/// marketplace, which sender), the income is one account.
 fn qualifiers_for(method: &str, acquirer: &str) -> (String, String) {
     match method {
         "CARD" => (acquirer.to_string(), acquirer.to_string()),
-        "QRIS" => (acquirer.to_string(), String::new()),
+        "QRIS" | "OTHER" => (acquirer.to_string(), String::new()),
         _ => (String::new(), String::new()),
     }
 }
@@ -528,7 +548,8 @@ pub fn build(figures: &DayFigures) -> Result<DayPosting, String> {
     }
 
     // The documents say one thing about what went back and their refund rows
-    // say another. Nothing else reaches this account.
+    // say another. Nothing else reaches these two accounts, and the sign picks
+    // which: a residue the shop kept is income, a residue it paid out is cost.
     let residue = figures.returns_minor - refunded;
     if residue > 0 {
         sides.push(LedgerSide::credit(
@@ -539,7 +560,7 @@ pub fn build(figures: &DayFigures) -> Result<DayPosting, String> {
         ));
     } else if residue < 0 {
         sides.push(LedgerSide::debit(
-            "rounding",
+            "rounding_loss",
             "",
             -residue,
             "refund rows exceed their refund documents".to_string(),
@@ -676,8 +697,12 @@ mod tests {
         let debits: i64 = posted.sides.iter().map(|s| s.debit_minor).sum();
         let credits: i64 = posted.sides.iter().map(|s| s.credit_minor).sum();
         assert_eq!(debits, credits);
-        // Nothing reached rounding: the documents and their rows agree.
-        assert!(posted.sides.iter().all(|s| s.semantic_key != "rounding"));
+        // Nothing reached rounding, on either side: the documents and their
+        // rows agree.
+        assert!(posted
+            .sides
+            .iter()
+            .all(|s| s.semantic_key != "rounding" && s.semantic_key != "rounding_loss"));
     }
 
     #[test]
@@ -700,20 +725,91 @@ mod tests {
         let debits: i64 = posted.sides.iter().map(|s| s.debit_minor).sum();
         let credits: i64 = posted.sides.iter().map(|s| s.credit_minor).sum();
         assert_eq!(debits, credits);
+        // And the loss side is untouched: a residue the shop kept is income.
+        assert!(posted
+            .sides
+            .iter()
+            .all(|s| s.semantic_key != "rounding_loss"));
+    }
+
+    /// The other side of the same residue. A refund row with no return
+    /// document behind it is money that left the drawer and nothing to show
+    /// for it: a cost, and a cost is never a debit to `rounding`, which sits
+    /// in revenue. It has its own meaning on the other-expense account.
+    #[test]
+    fn a_refund_row_its_documents_do_not_cover_lands_in_rounding_loss_and_never_in_rounding() {
+        let mut cash = bucket("CASH", "", None, 1_110_000);
+        // A refund row for 50,000 with no return document behind it.
+        cash.refunds_minor = 50_000;
+        let day = DayFigures {
+            buckets: vec![cash],
+            discount_minor: 0,
+            returns_minor: 0,
+            vat_rate_bps: 1_100,
+            recorded_vat: None,
+        };
+        let posted = build(&day).unwrap_or_else(|error| panic!("{error}"));
+        let loss = posted
+            .sides
+            .iter()
+            .find(|side| side.semantic_key == "rounding_loss")
+            .unwrap_or_else(|| panic!("the residue should be visible, on the loss side"));
+        assert_eq!(loss.debit_minor, 50_000);
+        assert_eq!(loss.credit_minor, 0);
+        assert!(
+            posted.sides.iter().all(|s| s.semantic_key != "rounding"),
+            "a residue that cost money must not reach the income-side meaning"
+        );
+        let debits: i64 = posted.sides.iter().map(|s| s.debit_minor).sum();
+        let credits: i64 = posted.sides.iter().map(|s| s.credit_minor).sum();
+        assert_eq!(debits, credits);
     }
 
     #[test]
     fn a_method_the_ledger_cannot_place_is_refused_by_name() {
+        // OTHER is deliberately NOT the subject here: it has a rule of its own
+        // (`other_receivable` / `revenue_other`), because a day containing it
+        // must still post. What remains refused is a method this build has
+        // never heard of — which is a reading of a different wire, not a day.
         let day = DayFigures {
-            buckets: vec![bucket("OTHER", "", None, 10_000)],
+            buckets: vec![bucket("CHEQUE", "", None, 10_000)],
             discount_minor: 0,
             returns_minor: 0,
             vat_rate_bps: 1_100,
             recorded_vat: None,
         };
         let refusal = build(&day).err().unwrap_or_else(|| panic!("should refuse"));
-        assert!(refusal.contains("OTHER"), "said: {refusal}");
+        assert!(refusal.contains("CHEQUE"), "said: {refusal}");
         assert!(refusal.contains("retender"), "said: {refusal}");
+    }
+
+    #[test]
+    fn an_other_tender_posts_to_its_own_pair_and_still_balances() {
+        let day = DayFigures {
+            buckets: vec![
+                bucket("CASH", "", None, 100_000),
+                bucket("OTHER", "TOKOPEDIA", None, 50_000),
+            ],
+            discount_minor: 0,
+            returns_minor: 0,
+            vat_rate_bps: 1_100,
+            recorded_vat: None,
+        };
+        let posted = build(&day).unwrap_or_else(|refusal| panic!("refused: {refusal}"));
+        let receivable = posted
+            .sides
+            .iter()
+            .find(|s| s.semantic_key == "other_receivable")
+            .unwrap_or_else(|| panic!("no other_receivable side"));
+        assert_eq!(receivable.debit_minor, 50_000);
+        assert_eq!(receivable.qualifier, "TOKOPEDIA");
+        assert!(posted
+            .sides
+            .iter()
+            .any(|s| s.semantic_key == "revenue_other" && s.credit_minor > 0));
+        let debits: i64 = posted.sides.iter().map(|s| s.debit_minor).sum();
+        let credits: i64 = posted.sides.iter().map(|s| s.credit_minor).sum();
+        assert_eq!(debits, credits);
     }
 
     #[test]

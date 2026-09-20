@@ -183,7 +183,7 @@ pub async fn account_ledger(
 ) -> Result<Json<GeneralLedger>, AppError> {
     refuse_unknown_parameters(
         &params,
-        &[&PAGING[..], &["site", "from", "to", "kind"]].concat(),
+        &[&PAGING[..], &["site", "from", "to", "kind", "category"]].concat(),
     )?;
     let to = match single_value(&params, "to") {
         Some(raw) => raw
@@ -213,6 +213,7 @@ pub async fn account_ledger(
                 to,
                 needle: single_value(&params, "q"),
                 kinds: facet_values(&params, "kind"),
+                categories: facet_values(&params, "category"),
                 sort: single_value(&params, "sort"),
                 desc: single_value(&params, "dir").as_deref() == Some("desc"),
                 cursor: single_value(&params, "cursor"),
@@ -544,6 +545,17 @@ pub async fn journal_entry(
 /// the entry, and routing a manual correction through `account_map` would mean
 /// an accountant could only post to the handful of accounts a posting rule
 /// happens to know about.
+///
+/// # What a line has to say now, and what refuses it
+///
+/// A line naming an account that declares a `category_family` carries a
+/// `category_code` with it — `LineAccount::Account` has both halves, and the
+/// forty-account chart is why: `6301` is every general and administrative
+/// expense the company pays, so the code alone no longer says what the entry
+/// is. The poster refuses the pair before the entry is written, and the
+/// categories that would have worked are in `GET /api/v1/finance/line-categories`,
+/// which is also where the screen learns that a particular pair is a door the
+/// merge left shut (`account_category_policy`).
 #[derive(Debug, Deserialize)]
 pub struct ManualEntryRequest {
     pub posting_date: NaiveDate,

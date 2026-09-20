@@ -90,46 +90,10 @@ async fn say_the_books_are(pool: &PgPool, state: &str) {
 // ---------------------------------------------------------------------------
 
 async fn seed_chart(pool: &PgPool) {
-    let accounts: [(&str, &str, Option<&str>, Option<&str>); 10] = [
-        ("1", "ASSET", None, None),
-        ("101", "CURRENT ASSET", Some("1"), None),
-        ("10112", "INVENTORY", Some("101"), None),
-        ("1011201", "Persediaan Barang Dagang", Some("10112"), None),
-        ("2", "LIABILITIES", None, None),
-        ("201", "HUTANG JANGKA PENDEK", Some("2"), None),
-        ("20120", "HUTANG DAGANG", Some("201"), None),
-        ("2012001", "HUTANG SUPPLIER", Some("20120"), None),
-        (
-            "101120100100",
-            "Persediaan Barang Dagangan HO",
-            Some("1011201"),
-            Some("dc"),
-        ),
-        (
-            "201200100100",
-            "Hutang Suppliers Barang Dagangan HO",
-            Some("2012001"),
-            Some("dc"),
-        ),
-    ];
-    for (code, name, parent, site) in accounts {
-        sqlx::query(
-            "INSERT INTO ledger_account (account_code, name, parent_code, is_group, site_id)
-             VALUES ($1,$2,$3,$4,$5)
-             ON CONFLICT (account_code) DO NOTHING",
-        )
-        .bind(code)
-        .bind(name)
-        .bind(parent)
-        .bind(code.len() < 12)
-        .bind(site)
-        .execute(pool)
-        .await
-        .unwrap_or_else(|error| panic!("{code}: {error}"));
-    }
-    for (key, code) in [
-        ("inventory", "101120100100"),
-        ("trade_payable", "201200100100"),
+    // Nothing to mint: 0289 installs the forty, so what is left is the map.
+    for (key, code, category) in [
+        ("inventory", "1301", Some("MERCHANDISE")),
+        ("trade_payable", "2101", None),
     ] {
         cloud::set_account_mapping(
             pool,
@@ -138,6 +102,7 @@ async fn seed_chart(pool: &PgPool) {
                 site_id: "dc".into(),
                 qualifier: String::new(),
                 account_code: code.into(),
+                category_code: category.map(str::to_string),
                 note: None,
             },
             ACTOR,

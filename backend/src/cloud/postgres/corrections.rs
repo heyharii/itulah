@@ -41,7 +41,7 @@
 //! client's codes are theirs to move, and a hard-coded prefix would stop being
 //! true the day Finance opened a second bank.
 
-use super::ledger::resolve_account;
+use super::ledger::{resolve_account, resolve_account_code};
 use super::poster::{post, reverse, LineAccount, PostingIntent, PostingLine};
 use crate::cloud::application::AppError;
 use chrono::{DateTime, NaiveDate, Utc};
@@ -385,6 +385,7 @@ pub async fn reclass_create(
     .ok_or_else(|| AppError::NotFound("journal line".into()))?;
 
     let source_account: String = line.try_get("account_code")?;
+    let source_category: Option<String> = line.try_get("category_code")?;
     let source_site: String = line.try_get("site_id")?;
     let currency: String = line.try_get("currency")?;
     let debit: i64 = line.try_get("debit_minor")?;
@@ -407,20 +408,30 @@ pub async fn reclass_create(
     // Both sides, before either is stored. The target is resolved here purely
     // to check it — the posting resolves it again, and must, because the map
     // may legitimately move between drafting and posting.
-    let target_account = resolve_account(
+    //
+    // The CATEGORY comes back with it, and this is the one caller outside the
+    // poster that needs it: with forty accounts a reclassification's commonest
+    // job is moving a cost from one kind to another inside ONE account —
+    // `6301` electricity that was really water — and a check that compared
+    // codes alone would refuse exactly that as "already in this account".
+    let target = resolve_account(
         &mut *tx,
         target_key,
         &target_site,
         &request.target_qualifier,
     )
     .await?;
+    let target_account = target.account_code.clone();
     let money = money_account_codes(&mut tx).await?;
     refuse_if_money(&money, &source_account, "source")?;
     refuse_if_money(&money, &target_account, "target")?;
-    if source_account == target_account {
-        return Err(AppError::Validation(
-            "the target resolves to the account the amount is already in".into(),
-        ));
+    if source_account == target_account && source_category == target.category_code {
+        return Err(AppError::Validation(match &source_category {
+            Some(category) => format!(
+                "the target resolves to {source_account} under {category}, which is where the                  amount already is"
+            ),
+            None => "the target resolves to the account the amount is already in".to_string(),
+        }));
     }
 
     let document_date = request
@@ -575,7 +586,7 @@ pub async fn write_off_create(
     let mut tx = pool.begin().await?;
     // Resolved now so a write-off cannot be drafted against a meaning nobody
     // mapped, and refused with the key named rather than at posting time.
-    resolve_account(
+    resolve_account_code(
         &mut *tx,
         balance_key,
         request.site_id.trim(),
@@ -691,7 +702,7 @@ async fn sides_for(
                 .source_line_id
                 .ok_or_else(|| AppError::Validation("a reclassification names a line".into()))?;
             let line = sqlx::query(
-                "SELECT account_code, site_id, debit_minor, credit_minor
+                "SELECT account_code, category_code, site_id, debit_minor, credit_minor
                    FROM journal_line WHERE line_id = $1",
             )
             .bind(line_id)
@@ -699,6 +710,13 @@ async fn sides_for(
             .await?
             .ok_or_else(|| AppError::NotFound("journal line".into()))?;
             let source_account: String = line.try_get("account_code")?;
+            // Carried off the line being corrected, never re-chosen. The source
+            // side of a reclassification takes an amount OUT of exactly where it
+            // is, and where it is includes which category it was filed under:
+            // moving `6301/ELECTRICITY` out as `6301/WATER` would leave both
+            // categories wrong and the account right, which is the one kind of
+            // error a trial balance cannot show.
+            let source_category: Option<String> = line.try_get("category_code")?;
             let source_site: String = line.try_get("site_id")?;
             let was_debit: i64 = line.try_get("debit_minor")?;
 
@@ -712,6 +730,7 @@ async fn sides_for(
                 .unwrap_or_else(|| source_site.clone());
             let source = LineAccount::Account {
                 account_code: source_account.clone(),
+                category_code: source_category.clone(),
             };
             let memo = format!("{} — {}", document.document_number, document.reason);
             if was_debit > 0 {
@@ -737,13 +756,30 @@ async fn sides_for(
             let gain = document.direction.as_deref() == Some("GAIN");
             let site = document.site_id.clone();
             // STOCK_LOSS       Dr stock_loss    / Cr inventory
-            // CASH_OVER_SHORT  Dr cash_variance / Cr cash
-            // and the mirror of each when the difference went the other way.
+            // CASH_OVER_SHORT  Dr cash_shortage / Cr cash           on a LOSS
+            //                  Dr cash          / Cr cash_variance  on a GAIN
+            // and the mirror of STOCK_LOSS when the count found more.
+            //
+            // A till's difference is two meanings and not one signed one, since
+            // 0296: `cash_variance` is on `4301`, a revenue account, and a
+            // shortage debited there was a cost filed under income. The
+            // direction is the one thing this document knows for certain, so
+            // the direction picks the meaning.
             let (result_key, against_key) = match kind {
                 "STOCK_LOSS" => ("stock_loss", "inventory"),
-                "CASH_OVER_SHORT" => ("cash_variance", "cash"),
+                "CASH_OVER_SHORT" => (
+                    if gain {
+                        "cash_variance"
+                    } else {
+                        "cash_shortage"
+                    },
+                    "cash",
+                ),
                 _ => (
-                    document.balance_key.as_deref().unwrap_or("stock_loss"),
+                    signed_side(
+                        document.balance_key.as_deref().unwrap_or("stock_loss"),
+                        gain,
+                    ),
                     "inventory",
                 ),
             };
@@ -809,6 +845,33 @@ async fn sides_for(
             }
         }
         other => Err(AppError::Validation(format!("unknown correction {other}"))),
+    }
+}
+
+/// The side of a signed meaning that a direction lands on.
+///
+/// The client's `Pendapatan dan (Biaya) Lain-lain` was one signed leaf, and
+/// 0296 split it: gains stay on `4301`, losses go to `8301`. The four meanings
+/// that used to carry both directions now carry one each, and an adjustment
+/// says which direction it fell — so when a person names a meaning from that
+/// family, the direction picks the side. A LOSS named as `cash_variance` posts
+/// to `cash_shortage`; a GAIN named as `cash_shortage` posts to
+/// `cash_variance`. Any other meaning has one side and passes through.
+///
+/// Here and not in the poster, because the poster sees a debit to an account
+/// and cannot know it was a loss somebody described as income; this function
+/// still has the direction.
+fn signed_side(key: &str, gain: bool) -> &str {
+    match (key, gain) {
+        ("cash_variance", false) => "cash_shortage",
+        ("cash_shortage", true) => "cash_variance",
+        ("asset_disposal_result", false) => "asset_disposal_loss",
+        ("asset_disposal_loss", true) => "asset_disposal_result",
+        ("rounding", false) => "rounding_loss",
+        ("rounding_loss", true) => "rounding",
+        ("other_income_expense", false) => "other_expense",
+        ("other_expense", true) => "other_income_expense",
+        _ => key,
     }
 }
 

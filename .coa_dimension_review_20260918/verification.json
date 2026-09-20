@@ -1,0 +1,10 @@
+{
+  "sourceRows": 7528,
+  "familyRules": 499,
+  "targetAccounts": 38,
+  "summary": {
+    "proposedFamilies": 292,
+    "reviewFamilies": 207,
+    "unresolvedFamilies": 43
+  }
+}

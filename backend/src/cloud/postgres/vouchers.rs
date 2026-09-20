@@ -20,10 +20,13 @@
 //!     transaction if the two disagree. So the fast column and the audit trail
 //!     cannot drift, and no code path here is trusted to keep them together.
 
+use super::poster::{post, PostingIntent, PostingLine};
 use super::{begin_idempotent, complete_idempotent};
 use crate::cloud::{
     application::AppError,
-    domain::{mint_code, normalize_code, VoucherKind, VoucherStatus},
+    domain::{
+        mint_code, normalize_code, VoucherKind, VoucherStatus, HEAD_OFFICE_SITE_ID,
+    },
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -693,6 +696,22 @@ async fn read_in_transaction(
 /// Idempotent like every other write here, and for a sharper reason than most:
 /// a retried issue is a second gift card the shop did not sell, which is money
 /// given away by a network timeout.
+/// Where the money behind a card came from — the debit side of issuing one.
+///
+/// Derived from the KIND rather than asked again as a parameter, because the
+/// three kinds exist precisely so that this question has one answer (see
+/// `domain::voucher`, which says it in as many words): a gift card was paid
+/// for, a goodwill card was given away, and a refund card settles a return in
+/// credit rather than in cash. A caller free to answer differently would be
+/// free to book a giveaway as a sale.
+fn funding_leg(kind: VoucherKind, site_id: &str, amount_minor: i64) -> PostingLine {
+    match kind {
+        VoucherKind::GiftCard => PostingLine::debit("cash", site_id, amount_minor),
+        VoucherKind::Refund => PostingLine::debit("sales_return", site_id, amount_minor),
+        VoucherKind::Goodwill => PostingLine::debit("marketing_expense", site_id, amount_minor),
+    }
+}
+
 pub async fn issue_voucher(
     pool: &PgPool,
     request: IssueVoucherRequest,
@@ -782,6 +801,30 @@ pub async fn issue_voucher(
     .execute(&mut *tx)
     .await
     .map_err(map_voucher_write_error)?;
+
+    // The promise has two ends, and until 0298 only one was ever written. The
+    // CREDIT is the liability the chart has had since 0090; the DEBIT is where
+    // the money behind the card came from, which is what the kind says. Without
+    // this the account drifted more negative with every card spent — money the
+    // company owes appearing as money it is owed.
+    //
+    // The site is the issue site when one was named and head office otherwise:
+    // a giveaway is usually a head-office decision with no shop behind it, and
+    // `cash` and `marketing_expense` both resolve per unit.
+    let posting_site = site_id.as_deref().unwrap_or(HEAD_OFFICE_SITE_ID);
+    let intent = PostingIntent {
+        posting_date: Utc::now().date_naive(),
+        source_kind: "VOUCHER_ISSUE".into(),
+        source_id: Some(voucher_id.to_string()),
+        rule_version: "voucher_issue/1".into(),
+        currency: currency.clone(),
+        memo: Some(format!("Voucher {code} issued ({})", kind.as_str())),
+        lines: vec![
+            funding_leg(kind, posting_site, request.value_minor),
+            PostingLine::credit("voucher_liability", posting_site, request.value_minor),
+        ],
+    };
+    post(&mut tx, &intent, None, actor).await?;
 
     let voucher = read_in_transaction(&mut tx, voucher_id).await?;
     complete_idempotent(&mut tx, idempotency_key, &serde_json::to_value(&voucher)?).await?;
@@ -1373,6 +1416,120 @@ pub async fn commit_voucher_hold(
     tx.commit().await?;
     Ok(detail)
 }
+/// Commit a hold the centre granted, because the sale it was taken against has
+/// landed as a fact.
+///
+/// Called from `apply_sale` with the fact's own transaction: the sale row and
+/// the redemption commit or neither does. Unlike [`commit_voucher_hold`] this
+/// identifies the hold **by id** — a fact names the hold it was taken under,
+/// not the basket — and it does not refuse on expiry: the till took the money
+/// while the hold was live, and a hold that lapsed between the sale and the
+/// upload is a sync delay, not a reason to say a spent card was not spent.
+/// What it still refuses is the one thing a fact cannot make true: more going
+/// off the card than was ever on it. That refusal blocks the stream on purpose
+/// — an overspent voucher means the hold system itself failed, and the dead
+/// letter is where somebody finds that out.
+pub async fn commit_voucher_hold_for_fact(
+    tx: &mut Transaction<'_, Postgres>,
+    authorization_id: Uuid,
+    sale_id: Uuid,
+    actor: &str,
+) -> Result<(), AppError> {
+    let hold = sqlx::query(
+        "SELECT authorization_id, voucher_id, amount_minor, status, site_id, expires_at
+           FROM voucher_authorization
+          WHERE authorization_id = $1
+          FOR UPDATE",
+    )
+    .bind(authorization_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or_else(|| {
+        AppError::Conflict(format!(
+            "sale {sale_id} names a voucher hold that was never granted ({authorization_id})"
+        ))
+    })?;
+
+    let status: String = hold.try_get("status")?;
+    if status == "COMMITTED" {
+        // A resent fact: the sale was already recorded, and the money with it.
+        return Ok(());
+    }
+    if status != "AUTHORIZED" {
+        return Err(AppError::Conflict(format!(
+            "sale {sale_id} names a hold that was {status}, and only an authorized hold can settle"
+        )));
+    }
+
+    let voucher_id: Uuid = hold.try_get("voucher_id")?;
+    let amount: i64 = hold.try_get("amount_minor")?;
+    let site_id: Option<String> = hold.try_get("site_id")?;
+    let expires_at: DateTime<Utc> = hold.try_get("expires_at")?;
+
+    let balance: i64 = sqlx::query_scalar(
+        "SELECT balance_minor FROM voucher WHERE voucher_id = $1 FOR UPDATE",
+    )
+    .bind(voucher_id)
+    .fetch_one(&mut **tx)
+    .await?;
+    if amount > balance {
+        return Err(AppError::Conflict(format!(
+            "sale {sale_id} took {amount} from a card holding {balance} — the hold was \
+             there to stop exactly this, so the stream stops here until somebody looks"
+        )));
+    }
+
+    let remaining = balance - amount;
+    let next_status = if remaining == 0 {
+        VoucherStatus::Spent
+    } else {
+        VoucherStatus::Active
+    };
+    sqlx::query(
+        "UPDATE voucher SET balance_minor = $2, status = $3, version = version + 1
+          WHERE voucher_id = $1",
+    )
+    .bind(voucher_id)
+    .bind(remaining)
+    .bind(next_status.as_str())
+    .execute(&mut **tx)
+    .await
+    .map_err(map_voucher_write_error)?;
+
+    let note = if expires_at <= Utc::now() {
+        format!(
+            "settled by sale {sale_id}; the hold had lapsed by the time the fact arrived, \
+             which says the upload was late, not that the sale did not happen"
+        )
+    } else {
+        format!("settled by sale {sale_id}")
+    };
+    append_movement(
+        tx,
+        voucher_id,
+        "REDEEM",
+        -amount,
+        remaining,
+        Some(sale_id),
+        site_id.as_deref(),
+        actor,
+        Some(&note),
+    )
+    .await?;
+
+    sqlx::query(
+        "UPDATE voucher_authorization
+            SET status = 'COMMITTED', settled_at = now()
+          WHERE authorization_id = $1",
+    )
+    .bind(authorization_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(map_voucher_write_error)?;
+    Ok(())
+}
+
+
 
 /// Give the held amount back, because the checkout did not become a sale.
 ///

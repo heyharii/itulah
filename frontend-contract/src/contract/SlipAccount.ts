@@ -6,4 +6,14 @@ export type SlipAccount = { account_code: string,
  * "Cash In Bank Giro Bank BCA HO" and anything else is a different account
  * as far as they are concerned.
  */
-account_name: string, site_id: string, };
+account_name: string, 
+/**
+ * What kind of thing it is, where the account is kept by kind, and the
+ * client's own word for that kind.
+ *
+ * Printed because the slip has to be readable as paper: with forty
+ * accounts, "6301 Beban Umum & Administrasi" is what every general
+ * expense says, and the person filing it needs to see "Listrik" beside it
+ * to know which slip they are holding.
+ */
+category_code: string | null, category_name: string | null, site_id: string, };

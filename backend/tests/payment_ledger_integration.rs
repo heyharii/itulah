@@ -31,68 +31,7 @@ const SITE: &str = "dc";
 /// The ladder is kept because the client's codes ARE the tree and a balance
 /// rolls up by prefix. Leaves hanging straight off a root would pass a test
 /// that a real chart fails.
-async fn seed_chart(pool: &PgPool) {
-    let groups: [(&str, &str, Option<&str>); 18] = [
-        ("1", "ASSET", None),
-        ("101", "CURRENT ASSET", Some("1")),
-        ("10110", "KAS DAN SETARA KAS", Some("101")),
-        ("1011001", "KAS", Some("10110")),
-        ("1011003", "CASH IN BANK TABUNGAN", Some("10110")),
-        ("10111", "PIUTANG", Some("101")),
-        ("1011101", "PIUTANG KARTU", Some("10111")),
-        ("1011102", "PIUTANG LAIN-LAIN", Some("10111")),
-        ("10112", "PERSEDIAAN", Some("101")),
-        ("1011201", "Persediaan Barang Dagang", Some("10112")),
-        ("2", "LIABILITIES", None),
-        ("201", "HUTANG JANGKA PENDEK", Some("2")),
-        ("20120", "HUTANG DAGANG", Some("201")),
-        ("2012001", "HUTANG SUPPLIER", Some("20120")),
-        ("4", "PENDAPATAN", None),
-        ("401", "PENJUALAN", Some("4")),
-        ("40101", "PENJUALAN", Some("401")),
-        ("4010110", "Penjualan Barang Dagangan", Some("40101")),
-    ];
-    for (code, name, parent) in groups {
-        sqlx::query(
-            "INSERT INTO ledger_account (account_code, name, parent_code, is_group)
-             VALUES ($1,$2,$3,true)
-             ON CONFLICT (account_code) DO NOTHING",
-        )
-        .bind(code)
-        .bind(name)
-        .bind(parent)
-        .execute(pool)
-        .await
-        .unwrap_or_else(|error| panic!("{code}: {error}"));
-    }
-    for (code, name, parent) in [
-        ("101100100100", "Cash On Hand HO", "1011001"),
-        ("101100300100", "Cash In Bank Tabungan HO", "1011003"),
-        ("101110100200", "Piutang Debit Card HO", "1011101"),
-        ("101110200200", "PIUTANG KEPALA TOKO HO", "1011102"),
-        ("101120100100", "Persediaan Barang Dagangan HO", "1011201"),
-        (
-            "201200100100",
-            "Hutang Suppliers Barang Dagangan HO",
-            "2012001",
-        ),
-        ("401011000100", "Penjualan Barang Dagangan HO", "4010110"),
-    ] {
-        sqlx::query(
-            "INSERT INTO ledger_account (account_code, name, parent_code, is_group, site_id)
-             VALUES ($1,$2,$3,false,'dc')
-             ON CONFLICT (account_code) DO NOTHING",
-        )
-        .bind(code)
-        .bind(name)
-        .bind(parent)
-        .execute(pool)
-        .await
-        .unwrap_or_else(|error| panic!("{code}: {error}"));
-    }
-}
-
-async fn map(pool: &PgPool, key: &str, code: &str) {
+async fn map(pool: &PgPool, key: &str, code: &str, category: Option<&str>) {
     cloud::set_account_mapping(
         pool,
         &cloud::SetAccountMappingRequest {
@@ -100,6 +39,7 @@ async fn map(pool: &PgPool, key: &str, code: &str) {
             site_id: SITE.into(),
             qualifier: String::new(),
             account_code: code.into(),
+            category_code: category.map(str::to_string),
             note: None,
         },
         ACTOR,
@@ -108,28 +48,38 @@ async fn map(pool: &PgPool, key: &str, code: &str) {
     .unwrap_or_else(|error| panic!("map {key}: {error}"));
 }
 
-/// Chart, September open, and the meanings this lane posts against.
+/// September open, and the meanings this lane posts against. The chart is the
+/// migrations' own: it used to be eighteen rungs and seven twelve-digit leaves,
+/// on the argument that the client's codes ARE the tree, which stopped being
+/// true at 0244 and stopped being nearly true at 0289.
 async fn books(pool: &PgPool) {
-    seed_chart(pool).await;
     cloud::open_period(pool, 2026, 9)
         .await
         .unwrap_or_else(|error| panic!("open period: {error}"));
-    map(pool, "inventory", "101120100100").await;
-    map(pool, "trade_payable", "201200100100").await;
-    map(pool, "card_receivable_debit", "101110100200").await;
-    map(pool, "store_manager_receivable", "101110200200").await;
-    map(pool, "cash", "101100100100").await;
-    map(pool, "bank_savings", "101100300100").await;
+    map(pool, "inventory", "1301", Some("MERCHANDISE")).await;
+    map(pool, "trade_payable", "2101", None).await;
+    map(pool, "card_receivable_debit", "1201", Some("DEBIT_CARD")).await;
+    map(
+        pool,
+        "store_manager_receivable",
+        "1202",
+        Some("STORE_MANAGER"),
+    )
+    .await;
+    map(pool, "cash", "1101", Some("DRAWER")).await;
+    map(pool, "bank_savings", "1102", None).await;
 }
 
 fn september(day: u32) -> NaiveDate {
     NaiveDate::from_ymd_opt(2026, 9, day).unwrap_or_else(|| panic!("bad date"))
 }
 
-fn to_account(code: &str, debit: i64, credit: i64) -> PostingLine {
+/// A line that names an account and a category outright, rather than a meaning.
+fn to_account(code: &str, category: Option<&str>, debit: i64, credit: i64) -> PostingLine {
     PostingLine {
         account: LineAccount::Account {
             account_code: code.to_string(),
+            category_code: category.map(str::to_string),
         },
         site_id: SITE.to_string(),
         debit_minor: debit,
@@ -245,7 +195,7 @@ async fn an_open_item_and_its_control_account_hold_the_same_money(pool: PgPool) 
 
     // The same money, read from the books. A payable is a credit balance, so
     // the general ledger's signed figure is the negative of the ledger's.
-    let control = cloud::account_balance(&pool, "201200100100", Some(SITE), Some(september(30)))
+    let control = cloud::account_balance(&pool, "2101", Some(SITE), Some(september(30)))
         .await
         .unwrap_or_else(|error| panic!("balance: {error}"));
     assert_eq!(control.balance_minor, -8_600_000);
@@ -264,7 +214,7 @@ async fn an_open_item_and_its_control_account_hold_the_same_money(pool: PgPool) 
     );
     assert_eq!(integrity.rows.len(), 1);
     let row = &integrity.rows[0];
-    assert_eq!(row.account_code.as_deref(), Some("201200100100"));
+    assert_eq!(row.account_code.as_deref(), Some("2101"));
     assert_eq!(row.ledger_outstanding_minor, 8_600_000);
     assert_eq!(row.gl_balance_minor, 8_600_000);
     assert_eq!(row.difference_minor, 0);
@@ -288,7 +238,7 @@ async fn a_receivable_agrees_with_its_control_account_the_same_way(pool: PgPool)
             2,
             vec![
                 PostingLine::debit("card_receivable_debit", SITE, 4_250_000),
-                to_account("401011000100", 0, 4_250_000),
+                to_account("4101", Some("DEBIT_CARD"), 0, 4_250_000),
             ],
         ),
         None,
@@ -840,7 +790,7 @@ async fn money_moving_is_not_enough_to_open_a_balance(pool: PgPool) {
 
     // And the money did move, which is what makes the assertion above mean
     // something rather than testing that nothing happened at all.
-    let bank = cloud::account_balance(&pool, "101100300100", Some(SITE), Some(september(30)))
+    let bank = cloud::account_balance(&pool, "1102", Some(SITE), Some(september(30)))
         .await
         .unwrap_or_else(|error| panic!("balance: {error}"));
     assert_eq!(bank.balance_minor, 12_000_000);
@@ -943,7 +893,7 @@ fn reading_the_payment_ledger_takes_a_supervisor() {
     }
 }
 
-/// The key names the client's own account, and not the one beside it.
+/// The key names the account AND the category, not the one beside it.
 #[test]
 fn the_store_manager_key_points_at_piutang_kepala_toko() {
     let keys = cloud::required_semantic_keys();
@@ -951,11 +901,21 @@ fn the_store_manager_key_points_at_piutang_kepala_toko() {
         .iter()
         .find(|doc| doc.key == "store_manager_receivable")
         .unwrap_or_else(|| panic!("store_manager_receivable is not a required key"));
-    assert_eq!(key.expects, "1011102002 PIUTANG KEPALA TOKO");
-    // 1011102001 PIUTANG PEGAWAI is what an employee personally owes and is a
-    // different debt. Pointing this key there would put a manager's float in
-    // with the staff loans, where nobody would ever look for it.
-    assert!(!key.expects.contains("1011102001"));
+    assert_eq!(
+        key.expects,
+        "1202 Piutang karyawan & lainnya · STORE_MANAGER"
+    );
+    // `EMPLOYEE` is what a member of staff personally owes and is a different
+    // debt on the same account. Pointing this key there would put a manager's
+    // float in with the staff loans, where nobody would ever look for it —
+    // which is exactly the distinction the `party` category now carries, where
+    // the client had `1011102002` beside `1011102001`.
+    assert!(!key.expects.contains("EMPLOYEE"));
+    assert_eq!(
+        key.category_family.as_deref(),
+        Some("party"),
+        "the key has to say which family, or nobody filling the map knows what to pick"
+    );
     assert!(
         !key.qualified,
         "the location is the narrowing, not a qualifier"

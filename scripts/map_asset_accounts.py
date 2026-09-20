@@ -1,7 +1,30 @@
 #!/usr/bin/env python3
 """Derive the asset half of `account_map` from the client's own chart.
 
-# Why this exists
+# RETIRED — 18 September 2026
+
+Do not run this. Every account code below belongs to the 190-account chart that
+migrations 0287-0292 retired, and the problem it solved no longer exists.
+
+It existed because an asset's class WAS an account: the register filed assets
+under ten-digit sub-families (`1021506003 FFE Komputer`) while the seed mapped
+seven-digit families (`1021506`), `resolve_account` matches a qualifier
+exactly, and so 670 of 683 capitalised assets could not resolve both legs of
+their monthly journal. This script completed the map at the granularity the
+client's chart had.
+
+0287 gave the class a table of its own — `asset_class(class_code)`, sixty rows,
+the client's own words — and `fixed_asset.category_code` points there instead of
+at `ledger_account`. A class can no longer be spelled two ways, the three legs
+of a charge are `1601`/`1602`, `1609`/`1610`/`1619` and `7101` for every class
+in the register, and the map is written by `scripts/seed-finance.py` from the
+class list the migration seeded. There is nothing left here to derive.
+
+Kept, not deleted, because `docs/erpnext-assets.md` §"asset accounts" cites it
+as the record of how the client's three parallel families line up, and that
+reading of their chart is still true of their chart.
+
+# Why this existed
 
 `resolve_account` matches a qualifier EXACTLY (`postgres/ledger.rs`). The asset
 register files every asset under a ten-digit SUB-FAMILY — `1021506003 FFE

@@ -22,11 +22,15 @@ const ACTOR: &str = "ana";
 /// carrying a unit suffix and a `site_id`. Since 0243 the migrations write the
 /// client's own chart, and 0244 collapsed the fourteen unit-suffixed copies of
 /// each account into one — `ledger_account` may no longer name a unit at all,
-/// and `101120100100 Persediaan Barang Dagangan HO` is now `1011201001
+/// and `101120100100 Persediaan Barang Dagangan HO` became `1011201001
 /// Persediaan Barang Dagangan` with the unit carried by `journal_line.site_id`.
+///
+/// 0287–0292 took the next axis out of the code: `1011201001` is retired and
+/// stock is `1301 Persediaan` with `category_code = 'MERCHANDISE'` on the line.
 /// The ladder this file cares about (a balance rolls up by prefix, through
-/// every intermediate rung) is the real chart's, which is deeper than the
-/// fixture's was.
+/// every intermediate rung) is the real chart's — but the forty hang straight
+/// off the one-digit roots, so under root `1` the rung is now the account
+/// itself.
 
 async fn open_september(pool: &PgPool) {
     cloud::open_period(pool, 2026, 9)
@@ -34,7 +38,7 @@ async fn open_september(pool: &PgPool) {
         .unwrap_or_else(|error| panic!("open period: {error}"));
 }
 
-async fn map(pool: &PgPool, key: &str, code: &str) {
+async fn map(pool: &PgPool, key: &str, code: &str, category: Option<&str>) {
     cloud::set_account_mapping(
         pool,
         &cloud::SetAccountMappingRequest {
@@ -42,6 +46,7 @@ async fn map(pool: &PgPool, key: &str, code: &str) {
             site_id: "ho".into(),
             qualifier: String::new(),
             account_code: code.into(),
+            category_code: category.map(str::to_string),
             note: None,
         },
         ACTOR,
@@ -91,8 +96,8 @@ fn bill(amount: i64) -> PostingIntent {
 
 /// One posted bill, for the tests that need the ledger to have moved.
 async fn post_a_bill(pool: &PgPool) {
-    map(pool, "inventory", "1011201001").await;
-    map(pool, "trade_payable", "2012001001").await;
+    map(pool, "inventory", "1301", Some("MERCHANDISE")).await;
+    map(pool, "trade_payable", "2101", None).await;
     let mut tx = pool
         .begin()
         .await
@@ -109,7 +114,7 @@ async fn post_a_bill(pool: &PgPool) {
 async fn a_meaning_with_no_account_refuses_and_says_which(pool: PgPool) {
     open_september(&pool).await;
     // Only one of the two meanings is mapped, so the entry cannot be completed.
-    map(&pool, "inventory", "1011201001").await;
+    map(&pool, "inventory", "1301", Some("MERCHANDISE")).await;
 
     let mut tx = pool
         .begin()
@@ -139,8 +144,8 @@ async fn a_meaning_with_no_account_refuses_and_says_which(pool: PgPool) {
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn a_bill_posts_and_the_trial_balance_balances(pool: PgPool) {
     open_september(&pool).await;
-    map(&pool, "inventory", "1011201001").await;
-    map(&pool, "trade_payable", "2012001001").await;
+    map(&pool, "inventory", "1301", Some("MERCHANDISE")).await;
+    map(&pool, "trade_payable", "2101", None).await;
 
     let mut tx = pool
         .begin()
@@ -196,18 +201,24 @@ async fn an_unbalanced_entry_is_refused_by_the_database(pool: PgPool) {
     .execute(&mut *tx)
     .await
     .unwrap_or_else(|error| panic!("header: {error}"));
-    for (line, code, debit, credit) in [
-        (1, "1011201001", 5000_i64, 0_i64),
-        (2, "2012001001", 0, 4000),
+    // `1301` declares a category family and `2101` does not, so the raw rows
+    // have to carry exactly what the map would have carried. 0288's trigger
+    // refuses either mistake — a missing category on the first, a stray one on
+    // the second — and this test is about the BALANCE trigger, so it must get
+    // past the category one to reach what it is testing.
+    for (line, code, category, debit, credit) in [
+        (1, "1301", Some("MERCHANDISE"), 5000_i64, 0_i64),
+        (2, "2101", None, 0, 4000),
     ] {
         sqlx::query(
             "INSERT INTO journal_line (line_id, entry_id, line_number, account_code, site_id,
-                 debit_minor, credit_minor) VALUES ($1,$2,$3,$4,'ho',$5,$6)",
+                 category_code, debit_minor, credit_minor) VALUES ($1,$2,$3,$4,'ho',$5,$6,$7)",
         )
         .bind(Uuid::new_v4())
         .bind(entry)
         .bind(line)
         .bind(code)
+        .bind(category)
         .bind(debit)
         .bind(credit)
         .execute(&mut *tx)
@@ -238,8 +249,8 @@ async fn an_unbalanced_entry_is_refused_by_the_database(pool: PgPool) {
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn a_closed_period_refuses_a_posting(pool: PgPool) {
     open_september(&pool).await;
-    map(&pool, "inventory", "1011201001").await;
-    map(&pool, "trade_payable", "2012001001").await;
+    map(&pool, "inventory", "1301", Some("MERCHANDISE")).await;
+    map(&pool, "trade_payable", "2101", None).await;
 
     let sealed = cloud::close_period(&pool, 2026, 9, ACTOR)
         .await
@@ -264,8 +275,8 @@ async fn a_closed_period_refuses_a_posting(pool: PgPool) {
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn a_month_nobody_opened_refuses_a_posting(pool: PgPool) {
     open_september(&pool).await;
-    map(&pool, "inventory", "1011201001").await;
-    map(&pool, "trade_payable", "2012001001").await;
+    map(&pool, "inventory", "1301", Some("MERCHANDISE")).await;
+    map(&pool, "trade_payable", "2101", None).await;
 
     let mut intent = bill(1_000);
     // A mistyped year is the ordinary way this happens, and it is exactly the
@@ -301,6 +312,10 @@ async fn a_heading_cannot_be_posted_to(pool: PgPool) {
             site_id: "ho".into(),
             qualifier: String::new(),
             account_code: "1".into(),
+            // A heading declares no family, so no category is the right thing
+            // to send; the refusal has to be about the heading, not about a
+            // category that would have been wrong on any account.
+            category_code: None,
             note: None,
         },
         ACTOR,
@@ -312,7 +327,7 @@ async fn a_heading_cannot_be_posted_to(pool: PgPool) {
     );
 
     // And directly, for a manual entry that names the account itself.
-    map(&pool, "trade_payable", "2012001001").await;
+    map(&pool, "trade_payable", "2101", None).await;
     let mut tx = pool
         .begin()
         .await
@@ -328,6 +343,7 @@ async fn a_heading_cannot_be_posted_to(pool: PgPool) {
             PostingLine {
                 account: LineAccount::Account {
                     account_code: "1".into(),
+                    category_code: None,
                 },
                 site_id: "ho".into(),
                 debit_minor: 500,
@@ -350,8 +366,8 @@ async fn a_heading_cannot_be_posted_to(pool: PgPool) {
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn a_reversal_mirrors_the_original_and_leaves_it_alone(pool: PgPool) {
     open_september(&pool).await;
-    map(&pool, "inventory", "1011201001").await;
-    map(&pool, "trade_payable", "2012001001").await;
+    map(&pool, "inventory", "1301", Some("MERCHANDISE")).await;
+    map(&pool, "trade_payable", "2101", None).await;
 
     let mut tx = pool
         .begin()
@@ -405,7 +421,7 @@ async fn a_reversal_mirrors_the_original_and_leaves_it_alone(pool: PgPool) {
     assert_eq!(detail.entry.reversed_by, Some(mirror.entry_id));
 
     // Net zero: the reversal undoes the original exactly.
-    let payable = cloud::account_balance(&pool, "2012001001", None, None)
+    let payable = cloud::account_balance(&pool, "2101", None, None)
         .await
         .unwrap_or_else(|error| panic!("balance: {error}"));
     assert_eq!(payable.balance_minor, 0);
@@ -427,8 +443,8 @@ async fn a_reversal_mirrors_the_original_and_leaves_it_alone(pool: PgPool) {
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn the_journal_cannot_be_edited_or_deleted(pool: PgPool) {
     open_september(&pool).await;
-    map(&pool, "inventory", "1011201001").await;
-    map(&pool, "trade_payable", "2012001001").await;
+    map(&pool, "inventory", "1301", Some("MERCHANDISE")).await;
+    map(&pool, "trade_payable", "2101", None).await;
 
     let mut tx = pool
         .begin()
@@ -460,8 +476,8 @@ async fn the_general_ledger_opens_where_the_previous_window_closed(pool: PgPool)
     cloud::open_period(&pool, 2026, 10)
         .await
         .unwrap_or_else(|error| panic!("open october: {error}"));
-    map(&pool, "inventory", "1011201001").await;
-    map(&pool, "trade_payable", "2012001001").await;
+    map(&pool, "inventory", "1301", Some("MERCHANDISE")).await;
+    map(&pool, "trade_payable", "2101", None).await;
 
     for (day, amount) in [(1_u32, 1_000_i64), (2, 2_000)] {
         let mut intent = bill(amount);
@@ -486,7 +502,7 @@ async fn the_general_ledger_opens_where_the_previous_window_closed(pool: PgPool)
 
     let october = cloud::general_ledger(
         &pool,
-        "1011201001",
+        "1301",
         cloud::GeneralLedgerScope {
             from: NaiveDate::from_ymd_opt(2026, 10, 1).unwrap_or_else(|| panic!("date")),
             to: NaiveDate::from_ymd_opt(2026, 10, 31).unwrap_or_else(|| panic!("date")),
@@ -507,10 +523,16 @@ async fn the_general_ledger_opens_where_the_previous_window_closed(pool: PgPool)
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn a_bill_debits_inventory_gross_and_credits_the_discount(pool: PgPool) {
     open_september(&pool).await;
-    map(&pool, "inventory", "1011201001").await;
-    map(&pool, "trade_payable", "2012001001").await;
-    map(&pool, "purchase_discount", "8010110003").await;
-    map(&pool, "vat_in", "1011302004").await;
+    map(&pool, "inventory", "1301", Some("MERCHANDISE")).await;
+    map(&pool, "trade_payable", "2101", None).await;
+    map(
+        &pool,
+        "purchase_discount",
+        "5101",
+        Some("PURCHASE_DISCOUNT"),
+    )
+    .await;
+    map(&pool, "vat_in", "1402", Some("PPN_IN")).await;
 
     let recorded = cloud::record_bill(
         &pool,
@@ -543,25 +565,33 @@ async fn a_bill_debits_inventory_gross_and_credits_the_discount(pool: PgPool) {
         .unwrap_or_else(|error| panic!("post: {error}"));
     assert_eq!(posted.status, "POSTED");
 
-    // The shape that matters. The client keeps purchase discounts under root 8,
-    // PENDAPATAN DAN (BIAYA) LAIN - LAIN, so a discount is other income and NOT
-    // a smaller inventory figure. Netting it off inventory would balance just
-    // as well and quietly empty an account their own statements have a line for.
-    let inventory = cloud::account_balance(&pool, "1011201001", None, None)
+    // The shape that matters. A purchase discount is its own line, NOT a
+    // smaller inventory figure. Netting it off inventory would balance just as
+    // well and quietly empty a line their own statements have.
+    //
+    // Where that line sits moved with the collapse: the client kept it under
+    // root 8 (PENDAPATAN DAN (BIAYA) LAIN - LAIN) as other income; the forty
+    // put it back where it belongs, as `5101 Harga pokok penjualan` with
+    // `PURCHASE_DISCOUNT` — contra-COGS rather than income. The figure is the
+    // same and the statement line it lands on is not.
+    let inventory = cloud::account_balance(&pool, "1301", None, None)
         .await
         .unwrap_or_else(|error| panic!("inventory: {error}"));
     assert_eq!(
         inventory.balance_minor, 10_000_000,
         "inventory is debited gross, before the discount"
     );
-    let discount = cloud::account_balance(&pool, "8010110003", None, None)
+    // Nothing books COGS here, so the whole of `5101` is the discount. That is
+    // the reading worth having anyway: `account_balance` sums an account across
+    // its categories, and `5101` now holds two.
+    let discount = cloud::account_balance(&pool, "5101", None, None)
         .await
         .unwrap_or_else(|error| panic!("discount: {error}"));
     assert_eq!(
         discount.balance_minor, -500_000,
-        "the discount is a credit to Potongan Pembelian"
+        "the discount is a credit to 5101/PURCHASE_DISCOUNT, the client's Potongan Pembelian"
     );
-    let payable = cloud::account_balance(&pool, "2012001001", None, None)
+    let payable = cloud::account_balance(&pool, "2101", None, None)
         .await
         .unwrap_or_else(|error| panic!("payable: {error}"));
     assert_eq!(
@@ -581,9 +611,15 @@ async fn a_bill_debits_inventory_gross_and_credits_the_discount(pool: PgPool) {
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn the_balance_sheet_balances_once_the_result_is_counted(pool: PgPool) {
     open_september(&pool).await;
-    map(&pool, "inventory", "1011201001").await;
-    map(&pool, "trade_payable", "2012001001").await;
-    map(&pool, "purchase_discount", "8010110003").await;
+    map(&pool, "inventory", "1301", Some("MERCHANDISE")).await;
+    map(&pool, "trade_payable", "2101", None).await;
+    map(
+        &pool,
+        "purchase_discount",
+        "5101",
+        Some("PURCHASE_DISCOUNT"),
+    )
+    .await;
 
     let recorded = cloud::record_bill(
         &pool,
@@ -617,9 +653,13 @@ async fn the_balance_sheet_balances_once_the_result_is_counted(pool: PgPool) {
         .unwrap_or_else(|error| panic!("balance sheet: {error}"));
 
     // Assets 1,000,000; liabilities 900,000; and 100,000 of profit sitting in
-    // class 8 because nobody has closed the year. A sheet of classes 1-3 alone
-    // would report itself out by exactly that, which is alarming and wrong —
-    // the client keeps the figure as `3013001003 Laba (Rugi) bulan berjalan`.
+    // class 5 — the purchase discount, credited to `5101` — because nobody has
+    // closed the year. (It sat in class 8 before the collapse; the root moved,
+    // the result did not.) A sheet of classes 1-3 alone would report itself out
+    // by exactly that, which is alarming and wrong. The client keeps the figure
+    // as `3013001003 Laba (Rugi) bulan berjalan`, which 0290 deliberately did
+    // NOT migrate to an account: importing it is how you count a year's profit
+    // twice. It is derived, and `sheet.result_minor` is where it is derived.
     assert_eq!(sheet.result_minor, -100_000, "the period earned 100,000");
     assert_eq!(
         sheet.out_of_balance_minor, 0,
@@ -630,8 +670,8 @@ async fn the_balance_sheet_balances_once_the_result_is_counted(pool: PgPool) {
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn a_family_shows_a_cell_for_every_location(pool: PgPool) {
     open_september(&pool).await;
-    map(&pool, "inventory", "1011201001").await;
-    map(&pool, "trade_payable", "2012001001").await;
+    map(&pool, "inventory", "1301", Some("MERCHANDISE")).await;
+    map(&pool, "trade_payable", "2101", None).await;
     let mut tx = pool
         .begin()
         .await
@@ -643,7 +683,10 @@ async fn a_family_shows_a_cell_for_every_location(pool: PgPool) {
         .await
         .unwrap_or_else(|error| panic!("commit: {error}"));
 
-    let matrix = cloud::balance_matrix(&pool, "1011201", september(30))
+    // `1011201` was the client's inventory heading and the rung below it was
+    // `1011201001`, which is where this bill used to land. Both are retired;
+    // the bill now lands on `1301`, whose only heading is the root `1`.
+    let matrix = cloud::balance_matrix(&pool, "1", september(30))
         .await
         .unwrap_or_else(|error| panic!("matrix: {error}"));
 
@@ -655,7 +698,35 @@ async fn a_family_shows_a_cell_for_every_location(pool: PgPool) {
     for row in &matrix.rows {
         assert_eq!(row.cells.len(), matrix.locations.len());
     }
-    assert_eq!(matrix.grand_total_minor, 7_000);
+    // This was red, and what it was red about is worth keeping written down.
+    //
+    // `balance_matrix` used to take the rung below the family to be the
+    // SHORTEST child code, and under root `1` that is still the client's
+    // retired three-digit headings (`101`, `102`, `103`) — the forty are four
+    // digits and were grafted straight onto the one-digit roots with no heading
+    // of their own (docs/coa-40-contract.md §4: "induk = akar 1 digit yang
+    // sudah ada"). Nothing posts to `101…` any more, so the matrix reported
+    // zero for a ledger that had moved. It now takes the rung to be an account
+    // with no nearer ancestor in the chart, which reads both charts: `1301` is
+    // a child of `1` because `13` and `130` are not accounts, and `101` still
+    // is one, so the history under it keeps showing.
+    assert_eq!(
+        matrix.grand_total_minor, 7_000,
+        "the bill is on 1301, which hangs straight off root 1"
+    );
+    assert!(
+        matrix
+            .rows
+            .iter()
+            .any(|row| row.account_code == "101" || row.account_code == "102"),
+        "the retired headings still hold two years of history and must keep \
+         their rows: {:?}",
+        matrix
+            .rows
+            .iter()
+            .map(|row| row.account_code.as_str())
+            .collect::<Vec<_>>()
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -666,7 +737,7 @@ async fn a_family_shows_a_cell_for_every_location(pool: PgPool) {
 ///
 /// `map` above pins head office; this list is per-site, which is the whole
 /// point of the money screen — one meaning, fourteen places.
-async fn map_at(pool: &PgPool, key: &str, site: &str, code: &str) {
+async fn map_at(pool: &PgPool, key: &str, site: &str, code: &str, category: Option<&str>) {
     cloud::set_account_mapping(
         pool,
         &cloud::SetAccountMappingRequest {
@@ -674,6 +745,7 @@ async fn map_at(pool: &PgPool, key: &str, site: &str, code: &str) {
             site_id: site.into(),
             qualifier: String::new(),
             account_code: code.into(),
+            category_code: category.map(str::to_string),
             note: None,
         },
         ACTOR,
@@ -689,16 +761,19 @@ async fn map_at(pool: &PgPool, key: &str, site: &str, code: &str) {
 /// case fails.
 ///
 /// Ten MAPPINGS, though, and no longer ten accounts. Before 0244 each unit had
-/// a cash account of its own and this seeded them; the collapse left one
-/// `1011001001 Cash On Hand` that all fourteen units post to, with the unit on
-/// `journal_line.site_id`. The row the money screen shows is still the PAIR —
-/// `(account_code, site_id)` — which is what the cursor carries, so the list
-/// this builds is the same shape it always was.
+/// a cash account of its own and this seeded them; that collapse left one
+/// `1011001001 Cash On Hand` for all fourteen units, and 0287–0292 left
+/// `1101 Kas` with `DRAWER` on the line. The row the money screen shows is
+/// still the PAIR — `(account_code, site_id)` — which is what the cursor
+/// carries, so the list this builds is the same shape it always was.
 async fn seed_money(pool: &PgPool) {
     let sites = ["ho", "store-01", "store-02", "store-03", "store-04"];
     for site in sites {
-        for (key, code) in [("cash", "1011001001"), ("bank_giro", "1011002001")] {
-            map_at(pool, key, site, code).await;
+        for (key, code, category) in [
+            ("cash", "1101", Some("DRAWER")),
+            ("bank_giro", "1102", None),
+        ] {
+            map_at(pool, key, site, code, category).await;
         }
     }
 }

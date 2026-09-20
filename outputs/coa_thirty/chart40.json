@@ -1,0 +1,202 @@
+{
+ "1101": {
+  "name": "Kas",
+  "dim": "unit",
+  "family": "pot"
+ },
+ "1102": {
+  "name": "Bank",
+  "dim": "company",
+  "family": null
+ },
+ "1201": {
+  "name": "Piutang tender",
+  "dim": "unit",
+  "family": "tender"
+ },
+ "1202": {
+  "name": "Piutang karyawan & lainnya",
+  "dim": "unit",
+  "family": "party"
+ },
+ "1209": {
+  "name": "Cadangan piutang tak tertagih",
+  "dim": "unit",
+  "family": "party"
+ },
+ "1301": {
+  "name": "Persediaan",
+  "dim": "unit",
+  "family": "item_class"
+ },
+ "1302": {
+  "name": "Barang dalam perjalanan",
+  "dim": "unit",
+  "family": "item_class"
+ },
+ "1309": {
+  "name": "Cadangan kerusakan persediaan",
+  "dim": "unit",
+  "family": "item_class"
+ },
+ "1401": {
+  "name": "Biaya dibayar dimuka",
+  "dim": "unit",
+  "family": "prepaid_kind"
+ },
+ "1402": {
+  "name": "Pajak dibayar dimuka",
+  "dim": "company",
+  "family": "tax_kind"
+ },
+ "1403": {
+  "name": "Uang muka",
+  "dim": "unit",
+  "family": "advance_purpose"
+ },
+ "1501": {
+  "name": "Rekening koran antar-unit",
+  "dim": "unit",
+  "family": "interunit_reason"
+ },
+ "1601": {
+  "name": "Aset tetap",
+  "dim": "unit",
+  "family": null
+ },
+ "1602": {
+  "name": "Aset takberwujud & aset tangguhan",
+  "dim": "unit",
+  "family": null
+ },
+ "1609": {
+  "name": "Akumulasi penyusutan",
+  "dim": "unit",
+  "family": null
+ },
+ "1610": {
+  "name": "Cadangan penggantian operating equipment",
+  "dim": "unit",
+  "family": null
+ },
+ "1619": {
+  "name": "Akumulasi amortisasi",
+  "dim": "unit",
+  "family": null
+ },
+ "2101": {
+  "name": "Hutang usaha",
+  "dim": "company",
+  "family": null
+ },
+ "2102": {
+  "name": "Barang diterima belum ditagih",
+  "dim": "company",
+  "family": null
+ },
+ "2103": {
+  "name": "Giro keluar belum cair",
+  "dim": "company",
+  "family": null
+ },
+ "2201": {
+  "name": "Hutang pajak",
+  "dim": "company",
+  "family": "tax_kind"
+ },
+ "2301": {
+  "name": "Biaya masih harus dibayar",
+  "dim": "unit",
+  "family": "accrual_kind"
+ },
+ "2401": {
+  "name": "Kewajiban voucher & uang muka penjualan",
+  "dim": "company",
+  "family": "deferred_revenue_kind"
+ },
+ "2501": {
+  "name": "Pinjaman bank",
+  "dim": "company",
+  "family": null
+ },
+ "2502": {
+  "name": "Pinjaman pemilik",
+  "dim": "company",
+  "family": null
+ },
+ "3101": {
+  "name": "Modal disetor",
+  "dim": "company",
+  "family": null
+ },
+ "3102": {
+  "name": "Prive",
+  "dim": "company",
+  "family": null
+ },
+ "3201": {
+  "name": "Laba ditahan",
+  "dim": "company",
+  "family": null
+ },
+ "4101": {
+  "name": "Penjualan",
+  "dim": "unit",
+  "family": "tender"
+ },
+ "4201": {
+  "name": "Potongan & retur penjualan",
+  "dim": "unit",
+  "family": "deduction_kind"
+ },
+ "4301": {
+  "name": "Pendapatan lain-lain",
+  "dim": "unit",
+  "family": "income_kind"
+ },
+ "5101": {
+  "name": "Harga pokok penjualan",
+  "dim": "unit",
+  "family": "cost_kind"
+ },
+ "5102": {
+  "name": "Susut & selisih persediaan",
+  "dim": "unit",
+  "family": "loss_kind"
+ },
+ "6101": {
+  "name": "Beban penjualan",
+  "dim": "unit",
+  "family": "expense_category"
+ },
+ "6201": {
+  "name": "Beban karyawan",
+  "dim": "unit",
+  "family": "pay_component"
+ },
+ "6301": {
+  "name": "Beban umum & administrasi",
+  "dim": "unit",
+  "family": "expense_category"
+ },
+ "6401": {
+  "name": "Beban sewa",
+  "dim": "unit",
+  "family": "expense_category"
+ },
+ "7101": {
+  "name": "Beban penyusutan & amortisasi",
+  "dim": "unit",
+  "family": null
+ },
+ "8101": {
+  "name": "Beban bunga",
+  "dim": "company",
+  "family": null
+ },
+ "8201": {
+  "name": "Pajak penghasilan",
+  "dim": "company",
+  "family": "tax_kind"
+ }
+}

@@ -17,24 +17,37 @@
 use inventory_backend::cloud::postgres as cloud;
 use sqlx::{PgPool, Row};
 
-/// The eight accounts that are ours, with the reason each exists.
+/// The eight accounts that are ours ON TOP OF the forty, with the reason each
+/// exists.
+///
+/// All forty of the new chart carry `PENDING_CLIENT_CODE` too — the four-digit
+/// codes are ours and the names are the client's (`docs/coa-40-contract.md`
+/// §4) — so the closure below is "the forty, plus exactly these and nothing
+/// else". These eight are retired now and kept for their postings; the reasons
+/// are still the reasons, and each one says which category answers it today.
 const DECLARED: [(&str, &str); 8] = [
-    ("1011005", "the rung money in transit hangs from"),
+    ("1011005", "the rung money in transit hung from"),
     (
         "1011005001",
-        "a bag that has left a drawer and not reached a bank",
+        "a bag that has left a drawer and not reached a bank; now 1101 x TRANSIT",
     ),
     (
         "1011101003",
-        "QRIS is owed by a provider, not by a card acquirer",
+        "QRIS is owed by a provider, not by a card acquirer; now 1201 x QRIS",
     ),
-    ("2012101006", "corporate tax has to be owed somewhere"),
-    ("2012305", "the rung the voucher liability hangs from"),
-    ("2012305001", "a voucher is money the shop already took"),
-    ("4010114", "the rung QRIS sales hang from"),
+    (
+        "2012101006",
+        "corporate tax has to be owed somewhere; now 2201 x PPH29",
+    ),
+    ("2012305", "the rung the voucher liability hung from"),
+    (
+        "2012305001",
+        "a voucher is money the shop already took; now 2401 x VOUCHER_LIABILITY",
+    ),
+    ("4010114", "the rung QRIS sales hung from"),
     (
         "4010114001",
-        "QRIS sales, so the income can be reconciled per provider",
+        "QRIS sales, reconcilable per provider; now 4101 x QRIS",
     ),
 ];
 
@@ -56,9 +69,26 @@ async fn every_account_we_minted_says_so(pool: PgPool) {
                 .unwrap_or_else(|error| panic!("code: {error}"))
         })
         .collect();
+
+    // The forty are ours by construction, and counted rather than listed: 0289
+    // already refuses a chain that does not install exactly forty of them, so
+    // repeating the codes here would be a second list to keep in step.
+    let forty: Vec<&String> = found.iter().filter(|code| code.len() == 4).collect();
+    assert_eq!(
+        forty.len(),
+        40,
+        "the collapsed chart is forty accounts and all forty are ours: {forty:?}"
+    );
+
+    // And what is left over is the eight above, in order, with nothing added.
+    let extra: Vec<String> = found
+        .iter()
+        .filter(|code| code.len() != 4)
+        .cloned()
+        .collect();
     let expected: Vec<String> = DECLARED.iter().map(|(code, _)| (*code).into()).collect();
     assert_eq!(
-        found, expected,
+        extra, expected,
         "an account outside the client's chart has appeared or gone without a decision; \
          every one of them has to be declared, with its reason, in 0277 and here"
     );
@@ -83,7 +113,7 @@ async fn a_shop_can_bank_its_takings_from_the_migrations_alone(pool: PgPool) {
     );
 
     let account = sqlx::query(
-        "SELECT a.account_code, a.is_group, a.normal_balance, a.dimension,
+        "SELECT a.account_code, m.category_code, a.is_group, a.normal_balance, a.dimension,
                 a.posting_mode, a.manual_je_policy, a.posting_policy_configured
            FROM account_map m JOIN ledger_account a ON a.account_code = m.account_code
           WHERE m.semantic_key = 'cash_in_transit' LIMIT 1",
@@ -92,11 +122,25 @@ async fn a_shop_can_bank_its_takings_from_the_migrations_alone(pool: PgPool) {
     .await
     .unwrap_or_else(|error| panic!("account: {error}"));
 
+    // `1011005001 Setoran Dalam Perjalanan` was one of exactly two accounts the
+    // simplified chart had to INVENT. It needs no account of its own now: money
+    // out of the drawer and not yet at the bank is cash in a different pot, and
+    // the pot is on the line. Which means the account alone no longer answers
+    // this test's question — `1101` is also the drawer — so the category is read
+    // with it.
     assert_eq!(
         account
             .try_get::<String, _>("account_code")
             .unwrap_or_default(),
-        "1011005001"
+        "1101"
+    );
+    assert_eq!(
+        account
+            .try_get::<Option<String>, _>("category_code")
+            .unwrap_or_default()
+            .as_deref(),
+        Some("TRANSIT"),
+        "mapped to the drawer instead, a deposit would credit the money straight back"
     );
     assert!(
         !account.try_get::<bool, _>("is_group").unwrap_or(true),

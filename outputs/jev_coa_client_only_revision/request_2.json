@@ -1,0 +1,37 @@
+{
+  "model":"jev-latest",
+  "state":{
+    "objective":"Close the remaining ambiguities in the client-only revised COA and determine the defensible account count.",
+    "facts":[
+      "The client COA has 36 item-specific Reserve Replacement OE balance-sheet families and 36 corresponding Biaya Replacement OE expense families.",
+      "All these reserve and expense lines are zero in the available December 2025 balance sheet and 2025/2024 P&L.",
+      "The client has an asset register containing the underlying OE items by item type and site.",
+      "No contract, policy or roll-forward demonstrates a present legal or constructive replacement obligation.",
+      "The owner wants item-specific Replacement OE accounts compressed as far as safely possible.",
+      "The client has formal PJP Jatuh Tempo Principal and Pinjaman Jangka Panjang Principal families, plus Hutang Lain-lain Principal by HO/unit.",
+      "Formal Principal loan maturity can be managed in loan schedules.",
+      "No agreement proves that every Hutang Lain-lain Principal balance has the same repayment/subordination terms as formal Principal loans.",
+      "All units are cost centers/sites of one legal entity."
+    ],
+    "already_accepted_client_only_changes":[
+      "Replace invented GRNI with existing Supplier Merchandise Suspend family.",
+      "Add three affiliation control natures: Financing, Goods and Other.",
+      "Add Software cost and Accumulated Amortization Software.",
+      "Add HPP, Purchase Discount, CIP, income-tax expense, mixed other income/expense, Disposed Inventory and the requested land/HGB/rent and pre-opening families.",
+      "Use one Bank Loan and one formal Principal Loan with maturity schedule classification.",
+      "Inventory damage remains one account.",
+      "Giro Keluar is removed from future posting."
+    ]
+  },
+  "questions":{
+    "reserve_present_obligation":{"type":"choice","instructions":"Does the available evidence support a permanent Reserve Replacement OE balance-sheet account?","criteria":{"no":"Zero balances and no obligation policy/roll-forward do not support recognizing a reserve; retire it from future posting.","yes":"The word Reserve alone supports a permanent balance-sheet account."}},
+    "replacement_one_expense":{"type":"choice","instructions":"After retiring the unsupported reserve, can all qualifying non-capital OE replacement costs use one Biaya Replacement OE natural account?","criteria":{"yes":"Use item_id/OE type/site/reason in the asset or maintenance document; capital replacements go to OE assets.","no":"Keep 36 expense accounts by item."}},
+    "replacement_total_core":{"type":"choice","instructions":"How many Replacement OE natural accounts should remain in core under these facts?","criteria":{"one":"One Biaya Replacement OE account; no reserve account absent a present obligation.","two":"One reserve plus one expense.","seventy_two":"All legacy item accounts."}},
+    "formal_principal_account":{"type":"choice","instructions":"Should formal current and long-term Principal borrowing families become one Pinjaman Principal core account with maturity schedules?","criteria":{"yes":"Use principal_id, facility_id and maturity schedule.","no":"Keep current/long-term and unit copies."}},
+    "other_principal_account":{"type":"choice","instructions":"Until its substance is proven identical to formal loans, should Hutang Lain-lain Principal have one separate core account rather than 14 unit accounts?","criteria":{"yes":"Keep one Hutang Principal/Pihak Berelasi account with principal_id and cost center.","merge":"Merge into formal Pinjaman Principal without evidence.","fourteen":"Keep 14 unit accounts."}},
+    "principal_count":{"type":"choice","instructions":"How many Principal-related natural accounts should the immediate core contain?","criteria":{"two":"Pinjaman Principal for formal facilities and Hutang Principal/Pihak Berelasi for other balances; merge later only with evidence.","one":"Merge every Principal balance now.","fifteen":"Retain unit-specific copies."}},
+    "affiliation_three_one_each":{"type":"choice","instructions":"Given centralized HO-unit flows and the owner's requirement, can the core use exactly three affiliation control accounts—Financing, Goods and Other—with cost-center debit/credit balances?","criteria":{"yes":"Use source documents and cost centers for both sides, eliminate at entity reporting and prevent entity-level external presentation.","six":"Require separate debit and credit natural accounts for each nature.","one":"Merge all three natures."}},
+    "affiliation_counterpart":{"type":"choice","instructions":"Is a general counter_site_id required on journal lines for these three balances?","criteria":{"no":"Each balanced document line carries its own cost center/site; origin/destination live on funding or transfer documents.","yes":"Add a general counter-site dimension to every journal line."}},
+    "counting_rule":{"type":"choice","instructions":"When counting the final core, should a legacy family replaced by a normalized same-nature account count once, while unit/bank/item copies count as dimensions?","criteria":{"yes":"Count natural-account natures only.","no":"Count every legacy site and item copy."}}
+  }
+}

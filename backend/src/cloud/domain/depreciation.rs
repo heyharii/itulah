@@ -160,7 +160,51 @@ impl ChargeKind {
     pub const fn charge_keys(self) -> [&'static str; 2] {
         [self.expense_key(), self.contra_key()]
     }
+
+    /// Which `depreciation_kind` the charge is, on the one account all three
+    /// expenses now share.
+    ///
+    /// `7010212 BIAYA DEPRESIASI` and `7010215 BIAYA REPLACEMENT OPERATING
+    /// EQUIPMENT` both became `7101`, and on the balance sheet the difference
+    /// survives — accumulated depreciation is `1609`, the reserve is `1610` —
+    /// but on the profit and loss the two had become one number. This whole
+    /// module exists because the client does NOT depreciate operating
+    /// equipment: a rack is charged against a reserve and replaced. A P&L that
+    /// cannot show that has lost the distinction 0159 was written for, so 0294
+    /// gave `7101` a category and this is where the three kinds say which.
+    pub const fn expense_category(self) -> &'static str {
+        match self {
+            Self::Depreciation => "DEPRECIATION",
+            Self::ReplacementReserve => "REPLACEMENT",
+            Self::Amortisation => "AMORTISATION",
+        }
+    }
+
+    /// Where a capitalised asset's cost sits, when its account keeps stages
+    /// apart.
+    ///
+    /// `1601 Aset tetap` does — finished work and work in progress are one
+    /// account now — and `1602`, which takes the intangibles, does not. `None`
+    /// is therefore a real answer and not a gap: an account that declares no
+    /// family refuses a category, so returning one for an intangible would
+    /// refuse every amortised asset's capitalisation.
+    pub const fn cost_category(self) -> Option<&'static str> {
+        match self {
+            Self::Depreciation | Self::ReplacementReserve => Some(ASSET_IN_SERVICE),
+            Self::Amortisation => None,
+        }
+    }
 }
+
+/// An asset whose cost is finished work, carried on `1601`.
+pub const ASSET_IN_SERVICE: &str = "IN_SERVICE";
+
+/// And one that is still being built. The client's `1031803 Contract In
+/// Progress` became this: a category on `1601` rather than an account, which is
+/// what makes capitalisation a real move again instead of `Dr 1601 / Cr 1601`
+/// for the same asset — a journal that says nothing and a balance sheet on
+/// which unfinished work cannot be separated from finished.
+pub const ASSET_IN_PROGRESS: &str = "IN_PROGRESS";
 
 /// One asset's depreciable state for one month.
 #[derive(Clone, Copy, Debug)]

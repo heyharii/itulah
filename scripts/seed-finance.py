@@ -1,26 +1,48 @@
 #!/usr/bin/env python3
 """Fill a dev cloud node's finance module with a believable set of books.
 
-Reads go straight to Postgres (the chart is 7,528 rows and searching it over
-HTTP one code at a time is slow); every WRITE goes through the API, because
+Reads go straight to Postgres (the chart, the categories and the asset classes
+are what the migrations put there, and this script must agree with them rather
+than with a copy of them); every WRITE goes through the API, because
 `poster.rs` is the only thing allowed to write a journal and the invariants
 that make these books trustworthy — balanced entries, no posting into a closed
 month, no posting to a heading — live behind those endpoints.
 
 The order below is the only order that works. `account_map` first: a posting
-rule names a meaning, never a client account code, so until the map is filled
-every post is refused by design. Then the periods, because nothing posts into
-a month that was never opened. Only then the documents.
+rule names a meaning, never an account code, so until the map is filled every
+post is refused by design. Then the periods, because nothing posts into a month
+that was never opened. Only then the documents.
 
     python3 scripts/seed-finance.py --db inventory_tanstack
+
+# What changed with the forty-account chart (0287-0292)
+
+A meaning used to resolve to a ten-digit account out of the client's own chart,
+and the account carried the identity: which bank, which rack, which PPh
+article, electricity or water. The chart is forty accounts now, and that
+identity moved to where it always belonged:
+
+  * a **category** on the journal line (`journal_line.category_code`), for the
+    distinctions that were only ever names — expense kinds, pay components,
+    cash pots, tenders, accrual kinds;
+  * a **column or sub-ledger** that already existed, for the rest —
+    `bank_account_id`, `supplier_id`, `asset_id`, `tax_type`,
+    `financing_facility`, `principal`.
+
+So `account_map` maps a meaning to a PAIR: `(account_code, category_code)`,
+where the category is NULL exactly when the account declares no
+`category_family`. Every pair below was derived mechanically from
+`outputs/coa_thirty/remap-190-to-40.csv` — the ten-digit code each meaning used
+to point at is kept in a comment so the derivation can be re-read — and checked
+against `line_category` as the migrations seeded it.
+
+`docs/coa-40-contract.md` is the frozen shape; `docs/coa-thirty.md` is why.
 """
 
 from __future__ import annotations
 
 import argparse
-import csv
 import json
-import os
 import random
 import subprocess
 import sys
@@ -30,210 +52,331 @@ import uuid
 from datetime import date, timedelta
 
 # --------------------------------------------------------------------------
-# the client's chart, by meaning
+# the chart, by meaning: (account, category)
 # --------------------------------------------------------------------------
 
-# A meaning that needs no narrowing: one 10-digit account, the same everywhere,
-# and the location leaf is chosen per site.
-PLAIN: dict[str, str] = {
-    "inventory": "1011201001",
-    "trade_payable": "2012001001",
-    "vat_in": "1011302004",
-    "purchase_discount": "8010110003",
-    "non_merchandise_payable": "2012001003",
-    "cash": "1011001001",
-    "petty_cash": "1011001002",
-    "cashier_float": "1011001003",
-    "rounding": "8010110002",
-    "card_receivable_credit": "1011101001",
-    "card_receivable_debit": "1011101002",
-    # lane-P: what a store manager is holding of head office's money. Distinct
-    # from 1011102001 PIUTANG PEGAWAI, which is what an employee personally
-    # owes — the two read almost the same and are not the same debt. The leaf
-    # per shop (101110200200 .. 101110200213) is picked by `leaves()` below.
-    "store_manager_receivable": "1011102002",
-    "card_fee": "6010110002",
-    "cogs": "5010110001",
-    "stock_loss": "8010110006",
-    "interest_expense": "8020111001",
-    # lane-A: what posting a day of takings needs, beyond the four above it
-    # already reuses (cash, card_receivable_debit, card_receivable_credit,
-    # rounding). Three of these are PROPOSED codes — the client's chart has no
-    # account for QRIS, for a QRIS receivable, or for vouchers outstanding, so
-    # each is the next free leaf in the family it belongs to and has to be
-    # confirmed with Finance before these books are compared with theirs.
-    "revenue_cash": "4010110001",
-    # PROPOSED. Not 4010113001, which their chart already spends on
-    # "Penjualan Online Sendiri" — 401011.3 is their online rung, with .3002
-    # for the marketplaces. 401011.4 is the next one nobody has taken.
-    "revenue_qris": "4010114001",  # created by 0274
-    "sales_return": "4010214001",
-    "sales_discount": "4010213001",
-    "vat_out": "2012101003",
-    "voucher_liability": "2012305001",  # created by 0275
-    # end lane-A
-    # lane-C: the three lines every statement carries every month, and the
-    # accounts the seeded bank rules (migration 0116) propose for them.
-    # 6010310004 Biaya Bank HO / 8010110001 Pendapatan Bunga Bank.
-    "bank_admin_fee": "6010310004",
-    "interest_income": "8010110001",
+# A meaning that needs no narrowing: one account, one category, the same
+# everywhere. `None` for the category means the account declares no family —
+# the identity of the line is a column (`supplier_id`, `bank_account_id`,
+# `asset_id`) or a sub-ledger row (`tax_type`, `financing_facility`,
+# `principal`), and a category on such a line is REFUSED, not ignored.
+#
+# The trailing comment on each row is the ten-digit account this meaning used
+# to resolve to. It is not used for anything; it is there so that a person
+# holding the client's own chart can check this table against it.
+PLAIN: dict[str, tuple[str, str | None]] = {
+    # --- stock and buying ------------------------------------------------
+    "inventory": ("1301", "MERCHANDISE"),                 # 1011201001
+    "cogs": ("5101", "COGS"),                             # 5010110001
+    # The one row in this table that moves a figure rather than relabelling it.
+    # The client filed `Potongan Pembelian` under root 8 (other income) out of
+    # habit; PSAK 14 makes a trade discount part of the cost of the goods, so it
+    # is a CONTRA-COGS category here. Every other pair below leaves its total on
+    # the same line of the same statement; this one raises gross margin against
+    # their own 2024-2025 reports, and it needs the accountant's word — see
+    # `docs/finance-client-decisions.md` §14. Changing it back is this line and
+    # one row of `ledger_account_remap`, as long as it is decided before the
+    # opening balances land.
+    "purchase_discount": ("5101", "PURCHASE_DISCOUNT"),   # 8010110003
+    "purchase_price_variance": ("5101", "PURCHASE_DISCOUNT"),  # 8010110003
+    "stock_loss": ("5102", "SHRINKAGE"),                  # 8010110006
+    # `2101 Hutang usaha` takes no category: which supplier is owed is
+    # `journal_line.supplier_id`, which is a foreign key and not a name.
+    "trade_payable": ("2101", None),                      # 2012001001
+    "non_merchandise_payable": ("2101", None),            # 2012001003
+    "supplier_suspend": ("2102", None),                   # 2012001002
+    # --- the store's three pots, and the fourth state money can be in -----
+    "cash": ("1101", "DRAWER"),                           # 1011001001
+    "petty_cash": ("1101", "PETTY"),                      # 1011001002
+    "cashier_float": ("1101", "FLOAT"),                   # 1011001003
+    # The meaning that had no client account at all — 0243 minted
+    # `1011005001 Setoran Dalam Perjalanan` for it and 0277 marked it
+    # `PENDING_CLIENT_CODE`. In a chart of forty it needs no account of its
+    # own: money out of the drawer and not yet at the bank is cash in a
+    # different pot, and `TRANSIT` is that pot. One fewer invented code.
+    "cash_in_transit": ("1101", "TRANSIT"),               # 1011005001 (ours)
+    # --- receivables -----------------------------------------------------
+    "store_manager_receivable": ("1202", "STORE_MANAGER"),  # 1011102002
+    # The unqualified card rows, and what they are FOR. A settlement that names
+    # its acquirer resolves through the qualified rows below; one that names
+    # none falls back to these, and they need a real category rather than a
+    # blank — `CREDIT_CARD` and `DEBIT_CARD` are the tender "card receivable,
+    # not broken down". Mapping them costs nothing and keeps a day's takings
+    # postable when an acquirer nobody has mapped turns up, instead of refusing
+    # the whole day.
+    "card_receivable_credit": ("1201", "CREDIT_CARD"),    # 1011101001
+    "card_receivable_debit": ("1201", "DEBIT_CARD"),      # 1011101002
+    # --- selling ---------------------------------------------------------
+    "revenue_cash": ("4101", "CASH"),                     # 4010110001
+    "revenue_qris": ("4101", "QRIS"),                     # 4010114001 (ours)
+    "sales_return": ("4202", None),                   # 4010214001
+    "sales_discount": ("4201", None),               # 4010213001
+    "card_fee": ("6101", "BIAYA_CREDIT_CARD"),            # 6010110002
+    # Voucher money is received before it is earned, so it is a liability with
+    # its own deferred-revenue kind — not the `VOUCHER` tender, which is what
+    # the same voucher looks like on the day it is SPENT.
+    "voucher_liability": ("2401", "VOUCHER_LIABILITY"),   # 2012305001 (ours)
+    # --- five meanings on one account, and three of them used to be one ----
+    #
+    # `8010110007 Pendapatan (Biaya) Lain-Lain` carried `cash_variance`,
+    # `asset_disposal_result` and `other_income_expense` at once, and a reader
+    # had to guess which was which from the sign. Each is a named category now.
+    # That is the argument of the whole collapse in three rows: the account
+    # count went down and the number of things a reader can tell apart went up.
+    "rounding": ("4301", "ROUNDING"),                     # 8010110002
+    "interest_income": ("4301", "INTEREST"),              # 8010110001
+    "cash_variance": ("4301", "CASH_VARIANCE"),           # 8010110007
+    "asset_disposal_result": ("4301", "ASSET_DISPOSAL"),  # 8010110007
+    "other_income_expense": ("4301", "INCOME_OTHER"),     # 8010110007
+    # --- and the loss side of the same signed family, since 0296 ----------
+    #
+    # `Pendapatan dan (Biaya) Lain-lain` was one signed leaf, and a till that
+    # came up short was a DEBIT inside a revenue account. The posting rules
+    # now pick the side when they compute the result, so each gain meaning
+    # above has a loss twin here, on `8301` under root 8. The legacy code is
+    # the same signed account read back through `legacy_code_span`.
+    "cash_shortage": ("8301", "CASH_SHORTAGE"),           # 8010110007, the short side
+    "asset_disposal_loss": ("8301", "ASSET_DISPOSAL_LOSS"),  # 8010110007, the loss side
+    "rounding_loss": ("8301", "ROUNDING_LOSS"),           # 8010110002, the loss side
+    "other_expense": ("8301", "OTHER_EXPENSE"),           # 8010110007, the expense side
+    # --- tax -------------------------------------------------------------
+    #
+    # `1402` and `2201` are control accounts over `tax_type`/`tax_period`, and
+    # they ALSO declare `tax_kind`, so the kind is on the line as well as in
+    # the sub-ledger. That is deliberate: a trial balance has to be readable
+    # per article without joining the tax module.
+    "vat_in": ("1402", "PPN_IN"),                         # 1011302004
+    "pph25_credit": ("1402", "PPH25"),                    # 1011302002
+    "vat_out": ("2201", "PPN_OUT"),                       # 2012101003
+    "pph21_payable": ("2201", "PPH21"),                   # 2012101001
+    "pph23_payable": ("2201", "PPH23"),                   # 2012101002
+    "pph29_payable": ("2201", "PPH29"),                   # 2012101006
+    "pbb_payable": ("2201", "PBB"),                       # 2012101004
+    # `pph_final_payable` was DELIBERATELY UNMAPPED before this chart, and the
+    # reason is worth keeping: the client's chart had no PPh 4(2) leaf under
+    # 20121, and pointing this meaning at the PPh 23 account would have filed a
+    # final tax in a creditable one, where somebody claims it back a year
+    # later. With forty accounts the leaf is not the thing that distinguishes
+    # them — the category is — so `2201 × PPH_FINAL` says exactly what the
+    # missing leaf would have said, without inventing an account code. A rent
+    # payment that used to refuse now posts.
+    "pph_final_payable": ("2201", "PPH_FINAL"),           # (no client leaf)
     # PPh 4(2) on bank interest is FINAL — withheld at source, never recovered
-    # — so it is an expense and not the prepaid it looks like. The chart has no
-    # leaf named for it; 8030112001 Current Tax Inc/Exp PPH Pasal 25 is the
-    # income-tax expense the client does keep, and Finance can repoint it.
-    "tax_on_interest": "8030112001",
-    # lane-G: the rest of the payables loop. Each of these has the same
-    # fourteen location leaves the meanings above have — HO and C001..C013 —
-    # so each is seeded per site exactly as `inventory` is.
+    # — so it is an expense and not the prepaid it looks like. It used to point
+    # at `8030112001 Current Tax Inc/Exp PPH Pasal 25`, whose NAME says PPh 25
+    # and whose USE was this. The misleading name stays behind with the old
+    # chart; `8201 × PPH_FINAL` is what it always meant.
+    "tax_on_interest": ("8201", "PPH_FINAL"),             # 8030112001
+    # --- owners ----------------------------------------------------------
     #
-    # `supplier_suspend` is the one that changes a balance sheet: a delivery
-    # credits it and the bill that answers the delivery clears it, so what the
-    # warehouse holds and nobody has invoiced is a figure rather than a report.
-    "supplier_suspend": "2012001002",
-    # The same account `purchase_discount` points at. The client keeps one
-    # signed account for an agreed reduction and a discovered difference, and
-    # there is no variance account in their chart to point at instead.
-    "purchase_price_variance": "8010110003",
-    # Not `advance` (1011303001), which is a person's travelling advance, and
-    # not anything owed by a store manager. A supplier advance, its own debt to
-    # its own kind of counterparty, on its own account.
-    "advance_purchase": "1011303002",
-    # `bank_admin_fee` is the same meaning and the same account lane C seeds
-    # above; one key, one line.
-    "pph23_payable": "2012101002",
-    # `pph_final_payable` is deliberately absent. The client's chart has no
-    # PPh 4(2) leaf under 20121 — only PPh 21, PPh 23, output VAT, PBB and
-    # PPh 25 — and seeding it to the PPh 23 account would put a final tax in a
-    # creditable one, where somebody would claim it back a year later. It shows
-    # as an unset key on the Account map screen until the client opens the
-    # account, and a rent payment refuses until then and says so.
-    # lane-J: where the difference between what an asset was worth and what it
-    # fetched lands. Reading all 496 ten-digit template accounts in
-    # `Laporan_Master_Account1.csv`, the client keeps no "Laba (Rugi) Penjualan
-    # Aktiva Tetap" — classes 4 and 8 have nothing of the kind. What they do
-    # keep is one signed other-income-and-expense leaf, which is why
-    # `asset_disposal_result` is one key and not a gain key beside a loss key:
+    # No category: WHICH owner is `principal_id` in the owner sub-ledger, which
+    # is a register with names in it and not a list of codes.
+    "capital_contributed": ("3101", None),                # 3013001001
+    "owner_drawings": ("3102", None),                     # 3013001004
+    # --- accrued, and what the store may spend out of a pot ---------------
+    "payroll_payable": ("2301", "BIAYA_GAJI_DAN_UPAH_YMHD"),  # 2012201001
+    "advance_purchase": ("1403", "ADVANCED_PURCHASE"),    # 1011303002
+    "bank_admin_fee": ("6301", "BIAYA_BANK_HO"),          # 6010310004
+    # The client's own expense for a receivable going bad. It had an account
+    # (`6010310012 Biaya Penyisihan Kerugian Piutang`) and no meaning pointed
+    # at it, so a write-off had nowhere to go.
+    "bad_debt_expense": ("6301", "BIAYA_PENYISIHAN_KERUGIAN_PIUTANG"),  # 6010310012
+    # Nine categories a shop may spend petty cash on, all the client's own
+    # words, and the last is the catch-all — a list with no bottom means a
+    # genuine receipt eventually has nowhere to go and comes out of the drawer
+    # instead. The account is `6301` for every one of them; what used to be
+    # nine accounts is nine categories.
+    "expense_electricity": ("6301", "BIAYA_PEMAKAIAN_LISTRIK"),         # 6010310006
+    "expense_water": ("6301", "BIAYA_PEMAKAIAN_AIR_BERSIH"),            # 6010310007
+    "expense_telephone": ("6301", "BIAYA_TELEPHONE_FACSIMILE_MODEM"),   # 6010310005
+    "expense_household": ("6301", "BIAYA_RUMAH_TANGGA"),                # 6010310003
+    "expense_stationery": ("6301", "ALAT_TULIS_KANTOR_BARANG_CETAKAN"), # 6010310002
+    "expense_transport": ("6301", "BIAYA_LOKAL_TRANSPORT"),             # 6010310009
+    "expense_cleaning": ("6301", "BIAYA_KEBERSIHAN"),                   # 6010310001
+    "expense_misc": ("6301", "MISCELLANEOUS_EXPENCES"),                 # 6010310099
+    # Repairs sat in the maintenance family (`60104`), not the office one.
+    "expense_repairs": ("6301", "BIAYA_PERBAIKAN_DAN_PERAWATAN_BANGUNAN"),  # 6010410004
+    # --- financing -------------------------------------------------------
     #
-    #   8010110007  Pendapatan (Biaya) Lain-Lain   (14 location leaves)
-    #
-    # It was the only one of the 29 meanings the posting rules use that this
-    # script never mapped, so every disposal with a gain or a loss — which is
-    # every disposal that is not exactly at book value — was refused by
-    # `poster.rs` naming a key nobody had set.
-    "asset_disposal_result": "8010110007",
-    # lane-B — the store cash chain.
-    #
-    # Every code here is a real leaf, checked against
-    # Laporan_Master_Account1.csv — except the first, which is ours: 0277 put
-    # `1011005001 Setoran Dalam Perjalanan` back, marked
-    # `code_provenance = 'PENDING_CLIENT_CODE'`, because two deposit documents
-    # post through the meaning and the client's chart has no slot for money in
-    # transit. That migration also writes the mapping, so this line agrees with
-    # it rather than competing.
-    "cash_in_transit": "1011005001",      # ours, declared; awaiting a client code
-    # 0254 deleted `8010110008 Selisih Kas` as ours and remapped it onto the
-    # client's own `8010110007 Pendapatan (Biaya) Lain-Lain`. Pointing at the
-    # deleted code made this meaning unmappable, and a cash count that came up
-    # short had nowhere to post.
-    "cash_variance": "8010110007",
-    # `store_manager_receivable` — what a store manager is HOLDING for the
-    # company, which is not what an employee OWES it — is seeded by lane P
-    # above, at the same account. 1011102001 PIUTANG PEGAWAI is the second
-    # thing and is deliberately mapped by nobody; a float posted there would be
-    # indistinguishable from a staff debt on an ageing report.
-    # Wages owed and not yet handed over. What a manager paying an employee out
-    # of a fund debits — never a second salary expense.
-    "payroll_payable": "2012201001",      # Biaya Gaji dan Upah YMHD
-    # What a shop may spend petty cash or an operating fund on. Nine
-    # categories, all real, and the
-    # last is the catch-all — a list with no bottom means a genuine receipt
-    # eventually has nowhere to go and comes out of the drawer instead.
-    "expense_electricity": "6010310006",  # Biaya Pemakaian Listrik
-    "expense_water": "6010310007",        # Biaya Pemakaian Air Bersih (PDAM)
-    "expense_telephone": "6010310005",    # Biaya Telephone,Facsimile, Modem
-    "expense_household": "6010310003",    # Biaya Rumah Tangga
-    "expense_stationery": "6010310002",   # Alat Tulis Kantor & Barang Cetakan
-    "expense_repairs": "6010410004",      # BIAYA PERBAIKAN DAN PERAWATAN BANGUNAN
-    "expense_transport": "6010310009",    # Biaya Lokal Transport
-    "expense_cleaning": "6010310001",     # Biaya Kebersihan (Cleaning)
-    "expense_misc": "6010310099",         # Miscellaneous Expences
-    # end lane-B
+    # No category: which facility is `financing_facility`, which carries the
+    # lender, the schedule and the rate.
+    "interest_expense": ("8101", None),                   # 8020111001
 }
 
-# lane-B — the two accounts the client's chart does not have.
-#
-# `import-coa.py` builds the chart from the client's own export, so anything
-# not in that export does not exist. These two are PROPOSALS, and this is the
-# only place in the system that invents an account code. They are written here
-# rather than in a migration because the chart is the client's document: a
-# migration that added rows to it would make this system a second author of it,
-# and the day the client sends a new export the two would have to be
-# reconciled.
-#
-# `1011005` is an unused rung of `10110 KAS & SETARA KAS`, sitting beside CASH
-# ON HAND, CASH IN BANK GIRO, CASH IN BANK TABUNGAN and TIME DEPOSIT — where a
-# treasurer would look for money that has left a shop and not yet reached a
-# bank. `8010110008` is the next free leaf under the rung that already holds
-# `Selisih pembulatan` and `Kehilangan Barang atau Selisih Stock Opname`, which
-# is where this client already keeps differences of exactly this species.
-#
-# (rung code, rung name, leaf code, leaf name, per-site name)
-# The two accounts this seed used to CREATE, and why it no longer does.
-#
-# `1011005001 Kas Dalam Perjalanan` and `8010110008 Selisih Kas` are both codes
-# 0254 deleted as ours rather than the client's. Recreating them here put the
-# chart back into a state a migration had deliberately taken it out of — and it
-# did so in the PRE-COLLAPSE shape, one leaf per unit with `site_id` set, which
-# 0244's `ledger_account_carries_no_unit` now refuses outright. So the step could
-# not run at all, and the finance seed stopped there.
-#
-# What replaced it:
-#
-#   `cash_variance`    -> `8010110007 Pendapatan (Biaya) Lain-Lain`, which is
-#                         where 0254's own remap sends `8010110008`. A real home,
-#                         no invention.
-#   `cash_in_transit`  -> still has none. Money that left the shop and has not
-#                         reached the bank is a real state, but which account the
-#                         client keeps it in is theirs to say. Reported as an
-#                         open question rather than answered by this script.
-# Meanings a posting path needs and no account answers. Empty since 0277 —
-# `cash_in_transit` was the last one, and it is answered by an account of ours
-# that says so in `ledger_account.code_provenance` rather than by silence.
+# Meanings a posting path needs and no account answers. Empty, and for a better
+# reason than before: the two that used to sit here were meanings the CLIENT'S
+# CHART had no leaf for. A chart of forty accounts plus a category cannot run
+# out of leaves, so a gap here from now on would be a gap in this file.
 UNANSWERED_MEANINGS: dict[str, str] = {}
 
-# The client writes head office `HO` and shop n `C00n` in every leaf name.
-def unit_suffix(site: str) -> tuple[str, str]:
-    """(two-digit code suffix, the name the client would write)."""
-    if site == "dc":
-        return "00", "HO"
-    number = int(site.split("-")[1])
-    return f"{number:02d}", f"C{number:03d}"
+# --------------------------------------------------------------------------
+# meanings that are narrowed by a qualifier
+# --------------------------------------------------------------------------
+#
+# `resolve_account(key, site, qualifier)` matches the qualifier EXACTLY. What
+# the qualifier is depends on what narrows the meaning:
+#
+#   a bank      the acquirer or the bank the instrument is drawn on
+#   a tender    the acquirer, which is what the till sends
+#   an asset    the asset CLASS code (`asset_class.class_code`)
+#   a facility  BANK or PRINCIPAL — which of the two loan accounts it is
+#   an interunit pair  `<KIND>:<counterparty site>`, built by `domain::interunit`
+#
+# A tender naming an acquirer nothing is mapped for is refused BY NAME at
+# posting time, which is the point: it is a gap somebody can close on the
+# Account map screen, not a figure quietly filed under "cards".
+QUALIFIED: dict[str, list[tuple[str, str, str | None]]] = {
+    # --- banks: five leaves became one account plus a foreign key ----------
+    #
+    # `1102 Bank` declares NO category family: which account this is, is
+    # `journal_line.bank_account_id`, and the foreign key
+    # `journal_line_bank_account_agrees_with_the_account_posted` keeps the two
+    # honest. The qualifier survives because the MAP still has to be narrowed —
+    # a giro is drawn on one particular bank and the document says which — but
+    # every qualifier now resolves to the same account, which is what makes a
+    # bank nobody mapped a question about a bank account rather than about a
+    # chart.
+    "bank_giro": [
+        ("BCA", "1102", None),        # 1011002001
+        ("MANDIRI", "1102", None),    # 1011002002
+        ("BRI", "1102", None),        # 1011002003
+        ("BNI", "1102", None),        # 1011002004
+        ("DANAMON", "1102", None),    # 1011002005
+    ],
+    "bank_savings": [
+        ("BCA", "1102", None),        # 1011003001
+        ("MANDIRI", "1102", None),    # 1011003002
+        ("BRI", "1102", None),        # 1011003003
+        ("BNI", "1102", None),        # 1011003004
+        ("BTN", "1102", None),        # 1011003005
+    ],
+    # Money the company has and cannot spend today. Holding money is what makes
+    # a deposit a TRANSFER rather than a payment; a time deposit is a CLASS of
+    # bank account (`company_bank_account.kind`), not an account of its own.
+    "time_deposit": [
+        ("BCA", "1102", None),        # 1011004001
+        ("MANDIRI", "1102", None),    # 1011004002
+        ("BRI", "1102", None),        # 1011004003
+        ("BNI", "1102", None),        # 1011004004
+    ],
+    # A giro written and not yet cleared is a liability of ours drawn on one
+    # named bank, so the same argument gives the same shape: one account,
+    # `bank_account_id` for the identity.
+    "giro_outstanding": [
+        ("BCA", "2103", None),        # 2012002001
+        ("MANDIRI", "2103", None),    # 2012002002
+        ("BRI", "2103", None),        # 2012002003
+        ("BNI", "2103", None),        # 2012002004
+        ("DANAMON", "2103", None),    # 2012002005
+    ],
+    # --- takings, by who settled them -------------------------------------
+    #
+    # A debit card is a named bank's debt and a credit card is a network's, and
+    # the difference is a TENDER category now rather than two accounts. The
+    # client's chart kept ONE account for all of them, so the split that used to
+    # be impossible without a new account is a category away.
+    "revenue_debit": [
+        ("BCA", "4101", "DEBIT_BCA"),            # 4010111001
+        ("MANDIRI", "4101", "DEBIT_MANDIRI"),    # 4010111002
+        ("BRI", "4101", "DEBIT_BRI"),
+        ("BNI", "4101", "DEBIT_BNI"),
+    ],
+    "revenue_credit": [
+        ("VISA", "4101", "CREDIT_VISA"),         # 4010112001
+        ("MASTER", "4101", "CREDIT_MASTER"),     # 4010112002
+    ],
+    "card_receivable_debit": [
+        ("BCA", "1201", "DEBIT_BCA"),            # 1011101002
+        ("MANDIRI", "1201", "DEBIT_MANDIRI"),    # 1011101002
+        ("BRI", "1201", "DEBIT_BRI"),
+        ("BNI", "1201", "DEBIT_BNI"),
+    ],
+    "card_receivable_credit": [
+        ("VISA", "1201", "CREDIT_VISA"),         # 1011101001
+        ("MASTER", "1201", "CREDIT_MASTER"),     # 1011101001
+    ],
+    # Who owes the QRIS money: the acquiring bank or the wallet, whichever the
+    # till names. One account, one tender, five acquirers.
+    "qris_receivable": [
+        ("BCA", "1201", "QRIS"),                 # 1011101003 (ours)
+        ("GOPAY", "1201", "QRIS"),
+        ("OVO", "1201", "QRIS"),
+        ("DANA", "1201", "QRIS"),
+        ("SHOPEEPAY", "1201", "QRIS"),
+    ],
+    # --- documents somebody fills in --------------------------------------
+    #
+    # These three qualifiers are the ones the finance screens name in their own
+    # help text and the ones the integration tests use. The category is the
+    # client's own wording for the same thing, which is how a reader checks
+    # that a qualifier and a category have not drifted apart.
+    "prepaid_expense": [
+        ("ASURANSI", "1401", "ASURANSI_BAYAR_DIMUKA"),   # 1011301001
+    ],
+    "accrued_expense": [
+        ("UMUM", "2301", "BIAYA_GAJI_DAN_UPAH_YMHD"),    # 2012201001
+    ],
+    "advance": [
+        ("PERJALANAN", "1403", "ADVANCED_TRAVELLING"),   # 1011303001
+    ],
+    "goods_in_transit": [
+        ("DC", "1302", "MERCHANDISE"),                   # 1011203001
+    ],
+    # --- two loan accounts, and which one a facility is -------------------
+    #
+    # `2501 Pinjaman bank` and `2502 Pinjaman pemilik` are two accounts because
+    # money owed to an owner is a related-party disclosure and money owed to a
+    # bank is not. Neither takes a category: the facility register carries the
+    # lender. `PRINCIPAL` is the qualifier `principal.rs` sends — it was
+    # unmapped before, so an owner lending the company money was refused.
+    "loan_principal": [
+        ("BANK", "2501", None),        # 2022402001
+        ("PRINCIPAL", "2502", None),   # 2022401001
+    ],
+}
 
-# The seven asset categories the register offers, and what each one means in
-# the client's chart. The monthly run passes the category code as the
-# qualifier (`assets.rs`), so the pair of keys a category charges through must
-# be mapped per category or a run is refused for that asset.
+# --------------------------------------------------------------------------
+# the asset half of the map
+# --------------------------------------------------------------------------
 #
-# WHICH pair depends on the charge kind, not on the category alone. Six
-# families depreciate; `1021507` does not — the client's chart calls its
-# contra `Reserve Replacement` and its expense `BIAYA REPLACEMENT`, because
-# racks and hangers are replaced rather than written down. See migration 0159.
+# The register files an asset under an `asset_class` — `FFE_KOMPUTER`,
+# `OE_RAK_4`, `SEVENTH_SOFT_APPLICATION` — and the monthly run passes that
+# class code as the qualifier (`assets.rs`). So the pair of keys a class
+# charges through must be mapped per CLASS, exactly as it was before; what
+# changed is that a class is a short name in its own table rather than a
+# ten-character account code that could also be spelled with seven.
 #
-# Tanah carries no contra and no expense, and that is not an omission. Freehold
-# land is not depreciated, and the client's chart agrees: under `1021601` the
-# only leaf is the one for HGB, and `70102` has no family for land at all.
-# Mapping it to Bangunan's expense account — which this table used to do —
-# describes a posting that must never happen.
-CATEGORIES: list[tuple[str, str, str | None, str | None, str]] = [
-    # qualifier, asset account, contra, expense, charge kind
-    ("1021501", "1021501001", None, None, "DEPRECIATION"),  # Tanah
-    ("1021502", "1021502001", "1021602001", "7010210001", "DEPRECIATION"),
-    ("1021503", "1021503001", "1021603001", "7010211001", "DEPRECIATION"),
-    ("1021504", "1021504001", "1021604001", "7010212001", "DEPRECIATION"),
-    ("1021505", "1021505001", "1021605001", "7010213001", "DEPRECIATION"),
-    ("1021506", "1021506001", "1021606001", "7010214001", "DEPRECIATION"),
-    ("1021507", "1021507001", "1021607001", "7010215001", "REPLACEMENT_RESERVE"),
-]
+# WHICH pair depends on the charge kind, not on the class alone:
+#
+#   PPE          depreciates:  1609 accumulated depreciation, 7101 expense
+#   OE           does NOT:     1610 replacement reserve, 7101 expense — the
+#                              client replaces racks and hangers rather than
+#                              writing them down (migration 0159)
+#   INTANGIBLE   amortises:    1619 accumulated amortisation, 7101 expense
+#   DEFERRED     amortises:    the same pair
+#
+# None of the six asset accounts takes a category: the identity of an asset
+# line is `journal_line.asset_id`, and the class is read from the register.
+#
+# The class list is READ FROM THE DATABASE rather than written here, because
+# 0287 is the thing that decides what classes exist and a second copy of that
+# list would be a second answer to the same question.
+
+# Which account a class's cost sits in, by `asset_class.kind`.
+COST_ACCOUNT: dict[str, str] = {
+    "PPE": "1601",
+    "OE": "1601",
+    "INTANGIBLE": "1602",
+    "DEFERRED": "1602",
+}
+
+# (contra account, expense account, charge kind), by `asset_class.kind`.
+CHARGE: dict[str, tuple[str, str, str]] = {
+    "PPE": ("1609", "7101", "DEPRECIATION"),
+    "OE": ("1610", "7101", "REPLACEMENT_RESERVE"),
+    "INTANGIBLE": ("1619", "7101", "AMORTISATION"),
+    "DEFERRED": ("1619", "7101", "AMORTISATION"),
+}
 
 # The pair of meanings each charge kind posts through. Mirrors
 # `ChargeKind::charge_keys` in `domain/depreciation.rs`; if the two disagree,
@@ -245,163 +388,87 @@ CHARGE_KEYS: dict[str, tuple[str, str]] = {
     "AMORTISATION": ("amortisation_expense", "accumulated_amortisation"),
 }
 
-# Meanings that need narrowing but that nothing posts automatically yet. One
-# qualifier each is enough to close the gap the Account map screen counts,
-# and each is a real account under the prefix the meaning documents.
-QUALIFIED: dict[str, list[tuple[str, str]]] = {
-    # lane-C: widened to match `giro_outstanding`. A giro credited to
-    # `giro_outstanding` at MANDIRI clears to `bank_giro` at MANDIRI, so a bank
-    # mapped on one side and not the other is a giro that can be written and
-    # never cleared.
-    "bank_giro": [
-        ("BCA", "1011002001"),
-        ("MANDIRI", "1011002002"),
-        ("BRI", "1011002003"),
-        ("BNI", "1011002004"),
-        ("DANAMON", "1011002005"),
-    ],
-    "bank_savings": [
-        ("BCA", "1011003001"),
-        ("MANDIRI", "1011003002"),
-        ("BRI", "1011003003"),
-        ("BNI", "1011003004"),
-    ],
-    # lane-C: every bank the client has, not just the first. A giro is drawn
-    # on one particular bank and the chart keeps one leaf each; a single BCA
-    # mapping made a Mandiri giro unpostable, which is how it had stayed
-    # unwritten-to since the ledger's first day.
-    # 2012002001 Outstanding Giro Bank BCA .. 2012002005 Bank DANAMON.
-    "giro_outstanding": [
-        ("BCA", "2012002001"),
-        ("MANDIRI", "2012002002"),
-        ("BRI", "2012002003"),
-        ("BNI", "2012002004"),
-        ("DANAMON", "2012002005"),
-    ],
-    # lane-C: money the company has and cannot spend today. Holding money is
-    # what makes a deposit a TRANSFER rather than a payment.
-    # 1011004001 TIME DEPOSIT BANK BCA .. 1011004004 BANK BNI.
-    "time_deposit": [
-        ("BCA", "1011004001"),
-        ("MANDIRI", "1011004002"),
-        ("BRI", "1011004003"),
-        ("BNI", "1011004004"),
-    ],
-    "accrued_expense": [("UMUM", "2012201001")],
-    # affiliate_receivable and affiliate_payable are NOT here. They used to be,
-    # with the qualifier PEMBIAYAAN and the leaf under `1021401001` at all
-    # fourteen locations — which is head office's account with ITSELF, shared by
-    # thirteen shops. Nothing posted to it, so nothing was wrong yet. The
-    # `# lane-D` block below maps them properly: one leaf per pair per column,
-    # keyed `<KIND>:<counterparty>`. See migration 0122.
-    "goods_in_transit": [("DC", "1011203001")],
-    "prepaid_expense": [("ASURANSI", "1011301001")],
-    "advance": [("PERJALANAN", "1011303001")],
-    "loan_principal": [("BANK", "2022401001")],
-    # lane-A: income and receivables split by who settled them, which is how
-    # the client's own chart keeps them — a debit card is a named bank's debt,
-    # a credit card is a network's, and they are different accounts because
-    # they clear on different days for different fees.
-    #
-    # The qualifiers here are the ones the till will actually send. A tender
-    # naming an acquirer nothing is mapped for is refused by name at posting
-    # time, which is the point: it is a gap somebody can close on the Account
-    # Map screen, not a figure quietly filed under "cards".
-    "revenue_debit": [("BCA", "4010111001"), ("MANDIRI", "4010111002")],
-    "revenue_credit": [("VISA", "4010112001"), ("MASTER", "4010112002")],
-    # The two card receivables are ALSO mapped unqualified, above, and both
-    # mappings are wanted. The posting rule resolves them per acquirer, because
-    # what a shop is owed is owed by a named bank; the client's chart keeps one
-    # account for all of them, so every qualifier points at the same leaf until
-    # Finance decides to split it. Mapping the qualifier now costs nothing and
-    # means that split is a change to this file rather than to a posting rule.
-    "card_receivable_debit": [("BCA", "1011101002"), ("MANDIRI", "1011101002")],
-    "card_receivable_credit": [("VISA", "1011101001"), ("MASTER", "1011101001")],
-    # Who owes the QRIS money: the acquiring bank or the wallet, whichever the
-    # till names. Proposed code, like the income account it pairs with.
-    "qris_receivable": [
-        ("BCA", "1011101003"),
-        ("GOPAY", "1011101003"),
-        ("OVO", "1011101003"),
-        ("DANA", "1011101003"),
-        ("SHOPEEPAY", "1011101003"),
-    ],  # 1011101003 created by 0274
-    # end lane-A
+# Which meaning holds a class's COST, by kind. `1602` has its own meaning
+# because it is its own balance-sheet line (PSAK), not a class of fixed asset.
+COST_KEY: dict[str, str] = {
+    "PPE": "fixed_asset",
+    "OE": "fixed_asset",
+    "INTANGIBLE": "intangible_asset",
+    "DEFERRED": "intangible_asset",
 }
 
-# lane-J: the client does not depreciate operating equipment. Their chart
-# carries three parallel blocks of thirty-six accounts, class for class:
+# Classes that get a cost account and NO charge, each for its own reason.
 #
-#   1021507xxx  OE - <thing>                        the asset
-#   1021607xxx  RR OE- <thing>                      the replacement reserve
-#   7010215xxx  Biaya Replacement OE - <thing>      the monthly charge
+# `TANAH_HAK_MILIK` — freehold land is not depreciated, and the client's chart
+# agrees: under `1021601` the only leaf is the one for HGB, and `70102` had no
+# family for land at all. Mapping it to a building's expense account, which
+# this table used to do, describes a posting that must never happen.
 #
-# `1021607` is named "Reserve Replacement - Operating Equipment" where the other
-# six families under `10216` are named "Akum-Penyusu - …", and `70102` has no
-# depreciation family for operating equipment at all — its sixth child is
-# "BIAYA REPLACEMENT OPERATING EQUIPMENT". All three blocks and all fourteen
-# location leaves of each were verified against `Laporan_Master_Account1.csv`.
-#
-# The thirty-six suffixes, in the client's own order and with their own names:
-OPERATING_EQUIPMENT: list[tuple[str, str]] = [
-    ("001", "Rak 1"),
-    ("002", "Rak 2"),
-    ("003", "Rak 3"),
-    ("004", "Rak 4"),
-    ("005", "Pajangan Gantungan 2"),
-    ("006", "Pajangan Gantungan 4"),
-    ("007", "Pajangan Gantungan 6"),
-    ("008", "Pajangan Gantungan Lain-lain"),
-    ("009", "Meja 1"),
-    ("010", "Meja 2"),
-    ("011", "Meja 3"),
-    ("012", "Box OB Kayu"),
-    ("013", "Box OB Besi"),
-    ("014", "Holo"),
-    ("015", "Breket"),
-    ("016", "Belalai"),
-    ("017", "Patung Full Bodi Dewasa"),
-    ("018", "Patung Full Bodi Anak"),
-    ("019", "Patung Setengah Badan Pria"),
-    ("020", "Patung Setengah Badan Wanita 1"),
-    ("021", "Patung Setengah Badan Wanita 2"),
-    ("022", "Patung Setengah Badan Anak"),
-    ("023", "Patung Kepala Dewasa"),
-    ("024", "Patung Kepala Anak"),
-    ("025", "Patung Kaki Dewasa"),
-    ("026", "Patung Kaki Anak"),
-    ("027", "Hanger Wanita / ABG"),
-    ("028", "Hanger Pria"),
-    ("029", "Hanger Jacket"),
-    ("030", "Hanger Kayu Anak"),
-    ("031", "Hanger Body / Stelan"),
-    ("032", "Hanger Jepit Dewasa"),
-    ("033", "Hanger Jepit Anak"),
-    ("034", "Hanger Gamis / Ibu"),
-    ("035", "PIN / Kawat Sensor"),
-    ("036", "Tas / Keranjang Belanja"),
-]
+# `CONTRACT_IN_PROGRESS` — work being paid for on something not built yet. It
+# charges nothing until it is re-filed as what it became (0213).
+NO_CHARGE: set[str] = {"TANAH_HAK_MILIK", "CONTRACT_IN_PROGRESS"}
 
-# The qualifier is the CLASS — `1021507001` — and not the family. Qualifying by
-# `1021507` instead would put every rack, mannequin and hanger in the company
-# into one reserve account, which is what the map did before and what made the
-# client's own reserve report unreadable.
-RESERVE_KEYS: list[tuple[str, str, str]] = [
-    (f"1021507{suffix}", f"1021607{suffix}", f"7010215{suffix}")
-    for suffix, _ in OPERATING_EQUIPMENT
-]
+# A class 0287 created that is not a class of thing: `1031802002 Akumulasi
+# Amortisasi Pre Opening` is the CONTRA of `1031802001 Pre Opening`, and it
+# became a row in `asset_class` because the generator slugged every ten-digit
+# leaf under `1031802`. Nothing is mapped for it, so an asset filed under it is
+# refused by name rather than charged against its own contra. Reported, not
+# quietly skipped — the fix belongs in the migration.
+NOT_A_CLASS: set[str] = {"AKUMULASI_AMORTISASI_PRE_OPENING"}
+
+# The meaning for work still being built. `asset_classes.rs` names the class
+# code in Rust as `WORK_IN_PROGRESS_CLASS`; if the two disagree the register
+# has a resting place nobody can charge out of.
+WORK_IN_PROGRESS_KEY = "work_in_progress"
+
+# 0294's two families. `1601 Aset tetap` separates what is in service from what
+# is still being built; `7101` separates wearing out from being replaced.
+ASSET_STAGE_IN_SERVICE = "IN_SERVICE"
+ASSET_STAGE_IN_PROGRESS = "IN_PROGRESS"
+# Keyed by the CHARGE kind, whose names are `CHARGE`'s third element — note
+# `REPLACEMENT_RESERVE` there against `REPLACEMENT` here, because one names the
+# balance-sheet mechanism and the other the profit-and-loss line.
+DEPRECIATION_KIND: dict[str, str] = {
+    "DEPRECIATION": "DEPRECIATION",
+    "AMORTISATION": "AMORTISATION",
+    "REPLACEMENT_RESERVE": "REPLACEMENT",
+}
+
+# --------------------------------------------------------------------------
+# interunit
+# --------------------------------------------------------------------------
+#
+# One account, `1501`, for every combination of fourteen units against
+# fourteen, in both directions, in every family. The client's chart spent 1,176
+# leaves on this and our previous chart spent four; the lawful reading is that
+# inside ONE legal entity an interunit balance is neither an asset nor a
+# liability — it is a clearing line whose company-wide total must be zero, and
+# which disappears on consolidation (owner, 18 Sep 2026).
+#
+# What survives is the identity: WHICH unit is `journal_line.site_id`, WHICH
+# counterparty is `journal_line.counter_site_id` (required on `1501`), and WHY
+# is the `interunit_reason` category. `domain::interunit` builds the qualifier
+# `<KIND>:<counterparty site>`, so a leg the poster adds resolves without the
+# poster ever naming a code.
+#
+# The fifty-two per-pair rows this file used to verify against the client's own
+# CSV export are gone with the leaves they verified. There is nothing left to
+# check a code against: the account no longer depends on the pair.
+INTERUNIT_REASON: dict[str, str] = {
+    "BARANG": "GOODS",          # 1021402* / 2012302*
+    "PEMBIAYAAN": "FINANCING",  # 1021401* / 2012301*
+}
 
 # `site.id`, and these are joined to `site` by every endpoint below — the
 # account map, the bills and the bank imports all carry a foreign key.
 #
 # Head office is `dc`, not `ho`. `poster::HEAD_OFFICE_SITE` says so and 0122
-# maps the affiliate accounts against it. `ho` is an `org_place` id, which is
+# maps the interunit accounts against it. `ho` is an `org_place` id, which is
 # a different thing: 0236 records the place `ho` as sitting at site `dc`. The
 # migration that would fold both into one `ho` SITE is 0256, and 9b273f83 set
 # it aside unlanded because it refuses `dc` — which every demo rig still uses.
-# This file said `ho` in one place and `dc` in another until they were merged;
-# the shops were never in doubt, `store-01` is still `store-01`.
 SITES = ["dc"] + [f"store-{n:02d}" for n in range(1, 14)]
+HEAD_OFFICE = "dc"
 
 
 # --------------------------------------------------------------------------
@@ -450,36 +517,68 @@ def psql(db: str, sql: str) -> list[list[str]]:
     return [line.split("\x1f") for line in out.splitlines() if line]
 
 
-def psql_exec(db: str, sql: str) -> None:
-    subprocess.run(["psql", "-d", db, "-q", "-v", "ON_ERROR_STOP=1", "-c", sql],
-                   capture_output=True, text=True, check=True)
+class Chart:
+    """What the migrations put in the chart, read once.
 
-
-
-
-def leaves(db: str) -> dict[tuple[str, str], str]:
-    """(10-digit account, site) -> the account to map at that site.
-
-    It used to answer with a TWELVE-digit leaf: the client's imported chart
-    carried the location inside the account code, so `Kas di Tangan` existed
-    fourteen times — `101100100100` for head office, `...101` for the first
-    shop — and a meaning had to be bound to a different account at every site.
-
-    The chart no longer works that way. The unit is a dimension on the ledger
-    row (`journal_line.site_id`), so one account serves all fourteen and the
-    posting accounts are ten digits. This function kept looking for twelve-digit
-    rows, found none, and every binding silently went missing — which is why a
-    freshly seeded database posted nothing and reported `no account is mapped
-    for 'inventory' at store-10`.
-
-    The answer now is the account itself, for every site that keeps books.
+    Three questions, and the answers have to come from the database rather than
+    from a table in this file: does this account exist and can it be posted to,
+    which family does it declare, and is this category a member of that family.
+    The trigger `assert_category_matches_account` asks all three at posting
+    time and refuses by name; asking them here turns a typo in the tables above
+    into ONE line in the report instead of nine hundred refusals.
     """
-    rows = psql(
-        db,
-        "select account_code from ledger_account "
-        "where not is_group and length(account_code) = 10",
-    )
-    return {(code, site): code for (code,) in rows for site in SITES}
+
+    def __init__(self, db: str | None, tolerant: bool = False) -> None:
+        self.families: dict[str, str | None] = {}
+        self.categories: dict[str, str] = {}
+        self.classes: list[tuple[str, str]] = []
+        self.unread: str | None = None
+        if db is None:
+            return
+        try:
+            self._read(db)
+        except Exception as exc:  # noqa: BLE001
+            # A rehearsal may be run with no database at all — to read what this
+            # file WOULD write. A real run may not: seeding against a chart
+            # nobody read is how a map ends up pointing at accounts that are not
+            # there.
+            if not tolerant:
+                raise
+            self.unread = str(exc).splitlines()[0][:160]
+
+    def _read(self, db: str) -> None:
+        for code, family in psql(
+            db,
+            "select account_code, coalesce(category_family, '') "
+            "from ledger_account where not is_group",
+        ):
+            self.families[code] = family or None
+        for code, family in psql(
+            db, "select category_code, family from line_category where is_active"
+        ):
+            self.categories[code] = family
+        self.classes = [
+            (code, kind)
+            for code, kind in psql(
+                db, "select class_code, kind from asset_class where is_active order by class_code"
+            )
+        ]
+
+    def check(self, account: str, category: str | None) -> str | None:
+        """The reason this pair would be refused, or None."""
+        if not self.families:
+            return None  # nothing was read; let the API be the judge
+        if account not in self.families:
+            return f"{account} is not a postable account"
+        wanted = self.families[account]
+        if wanted is None and category is not None:
+            return f"{account} takes no category, and {category} was offered"
+        if wanted is not None and category is None:
+            return f"{account} wants a {wanted} and none was offered"
+        if category is not None and self.categories.get(category) != wanted:
+            got = self.categories.get(category, "no such category")
+            return f"{account} wants a {wanted}; {category} is {got}"
+        return None
 
 
 def month_days(year: int, month: int) -> tuple[date, date]:
@@ -493,233 +592,99 @@ def month_days(year: int, month: int) -> tuple[date, date]:
 # --------------------------------------------------------------------------
 
 
-def seed_account_map(api: Api, leaf: dict, report: dict) -> None:
+def seed_account_map(api: Api, chart: Chart, report: dict) -> None:
     written = 0
-    missing: list[str] = []
-    for key, code in PLAIN.items():
+    refused: list[str] = []
+
+    def write(key: str, qualifier: str, account: str, category: str | None) -> None:
+        nonlocal written
+        wrong = chart.check(account, category)
+        if wrong is not None:
+            refused.append(f"{key}/{qualifier or '-'}: {wrong}")
+            return
         for site in SITES:
-            account = leaf.get((code, site))
-            if account is None:
-                missing.append(f"{key}/{site}/{code}")
-                continue
             ok = api.post(
                 "/api/v1/finance/account-map",
                 {
                     "semantic_key": key,
                     "site_id": site,
-                    "qualifier": "",
+                    "qualifier": qualifier,
                     "account_code": account,
+                    "category_code": category,
                     "note": "seed",
                 },
             )
             written += ok is not None
-    for qualifier, asset, contra, expense, charge_kind in CATEGORIES:
-        expense_key, contra_key = CHARGE_KEYS[charge_kind]
-        for key, code in (
-            ("fixed_asset", asset),
-            (contra_key, contra),
-            (expense_key, expense),
-        ):
-            if code is None:
-                continue
-            for site in SITES:
-                account = leaf.get((code, site))
-                if account is None:
-                    missing.append(f"{key}/{site}/{code}")
-                    continue
-                ok = api.post(
-                    "/api/v1/finance/account-map",
-                    {
-                        "semantic_key": key,
-                        "site_id": site,
-                        "qualifier": qualifier,
-                        "account_code": account,
-                        "note": "seed",
-                    },
-                )
-                written += ok is not None
-    # lane-J: the replacement reserve, class by class.
-    for qualifier, reserve, expense in RESERVE_KEYS:
-        for key, code in (
-            ("replacement_reserve", reserve),
-            ("replacement_expense", expense),
-        ):
-            for site in SITES:
-                account = leaf.get((code, site))
-                if account is None:
-                    missing.append(f"{key}/{site}/{code}")
-                    continue
-                ok = api.post(
-                    "/api/v1/finance/account-map",
-                    {
-                        "semantic_key": key,
-                        "site_id": site,
-                        "qualifier": qualifier,
-                        "account_code": account,
-                        "note": "seed",
-                    },
-                )
-                written += ok is not None
+
+    for key, (account, category) in PLAIN.items():
+        write(key, "", account, category)
+
     for key, choices in QUALIFIED.items():
-        for qualifier, code in choices:
-            for site in SITES:
-                account = leaf.get((code, site))
-                if account is None:
-                    missing.append(f"{key}/{site}/{code}")
-                    continue
-                ok = api.post(
-                    "/api/v1/finance/account-map",
-                    {
-                        "semantic_key": key,
-                        "site_id": site,
-                        "qualifier": qualifier,
-                        "account_code": account,
-                        "note": "seed",
-                    },
-                )
-                written += ok is not None
-    report["mappings"] = written
-    report["mapping_gaps"] = missing
+        for qualifier, account, category in choices:
+            write(key, qualifier, account, category)
 
+    # The asset half: one qualifier per CLASS, and which pair of meanings it
+    # charges through comes from the class's kind.
+    skipped_classes: list[str] = []
+    for class_code, kind in chart.classes:
+        if class_code in NOT_A_CLASS:
+            skipped_classes.append(f"{class_code} is a contra leaf, not a class of thing")
+            continue
+        cost_account = COST_ACCOUNT.get(kind)
+        if cost_account is None:
+            skipped_classes.append(f"{class_code} has kind {kind}, which this seed does not know")
+            continue
+        in_progress = class_code in ("CIP", "CONTRACT_IN_PROGRESS")
+        cost_key = WORK_IN_PROGRESS_KEY if in_progress else COST_KEY[kind]
+        # 0294 gave `1601` an `asset_stage` and `7101` a `depreciation_kind`,
+        # because collapsing them had cost two things that matter: capitalising
+        # work in progress became `Dr 1601 / Cr 1601` for one asset — a journal
+        # that says nothing — and the profit and loss lost the split between an
+        # asset wearing out and a rack being replaced, which is the whole reason
+        # 0159 exists. `1602` and the three contra accounts declare no family,
+        # so their rows still carry None; the category there would be a second
+        # answer to a question `asset_id` already answers.
+        write(cost_key, class_code, cost_account,
+              ASSET_STAGE_IN_PROGRESS if in_progress else ASSET_STAGE_IN_SERVICE
+              if cost_account == "1601" else None)
+        if class_code in NO_CHARGE:
+            continue
+        contra, expense, charge_kind = CHARGE[kind]
+        expense_key, contra_key = CHARGE_KEYS[charge_kind]
+        write(contra_key, class_code, contra, None)
+        write(expense_key, class_code, expense,
+              DEPRECIATION_KIND.get(charge_kind) if expense == "7101" else None)
 
-# lane-D
-# --------------------------------------------------------------------------
-# the affiliate map: one leaf per pair, per column
-# --------------------------------------------------------------------------
-#
-# The client's chart carries all 784 combinations of fourteen units against
-# fourteen, in four families. Fifty-two of them are the ones head office and its
-# thirteen shops actually use, and this maps those.
-#
-# Read one of their codes out loud and the shape is unambiguous:
-#
-#   102140200200   Piutang Affiliasi Atas Barang CIKUPA - HO
-#   |______|                                              ^^  owner: 00 = HO
-#          ^^^                                                counterparty: 002
-#
-#   201230200101   Hutang Affiliasi Atas Barang HEAD OFFICE - C001
-#                  owner: suffix 01 = C001; counterparty: 001 = HEAD OFFICE
-#
-# Those two are one balance written from both sides. The OWNER is the two-digit
-# suffix — which is what `import-coa.py` files `ledger_account.site_id` by, so
-# agreeing with it is not optional — and the counterparty is the three-digit
-# rung, indexed from 001 = head office.
-#
-# The codes are not invented here. They are computed and then CHECKED against
-# the client's own export, by name, and a code the export does not carry is
-# skipped and reported rather than written. `csv.reader` and not `line.split(",")`:
-# the account names contain commas.
-
-AFFILIATE_CSV = os.path.expanduser("~/Downloads/Laporan_Master_Account1.csv")
-
-# kind -> (receivable family, payable family, the client's own headings)
-AFFILIATE_FAMILIES: dict[str, tuple[str, str, str, str]] = {
-    # What a shop owes for stock, settled by its deposits.
-    "BARANG": ("1021402", "2012302",
-               "PIUTANG AFFILIASI ATAS BARANG", "HUTANG AFFILIASI ATAS BARANG"),
-    # Head office funding a shop: paying its costs, topping up its float.
-    "PEMBIAYAAN": ("1021401", "2012301",
-                   "PIUTANG AFFILIASI PEMBIAYAAN", "HUTANG AFFILIASI PEMBIAYAAN"),
-}
-
-HEAD_OFFICE = "dc"
-
-
-def client_chart(path: str) -> dict[str, str]:
-    """code -> name, from the client's own export. Empty if it is not here."""
-    if not os.path.exists(path):
-        return {}
-    chart: dict[str, str] = {}
-    with open(path, encoding="utf-8-sig", newline="") as handle:
-        for row in csv.reader(handle):
-            # Same filter `import-coa.py` uses: an account row is one whose
-            # second column is a number. The banner and legend rows fail it.
-            if len(row) < 5:
-                continue
-            code = row[1].strip()
-            if code.isdigit():
-                chart.setdefault(code, " ".join(row[2].split()))
-    return chart
-
-
-def family_leaf(family: str) -> str:
-    """The one posting account our chart keeps for an affiliate family.
-
-    `1021402` -> `1021402001`. The client writes a leaf per unit pair and we
-    write one per meaning; `ledger_account_remap` records the fold.
-    """
-    return family + "001"
-
-
-def affiliate_rows(chart: dict[str, str]) -> tuple[list[dict], list[str]]:
-    """The 52 mappings, and the codes the client's chart does not carry."""
-    # suffix and rung index for each unit. `001` is head office, so a shop's
-    # rung index is its number plus one — the same ordering `import-coa.py`
-    # assumed when it filed the leaves.
-    units = [(HEAD_OFFICE, "00", "001")] + [
-        (f"store-{n:02d}", f"{n:02d}", f"{n + 1:03d}") for n in range(1, 14)
-    ]
-    ho_suffix, ho_index = "00", "001"
-
-    rows: list[dict] = []
-    missing: list[str] = []
-    for kind, (receivable, payable, recv_name, pay_name) in AFFILIATE_FAMILIES.items():
-        # The families themselves, checked by name. If these four have moved,
-        # every code below is wrong and silence would be the worst outcome.
-        for family, expected in ((receivable, recv_name), (payable, pay_name)):
-            if chart and chart.get(family, "").upper() != expected:
-                missing.append(f"family {family} is {chart.get(family)!r}, expected {expected!r}")
-        for site, suffix, index in units:
+    # Interunit: both directions, both reasons, every counterparty. Head office
+    # books against each shop and each shop books against head office — the
+    # same balance written from both sides, on the same account, netting to
+    # zero for the company.
+    for kind, reason in INTERUNIT_REASON.items():
+        for site in SITES:
             if site == HEAD_OFFICE:
                 continue
-            for key, owner, counterparty, client_code in (
-                # Head office books the receivable, named for the shop, at 00.
-                ("affiliate_receivable", HEAD_OFFICE, site,
-                 receivable + index + ho_suffix),
-                # The shop books the payable, named for head office, at its own.
-                ("affiliate_payable", site, HEAD_OFFICE,
-                 payable + ho_index + suffix),
-            ):
-                # The client's twelve-digit leaf is what gets CHECKED; the
-                # ten-digit family leaf is what gets WRITTEN. Our chart keeps one
-                # row per meaning (0243): the unit is `journal_line.site_id` and
-                # the counterparty is in the qualifier, so all 196 of the
-                # client's leaves in a family collapse onto `<family>001`.
-                # Posting their code instead is what made every one of these 52
-                # rows fail with "no account 102140200200 in the chart" — the
-                # codes were verified against the right chart and sent to the
-                # wrong one.
-                code = family_leaf(receivable if key == "affiliate_receivable" else payable)
-                if chart and client_code not in chart:
-                    missing.append(f"{key}/{owner}/{kind}:{counterparty}/{client_code}")
-                    continue
-                rows.append({
-                    "semantic_key": key,
-                    "site_id": owner,
-                    # Both facts the client's code carries in its rung and its
-                    # suffix, in the order somebody reads them. `domain::interunit`
-                    # builds exactly this string, so a leg the poster adds
-                    # resolves without the poster ever naming a code.
-                    "qualifier": f"{kind}:{counterparty}",
-                    "account_code": code,
-                    # Which of the client's leaves this row stands for, so the
-                    # collapse can still be read back on the map screen.
-                    "note": chart.get(client_code, "inter-unit pair"),
-                })
-    return rows, missing
+            for owner, counterparty in ((HEAD_OFFICE, site), (site, HEAD_OFFICE)):
+                for key in ("affiliate_receivable", "affiliate_payable"):
+                    wrong = chart.check("1501", reason)
+                    if wrong is not None:
+                        refused.append(f"{key}/{kind}:{counterparty}: {wrong}")
+                        continue
+                    ok = api.post(
+                        "/api/v1/finance/account-map",
+                        {
+                            "semantic_key": key,
+                            "site_id": owner,
+                            "qualifier": f"{kind}:{counterparty}",
+                            "account_code": "1501",
+                            "category_code": reason,
+                            "note": "seed",
+                        },
+                    )
+                    written += ok is not None
 
-
-def seed_affiliate_map(api: Api, report: dict, csv_path: str) -> None:
-    chart = client_chart(csv_path)
-    rows, missing = affiliate_rows(chart)
-    written = 0
-    for row in rows:
-        written += api.post("/api/v1/finance/account-map", row) is not None
-    report["affiliate_mappings"] = written
-    report["affiliate_gaps"] = missing
-    # Said out loud, because a run without the client's export writes the same
-    # 52 rows without having checked a single one of them.
-    report["affiliate_verified_against"] = csv_path if chart else None
+    report["mappings"] = written
+    report["mapping_gaps"] = refused
+    report["asset_classes_skipped"] = skipped_classes
 
 
 def seed_periods(api: Api, months: list[tuple[int, int]], report: dict) -> None:
@@ -779,19 +744,27 @@ def seed_bills(api: Api, suppliers: list[tuple[str, str]], months, rng, report) 
     report["bills_posted"] = posted
 
 
-def seed_assets(api: Api, months, rng, report) -> None:
+def seed_assets(api: Api, chart: Chart, months, rng, report) -> None:
+    """Assets, filed under the register's own classes.
+
+    `fixed_asset.category_code` points at `asset_class(class_code)` now and not
+    at `ledger_account`, which is what closes the ten-versus-seven-character
+    qualifier bug: the importer wrote `1021507001` and the seed wrote
+    `1021507`, both were valid account codes, and every imported asset resolved
+    to nothing while nothing reported a mismatch.
+    """
+    usable = [
+        (code, kind)
+        for code, kind in chart.classes
+        if code not in NOT_A_CLASS and kind in COST_ACCOUNT
+    ]
+    if not usable:
+        report["assets_registered"] = 0
+        report["assets_note"] = "no asset classes in the database — run the migrations"
+        return
     registered, assessed = 0, 0
-    names = {
-        "1021501": "Tanah",
-        "1021502": "Bangunan",
-        "1021503": "Instalasi listrik",
-        "1021504": "Air conditioner",
-        "1021505": "Kendaraan operasional",
-        "1021506": "Rak dan interior toko",
-        "1021507": "Operating equipment",
-    }
     for index in range(21):
-        qualifier, _, _, _, charge_kind = CATEGORIES[index % len(CATEGORIES)]
+        class_code, kind = usable[index % len(usable)]
         site = SITES[index % len(SITES)]
         year, month = months[0]
         acquired = date(year, month, 1) + timedelta(days=rng.randrange(28))
@@ -799,8 +772,8 @@ def seed_assets(api: Api, months, rng, report) -> None:
             "/api/v1/finance/assets",
             {
                 "asset_number": f"FA-{index + 1:04d}",
-                "name": f"{names[qualifier]} {site}",
-                "category_code": qualifier,
+                "name": f"{class_code.replace('_', ' ').title()} {site}",
+                "category_code": class_code,
                 "site_id": site,
                 "acquired_on": acquired.isoformat(),
                 "serial_number": None,
@@ -816,7 +789,8 @@ def seed_assets(api: Api, months, rng, report) -> None:
         asset_id = asset.get("asset_id")
         if not asset_id:
             continue
-        land = qualifier == "1021501"
+        charges = class_code not in NO_CHARGE
+        charge_kind = CHARGE[kind][2] if charges else None
         body = {
             "decision": "EXPENSE" if index % 7 == 6 else "CAPITALIZE",
             "capitalized_cost_minor": None,
@@ -833,8 +807,8 @@ def seed_assets(api: Api, months, rng, report) -> None:
             body.update(
                 capitalized_cost_minor=rng.randrange(20_000, 400_000) * 1_000,
                 salvage_value_minor=0,
-                useful_life_months=0 if land else rng.choice([48, 60, 96, 120]),
-                method="NONE" if land else "STRAIGHT_LINE",
+                useful_life_months=0 if not charges else rng.choice([48, 60, 96, 120]),
+                method="NONE" if not charges else "STRAIGHT_LINE",
                 charge_kind=charge_kind,
                 in_service_on=acquired.isoformat(),
             )
@@ -862,21 +836,22 @@ def seed_depreciation(api: Api, months, report) -> None:
     report["depreciation"] = runs
 
 
-def seed_reserve(api: Api, months, rng, report) -> None:
-    """lane-J: what each shop puts aside against its operating equipment.
+def seed_reserve(api: Api, chart: Chart, months, rng, report) -> None:
+    """What each shop puts aside against its operating equipment.
 
-    Six of the thirty-six classes, at every location, rather than all of them:
-    the point of the seed is that the reserve is visible and posts, and 504
-    rates would be 504 rows nobody reads on a screen built to be read. The
+    Six of the thirty-six OE classes, at every location, rather than all of
+    them: the point of the seed is that the reserve is visible and posts, and
+    504 rates would be 504 rows nobody reads on a screen built to be read. The
     remaining thirty are mapped and unrated, which is the ordinary state of a
     class Finance has not decided about yet — and which `rated_sites = 0` on
     the classes list is there to show.
     """
     rated, runs = 0, []
-    for suffix, _ in OPERATING_EQUIPMENT[:6]:
+    operating = [code for code, kind in chart.classes if kind == "OE"][:6]
+    for class_code in operating:
         for site in SITES:
             body = {
-                "class_code": f"1021507{suffix}",
+                "class_code": class_code,
                 "site_id": site,
                 "effective_from": date(months[0][0], months[0][1], 1).isoformat(),
                 "monthly_charge_minor": rng.randrange(150, 600) * 1_000,
@@ -900,24 +875,24 @@ def seed_reserve(api: Api, months, rng, report) -> None:
     report["reserve_runs"] = runs
 
 
-def seed_bank(api: Api, leaf: dict, months, rng, report) -> None:
+def seed_bank(api: Api, months, rng, report) -> None:
     """A statement of a real account of ours, at head office.
 
-    This used to file one statement per site over `SITES[:4]`, which produced
-    "Rekening koran store-01" — a bank account no shop has. Shops do not hold
-    external accounts; what a shop holds is a DESTINATION for its takings
-    (`store_bank_destination`, 0111). Since 0271 a statement must name a real
-    company bank account, so the invention is now refused outright, which is the
-    right answer arriving late.
+    Shops do not hold external accounts; what a shop holds is a DESTINATION for
+    its takings (`store_bank_destination`, 0111). Since 0271 a statement must
+    name a real company bank account, so inventing "Rekening koran store-01" is
+    refused outright, which is the right answer arriving late.
 
-    So: one account, described first, and the statements are of it.
+    All fourteen of the client's bank leaves are one account now — `1102` — and
+    WHICH account a statement is of is `company_bank_account`, so the statement
+    below names the ledger account once and the bank account by its own row.
     """
     imported = 0
     described = api.post(
         "/api/v1/finance/bank-accounts",
         {
-            "ledger_account_code": "1011002001",
-            "site_id": "dc",
+            "ledger_account_code": "1102",
+            "site_id": HEAD_OFFICE,
             "bank_code": "BCA",
             "account_no": "1234567890",
             "account_holder": "PT Itulah Busana Nusantara",
@@ -927,12 +902,9 @@ def seed_bank(api: Api, leaf: dict, months, rng, report) -> None:
     )
     report["bank_accounts"] = 1 if described is not None else 0
 
-    for index, site in enumerate(["dc"]):
+    for index, site in enumerate([HEAD_OFFICE]):
         year, month = months[-1]
         first, last = month_days(year, month)
-        account = leaf.get(("1011002001", site))
-        if account is None:
-            continue
         lines = []
         balance = rng.randrange(200_000, 900_000) * 1_000
         opening = balance
@@ -955,7 +927,7 @@ def seed_bank(api: Api, leaf: dict, months, rng, report) -> None:
         ok = api.post(
             "/api/v1/finance/bank-statements",
             {
-                "account_code": account,
+                "account_code": "1102",
                 "site_id": site,
                 "period_start": first.isoformat(),
                 "period_end": last.isoformat(),
@@ -969,52 +941,40 @@ def seed_bank(api: Api, leaf: dict, months, rng, report) -> None:
     report["bank_statements"] = imported
 
 
-def seed_opening_balances(api: Api, leaf: dict, months, rng, report) -> None:
+def seed_opening_balances(api: Api, months, rng, report) -> None:
     """Cash and capital, so the balance sheet is not an empty frame.
 
     Through the OPENING CUTOVER, not through a hand-written journal. It used to
-    post `/api/v1/finance/journal`, and every one of those calls is now refused —
-    88 of them on a full run:
-
-        1011001001 CASH ON HAND may be corrected but not journalled: raise an
-        adjustment, a reclass or a write-off, and have it approved.
-
-    That refusal is the posting kernel (0261-0268) working exactly as intended:
+    post `/api/v1/finance/journal`, and every one of those calls is refused:
     cash carries `manual_je_policy = 'OVERRIDE'`, which admits a correction
     somebody approved and nothing else. An opening balance is neither a
     correction nor a hand-keyed entry — it is the beginning of the books, it has
     its own document and its own `source_kind = 'OPENING'`, and `opening.rs` is
     the door the system already provides for it.
 
-    The sheet is the client's own shape: one CSV, `site_id,account_code,debit,
-    credit,document_no,memo`, balanced PER SITE because the import refuses a site
-    whose debits and credits disagree. `commit` has to be said out loud; the
-    default is a rehearsal.
+    The sheet is the client's own shape, plus one column: `1101 Kas` declares a
+    `pot` family, so a line on it that carries no category is REFUSED by
+    `assert_category_matches_account`. `opening.rs` ignores columns it does not
+    know, so writing `category_code` here is safe before the import reads it and
+    correct after — and until it does read it, the refusal names the account and
+    the family, which is the failure worth having.
     """
     year, month = months[0]
     # The last day of the old system, which is the day before the books open.
     cutover = date(year, month, 1) - timedelta(days=1)
     # Head office only, and that is the model rather than a shortcut.
-    # `3013001001 Modal Setor` carries `dimension = 'company'`, so the poster
-    # refuses it at a shop by name — "belongs to the company and not to a shop;
-    # it posts at dc". A shop's cash is not capital it was given, it is the
-    # float head office sent, and that arrives as a document. The trial balance
-    # also has to agree PER SITE, so a shop's opening cash with no counterpart
-    # at the same shop could not be imported anyway.
-    rows = ["site_id,account_code,debit,credit,document_no,memo"]
-    sites = 0
-    cash = leaf.get(("1011001001", HEAD_OFFICE))
-    capital = leaf.get(("3013001001", HEAD_OFFICE))  # Modal Setor
-    if cash is not None and capital is not None:
-        amount = rng.randrange(50_000, 250_000) * 1_000
-        reference = f"SEED-OB-{cutover.isoformat()}"
-        rows.append(f"{HEAD_OFFICE},{cash},{amount},,{reference},Saldo awal kas (seed)")
-        rows.append(f"{HEAD_OFFICE},{capital},,{amount},{reference},Modal setor awal (seed)")
-        sites += 1
-
-    if sites == 0:
-        report["opening_entries"] = 0
-        return
+    # `3101 Modal disetor` carries `dimension = 'company'`, so the poster
+    # refuses it at a shop by name. A shop's cash is not capital it was given,
+    # it is the float head office sent, and that arrives as a document. The
+    # trial balance also has to agree PER SITE, so a shop's opening cash with no
+    # counterpart at the same shop could not be imported anyway.
+    amount = rng.randrange(50_000, 250_000) * 1_000
+    reference = f"SEED-OB-{cutover.isoformat()}"
+    rows = [
+        "site_id,account_code,category_code,debit,credit,document_no,memo",
+        f"{HEAD_OFFICE},1101,DRAWER,{amount},,{reference},Saldo awal kas (seed)",
+        f"{HEAD_OFFICE},3101,,,{amount},{reference},Modal setor awal (seed)",
+    ]
     outcome = api.post(
         "/api/v1/finance/opening/balances",
         {"cutover_date": cutover.isoformat(), "csv": "\n".join(rows), "commit": True},
@@ -1029,8 +989,6 @@ def main() -> int:
     parser.add_argument("--api", default="http://127.0.0.1:8080")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--seed", type=int, default=20260902)
-    # lane-D: the client's own chart export, used to check the affiliate codes.
-    parser.add_argument("--coa", default=AFFILIATE_CSV)
     parser.add_argument(
         "--stage",
         default="all",
@@ -1049,39 +1007,38 @@ def main() -> int:
 
     rng = random.Random(args.seed)
     api = Api(args.api, args.dry_run)
-    leaf = leaves(args.db)
+    chart = Chart(args.db, tolerant=args.dry_run)
     months = [(2026, m) for m in (6, 7, 8, 9)]
     report: dict = {}
 
     want = args.stage
     if want in ("all", "map"):
-        # lane-B: the two proposed accounts have to exist before anything can
-        # be mapped to them, and `leaf` was read before they did.
-        if not args.dry_run:
-            leaf = leaves(args.db)
-        seed_account_map(api, leaf, report)
-        # lane-D. After the rest of the map, so a failure here is legible on
-        # its own line of the report rather than hidden in the same counter.
-        seed_affiliate_map(api, report, args.coa)
+        seed_account_map(api, chart, report)
     if want in ("all", "periods"):
         seed_periods(api, months, report)
     if want in ("all", "opening"):
-        seed_opening_balances(api, leaf, months, rng, report)
+        seed_opening_balances(api, months, rng, report)
     if want in ("all", "bills"):
         suppliers = [tuple(r) for r in psql(args.db, "select supplier_id, name from supplier order by name limit 12")]
         seed_bills(api, suppliers, months, rng, report)
     if want in ("all", "assets"):
-        seed_assets(api, months, rng, report)
+        seed_assets(api, chart, months, rng, report)
         seed_depreciation(api, months, report)
     if want in ("all", "reserve"):
-        seed_reserve(api, months, rng, report)
+        seed_reserve(api, chart, months, rng, report)
     if want in ("all", "bank"):
-        seed_bank(api, leaf, months, rng, report)
+        seed_bank(api, months, rng, report)
 
+    if chart.unread is not None:
+        report["chart_unread"] = chart.unread
     report["api_calls"] = api.calls
     report["failures"] = api.failures[:10]
     report["failure_count"] = len(api.failures)
     print(json.dumps(report, indent=2))
+    # Exit 1 if ANY call was refused. `scripts/seed-everything.sh` reads this
+    # and carries on rather than ending the run, because a refusal here is
+    # information — an account whose policy says no, a category that has moved
+    # — and not a reason to stop the other eight steps.
     return 1 if api.failures else 0
 
 

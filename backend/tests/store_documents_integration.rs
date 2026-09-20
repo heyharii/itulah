@@ -26,24 +26,30 @@ const SHOP: &str = "store-01";
 
 /// The accounts a deposit touches, and where they come from.
 ///
-/// Nothing is inserted: 0243 seeds the whole chart — 219 accounts, one row per
-/// MEANING with no unit anywhere, and 298 once 0247 puts the client's own
-/// seven-digit families back above them — and these are three of its codes.
-/// The codes do not move; only what they hang off does. A test that
-/// minted its own would be asserting against a chart nobody has — and would
-/// now be refused outright, because 0244 pins `ledger_account.site_id` to NULL
-/// with a CHECK. The unit is `journal_line.site_id` and nowhere else, which is
-/// the property `every_posted_line_carries_the_unit` below is really about.
+/// Nothing is inserted: 0243 seeded the client's whole chart with no unit
+/// anywhere, and 0289 replaced it with forty accounts. These are two of them.
+/// A test that minted its own would be asserting against a chart nobody has —
+/// and would be refused outright, because 0244 pins `ledger_account.site_id` to
+/// NULL with a CHECK. The unit is `journal_line.site_id` and nowhere else,
+/// which is what `every_posted_line_carries_the_unit` below is really about.
+///
+/// What DID move is where the third thing lives. A deposit touches a drawer, a
+/// bag and a bank; the first two are one account and two categories now.
 
-/// Kas di Tangan — the drawer.
-const DRAWER: &str = "1011001001";
-/// Bank BCA — Tabungan.
-const BANK: &str = "1011003001";
-/// Setoran Dalam Perjalanan. The account this whole document exists to use, and
-/// one of exactly two `docs/coa-final.md` said the simplified chart had to add.
-const TRANSIT: &str = "1011005001";
+/// Kas — one account for all four states cash can be in, told apart by `pot`.
+/// The drawer and the money in the bag are the SAME account now; the client's
+/// `1011001001 CASH ON HAND` and the `1011005001 Setoran Dalam Perjalanan` that
+/// `docs/coa-final.md` said we had to add are `1101 × DRAWER` and
+/// `1101 × TRANSIT`. One fewer invented account, and one more reason the
+/// balance helper below takes a category.
+const CASH: &str = "1101";
+const DRAWER: &str = "DRAWER";
+const TRANSIT: &str = "TRANSIT";
+/// `1102 Bank`, where `1011003001 Bank BCA — Tabungan` went. Which bank is
+/// `bank_account_id`, so it takes no category.
+const BANK: &str = "1102";
 
-async fn map(pool: &PgPool, key: &str, qualifier: &str, code: &str) {
+async fn map(pool: &PgPool, key: &str, qualifier: &str, code: &str, category: Option<&str>) {
     cloud::set_account_mapping(
         pool,
         &cloud::SetAccountMappingRequest {
@@ -51,6 +57,7 @@ async fn map(pool: &PgPool, key: &str, qualifier: &str, code: &str) {
             site_id: SHOP.into(),
             qualifier: qualifier.into(),
             account_code: code.into(),
+            category_code: category.map(str::to_string),
             note: None,
         },
         ACTOR,
@@ -60,10 +67,18 @@ async fn map(pool: &PgPool, key: &str, qualifier: &str, code: &str) {
 }
 
 /// Everything a deposit needs pointed at an account.
+///
+/// Three meanings and two accounts, where it used to be three and three. That
+/// matters more than it looks: `deposits::meaning_of` reads the map BACKWARDS —
+/// from the account code on the request to the meaning that posts it — and one
+/// account carries four pots now. What keeps it exact is the category: the
+/// lookup is `(1101, DRAWER)` rather than `1101`, so a seeded database with all
+/// four pots mapped answers `cash` and nothing else. Before that the account
+/// alone found three meanings and every deposit in the estate was refused.
 async fn map_the_three(pool: &PgPool) {
-    map(pool, "cash", "", DRAWER).await;
-    map(pool, "bank_savings", "BCA", BANK).await;
-    map(pool, "cash_in_transit", "", TRANSIT).await;
+    map(pool, "cash", "", CASH, Some(DRAWER)).await;
+    map(pool, "bank_savings", "BCA", BANK, None).await;
+    map(pool, "cash_in_transit", "", CASH, Some(TRANSIT)).await;
 }
 
 async fn open_september(pool: &PgPool) {
@@ -89,13 +104,16 @@ async fn entry_count(pool: &PgPool) -> i64 {
 /// Read from `journal_line` directly rather than through any projection: the
 /// point of these assertions is where the money IS, not what a reader says
 /// about it.
-async fn balance(pool: &PgPool, account_code: &str) -> i64 {
+async fn balance(pool: &PgPool, account_code: &str, category: Option<&str>) -> i64 {
     sqlx::query_scalar(
         "SELECT COALESCE(SUM(l.debit_minor - l.credit_minor), 0)::bigint
-           FROM journal_line l WHERE l.account_code = $1 AND l.site_id = $2",
+           FROM journal_line l
+          WHERE l.account_code = $1 AND l.site_id = $2
+            AND ($3::text IS NULL OR l.category_code = $3)",
     )
     .bind(account_code)
     .bind(SHOP)
+    .bind(category)
     .fetch_one(pool)
     .await
     .unwrap_or_else(|error| panic!("balance {account_code}: {error}"))
@@ -118,8 +136,13 @@ fn an_ask() -> cloud::RaiseInstructionRequest {
 fn a_deposit() -> cloud::RecordDepositRequest {
     cloud::RecordDepositRequest {
         site_id: SHOP.into(),
-        drawer_account_code: DRAWER.into(),
+        drawer_account_code: CASH.into(),
+        // Which pot, because `1101` holds four and the slip is the only thing
+        // that knows which one the bag came out of.
+        drawer_category_code: Some(DRAWER.into()),
         bank_account_code: BANK.into(),
+        // `1102 Bank` declares no family; naming one here would be refused.
+        bank_category_code: None,
         amount_minor: 12_400_000,
         banked_on: september(10),
         carried_by: "Siti".into(),
@@ -448,15 +471,15 @@ async fn the_money_sits_in_transit_between_the_two_dates(pool: PgPool) {
         .await
         .unwrap_or_else(|error| panic!("bank: {error}"));
     assert_eq!(sent.status, "IN_TRANSIT");
-    assert_eq!(balance(&pool, DRAWER).await, -12_400_000);
+    assert_eq!(balance(&pool, CASH, Some(DRAWER)).await, -12_400_000);
     assert_eq!(
-        balance(&pool, TRANSIT).await,
+        balance(&pool, CASH, Some(TRANSIT)).await,
         12_400_000,
         "between the two dates the money is on the in-transit account, which \
          is the position this document exists to create"
     );
     assert_eq!(
-        balance(&pool, BANK).await,
+        balance(&pool, BANK, None).await,
         0,
         "the bank has not credited anything yet, and our books must not say it \
          has"
@@ -479,11 +502,11 @@ async fn the_money_sits_in_transit_between_the_two_dates(pool: PgPool) {
     assert_eq!(landed.slip_reference, "BCA/09/8812");
     assert_eq!(landed.days_in_transit, 1);
     assert_eq!(
-        balance(&pool, TRANSIT).await,
+        balance(&pool, CASH, Some(TRANSIT)).await,
         0,
         "once the bank agrees, nothing is in the air"
     );
-    assert_eq!(balance(&pool, BANK).await, 12_400_000);
+    assert_eq!(balance(&pool, BANK, None).await, 12_400_000);
 }
 
 /// Two entries, on the two dates the two facts happened.
@@ -551,8 +574,8 @@ async fn the_two_legs_are_two_entries_on_their_own_dates(pool: PgPool) {
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn a_deposit_is_recorded_without_the_transit_account_and_cannot_be_banked(pool: PgPool) {
     open_september(&pool).await;
-    map(&pool, "cash", "", DRAWER).await;
-    map(&pool, "bank_savings", "BCA", BANK).await;
+    map(&pool, "cash", "", CASH, Some(DRAWER)).await;
+    map(&pool, "bank_savings", "BCA", BANK, None).await;
     // `cash_in_transit` is deliberately UNmapped — and since 0277 that takes a
     // delete, because the migration chain now ships the mapping at every place
     // rather than leaving it to a seed. The refusal is still worth guarding:
@@ -585,9 +608,18 @@ async fn a_deposit_is_recorded_without_the_transit_account_and_cannot_be_banked(
 
 /// An account nobody mapped is refused when the slip is written, not when it
 /// is posted.
+///
+/// `deposits::meaning_of` reads the map backwards — account and category in,
+/// meaning out — and refuses both "no meaning" (this test) and "more than one".
+/// The second used to be the ordinary case: `cash`, `petty_cash` and
+/// `cashier_float` all map to `1101` at one site, so looking up the account
+/// alone refused EVERY deposit. The slip now carries `drawer_category_code`,
+/// which is the part of `1011001002` that stopped being an account, so the
+/// pairing resolves to one meaning and this refusal is back to meaning what it
+/// says: nothing is mapped there at all.
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn an_unmapped_drawer_is_refused_at_the_counter(pool: PgPool) {
-    map(&pool, "bank_savings", "BCA", BANK).await;
+    map(&pool, "bank_savings", "BCA", BANK, None).await;
 
     let refusal = cloud::record_deposit(&pool, &a_deposit(), ACTOR).await;
     let message = match refusal {
@@ -595,7 +627,7 @@ async fn an_unmapped_drawer_is_refused_at_the_counter(pool: PgPool) {
         Err(error) => error.to_string(),
     };
     assert!(
-        message.contains(DRAWER) && message.contains("cash"),
+        message.contains(CASH) && message.contains("cash"),
         "the refusal should name the account and the meanings it could carry: {message}"
     );
 }
@@ -652,7 +684,10 @@ async fn in_transit_survives_filtering_the_list_to_what_has_landed(pool: PgPool)
 
     // And it agrees with the ledger, because both move only when this module
     // posts.
-    assert_eq!(balance(&pool, TRANSIT).await, landed_only.in_transit_minor);
+    assert_eq!(
+        balance(&pool, CASH, Some(TRANSIT)).await,
+        landed_only.in_transit_minor
+    );
     assert!(flying.sent_entry_id.is_some());
 }
 

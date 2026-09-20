@@ -24,6 +24,17 @@
 //! defaulted: an invented account is a mistake that balances, which is the kind
 //! that survives a year.
 //!
+//! # And why a line now carries a category as well
+//!
+//! The chart went from 190 postable accounts to 40, and what left the account
+//! code did not leave the ledger: which bank, which rack, which PPh article,
+//! electricity or water are all still recorded — as keys on the line rather
+//! than as digits in a code. Most of those keys were already here. The one that
+//! was not is `category_code`, and it arrives the same way the account does:
+//! from `account_map` when the line names a meaning, from the person when they
+//! name a code. Nothing in this module works it out, because working it out
+//! would be a second opinion about a fact the map already holds.
+//!
 //! # Two things this door does that its callers do not have to
 //!
 //! **It balances every unit.** A rule may build the entry it means — head
@@ -39,7 +50,7 @@
 //! two requests can both pass. The index cannot be both passed.
 
 use super::ledger::{
-    assert_postable, resolve_account, validate_account_posting, Intent, PostingFacts,
+    assert_postable, resolve_account, validate_account_posting, Intent, PostingFacts, Resolved,
 };
 use crate::cloud::application::AppError;
 use crate::cloud::domain::{balancing_legs, first_unbalanced_site, kind_for_source, SiteMovement};
@@ -69,6 +80,19 @@ pub const MAIN: &str = "MAIN";
 ///
 /// Modelled as a choice rather than as an optional code beside an optional key,
 /// so a line cannot be built that says both or neither.
+///
+/// # Where the category comes from, and why only on one of the two
+///
+/// With forty accounts the code no longer says what a line was about — `6301`
+/// is every general and administrative expense in the company, and the
+/// `line_category` on the line is what separates the electricity bill from the
+/// cleaner. A `Meaning` never carries one, because the map already decided:
+/// `expense_electricity` resolves to `6301` AND to the electricity category, in
+/// one row, set once by somebody who knew. A rule that could override that
+/// would be a second opinion about a fact there is only one of.
+///
+/// An `Account` carries one because the person choosing the code is also the
+/// person choosing what it was for, and nothing else in the entry knows.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum LineAccount {
@@ -81,7 +105,48 @@ pub enum LineAccount {
         qualifier: String,
     },
     /// A client account code, chosen deliberately by a person.
-    Account { account_code: String },
+    Account {
+        account_code: String,
+        /// Required when the account declares a category family, refused when
+        /// it does not. `validate_account_posting` says which, and names the
+        /// codes that would have worked.
+        #[serde(default)]
+        category_code: Option<String>,
+    },
+}
+
+// A meaning, spelled the way a posting rule spells it.
+//
+// `PostingLine::debit` used to take a `&str` and build the `Meaning` itself,
+// which is why a hundred and seventy call sites read `PostingLine::debit("cash",
+// …)`. They still do: the conversion is what keeps that spelling working now
+// that the constructors take either kind of account. Three impls rather than
+// one because a generic parameter does not deref-coerce — `&String` is not
+// `&str` when the function is `impl Into<LineAccount>` — and the alternative is
+// a `.as_str()` on every rule that built its key at runtime.
+
+impl From<&str> for LineAccount {
+    fn from(semantic_key: &str) -> Self {
+        LineAccount::Meaning {
+            semantic_key: semantic_key.to_string(),
+            qualifier: String::new(),
+        }
+    }
+}
+
+impl From<&String> for LineAccount {
+    fn from(semantic_key: &String) -> Self {
+        LineAccount::from(semantic_key.as_str())
+    }
+}
+
+impl From<String> for LineAccount {
+    fn from(semantic_key: String) -> Self {
+        LineAccount::Meaning {
+            semantic_key,
+            qualifier: String::new(),
+        }
+    }
 }
 
 /// One side of one posting.
@@ -113,21 +178,29 @@ pub struct PostingLine {
     ///
     /// The third typed sub-ledger reference, set the same way the other two are:
     /// by the rule that KNOWS. The reconciliation booking knows, because the line
-    /// it is settling came from a statement of one account. Nothing else needs
-    /// to: where the ledger binding has exactly one active account the validator
-    /// fills it in, and where it has two it refuses rather than guess.
+    /// it is settling came from a statement of one account. A leg built from a
+    /// meaning does not have to: `bank_giro` qualified BCA has already named the
+    /// bank and the product, and the validator reads the pair off the map. It
+    /// refuses rather than guess when even that leaves two — which is the day we
+    /// hold two BCA giro accounts, and the day a document has to say which.
     #[serde(default)]
     pub bank_account_id: Option<Uuid>,
     pub memo: Option<String>,
 }
 
 impl PostingLine {
-    pub fn debit(semantic_key: &str, site_id: &str, amount_minor: i64) -> Self {
+    /// One side of an entry, named by meaning or by code.
+    ///
+    /// A bare `&str` is a meaning — `PostingLine::debit("cash", …)` reads the
+    /// way it always did — and a `LineAccount` is whatever the caller built.
+    /// Widened from `&str` when the chart shrank to forty: a person writing a
+    /// journal entry now chooses an account AND a category, and a constructor
+    /// that only spoke meanings meant every such caller assembling the struct
+    /// by hand, field by field, with the next new field silently missing from
+    /// all of them.
+    pub fn debit(account: impl Into<LineAccount>, site_id: &str, amount_minor: i64) -> Self {
         Self {
-            account: LineAccount::Meaning {
-                semantic_key: semantic_key.to_string(),
-                qualifier: String::new(),
-            },
+            account: account.into(),
             site_id: site_id.to_string(),
             counter_site_id: None,
             debit_minor: amount_minor,
@@ -139,12 +212,9 @@ impl PostingLine {
         }
     }
 
-    pub fn credit(semantic_key: &str, site_id: &str, amount_minor: i64) -> Self {
+    pub fn credit(account: impl Into<LineAccount>, site_id: &str, amount_minor: i64) -> Self {
         Self {
-            account: LineAccount::Meaning {
-                semantic_key: semantic_key.to_string(),
-                qualifier: String::new(),
-            },
+            account: account.into(),
             site_id: site_id.to_string(),
             counter_site_id: None,
             debit_minor: 0,
@@ -162,6 +232,25 @@ impl PostingLine {
         } = &mut self.account
         {
             *slot = qualifier.to_string();
+        }
+        self
+    }
+
+    /// Say what a line named by CODE was for.
+    ///
+    /// The counterpart of `with_qualifier`, and deliberately its mirror: that
+    /// one narrows a meaning and does nothing to a code, this one narrows a
+    /// code and does nothing to a meaning. A meaning's category comes from the
+    /// map with its account, and a setter that could override it would let a
+    /// rule book electricity as rent while the map said otherwise — two
+    /// answers to a question that has one.
+    pub fn with_category(mut self, category_code: &str) -> Self {
+        if let LineAccount::Account {
+            category_code: slot,
+            ..
+        } = &mut self.account
+        {
+            *slot = Some(category_code.to_string());
         }
         self
     }
@@ -289,6 +378,11 @@ fn balanced_per_site(intent: &PostingIntent) -> Result<(Vec<PostingLine>, i64), 
             // An affiliate leg is about a unit, never about a machine.
             asset_id: None,
             bank_account_id: None,
+            // No category here either, and nothing is missing: the leg names a
+            // MEANING, so `1501`'s `interunit_reason` comes off the map row
+            // with the account — FINANCING or GOODS, chosen once by whoever
+            // mapped it, for the same qualifier `domain::interunit` picked.
+            // Setting it here would be this file deciding a second time.
             // The memo says which side of which pair this is, because on a
             // shop's ledger the account name alone reads as "Hutang Affiliasi"
             // and every one of them looks the same.
@@ -373,12 +467,41 @@ pub async fn post(
     // retires it, and `is_active` is not part of the foreign key.
     let mut resolved = Vec::with_capacity(lines.len());
     for (index, line) in lines.iter().enumerate() {
-        let code = match &line.account {
+        // Account and category together, from whichever of the two doors this
+        // line came through. Never one from each: a code that resolved from the
+        // map with a category, then given a different category by the caller,
+        // would be a line whose two halves disagree about what it was for.
+        // The meaning is kept beside the resolution, not consumed by it. The
+        // validator reads it for one thing only: a bank leg built from
+        // `bank_giro` qualified BCA has already said which bank, and since
+        // fourteen accounts share `1102` that sentence is the only thing left
+        // that can tell them apart without the document naming an account.
+        let (meaning, meaning_qualifier) = match &line.account {
+            LineAccount::Meaning {
+                semantic_key,
+                qualifier,
+            } => (Some(semantic_key.as_str()), Some(qualifier.as_str())),
+            LineAccount::Account { .. } => (None, None),
+        };
+        let Resolved {
+            account_code: code,
+            category_code: category,
+        } = match &line.account {
             LineAccount::Meaning {
                 semantic_key,
                 qualifier,
             } => resolve_account(&mut **tx, semantic_key, &line.site_id, qualifier).await?,
-            LineAccount::Account { account_code } => account_code.trim().to_string(),
+            LineAccount::Account {
+                account_code,
+                category_code,
+            } => Resolved {
+                account_code: account_code.trim().to_string(),
+                category_code: category_code
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(|value| value.to_string()),
+            },
         };
         assert_postable(&mut **tx, &code, Intent::Post)
             .await
@@ -405,7 +528,10 @@ pub async fn post(
                 source_kind: &intent.source_kind,
                 site_id: &line.site_id,
                 counter_site_id: line.counter_site_id.as_deref(),
+                category_code: category.as_deref(),
                 bank_account_id: line.bank_account_id,
+                semantic_key: meaning,
+                qualifier: meaning_qualifier,
             },
         )
         .await
@@ -416,10 +542,10 @@ pub async fn post(
             other => other,
         })?;
         // The validator hands back which of our real bank accounts this line
-        // moved: the one the line named, or the only active one the ledger
-        // binding has. `None` where the chart knows of none, which is every line
-        // in the estate until the client's accounts are registered.
-        resolved.push((code, bank_account_id));
+        // moved: the one the line named, or the only one still answering to
+        // what the map declared. `None` where the chart knows of none, which is
+        // every line in the estate until the client's accounts are registered.
+        resolved.push((code, category, bank_account_id));
     }
 
     let entry_id = Uuid::new_v4();
@@ -450,18 +576,26 @@ pub async fn post(
     .await
     .map_err(|error| as_already_posted(error, intent, purpose))?;
 
-    for (index, (line, (account_code, bank_account_id))) in lines.iter().zip(&resolved).enumerate()
+    for (index, (line, (account_code, category_code, bank_account_id))) in
+        lines.iter().zip(&resolved).enumerate()
     {
         sqlx::query(
             "INSERT INTO journal_line
-               (line_id, entry_id, line_number, account_code, site_id, counter_site_id,
-                debit_minor, credit_minor, supplier_id, asset_id, memo, bank_account_id)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
+               (line_id, entry_id, line_number, account_code, category_code, site_id,
+                counter_site_id, debit_minor, credit_minor, supplier_id, asset_id, memo,
+                bank_account_id)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
         )
         .bind(Uuid::new_v4())
         .bind(entry_id)
         .bind(index as i32 + 1)
         .bind(account_code)
+        // The fifth key on the line, beside the unit, the counter-unit, the
+        // supplier, the asset and the bank account. It is written from the
+        // resolution above and never worked out here: the account map and the
+        // person writing the entry are the only two things that know, and both
+        // have already said.
+        .bind(category_code.as_deref())
         .bind(&line.site_id)
         .bind(line.counter_site_id.as_deref())
         .bind(line.debit_minor)
@@ -519,7 +653,7 @@ pub async fn reverse(
     // `reversal_of` is UNIQUE, so a second attempt is refused by the database
     // rather than by a check somebody could forget to write.
     let lines = sqlx::query(
-        "SELECT line_number, account_code, site_id, counter_site_id,
+        "SELECT line_number, account_code, category_code, site_id, counter_site_id,
                 debit_minor, credit_minor, supplier_id, asset_id, memo, bank_account_id
            FROM journal_line WHERE entry_id = $1 ORDER BY line_number",
     )
@@ -556,14 +690,22 @@ pub async fn reverse(
         let credit: i64 = row.try_get("credit_minor")?;
         sqlx::query(
             "INSERT INTO journal_line
-               (line_id, entry_id, line_number, account_code, site_id, counter_site_id,
-                debit_minor, credit_minor, supplier_id, asset_id, memo, bank_account_id)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
+               (line_id, entry_id, line_number, account_code, category_code, site_id,
+                counter_site_id, debit_minor, credit_minor, supplier_id, asset_id, memo,
+                bank_account_id)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
         )
         .bind(Uuid::new_v4())
         .bind(reversal_id)
         .bind(row.try_get::<i32, _>("line_number")?)
         .bind(row.try_get::<String, _>("account_code")?)
+        // Carried, exactly like the account code above it and for exactly the
+        // same reason. If the map has been repointed since — the electricity
+        // category retired, the meaning moved to another one — resolving afresh
+        // would credit one category and debit another, and the pair would look
+        // settled while both were wrong. A reversal undoes what was posted, not
+        // what the rule would post today.
+        .bind(row.try_get::<Option<String>, _>("category_code")?)
         .bind(row.try_get::<String, _>("site_id")?)
         // Carried, not recomputed: the reversal of an inter-unit leg is with
         // the same unit the original was with.

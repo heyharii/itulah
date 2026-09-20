@@ -11,7 +11,20 @@ export type StoreDeposit = { deposit_id: string, deposit_number: string,
  * through `book_locations`, which is the one place that knows head office
  * is not spelled "DC".
  */
-site_id: string, drawer_account_code: string, drawer_account_name: string, bank_account_code: string, bank_account_name: string, amount_minor: number, currency: string, 
+site_id: string, drawer_account_code: string, drawer_account_name: string, 
+/**
+ * Which pot the money left, on the accounts that keep several in one.
+ * `None` where the account declares no family, which is how every deposit
+ * recorded before the chart shrank reads.
+ */
+drawer_category_code: string | null, bank_account_code: string, bank_account_name: string, 
+/**
+ * The same for the account it went into. `1102 Bank` declares no family —
+ * which bank is `bank_account_id` — so this is empty today; it is carried
+ * rather than assumed absent so that the day a money account does declare
+ * one, the slip and the entry already agree.
+ */
+bank_category_code: string | null, amount_minor: number, currency: string, 
 /**
  * The day the bag left the drawer. Our side of the two dates.
  */

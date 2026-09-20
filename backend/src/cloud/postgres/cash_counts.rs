@@ -11,11 +11,12 @@
 //! from the caller because that is how every money screen addresses a place,
 //! and it is resolved BACK to a meaning before anything is posted — so a count
 //! on an account nobody mapped is refused, by name, exactly as a bank line
-//! booked against an unmapped account is. The other leg is the meaning
-//! `cash_variance`, and until somebody points it at an account on the Account
-//! Map screen, posting a difference refuses and says so. A count itself is
-//! still recorded: observing a shortage does not depend on knowing where to
-//! book it.
+//! booked against an unmapped account is. The other leg is one of two
+//! meanings — `cash_variance` when the drawer held more than the books said,
+//! `cash_shortage` when it held less — and until somebody points the one a
+//! count needs at an account on the Account Map screen, posting that
+//! difference refuses and says so. A count itself is still recorded: observing
+//! a shortage does not depend on knowing where to book it.
 
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
@@ -29,8 +30,12 @@ use crate::cloud::AppError;
 /// which is why this list is not `MONEY_KEYS`.
 const CASH_MEANINGS: [&str; 3] = ["cash", "petty_cash", "cashier_float"];
 
-/// Where a difference goes when it is posted.
+/// Where a difference goes when it is posted: one meaning per side, since
+/// 0296. An overage is income and a shortage is a cost, and the sign is known
+/// at exactly one moment — when `post_variance` subtracts the books from the
+/// count — so this is where the side is chosen, not on the Account Map.
 const VARIANCE_MEANING: &str = "cash_variance";
+const SHORTAGE_MEANING: &str = "cash_shortage";
 
 /// One count, with what it found and what the books said.
 #[derive(Clone, Debug, Serialize)]
@@ -315,10 +320,12 @@ pub async fn record_count(
 ///
 /// More in the drawer than the books say is money arriving from nowhere: the
 /// drawer is debited and `cash_variance` credited. Less is money gone: the
-/// drawer is credited and `cash_variance` debited. Both legs go through
+/// drawer is credited and `cash_shortage` debited. Never a debit to
+/// `cash_variance`: that meaning sits on `4301`, a revenue account, and a
+/// shortage booked there was a cost hiding inside income. Both legs go through
 /// `account_map`, so this function names no client account code — and a
-/// difference cannot be posted anywhere until somebody has said where
-/// `cash_variance` lives at that location.
+/// difference cannot be posted anywhere until somebody has said where the
+/// meaning it needs lives at that location.
 /// The decision to post, and the sentence that justifies it.
 #[derive(Clone, Debug, Default, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
@@ -386,7 +393,7 @@ pub async fn post_variance(
     } else {
         (
             PostingLine::credit(&meaning, &site_id, amount).with_qualifier(&qualifier),
-            PostingLine::debit(VARIANCE_MEANING, &site_id, amount),
+            PostingLine::debit(SHORTAGE_MEANING, &site_id, amount),
         )
     };
 

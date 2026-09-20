@@ -12,7 +12,14 @@ kind: string,
 /**
  * `KK-26-09-00001`. Absent until it is approved.
  */
-number: string | null, doc_date: string, from_key: string | null, from_qualifier: string, from_account_code: string | null, from_site: string, to_key: string | null, to_qualifier: string, to_account_code: string | null, to_site: string, amount_minor: number, currency: string, party_kind: string, supplier_id: string | null, employee_id: string | null, party_name: string, memo: string, attachment_file_id: string | null, 
+number: string | null, doc_date: string, from_key: string | null, from_qualifier: string, from_account_code: string | null, 
+/**
+ * What the FROM side is filed as. Stored on the document rather than
+ * re-derived at posting time: the document is the record of what somebody
+ * decided, and a category worked out afresh months later could file a
+ * reversal somewhere the original never went.
+ */
+from_category_code: string | null, from_site: string, to_key: string | null, to_qualifier: string, to_account_code: string | null, to_category_code: string | null, to_site: string, amount_minor: number, currency: string, party_kind: string, supplier_id: string | null, employee_id: string | null, party_name: string, memo: string, attachment_file_id: string | null, 
 /**
  * The bank line this was booked from, when it was not typed.
  */

@@ -57,26 +57,41 @@ step "4/9  counts, handheld sightings, edge sale facts"
 python3 "$here/seed-floor-activity.py" --db "$db"
 
 step "5/9  chart of accounts"
-# The chart comes from the MIGRATIONS now, and has since 0243/0244 collapsed the
-# client's 7,528 unit-scoped leaves onto one row per meaning. `import-coa.py`
-# still writes the old shape — every INSERT carries a `site_id` — and 0243 adds
+# The chart comes from the MIGRATIONS, and it has been collapsed twice.
+# 0243/0244 folded the client's 7,528 unit-scoped leaves onto one row per
+# meaning (190 postable); 0287-0292 folded those 190 onto FORTY, moving the
+# identity that was baked into the codes onto `journal_line.category_code` and
+# onto columns and sub-ledgers that already existed. `import-coa.py` still
+# writes the pre-0243 shape — every INSERT carries a `site_id` — and 0243 adds
 # `CHECK (site_id IS NULL AND counterparty_site_id IS NULL)`, so running it here
 # is refused row by row. That refusal is the correct outcome and it is also a
 # confusing way to spend a step, so this one checks instead of imports.
+#
+# What the count means: 230 postable rows, of which 40 are live and 190 are
+# retired (`is_active = false`, `posting_mode = 'BLOCKED'`) and still carrying
+# their history. Only the 40 accept a posting.
 accounts=$(psql -d "$db" -tAc "SELECT count(*) FROM ledger_account")
+live=$(psql -d "$db" -tAc "SELECT count(*) FROM ledger_account WHERE NOT is_group AND is_active")
+categories=$(psql -d "$db" -tAc "SELECT count(*) FROM line_category" 2>/dev/null || echo 0)
 if [ "${accounts:-0}" -gt 0 ]; then
-  echo "  $accounts accounts, from the migrations — nothing to import"
+  echo "  $accounts accounts, ${live:-0} of them live, $categories line categories — from the migrations, nothing to import"
 else
   echo "  the chart is EMPTY, which means the migrations did not run: finance below"
   echo "  has nothing to map. Bring the database up with scripts/provision-cloud.sh."
 fi
 
 step "6/9  finance: account map, periods, bills, assets, bank"
-# `seed-finance.py` exits 1 if ANY call was refused, and one refusal is
-# expected every time: the client's chart carries a retired bank account, and
-# the account-map endpoint declines to map a meaning onto an account they have
-# retired. That is the invariant working. Report the exit code and carry on
-# rather than letting `pipefail` end the run eight steps in.
+# `seed-finance.py` exits 1 if ANY call was refused, and that contract has not
+# changed. What HAS changed is which refusal to expect. It used to be exactly
+# one, every time: the client's chart kept a bank leaf per bank, one of them had
+# been retired, and the account-map endpoint declined to map a meaning onto a
+# retired account. There is one bank account in the chart now (`1102`) and the
+# bank's identity is `company_bank_account`, so that particular refusal has
+# nothing left to happen to and a clean run should exit 0.
+#
+# The step still reports the code and carries on rather than letting `pipefail`
+# end the run eight steps in: a refusal here is information — an account whose
+# policy says no, a category that has moved — and not a reason to stop.
 python3 "$here/seed-finance.py" --db "$db" --api "$api" | tail -5 || true
 finance_status="${PIPESTATUS[0]:-0}"
 [ "$finance_status" = "0" ] || echo "  (seed-finance exited $finance_status — see the failures above)"

@@ -13,31 +13,49 @@ use sqlx::PgPool;
 
 const ACTOR: &str = "ana";
 const SITE: &str = "dc";
-const CASH: &str = "1011001001";
-const BANK: &str = "1011002001";
-/// `1011303001 Advanced - Travelling`.
-const ADVANCE_ACCOUNT: &str = "1011303001";
-/// `6010310008 Biaya Perjalanan Dinas`.
-const TRAVEL_EXPENSE: &str = "6010310008";
-/// `3013001001 Modal Setor` and `3013001004 Prive`.
-const CAPITAL: &str = "3013001001";
-const DRAWINGS: &str = "3013001004";
-/// `2022401001 Pinjaman Jangka Panjang Principal`.
-const PRINCIPAL_LOAN: &str = "2022401001";
-/// `2022402001 Pinjaman Jangka Panjang Bank BCA` and its interest.
-const BANK_LOAN: &str = "2022402001";
-const INTEREST: &str = "8020111001";
+/// The forty, and the category each meaning chooses with them. The client's own
+/// code is on the right, because these tests are about their documents.
+const CASH: &str = "1101"; // 1011001001 CASH ON HAND
+const CASH_POT: &str = "DRAWER";
+/// `1102 Bank`: which bank is `bank_account_id`, so no category.
+const BANK: &str = "1102"; // 1011002001 Cash In Bank Giro Bank BCA
+/// `1403 Uang muka` × `ADVANCED_TRAVELLING`, was `1011303001`.
+const ADVANCE_ACCOUNT: &str = "1403";
+const ADVANCE_PURPOSE: &str = "ADVANCED_TRAVELLING";
+/// `6301` × `BIAYA_PERJALANAN_DINAS`, was `6010310008`.
+const TRAVEL_EXPENSE: &str = "6301";
+const TRAVEL_CATEGORY: &str = "BIAYA_PERJALANAN_DINAS";
+/// `3101 Modal disetor` and `3102 Prive`, was `3013001001` and `3013001004`.
+/// Which owner is the `principal` register, so neither takes a category.
+const CAPITAL: &str = "3101";
+const DRAWINGS: &str = "3102";
+/// `2502 Pinjaman pemilik`, was `2022401001 Pinjaman Jangka Panjang Principal`.
+const PRINCIPAL_LOAN: &str = "2502";
+/// `2501 Pinjaman bank`, was `2022402001`, and `8101`, was `8020111001`. The
+/// facility register carries the lender, so neither takes a category either.
+const BANK_LOAN: &str = "2501";
+const INTEREST: &str = "8101";
 
-async fn map(pool: &PgPool, key: &str, qualifier: &str, code: &str) {
+/// Bound with raw SQL rather than `set_account_mapping`, because what these
+/// tests need is the map to exist and not the endpoint that writes it.
+///
+/// `category_code` is not optional to the DATABASE: 0288 installs
+/// `account_map_category_fits` on this table for exactly this reason — a map
+/// row with the wrong category is thousands of wrong journal lines, and it is
+/// far cheaper to refuse here.
+async fn map(pool: &PgPool, key: &str, qualifier: &str, code: &str, category: Option<&str>) {
     sqlx::query(
-        "INSERT INTO account_map (semantic_key, site_id, qualifier, account_code, set_by)
-         VALUES ($1,$2,$3,$4,'test')
-         ON CONFLICT (semantic_key, site_id, qualifier) DO UPDATE SET account_code = $4",
+        "INSERT INTO account_map
+           (semantic_key, site_id, qualifier, account_code, category_code, set_by)
+         VALUES ($1,$2,$3,$4,$5,'test')
+         ON CONFLICT (semantic_key, site_id, qualifier)
+         DO UPDATE SET account_code = $4, category_code = $5",
     )
     .bind(key)
     .bind(SITE)
     .bind(qualifier)
     .bind(code)
+    .bind(category)
     .execute(pool)
     .await
     .unwrap_or_else(|error| panic!("map {key}: {error}"));
@@ -71,14 +89,21 @@ async fn a_registered_bank_account(pool: &PgPool) {
 }
 
 async fn ready(pool: &PgPool) {
-    map(pool, "cash", "", CASH).await;
-    map(pool, "bank_giro", "BCA", BANK).await;
-    map(pool, "advance", "PERJALANAN", ADVANCE_ACCOUNT).await;
-    map(pool, "capital_contributed", "", CAPITAL).await;
-    map(pool, "owner_drawings", "", DRAWINGS).await;
-    map(pool, "loan_principal", "PRINCIPAL", PRINCIPAL_LOAN).await;
-    map(pool, "loan_principal", "BCA", BANK_LOAN).await;
-    map(pool, "interest_expense", "", INTEREST).await;
+    map(pool, "cash", "", CASH, Some(CASH_POT)).await;
+    map(pool, "bank_giro", "BCA", BANK, None).await;
+    map(
+        pool,
+        "advance",
+        "PERJALANAN",
+        ADVANCE_ACCOUNT,
+        Some(ADVANCE_PURPOSE),
+    )
+    .await;
+    map(pool, "capital_contributed", "", CAPITAL, None).await;
+    map(pool, "owner_drawings", "", DRAWINGS, None).await;
+    map(pool, "loan_principal", "PRINCIPAL", PRINCIPAL_LOAN, None).await;
+    map(pool, "loan_principal", "BCA", BANK_LOAN, None).await;
+    map(pool, "interest_expense", "", INTEREST, None).await;
     for month in 9..=12 {
         cloud::open_period(pool, 2026, month)
             .await
@@ -170,6 +195,7 @@ async fn an_advance_is_paid_spent_and_partly_returned(pool: PgPool) {
             amount_minor: 700_000,
             posting_date: day(10),
             account_code: Some(TRAVEL_EXPENSE.into()),
+            category_code: Some(TRAVEL_CATEGORY.into()),
             cash_key: None,
             cash_qualifier: String::new(),
             evidence: Some("nota".into()),
@@ -193,6 +219,7 @@ async fn an_advance_is_paid_spent_and_partly_returned(pool: PgPool) {
                 amount_minor: 500_000,
                 posting_date: day(11),
                 account_code: None,
+                category_code: None,
                 cash_key: Some("cash".into()),
                 cash_qualifier: String::new(),
                 evidence: None,
@@ -214,6 +241,7 @@ async fn an_advance_is_paid_spent_and_partly_returned(pool: PgPool) {
             amount_minor: 300_000,
             posting_date: day(11),
             account_code: None,
+            category_code: None,
             cash_key: Some("cash".into()),
             cash_qualifier: String::new(),
             evidence: None,
@@ -519,23 +547,27 @@ async fn a_month_with_blockers_does_not_close_without_a_reason(pool: PgPool) {
     .execute(&mut *tx)
     .await
     .unwrap_or_else(|error| panic!("entry: {error}"));
-    for (index, (code, debit, credit)) in [
-        ("1011301001", 1_200_000_i64, 0_i64),
-        ("2012001001", 0, 1_200_000),
+    // `1401` declares `prepaid_kind` and `2101` declares nothing, so the raw
+    // rows carry exactly what a posting through the map would have carried.
+    for (index, (code, category, debit, credit)) in [
+        ("1401", Some("ASURANSI_BAYAR_DIMUKA"), 1_200_000_i64, 0_i64),
+        ("2101", None, 0, 1_200_000),
     ]
     .into_iter()
     .enumerate()
     {
         sqlx::query(
             "INSERT INTO journal_line
-               (line_id, entry_id, line_number, account_code, site_id, debit_minor, credit_minor)
-             VALUES ($1,$2,$3,$4,$5,$6,$7)",
+               (line_id, entry_id, line_number, account_code, site_id, category_code,
+                debit_minor, credit_minor)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
         )
         .bind(uuid::Uuid::new_v4())
         .bind(entry_id)
         .bind(index as i32 + 1)
         .bind(code)
         .bind(SITE)
+        .bind(category)
         .bind(debit)
         .bind(credit)
         .execute(&mut *tx)
@@ -546,13 +578,26 @@ async fn a_month_with_blockers_does_not_close_without_a_reason(pool: PgPool) {
         .await
         .unwrap_or_else(|error| panic!("commit: {error}"));
 
-    map(&pool, "prepaid_expense", "", "1011301001").await;
+    map(
+        &pool,
+        "prepaid_expense",
+        "",
+        "1401",
+        Some("ASURANSI_BAYAR_DIMUKA"),
+    )
+    .await;
     cloud::prepaid_schedule_create(
         &pool,
         &cloud::CreatePrepaidScheduleRequest {
             site_id: SITE.into(),
-            prepaid_account_code: "1011301001".into(),
-            expense_account_code: "7010310001".into(),
+            prepaid_account_code: "1401".into(),
+            prepaid_category_code: Some("ASURANSI_BAYAR_DIMUKA".into()),
+            // `7010310001 Property All Risk & Fire Insurance` is `6301` now, and
+            // the schedule has to remember WHICH expense — a year from now,
+            // when it posts the last instalment, the account alone would say
+            // only "general and administrative".
+            expense_account_code: "6301".into(),
+            expense_category_code: Some("PROPERTY_ALL_RISK_FIRE_INSURANCE".into()),
             source_kind: "SUPPLIER_INVOICE".into(),
             source_id,
             amount_minor: 1_200_000,

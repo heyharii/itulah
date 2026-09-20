@@ -2120,6 +2120,15 @@ pub struct SaleFactTender {
     /// acquirer and to record on the day's document that it did.
     #[serde(default)]
     pub card_kind: Option<String>,
+    /// The hold the centre granted against the card this tender settles.
+    ///
+    /// Present only on a `VOUCHER` tender, and it is what lets the centre turn
+    /// the hold into a redemption when the sale fact lands: without it a card
+    /// would be held forever and never actually debited. `validate_tenders`
+    /// refuses a VOUCHER tender that has none, so a fact carrying one is a fact
+    /// that was authorised before the money moved.
+    #[serde(default)]
+    pub voucher_authorization_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]

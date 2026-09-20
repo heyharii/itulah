@@ -1,7 +1,7 @@
 package id.itulah.kasir.core
 
 /**
- * The retail-private EPC-96 this estate already speaks: header `0xA0`, the 11
+ * The retail-private EPC-96 this estate already speaks: header `0xA1`, the 11
  * SKU digits as BCD, then a 44-bit serial.
  *
  * The handheld DECODES only. Minting an EPC is the centre's job and stays there —
@@ -10,7 +10,7 @@ package id.itulah.kasir.core
  * all a sweep needs.
  */
 object Epc {
-    private const val HEADER = 0xA0
+    private const val HEADER = 0xA1
 
     data class Parts(val skuCode: String, val serial: Long)
 

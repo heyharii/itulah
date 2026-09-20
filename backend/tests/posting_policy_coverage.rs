@@ -17,11 +17,26 @@
 
 use sqlx::{PgPool, Row};
 
-/// The chart as it stood when the invariant was written (0268). Not asserted
-/// as an equality — the chart is expected to grow — but as a floor, so that a
-/// chain which somehow loaded no accounts at all cannot pass this file by
-/// having nothing to check.
-const POSTABLE_AT_0268: i64 = 186;
+/// The chart as it stands. Not asserted as an equality — the chart is expected
+/// to grow — but as a floor, so that a chain which somehow loaded no accounts
+/// at all cannot pass this file by having nothing to check.
+///
+/// Two sets, and the number is the sum of them. 0289 added the forty accounts
+/// the books post to from now on; 0290 did NOT delete the 190 the client's
+/// chart had, because `journal_line` is append-only and their postings are
+/// still theirs. They are `is_active = false`, `posting_mode = 'BLOCKED'` and
+/// `manual_je_policy = 'NO'` — retired, not gone — and they keep
+/// `posting_policy_configured = true`, because BLOCKED is a decision somebody
+/// made and not an absence of one.
+///
+/// `NOT is_group` is therefore 230 and not 40. That is the right thing for this
+/// gate to count: the invariant it keeps is "nothing postable sits on the
+/// permissive column default", and a retired account that lost its policy would
+/// be exactly as open as a new one that never had one.
+///
+/// 231 since 0296 added `8301 Biaya Lain-lain`: 41 live and 190 retired.
+// 0297 split returns from discounts and added the points liability: 43 live + 190 retired.
+const POSTABLE_AT_0297: i64 = 233;
 
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn every_postable_account_has_a_deliberate_posting_policy(pool: PgPool) {
@@ -68,8 +83,8 @@ async fn every_postable_account_has_a_deliberate_posting_policy(pool: PgPool) {
             .await
             .expect("count postable accounts");
     assert!(
-        postable >= POSTABLE_AT_0268,
-        "the chart holds {postable} postable accounts where 0268 left {POSTABLE_AT_0268}. \
+        postable >= POSTABLE_AT_0297,
+        "the chart holds {postable} postable accounts where 0297 left {POSTABLE_AT_0297}. \
          Accounts disappearing is not what this test is for, but a chain that loses the \
          chart would otherwise pass it with nothing to check",
     );
@@ -92,15 +107,37 @@ async fn a_heading_is_not_given_a_policy_it_cannot_use(pool: PgPool) {
     );
 }
 
+/// The owner's decision about the replacement reserve, and where it now is not.
+///
+/// The reserve's formation was ruled undecided and its draw-down approved, so
+/// the refusal is `DENY ASSET_RESERVE` per source kind rather than BLOCKED on
+/// the account: BLOCKED would refuse the draw-down as well. 0268 moved that row
+/// out of the seed script and into the chain, so a database that skipped the
+/// script no longer had the undecided path wide open.
+///
+/// This was red, and what it was red about is worth keeping written down. 0291
+/// said "`account_source_rule` and `account_category_policy` are already on the
+/// new codes". `account_category_policy` was; `account_source_rule` was not,
+/// and all four of its rows sat on accounts 0290 had retired:
+///
+///   * `1021607001 ASSET_RESERVE DENY` (0268) — this one
+///   * `1011302003 OPENING ALLOW` (0267) — see `posting_policy_integration`
+///   * `7010216002 AMORTIZATION_RUN ALLOW` and `OPENING ALLOW` (0267)
+///
+/// Four decisions about which documents may reach an account, silently not in
+/// force. Moving them was not mechanical either, and that was the harder half:
+/// the table was keyed on the ACCOUNT alone, and `1610` carries every
+/// operating-equipment class while `1402` carries every prepaid tax, so a deny
+/// or an allow-list copied across would have bound far more than the account it
+/// was written for. 0294 gave the table the grain
+/// `account_category_policy` already had — a nullable `category_code`, NULL
+/// meaning the whole account — and moved three of the four onto it. This one is
+/// genuinely about all of `1610`, so it moved as it stood.
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn the_reserve_refuses_its_undecided_source_without_the_seed(pool: PgPool) {
-    // 1021607001 Reserve Replacement Operating Equipment: the owner ruled the
-    // formation of the reserve undecided and the draw-down approved. The DENY
-    // row used to live in the seed script, so a database that skipped the
-    // script had the undecided path wide open.
     let effect: Option<String> = sqlx::query_scalar(
         "SELECT effect FROM account_source_rule
-          WHERE account_code = '1021607001' AND source_kind = 'ASSET_RESERVE'",
+          WHERE account_code = '1610' AND source_kind = 'ASSET_RESERVE'",
     )
     .fetch_optional(&pool)
     .await
@@ -109,15 +146,16 @@ async fn the_reserve_refuses_its_undecided_source_without_the_seed(pool: PgPool)
     assert_eq!(
         effect.as_deref(),
         Some("DENY"),
-        "the reserve's undecided formation path is not refused by the migrations alone",
+        "the reserve's undecided formation path is not refused by the migrations alone: \
+         0268 put the DENY on 1021607001 and 0290 retired that account without carrying \
+         the decision over to 1610",
     );
 
-    let mode: String = sqlx::query_scalar(
-        "SELECT posting_mode FROM ledger_account WHERE account_code = '1021607001'",
-    )
-    .fetch_one(&pool)
-    .await
-    .expect("read the reserve's posting mode");
+    let mode: String =
+        sqlx::query_scalar("SELECT posting_mode FROM ledger_account WHERE account_code = '1610'")
+            .fetch_one(&pool)
+            .await
+            .expect("read the reserve's posting mode");
 
     assert_ne!(
         mode, "BLOCKED",

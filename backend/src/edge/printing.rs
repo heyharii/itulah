@@ -27,7 +27,8 @@ use uuid::Uuid;
 
 use super::contracts::EdgeError;
 use super::zpl::{
-    preview_label, render_label_in, LabelBrand, LabelData, LabelSize, PrinterLanguage,
+    machine_prelude, preview_label, render_label_in, LabelBrand, LabelData, LabelSize,
+    PrinterLanguage,
 };
 
 /// The name printed on the top line of every tag.
@@ -67,8 +68,35 @@ pub struct OpenPrintSessionRequest {
     /// bench that has not chosen must not be guessed into TSPL.
     #[serde(default)]
     pub language: Option<PrinterLanguage>,
+    /// How hard the head burns, 0-30. Absent leaves the printer on whatever it
+    /// was last told, which is the honest default: this node cannot read the
+    /// machine's stored value back over a one-way queue, so saying nothing is
+    /// truer than guessing a number and overwriting a bench's own calibration.
+    #[serde(default)]
+    pub darkness: Option<i64>,
+    /// Inches per second. Absent for the same reason as [`Self::darkness`].
+    ///
+    /// The printer clamps to its own maximum without saying so, so a figure
+    /// accepted here is a figure asked for, never one confirmed.
+    #[serde(default)]
+    pub speed_ips: Option<i64>,
     #[serde(default)]
     pub actor_id: String,
+}
+
+impl OpenPrintSessionRequest {
+    /// The two machine settings, refused rather than clamped when absurd.
+    ///
+    /// A darkness of 40 is not a darkness somebody meant; sending it would have
+    /// the printer silently settle somewhere else and the bench would be tuning
+    /// against a number that was never in force. Out of range becomes None, so
+    /// the machine keeps what it had and the screen still shows what was typed.
+    fn machine(&self) -> (Option<i64>, Option<i64>) {
+        (
+            self.darkness.filter(|value| (0..=30).contains(value)),
+            self.speed_ips.filter(|value| (1..=12).contains(value)),
+        )
+    }
 }
 
 const fn default_printer_port() -> u16 {
@@ -260,6 +288,9 @@ pub struct ClaimedChunk {
     pub printer_host: String,
     pub printer_port: u16,
     pub labels: Vec<ClaimedLabel>,
+    /// What the machine is told before the labels, already in its language.
+    /// Empty when the bench has chosen nothing — see [`machine_prelude`].
+    pub prelude: String,
 }
 
 /// One label, rendered and ready for the socket.
@@ -417,13 +448,17 @@ pub fn open_session(
     let now = now_text();
     let total = i64::try_from(queued.len()).unwrap_or(i64::MAX);
 
+    // Refused rather than clamped when absurd: see `machine()`.
+    let (darkness, speed_ips) = request.machine();
+
     transaction
         .execute(
             "INSERT INTO print_session
                  (session_id,job_id,printer_host,printer_port,lang,
                   label_width_mm,label_height_mm,label_offset_mm,chunk_size,
-                  total_items,status,created_by,created_at,updated_at)
-             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,'OPEN',?11,?12,?12)",
+                  total_items,status,created_by,created_at,updated_at,
+                  darkness,speed_ips)
+             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,'OPEN',?11,?12,?12,?13,?14)",
             params![
                 session_id,
                 &request.job_id,
@@ -440,6 +475,8 @@ pub fn open_session(
                 total,
                 request.actor_id,
                 now,
+                darkness,
+                speed_ips,
             ],
         )
         .map_err(db)?;
@@ -689,7 +726,17 @@ pub fn claim_chunk(
 ) -> Result<ClaimedChunk, EdgeError> {
     let transaction = connection.transaction().map_err(db)?;
 
-    let (chunk_size, width_mm, height_mm, printer_host, printer_port, session_lang, offset_mm): (
+    let (
+        chunk_size,
+        width_mm,
+        height_mm,
+        printer_host,
+        printer_port,
+        session_lang,
+        offset_mm,
+        darkness,
+        speed_ips,
+    ): (
         i64,
         i64,
         i64,
@@ -697,10 +744,12 @@ pub fn claim_chunk(
         i64,
         String,
         i64,
+        Option<i64>,
+        Option<i64>,
     ) = transaction
         .query_row(
             "SELECT chunk_size,label_width_mm,label_height_mm,printer_host,
-                    printer_port,lang,label_offset_mm
+                    printer_port,lang,label_offset_mm,darkness,speed_ips
                FROM print_session WHERE session_id = ?1",
             params![session_id],
             |row| {
@@ -712,6 +761,8 @@ pub fn claim_chunk(
                     row.get(4)?,
                     row.get(5)?,
                     row.get(6)?,
+                    row.get(7)?,
+                    row.get(8)?,
                 ))
             },
         )
@@ -819,6 +870,7 @@ pub fn claim_chunk(
         printer_host,
         printer_port: u16::try_from(printer_port).unwrap_or(9100),
         labels: claimed,
+        prelude: machine_prelude(language, darkness, speed_ips),
     })
 }
 
@@ -1185,7 +1237,12 @@ pub fn reprint(
 /// Never returns an error. A printer that is off, jammed, or absent is an
 /// ordinary Tuesday, and every label it did not take must come back as a
 /// FAILED row that can be retried — not as a request that blew up.
-pub fn dispatch_chunk(host: &str, port: u16, labels: &[ClaimedLabel]) -> Vec<PrintOutcomeRecord> {
+pub fn dispatch_chunk(
+    host: &str,
+    port: u16,
+    labels: &[ClaimedLabel],
+    prelude: &str,
+) -> Vec<PrintOutcomeRecord> {
     let addresses = match resolve_printer(host, port) {
         Ok(addresses) => addresses,
         Err(error) => {
@@ -1199,6 +1256,14 @@ pub fn dispatch_chunk(host: &str, port: u16, labels: &[ClaimedLabel]) -> Vec<Pri
                 .collect();
         }
     };
+
+    // The machine settings go first, once, and their failure is not a label's
+    // failure. A printer that would not take `~SD` still prints — darker or
+    // lighter than asked, which is a tuning complaint — so counting this as a
+    // failed EPC would put a garment back in the queue over a shade.
+    if !prelude.is_empty() {
+        let _ = send_one(&addresses, prelude.as_bytes());
+    }
 
     labels
         .iter()
@@ -1470,7 +1535,7 @@ mod tests {
             }
         }
         for index in 0..count {
-            let epc = format!("A0123456781230000000{index:04}");
+            let epc = format!("A1123456781230000000{index:04}");
             if let Err(error) = connection.execute(
                 "INSERT INTO tagging_job_epc(epc,job_id,sku_code)
                  VALUES(?1,'job-1','12345678123')",
@@ -1493,9 +1558,9 @@ mod tests {
              VALUES('job-1','12345678207','2','Merah','07','XXL',1,
                     'R1:12345678207','812345678207',129000)",
             "INSERT INTO tagging_job_epc(epc,job_id,sku_code)
-             VALUES('A01234567812300000000001','job-1','12345678123')",
+             VALUES('A11234567812300000000001','job-1','12345678123')",
             "INSERT INTO tagging_job_epc(epc,job_id,sku_code)
-             VALUES('A01234567820700000000002','job-1','12345678207')",
+             VALUES('A11234567820700000000002','job-1','12345678207')",
         ];
         for statement in statements {
             if let Err(error) = connection.execute(statement, []) {
@@ -1701,7 +1766,7 @@ mod tests {
     #[test]
     fn an_unreachable_printer_fails_every_label_instead_of_the_request() {
         let labels = [ClaimedLabel {
-            epc: "A01234567812300000000064".into(),
+            epc: "A11234567812300000000064".into(),
             seq: 1,
             sku_code: "12345678123".into(),
             attempts: 1,
@@ -1920,7 +1985,7 @@ mod tests {
         // Its first label, not an error. Somebody holding a printed tag and
         // asking "is this what we sent?" is exactly who needs this.
         assert_eq!(drawn.source, "SESSION");
-        assert_eq!(drawn.epc, "A0123456781230000000".to_string() + "0000");
+        assert_eq!(drawn.epc, "A1123456781230000000".to_string() + "0000");
     }
 
     #[test]
@@ -2072,7 +2137,7 @@ mod tests {
             &opened.session_id,
             ReprintRequest {
                 // Lower case, as a reader hands it over.
-                epcs: vec!["a0123456781230000000".to_string() + "0003"],
+                epcs: vec!["a1123456781230000000".to_string() + "0003"],
                 ..ReprintRequest::default()
             },
         ) {
@@ -2088,10 +2153,10 @@ mod tests {
         // And it is the same EPC that goes back on the printer, not a new one.
         let labels = claim(&mut connection, &opened.session_id);
         assert_eq!(labels.len(), 1);
-        assert_eq!(labels[0].epc, "A01234567812300000000003");
+        assert_eq!(labels[0].epc, "A11234567812300000000003");
         assert!(labels[0]
             .zpl
-            .contains("^RFW,H,1,12,1^FDA01234567812300000000003"));
+            .contains("^RFW,H,1,12,1^FDA11234567812300000000003"));
         // Its history follows it: this is the label's second pass.
         assert_eq!(labels[0].attempts, 2);
     }

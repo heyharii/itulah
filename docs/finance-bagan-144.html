@@ -1,0 +1,936 @@
+<!DOCTYPE html><html lang="id"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>Bagan 144 — Manual atau Otomatis</title>
+<style>
+:root{--paper:#fbfaf8;--panel:#fff;--ink:#15181c;--ink2:#5b6470;--ink3:#8b95a1;--line:#e6e3dd;--line2:#f2f0ec;
+ --auto:#0e7c66;--auto-bg:#ddf2ee;--semi:#2f6bb0;--semi-bg:#e3edf8;--man:#9a6a00;--man-bg:#fbf0dc;
+ --unit:#7a3f9e;--unit-bg:#f1e8f7;--ho:#1f6f8b;--ho-bg:#e2f0f5;
+ --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--paper:#101317;--panel:#171b21;--ink:#e8eaed;
+ --ink2:#a4adb8;--ink3:#727d8a;--line:#262c34;--line2:#1d232a;
+ --auto:#4ade9f;--auto-bg:#11302b;--semi:#7db4ea;--semi-bg:#162537;--man:#e0b64a;--man-bg:#2c2416;
+ --unit:#c79ae8;--unit-bg:#271a33;--ho:#7fc4dd;--ho-bg:#142a33}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.5 ui-sans-serif,-apple-system,"Segoe UI",Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1120px;margin:0 auto;padding:0 16px}
+header{padding:42px 0 22px}
+h1{margin:0 0 10px;font-size:clamp(25px,4vw,34px);letter-spacing:-.02em}
+.lede{margin:0 0 22px;max-width:64ch;color:var(--ink2);font-size:15.5px}
+.sum{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin-bottom:8px}
+.lg{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:13px 15px}
+.lg p{margin:7px 0 0;font-size:12.5px;color:var(--ink2);line-height:1.5}
+.tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:22px 0 14px;position:sticky;top:0;
+ background:color-mix(in srgb,var(--paper) 93%,transparent);backdrop-filter:blur(8px);padding:10px 0;z-index:5}
+.chip{display:inline-flex;align-items:center;gap:7px;padding:6px 12px;border:1px solid var(--line);border-radius:99px;
+ background:var(--panel);color:var(--ink2);font:inherit;font-size:12.5px;cursor:pointer}
+.chip b{color:var(--ink)} .chip[aria-pressed="true"]{border-color:var(--ink2);color:var(--ink)}
+.chip i{width:8px;height:8px;border-radius:99px;display:inline-block}
+.m-auto{background:var(--auto)} .m-semi{background:var(--semi)} .m-man{background:var(--man)}
+#q{flex:1;min-width:180px;padding:7px 13px;border:1px solid var(--line);border-radius:99px;background:var(--panel);color:var(--ink);font:inherit;font-size:13px}
+table{width:100%;border-collapse:collapse;margin-bottom:50px}
+th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink3);
+ font-weight:650;padding:0 10px 8px;border-bottom:1px solid var(--line)}
+td{padding:8px 10px;border-bottom:1px solid var(--line2);font-size:13.5px;vertical-align:top}
+tr.grp td{background:var(--panel);font:650 11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;
+ color:var(--ink3);padding:14px 10px 9px;border-bottom:1px solid var(--line)}
+tr.grp span{font-weight:400;text-transform:none;letter-spacing:0}
+.code{font:600 12px var(--mono);color:var(--ink2);white-space:nowrap}
+.nm{font-weight:500}
+.note{font-size:11.5px;color:var(--ink3);font-weight:400;margin-top:2px}
+.grp2{font-size:11.5px;color:var(--ink3);max-width:190px}
+.who2{font-size:12px;color:var(--ink2);white-space:nowrap}
+.mode{display:inline-block;font-size:11px;font-weight:600;padding:2px 9px;border-radius:99px;white-space:nowrap}
+.mode.m-auto{background:var(--auto-bg);color:var(--auto)}
+.mode.m-semi{background:var(--semi-bg);color:var(--semi)}
+.mode.m-man{background:var(--man-bg);color:var(--man)}
+.cust{display:inline-block;font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:4px;white-space:nowrap}
+.cust.c-unit{background:var(--unit-bg);color:var(--unit)}
+.cust.c-ho{background:var(--ho-bg);color:var(--ho)}
+@media (max-width:820px){.grp2,th.grp2h{display:none}}
+</style></head><body><div class="wrap">
+<header>
+<h1>Bagan 144 akun — mana yang otomatis, mana yang masih manual</h1>
+<p class="lede">Seed produksi terkunci 19 September 2026: 144 akun turunan klien, ditambah <i>Hutang Voucher</i>
+dan <i>Biaya Lain-lain</i>, dikurangi <i>Hutang Lain-lain</i> lama dan
+<i>Hutang Supplier Barang Dagang&nbsp;- Suspend</i>.
+Kolom <b>kebijakan</b> menjawab pertanyaan "siapa boleh menulis akun ini".</p>
+<div class="sum"><div class="lg"><span class="mode m-auto">otomatis penuh</span><p>Hanya aturan posting. Tidak ada manusia — termasuk Finance HO — yang bisa menjurnalnya dengan tangan.</p></div><div class="lg"><span class="mode m-semi">mesin + koreksi</span><p>Biasanya ditulis mesin. Orang hanya bisa menyentuhnya lewat koreksi bertanda tangan yang disetujui orang kedua.</p></div><div class="lg"><span class="mode m-man">jurnal manual</span><p>Finance HO boleh menjurnalnya langsung. Inilah akun-akun yang &#x27;loose&#x27; sampai modulnya ada.</p></div></div>
+</header>
+<div class="tools"><button class="chip" data-f="AUTO"><i class="m-auto"></i>otomatis penuh <b>29</b></button><button class="chip" data-f="SEMI"><i class="m-semi"></i>mesin + koreksi <b>43</b></button><button class="chip" data-f="MANUAL"><i class="m-man"></i>jurnal manual <b>72</b></button><input id="q" type="search" placeholder="Cari nama akun atau kode…"></div>
+<table><thead><tr><th>Kode</th><th>Nama akun</th><th class="grp2h">Grup klien</th><th>Custody</th><th>Kebijakan</th><th>Ditulis oleh</th></tr></thead>
+<tbody><tr class="grp"><td colspan="6">1 — Aktiva <span>49 akun</span></td></tr><tr data-mode="AUTO" data-root="1" data-q="cash on hand kas &amp; setara kas 1101">
+<td class="code">1101</td>
+<td class="nm">CASH ON HAND</td>
+<td class="grp2">KAS &amp; SETARA KAS</td>
+<td><span class="cust c-unit">kas unit</span></td>
+<td><span class="mode m-auto">otomatis penuh</span></td>
+<td class="who2">dokumen unit → mesin</td></tr><tr data-mode="AUTO" data-root="1" data-q="petty cash kas &amp; setara kas 1102">
+<td class="code">1102</td>
+<td class="nm">PETTY CASH</td>
+<td class="grp2">KAS &amp; SETARA KAS</td>
+<td><span class="cust c-unit">kas unit</span></td>
+<td><span class="mode m-auto">otomatis penuh</span></td>
+<td class="who2">dokumen unit → mesin</td></tr><tr data-mode="AUTO" data-root="1" data-q="modal kasir kas &amp; setara kas 1103">
+<td class="code">1103</td>
+<td class="nm">MODAL KASIR</td>
+<td class="grp2">KAS &amp; SETARA KAS</td>
+<td><span class="cust c-unit">kas unit</span></td>
+<td><span class="mode m-auto">otomatis penuh</span></td>
+<td class="who2">dokumen unit → mesin</td></tr><tr data-mode="SEMI" data-root="1" data-q="bank - giro kas &amp; setara kas 1104">
+<td class="code">1104</td>
+<td class="nm">Bank - Giro</td>
+<td class="grp2">KAS &amp; SETARA KAS</td>
+<td><span class="cust c-ho">bank HO</span></td>
+<td><span class="mode m-semi">mesin + koreksi</span></td>
+<td class="who2">dokumen HO → mesin</td></tr><tr data-mode="SEMI" data-root="1" data-q="bank - tabungan kas &amp; setara kas 1105">
+<td class="code">1105</td>
+<td class="nm">Bank - Tabungan</td>
+<td class="grp2">KAS &amp; SETARA KAS</td>
+<td><span class="cust c-ho">bank HO</span></td>
+<td><span class="mode m-semi">mesin + koreksi</span></td>
+<td class="who2">dokumen HO → mesin</td></tr><tr data-mode="SEMI" data-root="1" data-q="deposito berjangka kas &amp; setara kas 1106">
+<td class="code">1106</td>
+<td class="nm">Deposito Berjangka</td>
+<td class="grp2">KAS &amp; SETARA KAS</td>
+<td><span class="cust c-ho">bank HO</span></td>
+<td><span class="mode m-semi">mesin + koreksi</span></td>
+<td class="who2">dokumen HO → mesin</td></tr><tr data-mode="AUTO" data-root="1" data-q="piutang acquirer kartu piutang 1201">
+<td class="code">1201</td>
+<td class="nm">Piutang Acquirer Kartu</td>
+<td class="grp2">PIUTANG</td>
+<td></td>
+<td><span class="mode m-auto">otomatis penuh</span></td>
+<td class="who2">mesin saja</td></tr><tr data-mode="SEMI" data-root="1" data-q="piutang pegawai dan manajemen piutang 1202">
+<td class="code">1202</td>
+<td class="nm">Piutang Pegawai dan Manajemen</td>
+<td class="grp2">PIUTANG</td>
+<td></td>
+<td><span class="mode m-semi">mesin + koreksi</span></td>
+<td class="who2">mesin; orang lewat koreksi</td></tr><tr data-mode="AUTO" data-root="1" data-q="cadangan piutang acquirer kartu piutang 1203">
+<td class="code">1203</td>
+<td class="nm">Cadangan Piutang Acquirer Kartu</td>
+<td class="grp2">PIUTANG</td>
+<td></td>
+<td><span class="mode m-auto">otomatis penuh</span></td>
+<td class="who2">mesin saja</td></tr><tr data-mode="SEMI" data-root="1" data-q="cadangan piutang pegawai piutang 1204">
+<td class="code">1204</td>
+<td class="nm">Cadangan Piutang Pegawai</td>
+<td class="grp2">PIUTANG</td>
+<td></td>
+<td><span class="mode m-semi">mesin + koreksi</span></td>
+<td class="who2">mesin; orang lewat koreksi</td></tr><tr data-mode="AUTO" data-root="1" data-q="persediaan barang dagangan inventory 1301">
+<td class="code">1301</td>
+<td class="nm">Persediaan Barang Dagangan</td>
+<td class="grp2">INVENTORY</td>
+<td></td>
+<td><span class="mode m-auto">otomatis penuh</span></td>
+<td class="who2">mesin saja</td></tr><tr data-mode="AUTO" data-root="1" data-q="persediaan kantong belanja inventory 1302">
+<td class="code">1302</td>
+<td class="nm">Persediaan Kantong Belanja</td>
+<td class="grp2">INVENTORY</td>
+<td></td>
+<td><span class="mode m-auto">otomatis penuh</span></td>
+<td class="who2">mesin saja</td></tr><tr data-mode="AUTO" data-root="1" data-q="barang dagangan dalam perjalanan inventory 1303">
+<td class="code">1303</td>
+<td class="nm">Barang Dagangan dalam Perjalanan</td>
+<td class="grp2">INVENTORY</td>
+<td></td>
+<td><span class="mode m-auto">otomatis penuh</span></td>
+<td class="who2">mesin saja</td></tr><tr data-mode="AUTO" data-root="1" data-q="kantong belanja dalam perjalanan inventory 1304">
+<td class="code">1304</td>
+<td class="nm">Kantong Belanja dalam Perjalanan</td>
+<td class="grp2">INVENTORY</td>
+<td></td>
+<td><span class="mode m-auto">otomatis penuh</span></td>
+<td class="who2">mesin saja</td></tr><tr data-mode="AUTO" data-root="1" data-q="cadangan kerusakan/kehilangan persediaan inventory 1305">
+<td class="code">1305</td>
+<td class="nm">Cadangan Kerusakan/Kehilangan Persediaan</td>
+<td class="grp2">INVENTORY</td>
+<td></td>
+<td><span class="mode m-auto">otomatis penuh</span></td>
+<td class="who2">mesin saja</td></tr><tr data-mode="SEMI" data-root="1" data-q="biaya dibayar dimuka prepaid 1401">
+<td class="code">1401</td>
+<td class="nm">Biaya Dibayar Dimuka</td>
+<td class="grp2">PREPAID</td>
+<td></td>
+<td><span class="mode m-semi">mesin + koreksi</span></td>
+<td class="who2">mesin; orang lewat koreksi</td></tr><tr data-mode="SEMI" data-root="1" data-q="sewa dibayar dimuka prepaid 1402">
+<td class="code">1402</td>
+<td class="nm">Sewa Dibayar Dimuka</td>
+<td class="grp2">PREPAID</td>
+<td></td>
+<td><span class="mode m-semi">mesin + koreksi</span></td>
+<td class="who2">mesin; orang lewat koreksi</td></tr><tr data-mode="SEMI" data-root="1" data-q="kredit/pajak penghasilan dibayar dimuka prepaid 1403">
+<td class="code">1403</td>
+<td class="nm">Kredit/Pajak Penghasilan Dibayar Dimuka</td>
+<td class="grp2">PREPAID</td>
+<td></td>
+<td><span class="mode m-semi">mesin + koreksi</span></td>
+<td class="who2">mesin; orang lewat koreksi</td></tr><tr data-mode="SEMI" data-root="1" data-q="ppn masukan prepaid 1404">
+<td class="code">1404</td>
+<td class="nm">PPN Masukan</td>
+<td class="grp2">PREPAID</td>
+<td></td>
+<td><span class="mode m-semi">mesin + koreksi</span></td>
+<td class="who2">mesin; orang lewat koreksi</td></tr><tr data-mode="SEMI" data-root="1" data-q="pbb dibayar dimuka prepaid 1405">
+<td class="code">1405</td>
+<td class="nm">PBB Dibayar Dimuka</td>
+<td class="grp2">PREPAID</td>
+<td></td>
+<td><span class="mode m-semi">mesin + koreksi</span></td>
+<td class="who2">mesin; orang lewat koreksi</td></tr><tr data-mode="SEMI" data-root="1" data-q="pajak lain dibayar dimuka prepaid 1406">
+<td class="code">1406</td>
+<td class="nm">Pajak Lain Dibayar Dimuka</td>
+<td class="grp2">PREPAID</td>
+<td></td>
+<td><span class="mode m-semi">mesin + koreksi</span></td>
+<td class="who2">mesin; orang lewat koreksi</td></tr><tr data-mode="SEMI" data-root="1" data-q="uang muka karyawan/perjalanan prepaid 1407">
+<td class="code">1407</td>
+<td class="nm">Uang Muka Karyawan/Perjalanan</td>
+<td class="grp2">PREPAID</td>
+<td></td>
+<td><span class="mode m-semi">mesin + koreksi</span></td>
+<td class="who2">mesin; orang lewat koreksi</td></tr><tr data-mode="SEMI" data-root="1" data-q="uang muka supplier/kontraktor prepaid 1408">
+<td class="code">1408</td>
+<td class="nm">Uang Muka Supplier/Kontraktor</td>
+<td class="grp2">PREPAID</td>
+<td></td>
+<td><span class="mode m-semi">mesin + koreksi</span></td>
+<td class="who2">mesin; orang lewat koreksi</td></tr><tr data-mode="SEMI" data-root="1" data-q="uang muka lainnya prepaid 1409">
+<td class="code">1409</td>
+<td class="nm">Uang Muka Lainnya</td>
+<td class="grp2">PREPAID</td>
+<td></td>
+<td><span class="mode m-semi">mesin + koreksi</span></td>
+<td class="who2">mesin; orang lewat koreksi</td></tr><tr data-mode="AUTO" data-root="1" data-q="saldo affiliasi pembiayaan piutang  affiliasi antar unit 1501">
+<td class="code">1501</td>
+<td class="nm">Saldo Affiliasi Pembiayaan</td>
+<td class="grp2">PIUTANG  AFFILIASI ANTAR UNIT</td>
+<td></td>
+<td><span class="mode m-auto">otomatis penuh</span></td>
+<td class="who2">mesin saja</td></tr><tr data-mode="AUTO" data-root="1" data-q="saldo affiliasi atas barang piutang  affiliasi antar unit 1502">
+<td class="code">1502</td>
+<td class="nm">Saldo Affiliasi Atas Barang</td>
+<td class="grp2">PIUTANG  AFFILIASI ANTAR UNIT</td>
+<td></td>
+<td><span class="mode m-auto">otomatis penuh</span></td>
+<td class="who2">mesin saja</td></tr><tr data-mode="AUTO" data-root="1" data-q="saldo affiliasi lain-lain piutang  affiliasi antar unit 1503">
+<td class="code">1503</td>
+<td class="nm">Saldo Affiliasi Lain-lain</td>
+<td class="grp2">PIUTANG  AFFILIASI ANTAR UNIT</td>
+<td></td>
+<td><span class="mode m-auto">otomatis penuh</span></td>
+<td class="who2">mesin saja</td></tr><tr data-mode="SEMI" data-root="1" data-q="tanah hak milik aktiva tetap 1601">
+<td class="code">1601</td>
+<td class="nm">Tanah Hak Milik</td>
+<td class="grp2">AKTIVA TETAP</td>
+<td></td>
+<td><span class="mode m-semi">mesin + koreksi</span></td>
+<td class="who2">mesin; orang lewat koreksi</td></tr><tr data-mode="SEMI" data-root="1" data-q="hak sewa tanah / hgb aktiva tetap 1602">
+<td class="code">1602</td>
+<td class="nm">Hak Sewa Tanah / HGB</td>
+<td class="grp2">AKTIVA TETAP</td>
+<td></td>
+<td><span class="mode m-semi">mesin + koreksi</span></td>
+<td class="who2">mesin; orang lewat koreksi</td></tr><tr data-mode="SEMI" data-root="1" data-q="bangunan aktiva tetap 1603">
+<td class="code">1603</td>
+<td class="nm">Bangunan</td>
+<td class="grp2">AKTIVA TETAP</td>
+<td></td>
+<td><span class="mode m-semi">mesin + koreksi</span></td>
+<td class="who2">mesin; orang lewat koreksi</td></tr><tr data-mode="SEMI" data-root="1" data-q="instalasi mekanikal dan elektrikal aktiva tetap 1604">
+<td class="code">1604</td>
+<td class="nm">Instalasi Mekanikal dan Elektrikal</td>
+<td class="grp2">AKTIVA TETAP</td>
+<td></td>
+<td><span class="mode m-semi">mesin + koreksi</span></td>
+<td class="who2">mesin; orang lewat koreksi</td></tr><tr data-mode="SEMI" data-root="1" data-q="mesin dan peralatan aktiva tetap 1605">
+<td class="code">1605</td>
+<td class="nm">Mesin dan Peralatan</td>
+<td class="grp2">AKTIVA TETAP</td>
+<td></td>
+<td><span class="mode m-semi">mesin + koreksi</span></td>
+<td class="who2">mesin; orang lewat koreksi</td></tr><tr data-mode="SEMI" data-root="1" data-q="kendaraan aktiva tetap 1606">
+<td class="code">1606</td>
+<td class="nm">Kendaraan</td>
+<td class="grp2">AKTIVA TETAP</td>
+<td></td>
+<td><span class="mode m-semi">mesin + koreksi</span></td>
+<td class="who2">mesin; orang lewat koreksi</td></tr><tr data-mode="SEMI" data-root="1" data-q="furniture, fixture and equipment aktiva tetap 1607">
+<td class="code">1607</td>
+<td class="nm">Furniture, Fixture and Equipment</td>
+<td class="grp2">AKTIVA TETAP</td>
+<td></td>
+<td><span class="mode m-semi">mesin + koreksi</span></td>
+<td class="who2">mesin; orang lewat koreksi</td></tr><tr data-mode="SEMI" data-root="1" data-q="operating equipment aktiva tetap 1608">
+<td class="code">1608</td>
+<td class="nm">Operating Equipment</td>
+<td class="grp2">AKTIVA TETAP</td>
+<td></td>
+<td><span class="mode m-semi">mesin + koreksi</span></td>
+<td class="who2">mesin; orang lewat koreksi</td></tr><tr data-mode="AUTO" data-root="1" data-q="akumulasi amortisasi land right / hgb akumulasi penyusutan aktiva tetap 1701">
+<td class="code">1701</td>
+<td class="nm">Akumulasi Amortisasi Land Right / HGB</td>
+<td class="grp2">AKUMULASI PENYUSUTAN AKTIVA TETAP</td>
+<td></td>
+<td><span class="mode m-auto">otomatis penuh</span></td>
+<td class="who2">mesin saja</td></tr><tr data-mode="AUTO" data-root="1" data-q="akumulasi bangunan akumulasi penyusutan aktiva tetap 1702">
+<td class="code">1702</td>
+<td class="nm">Akumulasi Bangunan</td>
+<td class="grp2">AKUMULASI PENYUSUTAN AKTIVA TETAP</td>
+<td></td>
+<td><span class="mode m-auto">otomatis penuh</span></td>
+<td class="who2">mesin saja</td></tr><tr data-mode="AUTO" data-root="1" data-q="akumulasi instalasi mekanikal dan elektrikal akumulasi penyusutan aktiva tetap 1703">
+<td class="code">1703</td>
+<td class="nm">Akumulasi Instalasi Mekanikal dan Elektrikal</td>
+<td class="grp2">AKUMULASI PENYUSUTAN AKTIVA TETAP</td>
+<td></td>
+<td><span class="mode m-auto">otomatis penuh</span></td>
+<td class="who2">mesin saja</td></tr><tr data-mode="AUTO" data-root="1" data-q="akumulasi mesin dan peralatan akumulasi penyusutan aktiva tetap 1704">
+<td class="code">1704</td>
+<td class="nm">Akumulasi Mesin dan Peralatan</td>
+<td class="grp2">AKUMULASI PENYUSUTAN AKTIVA TETAP</td>
+<td></td>
+<td><span class="mode m-auto">otomatis penuh</span></td>
+<td class="who2">mesin saja</td></tr><tr data-mode="AUTO" data-root="1" data-q="akumulasi aset lainnya akumulasi penyusutan aktiva tetap 1705">
+<td class="code">1705</td>
+<td class="nm">Akumulasi Aset Lainnya</td>
+<td class="grp2">AKUMULASI PENYUSUTAN AKTIVA TETAP</td>
+<td></td>
+<td><span class="mode m-auto">otomatis penuh</span></td>
+<td class="who2">mesin saja</td></tr><tr data-mode="AUTO" data-root="1" data-q="akumulasi kendaraan akumulasi penyusutan aktiva tetap 1706">
+<td class="code">1706</td>
+<td class="nm">Akumulasi Kendaraan</td>
+<td class="grp2">AKUMULASI PENYUSUTAN AKTIVA TETAP</td>
+<td></td>
+<td><span class="mode m-auto">otomatis penuh</span></td>
+<td class="who2">mesin saja</td></tr><tr data-mode="AUTO" data-root="1" data-q="akumulasi furniture, fixture and equipment akumulasi penyusutan aktiva tetap 1707">
+<td class="code">1707</td>
+<td class="nm">Akumulasi Furniture, Fixture and Equipment</td>
+<td class="grp2">AKUMULASI PENYUSUTAN AKTIVA TETAP</td>
+<td></td>
+<td><span class="mode m-auto">otomatis penuh</span></td>
+<td class="who2">mesin saja</td></tr><tr data-mode="SEMI" data-root="1" data-q="biaya replacement oe akumulasi penyusutan aktiva tetap 1708">
+<td class="code">1708</td>
+<td class="nm">Biaya Replacement OE</td>
+<td class="grp2">AKUMULASI PENYUSUTAN AKTIVA TETAP</td>
+<td></td>
+<td><span class="mode m-semi">mesin + koreksi</span></td>
+<td class="who2">mesin; orang lewat koreksi</td></tr><tr data-mode="SEMI" data-root="1" data-q="software / intangible asset intangible asset 1801">
+<td class="code">1801</td>
+<td class="nm">Software / Intangible Asset</td>
+<td class="grp2">INTANGIBLE ASSET</td>
+<td></td>
+<td><span class="mode m-semi">mesin + koreksi</span></td>
+<td class="who2">mesin; orang lewat koreksi</td></tr><tr data-mode="AUTO" data-root="1" data-q="akumulasi amortisasi software intangible asset 1802">
+<td class="code">1802</td>
+<td class="nm">Akumulasi Amortisasi Software</td>
+<td class="grp2">INTANGIBLE ASSET</td>
+<td></td>
+<td><span class="mode m-auto">otomatis penuh</span></td>
+<td class="who2">mesin saja</td></tr><tr data-mode="SEMI" data-root="1" data-q="disposed inventory other asset 1901">
+<td class="code">1901</td>
+<td class="nm">Disposed Inventory</td>
+<td class="grp2">Other Asset</td>
+<td></td>
+<td><span class="mode m-semi">mesin + koreksi</span></td>
+<td class="who2">mesin; orang lewat koreksi</td></tr><tr data-mode="SEMI" data-root="1" data-q="pre opening other asset 1902">
+<td class="code">1902</td>
+<td class="nm">Pre Opening</td>
+<td class="grp2">Other Asset</td>
+<td></td>
+<td><span class="mode m-semi">mesin + koreksi</span></td>
+<td class="who2">mesin; orang lewat koreksi</td></tr><tr data-mode="AUTO" data-root="1" data-q="akumulasi amortisasi pre opening other asset 1903">
+<td class="code">1903</td>
+<td class="nm">Akumulasi Amortisasi Pre Opening</td>
+<td class="grp2">Other Asset</td>
+<td></td>
+<td><span class="mode m-auto">otomatis penuh</span></td>
+<td class="who2">mesin saja</td></tr><tr data-mode="SEMI" data-root="1" data-q="contract in progress (cip) other asset 1904">
+<td class="code">1904</td>
+<td class="nm">Contract in Progress (CIP)</td>
+<td class="grp2">Other Asset</td>
+<td></td>
+<td><span class="mode m-semi">mesin + koreksi</span></td>
+<td class="who2">mesin; orang lewat koreksi</td></tr><tr class="grp"><td colspan="6">2 — Kewajiban <span>13 akun</span></td></tr><tr data-mode="SEMI" data-root="2" data-q="hutang suppliers  barang dagangan hutang dagang 2101">
+<td class="code">2101</td>
+<td class="nm">Hutang Suppliers  Barang Dagangan</td>
+<td class="grp2">HUTANG DAGANG</td>
+<td></td>
+<td><span class="mode m-semi">mesin + koreksi</span></td>
+<td class="who2">mesin; orang lewat koreksi</td></tr><tr data-mode="SEMI" data-root="2" data-q="hutang supplier  non barang dagang hutang dagang 2102">
+<td class="code">2102</td>
+<td class="nm">Hutang Supplier  Non Barang Dagang</td>
+<td class="grp2">HUTANG DAGANG</td>
+<td></td>
+<td><span class="mode m-semi">mesin + koreksi</span></td>
+<td class="who2">mesin; orang lewat koreksi</td></tr><tr data-mode="SEMI" data-root="2" data-q="outstanding giro hutang dagang 2103">
+<td class="code">2103</td>
+<td class="nm">Outstanding Giro</td>
+<td class="grp2">HUTANG DAGANG</td>
+<td></td>
+<td><span class="mode m-semi">mesin + koreksi</span></td>
+<td class="who2">mesin; orang lewat koreksi</td></tr><tr data-mode="SEMI" data-root="2" data-q="hutang pajak hutang pajak 2201">
+<td class="code">2201</td>
+<td class="nm">Hutang Pajak</td>
+<td class="grp2">HUTANG PAJAK</td>
+<td></td>
+<td><span class="mode m-semi">mesin + koreksi</span></td>
+<td class="who2">mesin; orang lewat koreksi</td></tr><tr data-mode="MANUAL" data-root="2" data-q="akrual pegawai dan imbalan kerja accrued expense (biaya yang masih harus dibayar) 2301">
+<td class="code">2301</td>
+<td class="nm">Akrual Pegawai dan Imbalan Kerja</td>
+<td class="grp2">ACCRUED EXPENSE (BIAYA YANG MASIH HARUS DIBAYAR)</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="2" data-q="akrual bunga pinjaman accrued expense (biaya yang masih harus dibayar) 2302">
+<td class="code">2302</td>
+<td class="nm">Akrual Bunga Pinjaman</td>
+<td class="grp2">ACCRUED EXPENSE (BIAYA YANG MASIH HARUS DIBAYAR)</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="2" data-q="akrual utilitas accrued expense (biaya yang masih harus dibayar) 2303">
+<td class="code">2303</td>
+<td class="nm">Akrual Utilitas</td>
+<td class="grp2">ACCRUED EXPENSE (BIAYA YANG MASIH HARUS DIBAYAR)</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="2" data-q="akrual sewa accrued expense (biaya yang masih harus dibayar) 2304">
+<td class="code">2304</td>
+<td class="nm">Akrual Sewa</td>
+<td class="grp2">ACCRUED EXPENSE (BIAYA YANG MASIH HARUS DIBAYAR)</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="2" data-q="hutang principal / pihak berelasi hutang lain-lain 2401">
+<td class="code">2401</td>
+<td class="nm">Hutang Principal / Pihak Berelasi</td>
+<td class="grp2">HUTANG LAIN-LAIN</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="AUTO" data-root="2" data-q="hutang voucher hutang lain-lain 2402">
+<td class="code">2402</td>
+<td class="nm">Hutang Voucher<div class="note">akun yang kita cetak sendiri (0277)</div></td>
+<td class="grp2">HUTANG LAIN-LAIN</td>
+<td></td>
+<td><span class="mode m-auto">otomatis penuh</span></td>
+<td class="who2">mesin saja</td></tr><tr data-mode="MANUAL" data-root="2" data-q="pinjaman principal pinjaman jangka panjang jatuh tempo 2501">
+<td class="code">2501</td>
+<td class="nm">Pinjaman Principal</td>
+<td class="grp2">PINJAMAN JANGKA PANJANG JATUH TEMPO</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="2" data-q="pinjaman bank pinjaman jangka panjang jatuh tempo 2502">
+<td class="code">2502</td>
+<td class="nm">Pinjaman Bank</td>
+<td class="grp2">PINJAMAN JANGKA PANJANG JATUH TEMPO</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="2" data-q="uang muka penjualan (tanpa nama) 2601">
+<td class="code">2601</td>
+<td class="nm">Uang Muka Penjualan</td>
+<td class="grp2">(tanpa nama)</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr class="grp"><td colspan="6">3 — Ekuitas <span>3 akun</span></td></tr><tr data-mode="MANUAL" data-root="3" data-q="modal disetor modal 3101">
+<td class="code">3101</td>
+<td class="nm">Modal Disetor</td>
+<td class="grp2">MODAL</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="AUTO" data-root="3" data-q="saldo laba modal 3102">
+<td class="code">3102</td>
+<td class="nm">Saldo Laba</td>
+<td class="grp2">MODAL</td>
+<td></td>
+<td><span class="mode m-auto">otomatis penuh</span></td>
+<td class="who2">mesin saja</td></tr><tr data-mode="MANUAL" data-root="3" data-q="prive/penarikan pemilik modal 3103">
+<td class="code">3103</td>
+<td class="nm">Prive/Penarikan Pemilik</td>
+<td class="grp2">MODAL</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr class="grp"><td colspan="6">4 — Pendapatan <span>4 akun</span></td></tr><tr data-mode="AUTO" data-root="4" data-q="penjualan barang dagangan penjualan 4101">
+<td class="code">4101</td>
+<td class="nm">Penjualan Barang Dagangan</td>
+<td class="grp2">PENJUALAN</td>
+<td></td>
+<td><span class="mode m-auto">otomatis penuh</span></td>
+<td class="who2">mesin saja</td></tr><tr data-mode="AUTO" data-root="4" data-q="discount / potongan penjualan discount / potongan dan return penjualan 4201">
+<td class="code">4201</td>
+<td class="nm">Discount / Potongan Penjualan</td>
+<td class="grp2">DISCOUNT / POTONGAN DAN RETURN PENJUALAN</td>
+<td></td>
+<td><span class="mode m-auto">otomatis penuh</span></td>
+<td class="who2">mesin saja</td></tr><tr data-mode="AUTO" data-root="4" data-q="retur penjualan discount / potongan dan return penjualan 4202">
+<td class="code">4202</td>
+<td class="nm">Retur Penjualan</td>
+<td class="grp2">DISCOUNT / POTONGAN DAN RETURN PENJUALAN</td>
+<td></td>
+<td><span class="mode m-auto">otomatis penuh</span></td>
+<td class="who2">mesin saja</td></tr><tr data-mode="MANUAL" data-root="4" data-q="management  fee management fee 4301">
+<td class="code">4301</td>
+<td class="nm">Management  Fee</td>
+<td class="grp2">MANAGEMENT FEE</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr class="grp"><td colspan="6">5 — Harga pokok <span>1 akun</span></td></tr><tr data-mode="AUTO" data-root="5" data-q="harga pokok pembelian / hpp harga pokok pembelian 5101">
+<td class="code">5101</td>
+<td class="nm">Harga Pokok Pembelian / HPP</td>
+<td class="grp2">HARGA POKOK PEMBELIAN</td>
+<td></td>
+<td><span class="mode m-auto">otomatis penuh</span></td>
+<td class="who2">mesin saja</td></tr><tr class="grp"><td colspan="6">6 — Beban usaha <span>52 akun</span></td></tr><tr data-mode="MANUAL" data-root="6" data-q="pendapatan lain-lain (tanpa nama) 6101">
+<td class="code">6101</td>
+<td class="nm">Pendapatan lain-lain</td>
+<td class="grp2">(tanpa nama)</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="biaya customer supplies beban penjualan 6201">
+<td class="code">6201</td>
+<td class="nm">Biaya Customer Supplies</td>
+<td class="grp2">BEBAN PENJUALAN</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="SEMI" data-root="6" data-q="biaya credit card beban penjualan 6202">
+<td class="code">6202</td>
+<td class="nm">Biaya Credit Card</td>
+<td class="grp2">BEBAN PENJUALAN</td>
+<td></td>
+<td><span class="mode m-semi">mesin + koreksi</span></td>
+<td class="who2">mesin; orang lewat koreksi</td></tr><tr data-mode="MANUAL" data-root="6" data-q="biaya promosi beban penjualan 6203">
+<td class="code">6203</td>
+<td class="nm">Biaya Promosi</td>
+<td class="grp2">BEBAN PENJUALAN</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="biaya dekorasi beban penjualan 6204">
+<td class="code">6204</td>
+<td class="nm">Biaya Dekorasi</td>
+<td class="grp2">BEBAN PENJUALAN</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="biaya advertising / iklan beban penjualan 6205">
+<td class="code">6205</td>
+<td class="nm">Biaya Advertising / Iklan</td>
+<td class="grp2">BEBAN PENJUALAN</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="biaya bongkar muat barang beban penjualan 6206">
+<td class="code">6206</td>
+<td class="nm">Biaya Bongkar Muat Barang</td>
+<td class="grp2">BEBAN PENJUALAN</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="biaya pengiriman barang/kurir/ekspedisi beban penjualan 6207">
+<td class="code">6207</td>
+<td class="nm">Biaya Pengiriman Barang/kurir/Ekspedisi</td>
+<td class="grp2">BEBAN PENJUALAN</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="SEMI" data-root="6" data-q="biaya kerusakan/kehilangan persediaan beban penjualan 6208">
+<td class="code">6208</td>
+<td class="nm">Biaya Kerusakan/Kehilangan Persediaan</td>
+<td class="grp2">BEBAN PENJUALAN</td>
+<td></td>
+<td><span class="mode m-semi">mesin + koreksi</span></td>
+<td class="who2">mesin; orang lewat koreksi</td></tr><tr data-mode="MANUAL" data-root="6" data-q="beban gaji beban penjualan 6209">
+<td class="code">6209</td>
+<td class="nm">Beban Gaji</td>
+<td class="grp2">BEBAN PENJUALAN</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="beban lembur beban penjualan 6210">
+<td class="code">6210</td>
+<td class="nm">Beban Lembur</td>
+<td class="grp2">BEBAN PENJUALAN</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="beban uang makan beban penjualan 6211">
+<td class="code">6211</td>
+<td class="nm">Beban Uang Makan</td>
+<td class="grp2">BEBAN PENJUALAN</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="beban transport beban penjualan 6212">
+<td class="code">6212</td>
+<td class="nm">Beban Transport</td>
+<td class="grp2">BEBAN PENJUALAN</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="beban kesehatan dan pengobatan beban penjualan 6213">
+<td class="code">6213</td>
+<td class="nm">Beban Kesehatan dan Pengobatan</td>
+<td class="grp2">BEBAN PENJUALAN</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="beban asuransi pegawai / bpjs beban penjualan 6214">
+<td class="code">6214</td>
+<td class="nm">Beban Asuransi Pegawai / BPJS</td>
+<td class="grp2">BEBAN PENJUALAN</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="beban thr beban penjualan 6215">
+<td class="code">6215</td>
+<td class="nm">Beban THR</td>
+<td class="grp2">BEBAN PENJUALAN</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="beban seragam kerja beban penjualan 6216">
+<td class="code">6216</td>
+<td class="nm">Beban Seragam Kerja</td>
+<td class="grp2">BEBAN PENJUALAN</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="beban sport dan rekreasi beban penjualan 6217">
+<td class="code">6217</td>
+<td class="nm">Beban Sport dan Rekreasi</td>
+<td class="grp2">BEBAN PENJUALAN</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="beban funeral contribution beban penjualan 6218">
+<td class="code">6218</td>
+<td class="nm">Beban Funeral Contribution</td>
+<td class="grp2">BEBAN PENJUALAN</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="beban pengembangan sdm beban penjualan 6219">
+<td class="code">6219</td>
+<td class="nm">Beban Pengembangan SDM</td>
+<td class="grp2">BEBAN PENJUALAN</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="beban pesangon beban penjualan 6220">
+<td class="code">6220</td>
+<td class="nm">Beban Pesangon</td>
+<td class="grp2">BEBAN PENJUALAN</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="beban komisi / bonus / insentif beban penjualan 6221">
+<td class="code">6221</td>
+<td class="nm">Beban Komisi / Bonus / Insentif</td>
+<td class="grp2">BEBAN PENJUALAN</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="biaya kebersihan (cleaning) beban administrasi dan umum 6301">
+<td class="code">6301</td>
+<td class="nm">Biaya Kebersihan (Cleaning)</td>
+<td class="grp2">BEBAN ADMINISTRASI DAN UMUM</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="alat tulis kantor &amp; barang cetakan beban administrasi dan umum 6302">
+<td class="code">6302</td>
+<td class="nm">Alat Tulis Kantor &amp; Barang Cetakan</td>
+<td class="grp2">BEBAN ADMINISTRASI DAN UMUM</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="biaya rumah tangga beban administrasi dan umum 6303">
+<td class="code">6303</td>
+<td class="nm">Biaya Rumah Tangga</td>
+<td class="grp2">BEBAN ADMINISTRASI DAN UMUM</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="biaya bank ho beban administrasi dan umum 6304">
+<td class="code">6304</td>
+<td class="nm">Biaya Bank HO</td>
+<td class="grp2">BEBAN ADMINISTRASI DAN UMUM</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="biaya telephone,facsimile, modem beban administrasi dan umum 6305">
+<td class="code">6305</td>
+<td class="nm">Biaya Telephone,Facsimile, Modem</td>
+<td class="grp2">BEBAN ADMINISTRASI DAN UMUM</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="biaya pemakaian listrik beban administrasi dan umum 6306">
+<td class="code">6306</td>
+<td class="nm">Biaya Pemakaian Listrik</td>
+<td class="grp2">BEBAN ADMINISTRASI DAN UMUM</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="biaya pemakaian air bersih (pdam) beban administrasi dan umum 6307">
+<td class="code">6307</td>
+<td class="nm">Biaya Pemakaian Air Bersih (PDAM)</td>
+<td class="grp2">BEBAN ADMINISTRASI DAN UMUM</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="biaya perjalanan dinas beban administrasi dan umum 6308">
+<td class="code">6308</td>
+<td class="nm">Biaya Perjalanan Dinas</td>
+<td class="grp2">BEBAN ADMINISTRASI DAN UMUM</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="biaya lokal transport beban administrasi dan umum 6309">
+<td class="code">6309</td>
+<td class="nm">Biaya Lokal Transport</td>
+<td class="grp2">BEBAN ADMINISTRASI DAN UMUM</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="biaya perijinan beban administrasi dan umum 6310">
+<td class="code">6310</td>
+<td class="nm">Biaya Perijinan</td>
+<td class="grp2">BEBAN ADMINISTRASI DAN UMUM</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="computer expenses beban administrasi dan umum 6311">
+<td class="code">6311</td>
+<td class="nm">Computer Expenses</td>
+<td class="grp2">BEBAN ADMINISTRASI DAN UMUM</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="biaya penyisihan kerugian piutang beban administrasi dan umum 6312">
+<td class="code">6312</td>
+<td class="nm">Biaya Penyisihan Kerugian Piutang</td>
+<td class="grp2">BEBAN ADMINISTRASI DAN UMUM</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="biaya perlengkapan toko dan kantor beban administrasi dan umum 6313">
+<td class="code">6313</td>
+<td class="nm">Biaya Perlengkapan Toko dan Kantor</td>
+<td class="grp2">BEBAN ADMINISTRASI DAN UMUM</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="biaya stock opname beban administrasi dan umum 6314">
+<td class="code">6314</td>
+<td class="nm">Biaya Stock Opname</td>
+<td class="grp2">BEBAN ADMINISTRASI DAN UMUM</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="biaya peralatan listrik beban administrasi dan umum 6315">
+<td class="code">6315</td>
+<td class="nm">Biaya Peralatan Listrik</td>
+<td class="grp2">BEBAN ADMINISTRASI DAN UMUM</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="tire &amp; tubes  expences beban administrasi dan umum 6316">
+<td class="code">6316</td>
+<td class="nm">Tire &amp; Tubes  Expences</td>
+<td class="grp2">BEBAN ADMINISTRASI DAN UMUM</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="f u e l  &amp; o i l  expences beban administrasi dan umum 6317">
+<td class="code">6317</td>
+<td class="nm">F u e l  &amp; O I l  Expences</td>
+<td class="grp2">BEBAN ADMINISTRASI DAN UMUM</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="t o o l s (peralatan) ekspences beban administrasi dan umum 6318">
+<td class="code">6318</td>
+<td class="nm">T o o l s (Peralatan) Ekspences</td>
+<td class="grp2">BEBAN ADMINISTRASI DAN UMUM</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="biaya lubrication &amp; grease, bahan bakar genset beban administrasi dan umum 6319">
+<td class="code">6319</td>
+<td class="nm">Biaya Lubrication &amp; Grease, Bahan Bakar Genset</td>
+<td class="grp2">BEBAN ADMINISTRASI DAN UMUM</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="biaya telephone equipment beban administrasi dan umum 6320">
+<td class="code">6320</td>
+<td class="nm">Biaya Telephone Equipment</td>
+<td class="grp2">BEBAN ADMINISTRASI DAN UMUM</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="biaya donasi (csr, zakat) beban administrasi dan umum 6321">
+<td class="code">6321</td>
+<td class="nm">Biaya Donasi (CSR, Zakat)</td>
+<td class="grp2">BEBAN ADMINISTRASI DAN UMUM</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="biaya konsultan beban administrasi dan umum 6322">
+<td class="code">6322</td>
+<td class="nm">Biaya Konsultan</td>
+<td class="grp2">BEBAN ADMINISTRASI DAN UMUM</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="biaya lisensi kendaraan ( stnk, uji kir) beban administrasi dan umum 6323">
+<td class="code">6323</td>
+<td class="nm">Biaya Lisensi Kendaraan ( STNK, Uji Kir)</td>
+<td class="grp2">BEBAN ADMINISTRASI DAN UMUM</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="biaya perlengkapan mess atau rumah dinas beban administrasi dan umum 6324">
+<td class="code">6324</td>
+<td class="nm">Biaya Perlengkapan Mess atau Rumah Dinas</td>
+<td class="grp2">BEBAN ADMINISTRASI DAN UMUM</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="miscellaneous expences beban administrasi dan umum 6325">
+<td class="code">6325</td>
+<td class="nm">Miscellaneous Expences</td>
+<td class="grp2">BEBAN ADMINISTRASI DAN UMUM</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="biaya pajak reklame beban administrasi dan umum 6326">
+<td class="code">6326</td>
+<td class="nm">Biaya Pajak Reklame<div class="note">dipindah dari 7020310</div></td>
+<td class="grp2">BEBAN ADMINISTRASI DAN UMUM</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="biaya management fee beban administrasi dan umum 6327">
+<td class="code">6327</td>
+<td class="nm">Biaya Management FEE<div class="note">dipindah dari 7020310</div></td>
+<td class="grp2">BEBAN ADMINISTRASI DAN UMUM</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="biaya asuransi kendaraan beban administrasi dan umum 6328">
+<td class="code">6328</td>
+<td class="nm">Biaya Asuransi Kendaraan<div class="note">dipindah dari 7020310</div></td>
+<td class="grp2">BEBAN ADMINISTRASI DAN UMUM</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="beban perbaikan dan pemeliharaan beban perawatan dan pemeliharaan 6401">
+<td class="code">6401</td>
+<td class="nm">Beban Perbaikan dan Pemeliharaan</td>
+<td class="grp2">BEBAN PERAWATAN DAN PEMELIHARAAN</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="6" data-q="beban pemeliharaan software beban perawatan dan pemeliharaan 6402">
+<td class="code">6402</td>
+<td class="nm">Beban Pemeliharaan Software</td>
+<td class="grp2">BEBAN PERAWATAN DAN PEMELIHARAAN</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr class="grp"><td colspan="6">7 — Beban sewa &amp; penyusutan <span>13 akun</span></td></tr><tr data-mode="MANUAL" data-root="7" data-q="biaya sewa tanah biaya sewa 7101">
+<td class="code">7101</td>
+<td class="nm">Biaya Sewa Tanah</td>
+<td class="grp2">BIAYA SEWA</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="7" data-q="biaya land right biaya sewa 7102">
+<td class="code">7102</td>
+<td class="nm">Biaya Land Right</td>
+<td class="grp2">BIAYA SEWA</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="7" data-q="biaya sewa bangunan toko dan gudang biaya sewa 7103">
+<td class="code">7103</td>
+<td class="nm">Biaya Sewa Bangunan Toko dan Gudang</td>
+<td class="grp2">BIAYA SEWA</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="7" data-q="biaya sewa rumah dinas / mess biaya sewa 7104">
+<td class="code">7104</td>
+<td class="nm">Biaya Sewa Rumah Dinas / Mess</td>
+<td class="grp2">BIAYA SEWA</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="SEMI" data-root="7" data-q="beban penyusutan/amortisasi bangunan biaya depresiasi dan amortisasi 7201">
+<td class="code">7201</td>
+<td class="nm">Beban Penyusutan/Amortisasi Bangunan</td>
+<td class="grp2">BIAYA DEPRESIASI DAN AMORTISASI</td>
+<td></td>
+<td><span class="mode m-semi">mesin + koreksi</span></td>
+<td class="who2">mesin; orang lewat koreksi</td></tr><tr data-mode="SEMI" data-root="7" data-q="beban penyusutan/amortisasi instalasi mekanikal dan elektrikal biaya depresiasi dan amortisasi 7202">
+<td class="code">7202</td>
+<td class="nm">Beban Penyusutan/Amortisasi Instalasi Mekanikal dan Elektrikal</td>
+<td class="grp2">BIAYA DEPRESIASI DAN AMORTISASI</td>
+<td></td>
+<td><span class="mode m-semi">mesin + koreksi</span></td>
+<td class="who2">mesin; orang lewat koreksi</td></tr><tr data-mode="SEMI" data-root="7" data-q="beban penyusutan/amortisasi mesin dan peralatan biaya depresiasi dan amortisasi 7203">
+<td class="code">7203</td>
+<td class="nm">Beban Penyusutan/Amortisasi Mesin dan Peralatan</td>
+<td class="grp2">BIAYA DEPRESIASI DAN AMORTISASI</td>
+<td></td>
+<td><span class="mode m-semi">mesin + koreksi</span></td>
+<td class="who2">mesin; orang lewat koreksi</td></tr><tr data-mode="SEMI" data-root="7" data-q="beban penyusutan/amortisasi kendaraan biaya depresiasi dan amortisasi 7204">
+<td class="code">7204</td>
+<td class="nm">Beban Penyusutan/Amortisasi Kendaraan</td>
+<td class="grp2">BIAYA DEPRESIASI DAN AMORTISASI</td>
+<td></td>
+<td><span class="mode m-semi">mesin + koreksi</span></td>
+<td class="who2">mesin; orang lewat koreksi</td></tr><tr data-mode="SEMI" data-root="7" data-q="beban penyusutan/amortisasi furniture, fixture and equipment biaya depresiasi dan amortisasi 7205">
+<td class="code">7205</td>
+<td class="nm">Beban Penyusutan/Amortisasi Furniture, Fixture and Equipment</td>
+<td class="grp2">BIAYA DEPRESIASI DAN AMORTISASI</td>
+<td></td>
+<td><span class="mode m-semi">mesin + koreksi</span></td>
+<td class="who2">mesin; orang lewat koreksi</td></tr><tr data-mode="SEMI" data-root="7" data-q="beban penyusutan/amortisasi software biaya depresiasi dan amortisasi 7206">
+<td class="code">7206</td>
+<td class="nm">Beban Penyusutan/Amortisasi Software</td>
+<td class="grp2">BIAYA DEPRESIASI DAN AMORTISASI</td>
+<td></td>
+<td><span class="mode m-semi">mesin + koreksi</span></td>
+<td class="who2">mesin; orang lewat koreksi</td></tr><tr data-mode="SEMI" data-root="7" data-q="biaya amortisasi pre opening biaya depresiasi dan amortisasi 7207">
+<td class="code">7207</td>
+<td class="nm">Biaya Amortisasi Pre Opening</td>
+<td class="grp2">BIAYA DEPRESIASI DAN AMORTISASI</td>
+<td></td>
+<td><span class="mode m-semi">mesin + koreksi</span></td>
+<td class="who2">mesin; orang lewat koreksi</td></tr><tr data-mode="MANUAL" data-root="7" data-q="property all risk &amp; fire insurance biaya usaha lainnya 7301">
+<td class="code">7301</td>
+<td class="nm">Property All Risk &amp; Fire Insurance</td>
+<td class="grp2">BIAYA USAHA LAINNYA</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="7" data-q="biaya pajak bumi dan bangunan  (pbb) biaya usaha lainnya 7302">
+<td class="code">7302</td>
+<td class="nm">Biaya Pajak Bumi Dan Bangunan  (PBB)</td>
+<td class="grp2">BIAYA USAHA LAINNYA</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr class="grp"><td colspan="6">8 — Pendapatan &amp; beban lain <span>9 akun</span></td></tr><tr data-mode="SEMI" data-root="8" data-q="pendapatan bunga bank pendapatan dan (biaya) lain - lain 8101">
+<td class="code">8101</td>
+<td class="nm">Pendapatan Bunga Bank</td>
+<td class="grp2">PENDAPATAN DAN (BIAYA) LAIN - LAIN</td>
+<td></td>
+<td><span class="mode m-semi">mesin + koreksi</span></td>
+<td class="who2">mesin; orang lewat koreksi</td></tr><tr data-mode="SEMI" data-root="8" data-q="selisih pembulatan pendapatan dan (biaya) lain - lain 8102">
+<td class="code">8102</td>
+<td class="nm">Selisih Pembulatan</td>
+<td class="grp2">PENDAPATAN DAN (BIAYA) LAIN - LAIN</td>
+<td></td>
+<td><span class="mode m-semi">mesin + koreksi</span></td>
+<td class="who2">mesin; orang lewat koreksi</td></tr><tr data-mode="AUTO" data-root="8" data-q="potongan pembelian pendapatan dan (biaya) lain - lain 8103">
+<td class="code">8103</td>
+<td class="nm">Potongan Pembelian</td>
+<td class="grp2">PENDAPATAN DAN (BIAYA) LAIN - LAIN</td>
+<td></td>
+<td><span class="mode m-auto">otomatis penuh</span></td>
+<td class="who2">mesin saja</td></tr><tr data-mode="MANUAL" data-root="8" data-q="pendapatan sewa pendapatan dan (biaya) lain - lain 8104">
+<td class="code">8104</td>
+<td class="nm">Pendapatan Sewa</td>
+<td class="grp2">PENDAPATAN DAN (BIAYA) LAIN - LAIN</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="8" data-q="pendapatan (biaya) lain-lain pendapatan dan (biaya) lain - lain 8105">
+<td class="code">8105</td>
+<td class="nm">Pendapatan (Biaya) Lain-lain</td>
+<td class="grp2">PENDAPATAN DAN (BIAYA) LAIN - LAIN</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="8" data-q="biaya lain-lain pendapatan dan (biaya) lain - lain 8106">
+<td class="code">8106</td>
+<td class="nm">Biaya Lain-lain<div class="note">pecahan dari Pendapatan (Biaya) Lain-Lain</div></td>
+<td class="grp2">PENDAPATAN DAN (BIAYA) LAIN - LAIN</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="8" data-q="beban bunga pinjaman bank biaya bunga 8201">
+<td class="code">8201</td>
+<td class="nm">Beban Bunga Pinjaman Bank</td>
+<td class="grp2">BIAYA BUNGA</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="MANUAL" data-root="8" data-q="beban bunga leasing biaya bunga 8202">
+<td class="code">8202</td>
+<td class="nm">Beban Bunga Leasing</td>
+<td class="grp2">BIAYA BUNGA</td>
+<td></td>
+<td><span class="mode m-man">jurnal manual</span></td>
+<td class="who2">Finance HO</td></tr><tr data-mode="SEMI" data-root="8" data-q="pajak penghasilan / beban pajak kini pajak penghasilan 8301">
+<td class="code">8301</td>
+<td class="nm">Pajak Penghasilan / Beban Pajak Kini</td>
+<td class="grp2">PAJAK PENGHASILAN</td>
+<td></td>
+<td><span class="mode m-semi">mesin + koreksi</span></td>
+<td class="who2">mesin; orang lewat koreksi</td></tr></tbody></table>
+</div><script>
+const rows=[...document.querySelectorAll('tbody tr[data-mode]')],gs=[...document.querySelectorAll('tr.grp')],
+ chips=[...document.querySelectorAll('.chip')],q=document.getElementById('q');let a=null;
+function ap(){const t=q.value.trim().toLowerCase();
+ rows.forEach(r=>{const ok=(!a||r.dataset.mode===a)&&(!t||r.dataset.q.includes(t));r.style.display=ok?'':'none'});
+ gs.forEach(g=>{let n=g.nextElementSibling,any=false;
+  while(n&&!n.classList.contains('grp')){if(n.style.display!=='none')any=true;n=n.nextElementSibling}
+  g.style.display=any?'':'none'});}
+chips.forEach(c=>c.addEventListener('click',()=>{a=a===c.dataset.f?null:c.dataset.f;
+ chips.forEach(o=>o.setAttribute('aria-pressed',o.dataset.f===a));ap()}));
+q.addEventListener('input',ap);
+</script></body></html>

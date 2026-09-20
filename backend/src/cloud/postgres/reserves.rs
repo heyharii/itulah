@@ -22,6 +22,14 @@
 //! replaced the new one comes out of the reserve instead of through the profit
 //! and loss. It is a sinking fund, and the accounts for it predate this system.
 //!
+//! The three blocks above are what the client's chart looked like. In the
+//! forty-account chart they are three accounts — `1610`, `7101` and the cost
+//! account — and the thirty-six racks are thirty-six rows of `asset_class`,
+//! which `asset_class_reserve.class_code` now points at instead of at
+//! `ledger_account`. Nothing about the mechanism changed: the class is still
+//! the `account_map` qualifier, so the rate, the charge and the draw still
+//! find their accounts the way they always did.
+//!
 //! # The two halves, and why the second one is the point
 //!
 //! ```text
@@ -47,8 +55,10 @@
 //! is about. Filling the column with the nearest asset would make the asset's
 //! own ledger claim charges nobody made against it.
 
+use super::assets::charge_legs;
 use super::poster::{post, PostingIntent, PostingLine};
 use crate::cloud::application::AppError;
+use crate::cloud::domain::ChargeKind;
 use chrono::{Datelike, NaiveDate};
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Row};
@@ -83,8 +93,9 @@ pub struct AssetReplacementRate {
 #[derive(Clone, Debug, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct SetReplacementRateRequest {
-    /// One of the client's asset classes — `1021507001 OE - Rak 1` and the
-    /// thirty-five beside it.
+    /// One of the register's asset classes — `OE_RAK_1` and the thirty-five
+    /// beside it. A code from `asset_class`, not an account code: the client's
+    /// own name for the class is on that row.
     pub class_code: String,
     pub site_id: String,
     /// The month it starts applying. Any day is accepted and the month is what
@@ -145,7 +156,7 @@ pub async fn asset_reserve_classes(pool: &PgPool) -> Result<Vec<AssetReserveClas
                 (SELECT COUNT(DISTINCT t.site_id) FROM asset_replacement_rate t
                   WHERE t.class_code = r.class_code)::bigint AS rated_sites
            FROM asset_class_reserve r
-           JOIN ledger_account c ON c.account_code = r.class_code
+           JOIN asset_class c ON c.class_code = r.class_code
           ORDER BY r.class_code",
     )
     .fetch_all(pool)
@@ -178,7 +189,7 @@ pub async fn asset_replacement_rates(
         "SELECT t.class_code, c.name AS class_name, t.site_id, t.effective_from,
                 t.monthly_charge_minor, t.set_by
            FROM asset_replacement_rate t
-           JOIN ledger_account c ON c.account_code = t.class_code
+           JOIN asset_class c ON c.class_code = t.class_code
           WHERE ($1::text IS NULL OR t.site_id = $1)
             AND ($2::text IS NULL OR t.class_code = $2)
           ORDER BY t.class_code, t.site_id, t.effective_from DESC",
@@ -219,12 +230,12 @@ pub async fn set_asset_replacement_rate(
                 .into(),
         ));
     }
-    if !super::assets::is_asset_account(class) {
-        return Err(AppError::Validation(format!(
-            "{class} is not an asset class; they are the accounts under {}",
-            super::assets::ASSET_FAMILIES.join(", ")
-        )));
-    }
+    // One of the register's own classes, and a live one. Until the
+    // forty-account chart this asked whether the code was an account under
+    // `1021507`, which admitted the client's ten-character sub-types and their
+    // seven-character families alike — the same two-spellings bug that stopped
+    // depreciation resolving. `asset_class` has one spelling.
+    super::asset_classes::assert_asset_class(pool, class).await?;
     let from = month_of(request.effective_from);
 
     let mut tx = pool.begin().await?;
@@ -281,7 +292,7 @@ const RATES_IN_FORCE: &str = "SELECT t.class_code, c.name AS class_name, t.site_
                            AND g.period_month = $1) AS already
            FROM asset_replacement_rate t
            JOIN asset_class_reserve r ON r.class_code = t.class_code
-           JOIN ledger_account c ON c.account_code = t.class_code
+           JOIN asset_class c ON c.class_code = t.class_code
           WHERE r.has_replacement_reserve
             AND t.effective_from <= $1
             AND t.effective_from = (
@@ -435,6 +446,16 @@ async fn flush(
     let mut posting = Vec::with_capacity(batch.len() * 2);
     let mut total = 0i64;
     for (class_code, _, amount) in batch {
+        // The expense leg shares `7101` with depreciation and amortisation
+        // since the chart became forty, and `depreciation_kind` is the only
+        // thing that keeps a replacement charge off the depreciation line of
+        // the profit and loss. 0159 exists because the client does not
+        // depreciate operating equipment; a charge that cannot say it is a
+        // REPLACEMENT has given that distinction back.
+        //
+        // Checked per class rather than once, because the map is kept per class
+        // and one class mapped wrongly is what a reader has to be told about.
+        charge_legs(pool, ChargeKind::ReplacementReserve, site_id, class_code).await?;
         posting.push(
             PostingLine::debit("replacement_expense", site_id, *amount).with_qualifier(class_code),
         );

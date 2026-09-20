@@ -15,6 +15,21 @@ account_name: string, site_id: string,
  */
 counter_site_id: string | null, debit_minor: number, credit_minor: number, supplier_id: string | null, 
 /**
+ * What kind of thing this line is, on the accounts that are kept by kind.
+ *
+ * Not a decoration on a drill-down: with forty accounts the code alone no
+ * longer says what a line is about. Every general and administrative
+ * expense the company pays is `6301`, and an entry detail showing four
+ * lines of `6301` without their categories is a screen a reader has to
+ * leave in order to understand.
+ */
+category_code: string | null, 
+/**
+ * The category's own name, so the entry reads without a second lookup —
+ * the same bargain `account_name` already struck.
+ */
+category_name: string | null, 
+/**
  * Which asset this line is about, when it is about one. The second
  * sub-ledger dimension, beside the supplier.
  */

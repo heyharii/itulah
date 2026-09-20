@@ -17,13 +17,15 @@ use sqlx::{PgPool, Row};
 use std::path::PathBuf;
 
 const ACTOR: &str = "ana";
-/// The client's own giro account at BCA, a postable leaf under `1011002 BANK`.
+/// Where our money at a bank sits: `1102 Bank`, the one account all fourteen of
+/// the client's bank codes folded into at 0291. Which bank and which number is
+/// `company_bank_account`, reached from the line by `bank_account_id`; the old
+/// code is kept on `company_bank_account.legacy_ledger_account_code` so an
+/// accountant can still be given `1011002001`.
 ///
-/// Not seeded here: since 0243 the chart is written by the migrations and is
-/// the client's, so a test that minted its own `…00100` leaf would be inventing
-/// an account the books do not have — and 0244's
-/// `ledger_account_carries_no_unit` would refuse it for naming a unit besides.
-const GIRO: &str = "1011002001";
+/// Not seeded here: the chart is written by the migrations, so a test that
+/// minted its own leaf would be inventing an account the books do not have.
+const GIRO: &str = "1102";
 
 /// A folder of this test's own, emptied first so a rerun is a fresh run.
 fn folder(name: &str) -> PathBuf {

@@ -1047,6 +1047,10 @@ pub struct CreditNote {
     pub tax_minor: i64,
     pub total_minor: i64,
     pub credit_account_code: Option<String>,
+    /// What kind of thing the value goes back as, on the accounts that are kept
+    /// by kind. Stored on the note, so the entry it posts files the credit
+    /// exactly where the bill line filed the charge.
+    pub credit_category_code: Option<String>,
     pub status: String,
     pub journal_entry_id: Option<Uuid>,
     pub entry_number: Option<String>,
@@ -1078,6 +1082,14 @@ pub struct CreditNoteRequest {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub credit_account_code: Option<String>,
+    /// And which kind of thing it goes back as, required when that account
+    /// declares a family. A credit note reverses a charge, so it has to name
+    /// the same kind the charge named: `6301` credited without a category would
+    /// take the money out of general and administrative expenses in general,
+    /// and the line it was meant to offset would stay where it was.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub credit_category_code: Option<String>,
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub note: Option<String>,
@@ -1096,6 +1108,7 @@ pub struct CreditNoteRefundRequest {
 const CREDIT_NOTE_COLUMNS: &str = "n.credit_note_id, n.credit_number, n.their_number,
      n.invoice_id, i.invoice_number, n.supplier_id, n.site_id, n.credit_date, n.reason,
      n.currency, n.subtotal_minor, n.tax_minor, n.total_minor, n.credit_account_code,
+     n.credit_category_code,
      n.status, n.journal_entry_id, n.refund_entry_id, n.refund_date, n.note,
      n.recorded_by, n.recorded_at, n.posted_by,
      (SELECT e.entry_number FROM journal_entry e WHERE e.entry_id = n.journal_entry_id)
@@ -1119,6 +1132,7 @@ fn to_credit_note(row: &sqlx::postgres::PgRow) -> Result<CreditNote, AppError> {
         tax_minor: row.try_get("tax_minor")?,
         total_minor: row.try_get("total_minor")?,
         credit_account_code: row.try_get("credit_account_code")?,
+        credit_category_code: row.try_get("credit_category_code")?,
         status: row.try_get("status")?,
         journal_entry_id: row.try_get("journal_entry_id")?,
         entry_number: row.try_get("entry_number")?,
@@ -1211,7 +1225,12 @@ pub async fn credit_note_create(
     // knows — the goods came out of inventory — and on an expense note only the
     // person holding the paper does, exactly as when the bill was keyed.
     let account = request.credit_account_code.as_deref().map(str::trim);
-    let account =
+    let category = request
+        .credit_category_code
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let (account, category) =
         match (kind.as_str(), account) {
             ("MERCHANDISE", Some(code)) if !code.is_empty() => {
                 return Err(AppError::Validation(format!(
@@ -1220,10 +1239,19 @@ pub async fn credit_note_create(
                 bill.try_get::<String, _>("invoice_number")?
             )))
             }
-            ("MERCHANDISE", _) => None,
+            // The rule's own leg, so the map chooses its category with its
+            // account and the note stores neither.
+            ("MERCHANDISE", _) => (None, None),
             (_, Some(code)) if !code.is_empty() => {
                 super::ledger::assert_postable(pool, code, super::ledger::Intent::Post).await?;
-                Some(code.to_string())
+                super::ledger::assert_category_for_account(
+                    pool,
+                    code,
+                    category,
+                    super::ledger::Intent::Post,
+                )
+                .await?;
+                (Some(code.to_string()), category.map(str::to_string))
             }
             _ => return Err(AppError::Validation(
                 "say which account the credit goes back to; on an expense bill only the person \
@@ -1242,8 +1270,8 @@ pub async fn credit_note_create(
         "INSERT INTO supplier_credit_note
            (credit_note_id, credit_number, their_number, invoice_id, supplier_id, site_id,
             credit_date, reason, currency, subtotal_minor, tax_minor, total_minor,
-            credit_account_code, note, recorded_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)",
+            credit_account_code, credit_category_code, note, recorded_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)",
     )
     .bind(credit_note_id)
     .bind(format!("CN-{number:08}"))
@@ -1258,6 +1286,7 @@ pub async fn credit_note_create(
     .bind(request.tax_minor)
     .bind(total)
     .bind(account)
+    .bind(category)
     .bind(request.note.as_deref())
     .bind(actor)
     .execute(pool)
@@ -1307,6 +1336,7 @@ pub async fn credit_note_post(
             Some(code) => PostingLine {
                 account: LineAccount::Account {
                     account_code: code.to_string(),
+                    category_code: note.credit_category_code.clone(),
                 },
                 site_id: note.site_id.clone(),
                 counter_site_id: None,
@@ -1400,7 +1430,7 @@ pub async fn credit_note_refund(
         )));
     }
     let qualifier = request.account_qualifier.trim();
-    super::ledger::resolve_account(pool, &key, &note.site_id, qualifier).await?;
+    super::ledger::resolve_account_code(pool, &key, &note.site_id, qualifier).await?;
 
     let kind: String = sqlx::query("SELECT kind FROM supplier_invoice WHERE invoice_id = $1")
         .bind(note.invoice_id)
@@ -1638,7 +1668,7 @@ pub async fn supplier_advance_issue(
     // Checked here as well as by the composite foreign key, for the reason
     // `record_payment` gives: a foreign-key violation reaches a person as
     // "database operation failed" and names neither the key nor the location.
-    super::ledger::resolve_account(pool, &key, &request.site_id, qualifier).await?;
+    super::ledger::resolve_account_code(pool, &key, &request.site_id, qualifier).await?;
 
     let advance_id = Uuid::new_v4();
     let number: i64 = sqlx::query("SELECT nextval('supplier_advance_number_seq') AS n")

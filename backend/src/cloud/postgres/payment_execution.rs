@@ -90,6 +90,10 @@ pub(super) struct PayInstruction {
     pub counter_key: Option<String>,
     pub counter_qualifier: String,
     pub counter_account_code: Option<String>,
+    /// What kind of thing it answers, when the counter is an account somebody
+    /// chose rather than a meaning. On a meaning the map chooses it, so this
+    /// stays empty and nothing here has to decide which of the two won.
+    pub counter_category_code: Option<String>,
     pub amount_minor: i64,
     /// `SUPPLIER`, `EMPLOYEE` or `OTHER`.
     pub party_kind: String,
@@ -160,6 +164,7 @@ pub(super) async fn payment_execution_pay(
         },
         (None, Some(code)) => LineAccount::Account {
             account_code: code.to_string(),
+            category_code: instruction.counter_category_code.clone(),
         },
         (Some(_), Some(_)) => {
             return Err(AppError::Validation(
@@ -209,11 +214,12 @@ pub(super) async fn payment_execution_pay(
     sqlx::query(
         "INSERT INTO cash_document
            (document_id, kind, doc_date,
-            from_key, from_qualifier, from_account_code, from_site,
-            to_key, to_qualifier, to_account_code, to_site,
+            from_key, from_qualifier, from_account_code, from_category_code, from_site,
+            to_key, to_qualifier, to_account_code, to_category_code, to_site,
             amount_minor, currency, party_kind, supplier_id, employee_id, party_name,
             memo, created_by)
-         VALUES ($1,'PAY',$2,$3,$4,NULL,$5,$6,$7,$8,$5,$9,'IDR',$10,$11,$12,$13,$14,$15)",
+         VALUES ($1,'PAY',$2,$3,$4,NULL,NULL,$5,$6,$7,$8,$9,$5,$10,'IDR',
+                 $11,$12,$13,$14,$15,$16)",
     )
     .bind(document_id)
     .bind(instruction.doc_date)
@@ -223,6 +229,7 @@ pub(super) async fn payment_execution_pay(
     .bind(instruction.counter_key.as_deref())
     .bind(&instruction.counter_qualifier)
     .bind(instruction.counter_account_code.as_deref())
+    .bind(instruction.counter_category_code.as_deref())
     .bind(instruction.amount_minor)
     .bind(&instruction.party_kind)
     .bind(supplier_id)

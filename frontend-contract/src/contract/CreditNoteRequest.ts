@@ -13,4 +13,12 @@ their_number?: string,
  * Which account the value goes back to, on a note against an expense bill.
  * Refused on a merchandise note, where the answer is `inventory` by rule.
  */
-credit_account_code?: string, note?: string, };
+credit_account_code?: string, 
+/**
+ * And which kind of thing it goes back as, required when that account
+ * declares a family. A credit note reverses a charge, so it has to name
+ * the same kind the charge named: `6301` credited without a category would
+ * take the money out of general and administrative expenses in general,
+ * and the line it was meant to offset would stay where it was.
+ */
+credit_category_code?: string, note?: string, };

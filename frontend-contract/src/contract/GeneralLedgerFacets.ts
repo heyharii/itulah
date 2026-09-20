@@ -6,6 +6,12 @@ import type { GeneralLedgerFacet } from "./GeneralLedgerFacet";
  */
 export type GeneralLedgerFacets = { kinds: Array<GeneralLedgerFacet>, 
 /**
+ * The categories this account was posted under inside the window, with
+ * the client's own name for each as the label. Empty on an account that
+ * declares no family, which is most of the balance sheet.
+ */
+categories: Array<GeneralLedgerFacet>, 
+/**
  * The locations this account moved at inside the window.
  *
  * Informational when `site_id` was given, where there is exactly one and

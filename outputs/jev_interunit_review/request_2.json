@@ -1,0 +1,130 @@
+{
+  "model": "jev-latest",
+  "state": {
+    "objective": "Test concrete HO-unit postings and define count scenarios for 70 legacy affiliate accounts without assuming legal-entity status.",
+    "confirmed_facts": [
+      "Finance and bank operations are centralized at HO.",
+      "Units may hold petty cash, cashier float and physical sales cash but cannot access bank accounts.",
+      "Units cannot transact directly with other units.",
+      "Natural accounts already use site_id rather than unit suffixes.",
+      "Legacy structure has 42 affiliate receivable and 28 affiliate payable families by named location and nature.",
+      "The legal-entity relationship remains the decisive missing fact.",
+      "Round 1 concluded: same-entity sites are not external AR/AP; separate entities should use counterparty_legal_entity_id; assets and liabilities cannot be automatically netted; zero inactive routes should not remain active; nonzero balances require traceable reclassification."
+    ],
+    "same_entity_examples": [
+      "HO bank funds a unit petty-cash balance.",
+      "HO purchases goods that are shipped to a unit.",
+      "HO pays electricity or another expense attributable to a unit.",
+      "A unit deposits physical sales cash into a bank account controlled by HO."
+    ],
+    "separate_entity_candidate": "Five provisional natures: affiliate receivable-financing, receivable-goods, receivable-other, payable-financing, payable-goods, with counterparty_legal_entity_id and elimination matching."
+  },
+  "questions": {
+    "petty_cash_same_entity": {
+      "type": "choice",
+      "instructions": "For one legal entity, does HO funding unit petty cash normally require an affiliate receivable/payable pair?",
+      "criteria": {
+        "no": "Post movement between bank/cash accounts with site and cash-location detail; use temporary clearing only if timing requires it.",
+        "yes": "Create permanent affiliate AR/AP for the unit.",
+        "income": "Recognize income and expense between HO and unit."
+      }
+    },
+    "goods_same_entity": {
+      "type": "choice",
+      "instructions": "For one legal entity, does shipping owned inventory from HO to a unit normally create affiliate sales, receivable and payable?",
+      "criteria": {
+        "no": "Use inventory transfer/in-transit workflow and site/item detail without internal sale or AR/AP.",
+        "yes": "Recognize an affiliate sale and purchase for every shipment.",
+        "writeoff": "Expense inventory when it leaves HO."
+      }
+    },
+    "expense_same_entity": {
+      "type": "choice",
+      "instructions": "For one legal entity, when HO pays a unit-attributable utility expense, is affiliate receivable/payable normally necessary?",
+      "criteria": {
+        "no": "Post the natural expense with unit/cost-center attribution and the external bank/AP counterpart.",
+        "yes": "Record permanent affiliate AR/AP between HO and unit.",
+        "no_unit": "Do not attribute the expense to the unit."
+      }
+    },
+    "sales_cash_same_entity": {
+      "type": "choice",
+      "instructions": "For one legal entity, does depositing unit sales cash into an HO-controlled bank account create affiliate receivable/payable?",
+      "criteria": {
+        "no": "Clear sales-cash/undeposited-funds to the actual bank account with site and deposit reference.",
+        "yes": "Create affiliate financing balances.",
+        "revenue_again": "Recognize revenue again at HO."
+      }
+    },
+    "same_entity_active_count": {
+      "type": "choice",
+      "instructions": "If all four examples describe the actual same-entity process and there is no branch self-balancing requirement, what target is most defensible for the 70 permanent affiliate accounts?",
+      "criteria": {
+        "zero_permanent": "No permanent affiliate AR/AP accounts; retain legacy history and use only justified temporary clearing accounts outside this 70-family matrix.",
+        "five": "Retain five permanent affiliate natures despite no separate counterpart entity.",
+        "seventy": "Retain all 70."
+      }
+    },
+    "same_entity_clearing_count": {
+      "type": "choice",
+      "instructions": "Can the required number of temporary clearing accounts be determined from the COA names alone?",
+      "criteria": {
+        "no": "Determine from actual timing gaps, workflows, reconciliation ownership and statement presentation.",
+        "two": "Exactly two are always required.",
+        "five": "Exactly five are always required."
+      }
+    },
+    "separate_entity_five": {
+      "type": "choice",
+      "instructions": "If named units are actually separate legal entities and the five natures have aligned terms/reporting, is 70 to five a reasonable conditional target?",
+      "criteria": {
+        "yes": "Use counterparty_legal_entity_id and elimination/reconciliation detail.",
+        "no": "Keep every counterparty name in GL.",
+        "net": "Use one net account for all five natures."
+      }
+    },
+    "site_vs_entity": {
+      "type": "choice",
+      "instructions": "May site_id and legal_entity_id be treated as the same field automatically?",
+      "criteria": {
+        "no": "A legal entity can have many sites; keep explicit mapping and only require intercompany partner for separate entities.",
+        "yes": "Every site is automatically a legal entity.",
+        "omit": "Legal entity never matters."
+      }
+    },
+    "word_affiliate": {
+      "type": "choice",
+      "instructions": "Does the word Affiliasi in a legacy account prove the named site is a separate legal entity?",
+      "criteria": {
+        "no": "Verify legal name, ownership, tax registration and consolidation scope.",
+        "yes": "The account label is conclusive legal evidence."
+      }
+    },
+    "migration_sequence": {
+      "type": "choice",
+      "instructions": "What is the safest migration sequence for these 70 accounts?",
+      "criteria": {
+        "audit_map_reclass": "Classify legal entities/sites, inventory active accounts and balances, match counterpart entries, map valid natures, reclassify balances, reconcile, then deactivate legacy accounts.",
+        "delete": "Delete accounts before analyzing balances.",
+        "merge": "Merge balances mechanically into one account."
+      }
+    },
+    "next_after_interunit": {
+      "type": "choice",
+      "instructions": "After the interunit legal-entity decision is documented, which previously competing domain should be reviewed next?",
+      "criteria": {
+        "tax_prepaid_accrual": "Review tax, prepaid schedules, accrued expenses and advances.",
+        "counter_site": "Reintroduce general counter_site accounts.",
+        "stop": "Stop COA review."
+      }
+    },
+    "finality": {
+      "type": "choice",
+      "instructions": "Can Jev choose between zero permanent accounts and five intercompany natures without the legal-entity master and transactions?",
+      "criteria": {
+        "no": "The result must remain a two-scenario decision tree until client evidence is supplied.",
+        "yes": "Choose one scenario from the account names."
+      }
+    }
+  }
+}

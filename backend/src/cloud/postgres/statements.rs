@@ -83,15 +83,39 @@ pub async fn balance_matrix(
     // The rows are the sub-accounts one rung below the family, which is where
     // the client puts the thing being counted — `1011001001 CASH ON HAND`
     // rather than each of its fourteen location leaves.
+    //
+    // # One rung down is not one LENGTH down
+    //
+    // This used to take the rung to be the SHORTEST child code, which is the
+    // same thing only while a family's children are all the same length. The
+    // client's chart is built that way and the forty are not: they hang
+    // straight off the one-digit roots (`docs/coa-40-contract.md` §4 — "induk =
+    // akar 1 digit yang sudah ada"), so under root `1` the shortest children
+    // are still the client's retired `101`, `102` and `103`, and every four-
+    // digit account in the live chart was invisible. The matrix answered zero
+    // for a ledger that had moved, on every family screen, and said nothing.
+    //
+    // A child is now an account with NO nearer ancestor in the chart: `101` has
+    // none under `1`, and neither has `1301`, because `13` and `130` are not
+    // accounts. Both charts read correctly off one rule, and that matters
+    // beyond the transition — the retired accounts still hold two years of
+    // history, and a screen that stopped showing them would be reporting a
+    // balance sheet that is missing most of its past.
+    //
+    // Live first, then the retired headings, so the rows a reader is looking
+    // for are not below two years of closed ones.
     let rows = sqlx::query(
         "WITH child AS (
-             SELECT a.account_code, a.name
+             SELECT a.account_code, a.name, a.is_active
                FROM ledger_account a
               WHERE a.account_code LIKE $1 || '%'
                 AND a.account_code <> $1
-                AND length(a.account_code) = (
-                    SELECT MIN(length(b.account_code)) FROM ledger_account b
-                     WHERE b.account_code LIKE $1 || '%' AND b.account_code <> $1)
+                AND NOT EXISTS (
+                    SELECT 1 FROM ledger_account b
+                     WHERE b.account_code LIKE $1 || '%'
+                       AND b.account_code <> $1
+                       AND b.account_code <> a.account_code
+                       AND a.account_code LIKE b.account_code || '%')
          )
          -- The date belongs INSIDE the joined set, not on the join.
          --
@@ -103,7 +127,7 @@ pub async fn balance_matrix(
          -- every date it was asked about. Narrowing the line set first makes
          -- the filter real, and the outer LEFT JOIN still keeps a sub-account
          -- nothing has posted to, which is the reason it is an outer join.
-         SELECT c.account_code, c.name, l.site_id,
+         SELECT c.account_code, c.name, c.is_active, l.site_id,
                 COALESCE(SUM(l.debit_minor - l.credit_minor), 0)::bigint AS balance
            FROM child c
            LEFT JOIN (
@@ -112,8 +136,8 @@ pub async fn balance_matrix(
                   JOIN journal_entry je ON je.entry_id = jl.entry_id
                  WHERE je.posting_date <= $2
            ) l ON l.account_code LIKE c.account_code || '%'
-          GROUP BY c.account_code, c.name, l.site_id
-          ORDER BY c.account_code",
+          GROUP BY c.account_code, c.name, c.is_active, l.site_id
+          ORDER BY c.is_active DESC, c.account_code",
     )
     .bind(family)
     .bind(as_of)

@@ -11,6 +11,7 @@ import {
 } from "@/screens/dialogs"
 import { useShortcuts } from "@/shortcuts"
 import { enqueue, flush, useOutbox } from "@/outbox"
+import { authorizeVoucher, releaseVoucher } from "@/vouchers"
 import { useNodeConfig } from "@/session"
 import { readScan } from "@epc"
 import { money } from "@itulah/contract/money"
@@ -85,6 +86,21 @@ const METHODS = [
   { value: "QRIS", label: "QRIS" },
   { value: "VOUCHER", label: "Voucher" },
 ] as const
+
+/// The basket's own id, for the one call that needs an identity before the sale
+/// has one.
+///
+/// A voucher hold is keyed at head office on (card, checkout), so the ask has to
+/// name the basket it is holding FOR — and this basket has no row anywhere yet,
+/// by design: it is terminal-local until it is sold. Minted here rather than
+/// taken from the sale's idempotency key because the hold happens first: the
+/// cashier is holding a card, not yet finishing a sale.
+function newCheckoutId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID()
+  }
+  return `checkout-${Date.now()}-${Math.round(Math.random() * 1e9)}`
+}
 
 /// Rupiah below 100 is not issued, so change is never counted into a note
 /// nobody can hand over.
@@ -939,6 +955,15 @@ function Payment({
       amountMinor: number
       tenderedMinor: number
       reference: string | null
+      /// The hold head office granted against a voucher, for a VOUCHER tender.
+      /// Null on every other method, and null is not a spare value: the node
+      /// refuses a voucher without one and refuses the field on anything else,
+      /// so this is the voucher's own proof that the money was reserved before
+      /// it was taken.
+      voucherAuthorizationId: string | null
+      /// The basket id the hold was granted under, so it can be given back if
+      /// this tender is taken off before the sale is completed.
+      voucherCheckoutId: string | null
     }[]
   >([])
   const [busy, setBusy] = useState(false)
@@ -984,6 +1009,10 @@ function Payment({
         method: one.method,
         amount_minor: one.amountMinor,
         reference: one.reference,
+        // The hold head office granted, on the voucher that needed one. It is
+        // carried on the tender because head office commits it against THIS
+        // sale when the sale reaches it — the till does not call commit at all.
+        voucher_authorization_id: one.voucherAuthorizationId,
       })),
       actor_id: actorId,
       coupon_codes: coupons,
@@ -1007,7 +1036,30 @@ function Payment({
     })
   }
 
-  function takeIt() {
+  /// Step back to the counter. Any voucher hold this basket took and has not
+  /// spent is given back first: the money was reserved against a basket nobody
+  /// is going to pay for, and leaving it held would keep it out of the next
+  /// shopper's hands until the hold expires on its own.
+  async function leavePayment() {
+    const unspent = taken.filter(
+      (one) => one.voucherCheckoutId !== null && one.reference !== null,
+    )
+    await Promise.all(
+      unspent.map((one) =>
+        releaseVoucher(
+          one.reference as string,
+          one.voucherCheckoutId as string,
+          "kasir kembali ke keranjang",
+        ).catch(() => {
+          // Nothing to do about it here: the hold lapses by itself in minutes,
+          // and refusing to let the cashier leave would be worse than the wait.
+        }),
+      ),
+    )
+    onBack()
+  }
+
+  async function takeIt() {
     if (needsReference && reference.trim().length < 4) {
       setProblem("Masukkan referensi pembayaran, minimal 4 karakter.")
       return
@@ -1024,13 +1076,37 @@ function Payment({
       )
       return
     }
+    const amount = partial ? entered : outstanding
+    // A voucher is held at head office before a single rupiah of it is taken.
+    // Nothing local can answer whether the card still carries this much — the
+    // same card may be on another counter's till this minute — so the hold is
+    // asked for first and the tender only exists if it comes back.
+    let hold: { id: string; checkout: string } | null = null
+    if (method === "VOUCHER") {
+      const code = reference.trim().toUpperCase()
+      setBusy(true)
+      setProblem(null)
+      const checkout = newCheckoutId()
+      const reply = await authorizeVoucher(code, checkout, amount)
+      setBusy(false)
+      if (!reply.ok || reply.body?.authorization_id === undefined) {
+        setProblem(
+          reply.problem ??
+            `Voucher ${code} tidak bisa ditahan di pusat — periksa kodenya, lalu pastikan sambungan ke kantor pusat hidup.`,
+        )
+        return
+      }
+      hold = { id: reply.body.authorization_id, checkout }
+    }
     setTaken((was) => [
       ...was,
       {
         method,
-        amountMinor: partial ? entered : outstanding,
+        amountMinor: amount,
         tenderedMinor: offered,
         reference: reference.trim() === "" ? null : reference.trim(),
+        voucherAuthorizationId: hold?.id ?? null,
+        voucherCheckoutId: hold?.checkout ?? null,
       },
     ])
     setTyped("")
@@ -1159,7 +1235,7 @@ function Payment({
         </section>
 
         <aside className="pay-side">
-          <button className="pay-back" onClick={onBack}>
+          <button className="pay-back" onClick={() => void leavePayment()}>
             ← Kembali ke keranjang
           </button>
           <div className="pay-summary">

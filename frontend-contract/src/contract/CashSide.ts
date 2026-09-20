@@ -8,4 +8,14 @@
  * models, for the same reason. The money side always has a meaning; the other
  * side, when it is a bank charge or a donation, usually has none.
  */
-export type CashSide = { semantic_key: string | null, qualifier: string, account_code: string | null, site_id: string, };
+export type CashSide = { semantic_key: string | null, qualifier: string, account_code: string | null, 
+/**
+ * What kind of thing this side is, on the accounts that are kept by kind.
+ *
+ * Sent only with `account_code`, and required there whenever the account
+ * declares a family: `6301` is every general and administrative expense
+ * the company has, and a document naming it without saying which cannot
+ * post. Refused beside `semantic_key`, because the map already chose the
+ * pair and a second answer could only disagree with it.
+ */
+category_code: string | null, site_id: string, };

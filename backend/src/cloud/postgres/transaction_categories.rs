@@ -68,17 +68,30 @@ pub struct TransactionCategoryRow {
     pub domains: Vec<String>,
     pub bank_postable: bool,
     pub refusal: Option<String>,
-    /// The client account this is expected to be, quoted from their chart. A
-    /// suggestion for whoever maps the key, exactly as `required_semantic_keys`
-    /// is; never applied.
+    /// The account this is expected to be, read through `ledger_account_remap`
+    /// so what the screen offers is one somebody can actually map a meaning to.
+    /// A suggestion for whoever maps the key, exactly as
+    /// `required_semantic_keys` is; never applied.
     pub expects_account_code: Option<String>,
+    /// And what the client calls the thing, quoted from their chart by 0155 and
+    /// left as they wrote it. Not the new account's name: `Biaya Bank HO` is
+    /// what somebody mapping a meaning is looking for, and `Beban umum &
+    /// administrasi` is the statement line it rolls up into.
     pub expects_account_name: Option<String>,
+    /// And which category on it, where the remap knew. Half of the old code
+    /// became the account and half became this; offering the account alone
+    /// would be offering one row of `6301` for forty-eight kinds of expense.
+    pub expects_category_code: Option<String>,
     /// What the meaning resolves to at the location asked about, today. Read
     /// through the map on every read rather than remembered, so it follows a
     /// remapping instead of recording where the account used to be. `None` when
     /// nobody has mapped the key yet — which is the honest answer and the one
     /// that has to be visible.
     pub account_code: Option<String>,
+    /// And which category the map chose with it, which on `6301` is most of
+    /// what the reader is looking at: forty-eight expenses share that account
+    /// and the code alone no longer says which one this category books to.
+    pub category_code: Option<String>,
     pub account_name: Option<String>,
     pub active: bool,
     pub note: Option<String>,
@@ -97,9 +110,31 @@ const CATEGORY_COLUMNS: &str = "c.code, c.display_name, c.family, c.direction,
      c.semantic_key, c.qualifier, c.qualifier_asked, c.source_document,
      c.requires_party, c.requires_reference, c.requires_approval,
      c.domains, c.bank_postable, c.refusal,
-     c.expects_account_code, c.expects_account_name,
+     -- The expectation, as an account somebody can actually map a meaning to.
+     --
+     -- 0155 wrote these as the client's ten-digit templates and quoted their
+     -- own names beside them — `6010310004 Biaya Bank HO`. All 190 of
+     -- those are retired, so the CODE on the screen was one nobody can map
+     -- anything to and, since 0290, the last dead code showing anywhere in the
+     -- estate. `ledger_account_remap` is the record of what each became, and
+     -- reading it through that is the same act 0291 performed on every stored
+     -- account code — done here rather than by an UPDATE because the stored
+     -- value is a quotation from the client's chart, and their chart has not
+     -- changed.
+     --
+     -- The NAME is deliberately not remapped with it. `6010310004` became
+     -- `6301 Beban umum & administrasi`, and what somebody mapping a meaning
+     -- needs to recognise is `Biaya Bank HO` — the thing, not the
+     -- statement line it now rolls up into. So the pair on the screen is our
+     -- code and their words, which is what the pair always meant.
+     COALESCE(rm.new_code, c.expects_account_code) AS expects_account_code,
+     c.expects_account_name,
+     -- And the half of the old code that is no longer an account at all. A
+     -- suggestion of `6301` without `BIAYA_BANK_HO` is a suggestion to map
+     -- forty-eight expenses to one place.
+     rm.category_code AS expects_category_code,
      c.active, c.note, c.sort_order, c.created_by, c.created_at,
-     m.account_code, a.name AS account_name";
+     m.account_code, m.category_code, a.name AS account_name";
 
 /// LEFT, and for the reason `bank_rules.rs` gives about its own: a category
 /// whose meaning nobody has mapped is exactly the one somebody has to see.
@@ -107,7 +142,11 @@ const CATEGORY_FROM: &str = "FROM transaction_category c
      LEFT JOIN account_map m ON m.semantic_key = c.semantic_key
                             AND m.qualifier = c.qualifier
                             AND m.site_id = $1
-     LEFT JOIN ledger_account a ON a.account_code = m.account_code";
+     LEFT JOIN ledger_account a ON a.account_code = m.account_code
+     -- What the quoted client code became, when it became one of the forty.
+     -- LEFT, because an expectation naming an account the remap has no row for
+     -- is answered honestly with the code as written rather than with nothing.
+     LEFT JOIN ledger_account_remap rm ON rm.legacy_code = c.expects_account_code";
 
 fn to_category(row: &sqlx::postgres::PgRow) -> Result<TransactionCategoryRow, AppError> {
     Ok(TransactionCategoryRow {
@@ -127,7 +166,9 @@ fn to_category(row: &sqlx::postgres::PgRow) -> Result<TransactionCategoryRow, Ap
         refusal: row.try_get("refusal")?,
         expects_account_code: row.try_get("expects_account_code")?,
         expects_account_name: row.try_get("expects_account_name")?,
+        expects_category_code: row.try_get("expects_category_code")?,
         account_code: row.try_get("account_code")?,
+        category_code: row.try_get("category_code")?,
         account_name: row.try_get("account_name")?,
         active: row.try_get("active")?,
         note: row.try_get("note")?,

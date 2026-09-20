@@ -13,8 +13,10 @@ export type LedgerAccount = { account_code: string, name: string, parent_code: s
  */
 root_class: string, 
 /**
- * The rung of the client's `{1,3,5,7,10,12}` ladder, which is the code's
- * own length. Sent so the browser can indent without measuring strings.
+ * The code's own length, which is the rung it sits on. The retired client
+ * accounts are on their `{1,3,5,7,10,12}` ladder; the forty postable ones
+ * are all `4`, one step under a root of `1`. Sent so the browser can
+ * indent without measuring strings.
  */
 depth: number, 
 /**

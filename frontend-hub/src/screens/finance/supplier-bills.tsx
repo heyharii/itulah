@@ -33,7 +33,6 @@ import {
   Problem,
   Truncated,
 } from "@/components/ui/states"
-import { Tag } from "@/components/ui/tag"
 import { useFilters } from "@/lib/filters"
 import { count, day, label, money, toneFor } from "@/lib/format"
 import {
@@ -56,7 +55,9 @@ import {
 } from "@/screens/finance/chart"
 import { useAsOf, useSupplierName } from "@/screens/finance/hooks"
 import {
-  AccountPicker,
+  AccountAndCategory,
+  accountChoiceReady,
+  type AccountChoice,
   AsOfControl,
   LocationSelect,
   SiteName,
@@ -1221,6 +1222,20 @@ function BillSheet({
                               </AppLink>
                               <span className="truncate text-ink">
                                 {line.account_name}
+                                {/* What the line was for. Three expense
+                                    accounts now carry every cost this client
+                                    has, so a bill whose four lines all read
+                                    "Beban umum & administrasi" is unreadable
+                                    without this. */}
+                                {line.category_name !== null && (
+                                  <span
+                                    className="text-mute"
+                                    title={line.category_code ?? undefined}
+                                  >
+                                    {" · "}
+                                    {line.category_name}
+                                  </span>
+                                )}
                               </span>
                             </span>
                             {line.memo && (
@@ -1372,9 +1387,9 @@ function BillSheet({
 /// One thing an expense bill was for, as somebody keys it.
 ///
 /// The account is held as a code *and* a name even though only the code is
-/// sent: the picker answers with both, and splitting the pair would let a row
-/// show one account's name over another's code. The same reason the bank
-/// statement composer keeps both.
+/// sent: the picker answers with all of it, and splitting the parts would let
+/// a row show one account's name over another's code. The same reason the bank
+/// statement composer keeps them together.
 ///
 /// There is no `site` here, and that is the point. 0098 forces an expense line
 /// to sit at its bill's own location — every 6* and 7* leaf in this client's
@@ -1382,9 +1397,13 @@ function BillSheet({
 /// line would debit store 01 with no credit anywhere in store 01's books. A
 /// control offering the choice would be a control whose every other answer is
 /// refused.
+/// `account` is the account AND the category its family asks for, held as one
+/// value. With forty accounts in the chart, 6301 is a line of the profit and
+/// loss and has not yet said whether the invoice was for electricity or for
+/// water; the category is what the account code used to carry, and the
+/// database refuses a line that has only one half of it.
 interface ExpenseLineDraft {
-  accountCode: string
-  accountName: string
+  account: AccountChoice | null
   amount: string
   memo: string
 }
@@ -1445,7 +1464,10 @@ function billTotals(draft: BillDraft) {
       linesMinor === null ||
       amount === null ||
       amount <= 0 ||
-      line.accountCode === ""
+      // An account with no category, where its family asks for one, is half a
+      // line — the trigger refuses it and names the five codes it would have
+      // taken. Counted with the other three reasons a line is not a line.
+      !accountChoiceReady(line.account)
     ) {
       linesMinor = null
       break
@@ -1528,7 +1550,11 @@ function RecordSheet({
         // about lines rather than the absence of one.
         lines: totals.expense
           ? draft.lines.map((line): RecordBillLine => ({
-              account_code: line.accountCode,
+              account_code: line.account!.account_code,
+              // What the cost was, in the client's own vocabulary. `null` for
+              // an account that declares no family — that is the answer and
+              // not a gap.
+              category_code: line.account!.category_code,
               // The bill's own location, always. See `ExpenseLineDraft`.
               site_id: site,
               amount_minor: parseMinor(line.amount) ?? 0,
@@ -1916,46 +1942,26 @@ function ExpenseLines({
         >
           <div className="flex items-start gap-2">
             <span className="min-w-0 flex-1">
-              {line.accountCode === "" ? (
-                <AccountPicker
-                  placeholder="Which account does this cost belong to"
-                  // The chart is theirs and the refusals are the server's:
-                  // an inactive account has been retired and cannot take new
-                  // costs, and a class outside 1, 6 and 7 is not a cost at
-                  // all. Both are shown and disabled rather than hidden — an
-                  // accountant who cannot find the account they are holding
-                  // an invoice for assumes the search is broken.
-                  accept={(account) =>
-                    !account.is_active
-                      ? "retired"
-                      : !EXPENSE_LINE_CLASSES.includes(account.root_class)
-                        ? `class ${account.root_class}`
-                        : null
-                  }
-                  onPick={(account) =>
-                    edit(index, {
-                      accountCode: account.account_code,
-                      accountName: account.name,
-                    })
-                  }
-                />
-              ) : (
-                <span className="flex min-w-0 items-center gap-2">
-                  <Tag>{line.accountCode}</Tag>
-                  <span className="min-w-0 flex-1 truncate text-[0.78125rem] text-ink">
-                    {line.accountName}
-                  </span>
-                  <Button
-                    size="sm"
-                    variant="quiet"
-                    onClick={() =>
-                      edit(index, { accountCode: "", accountName: "" })
-                    }
-                  >
-                    Change
-                  </Button>
-                </span>
-              )}
+              <AccountAndCategory
+                placeholder="Which account does this cost belong to"
+                // The chart is theirs and the refusals are the server's: an
+                // inactive account has been retired and cannot take new costs,
+                // and a class outside 1, 6 and 7 is not a cost at all. Both
+                // are shown and disabled rather than hidden — an accountant
+                // who cannot find the account they are holding an invoice for
+                // assumes the search is broken.
+                accept={(account) =>
+                  !account.is_active
+                    ? "retired"
+                    : !EXPENSE_LINE_CLASSES.includes(account.root_class)
+                      ? `class ${account.root_class}`
+                      : null
+                }
+                value={line.account}
+                onChange={(next) => edit(index, { account: next })}
+                categoryLabel={`What line ${index + 1} was for`}
+                explain
+              />
             </span>
             <Button
               size="sm"
@@ -2000,7 +2006,7 @@ function ExpenseLines({
           onClick={() =>
             onChange((current) => [
               ...current,
-              { accountCode: "", accountName: "", amount: "", memo: "" },
+              { account: null, amount: "", memo: "" },
             ])
           }
         >

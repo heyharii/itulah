@@ -1,0 +1,72 @@
+{
+  "model":"jev-latest",
+  "state":{
+    "objective":"Correct the proposed core COA using only account families that actually exist in the client's legacy COA, while removing unit duplication through cost center/site and subledgers.",
+    "hard_constraint":"Do not introduce a natural-account family with no client legacy counterpart. Existing family names may be normalized for clarity, but their accounting nature must be traceable to the client COA.",
+    "organization":"One PT Perorangan. HO and all stores are cost centers/sites within the same legal entity. Centralized Finance. No unit-to-unit independent legal transactions. Operational HO-to-unit funding and goods balances are reconciled internally.",
+    "confirmed_client_families":{
+      "supplier_liabilities":["Hutang Suppliers Barang Dagangan","Hutang Supplier Barang Dagang - Suspend","Hutang Supplier Non Barang Dagang"],
+      "affiliation":["Piutang Affiliasi Pembiayaan","Piutang Affiliasi Atas Barang","Piutang Affiliasi Lain-lain","Hutang Affiliasi Pembiayaan","Hutang Affiliasi Atas Barang"],
+      "software":["Software including Seventh Soft Application and Opti Tex System","Acc Amort Software","Biaya Amortisasi Opti Tex System","Software Maintenance"],
+      "purchases":["Harga Pokok Pembelian 5010110001","Potongan Pembelian 8010110003"],
+      "loans":["PJP Jatuh Tempo - Principal","PJP Jatuh Tempo Bank by bank","Pinjaman Jangka Panjang Principal","Pinjaman Jangka Panjang Bank by bank","Hutang Lain-lain Principal by HO/unit","Biaya Bunga Pinjaman Bank"],
+      "cip":["Contract In Progress (CIP) 1031803001"],
+      "inventory_exception":["Disposed Inventory 1031801001","Biaya Kerusakan Persediaan Barang Dagangan 6010110008"],
+      "tax":["Current Tax Inc/Exp PPH Pasal 25 8030112001","Pajak Bayar Dimuka/Prepaid Tax","Hutang Pajak including PPh 25"],
+      "other_income_expense":["Pendapatan (Biaya) Lain-Lain 8010110007"],
+      "land_and_rent":["Hak Sewa Tanah/HGB","Akumulasi Penyusutan/Amortisasi Land Right/HGB","Biaya Land Right","Biaya Sewa Tanah","Sewa Tanah Bayar Dimuka","Biaya Sewa Bangunan Toko dan Gudang","Biaya Sewa Rumah Dinas/Mess"],
+      "preopening":["Pre Opening","Akumulasi Amortisasi Pre Opening","Biaya Amortisasi Biaya Pre Opening"],
+      "replacement_oe":["36 Reserve Replacement OE item families","36 Biaya Replacement OE item families"]
+    },
+    "confirmed_absence":"No account family named Barang Diterima Belum Ditagih or GRNI exists in the client COA.",
+    "available_dimensions":"cost_center/site_id, principal_id, facility_id, bank_account_id, loan_facility_id, maturity schedule, asset_id, asset_class_id, project_id, document_id and reason code.",
+    "owner_decisions":[
+      "Retain one Pendapatan (Biaya) Lain-Lain family; unit is cost center.",
+      "Retain one Current Tax/PPh 25 family; unit is cost center.",
+      "Retain Harga Pokok Pembelian and Potongan Pembelian separately.",
+      "Retain land/HGB/land-right/rent families.",
+      "Retain Disposed Inventory.",
+      "Retain inventory damage expense.",
+      "Delete Giro Keluar from future posting.",
+      "Retain pre-opening capability.",
+      "Compress Replacement OE item detail rather than retain one account per item.",
+      "Compress unit-specific Principal accounts using cost center."
+    ],
+    "feedback_to_test":[
+      "Three affiliation control balances are required: financing, goods and other; financing and goods must not merge.",
+      "Software/intangible cost and accumulated amortization must return to core.",
+      "Harga Pokok Pembelian/HPP must return to core.",
+      "Bank loans and Principal loans should each be one core nature, with current/non-current financial-statement classification derived from maturity schedules.",
+      "CIP must be core.",
+      "One Principal payable/loan account replaces unit-specific Principal accounts if their substance is the same.",
+      "One income-tax expense family is needed for closing."
+    ]
+  },
+  "questions":{
+    "grni_remove":{"type":"choice","instructions":"Should the invented GRNI account be removed because the client COA has no GRNI family?","criteria":{"yes":"Do not introduce GRNI; preserve client semantics through the existing Supplier Merchandise Suspend/AP workflow if needed.","no":"Add a new GRNI family despite the constraint."}},
+    "supplier_suspend":{"type":"choice","instructions":"Should Hutang Supplier Barang Dagang - Suspend remain distinct from posted merchandise AP?","criteria":{"yes":"It is an existing client control family for suspended/unresolved merchandise liabilities or matching.","merge":"Merge immediately into ordinary merchandise AP."}},
+    "affiliation_three":{"type":"choice","instructions":"Should the production design retain three distinct affiliation-control natures: Financing, Goods and Other?","criteria":{"yes":"Their operational origin and reconciliation differ; cost center/site carries the unit.","two":"Keep Financing and Goods only; map Other case-by-case.","one":"Merge all affiliation balances."}},
+    "affiliation_not_legal_arap":{"type":"choice","instructions":"How should these affiliation accounts be understood when all units are one legal entity?","criteria":{"internal_control":"Internal balancing/control accounts eliminated in entity-wide reporting, not external receivables/payables; cost center and source documents reconcile both sides.","external":"Treat units as external legal counterparties.","intercompany":"Treat each store as a separate company."}},
+    "affiliation_pairing":{"type":"choice","instructions":"Can one control account per affiliation nature carry debit and credit cost-center balances instead of separate Piutang and Hutang natural accounts?","criteria":{"one_per_nature":"Yes, if reports classify/decompose debit and credit balances by cost center without improper entity-level netting.","two_per_nature":"Keep separate debit and credit control accounts for each nature.","net_entity":"Net everything at entity level without cost-center reconciliation."}},
+    "software_cost":{"type":"choice","instructions":"Should the existing Software cost family return to core?","criteria":{"yes":"Intangible cost must exist because client has software assets and an amortization expense.","no":"Expense all software through maintenance."}},
+    "software_accum":{"type":"choice","instructions":"Should Acc Amort Software return to core?","criteria":{"yes":"Accumulated amortization is required separately from gross software cost and amortization expense.","no":"Net amortization directly against cost."}},
+    "software_detail":{"type":"choice","instructions":"Where should Seventh Soft and Opti Tex identity reside?","criteria":{"register":"In asset_id/intangible register, not separate natural accounts.","gl":"One GL account per software product."}},
+    "hpp_core":{"type":"choice","instructions":"Should Harga Pokok Pembelian/HPP return to core?","criteria":{"yes":"It is an actual client COGS/purchase-cost family and should reconcile to inventory costing.","no":"Leave the client's main HPP family migration-only."}},
+    "purchase_discount_separate":{"type":"choice","instructions":"Should Potongan Pembelian remain separate from Harga Pokok Pembelian?","criteria":{"yes":"Preserve the client's gross purchase and discount distinction; posting rules may ultimately adjust inventory cost according to policy.","no":"Post both to one HPP family."}},
+    "cip_core":{"type":"choice","instructions":"Should the existing CIP family return to core?","criteria":{"yes":"The client uses CIP and the asset register shows a substantial project lifecycle; project and site are dimensions.","no":"Keep CIP only as an unsupported legacy hold."}},
+    "loan_bank_one":{"type":"choice","instructions":"Can current and long-term bank borrowings use one Pinjaman Bank natural account with current/non-current reporting derived from facility maturity schedules?","criteria":{"yes":"Bank/facility identity and maturity belong in loan schedules; financial statements split by due date.","two":"Keep separate current and long-term natural accounts.","per_bank":"Keep one natural account per bank and maturity class."}},
+    "loan_principal_one":{"type":"choice","instructions":"Can current and long-term formal Principal borrowings use one Pinjaman Principal natural account with maturity schedules?","criteria":{"yes":"Use principal_id/facility/maturity schedule and cost center rather than unit-specific GLs.","two":"Keep current and long-term natural accounts.","per_unit":"Keep one natural account per unit."}},
+    "other_principal_merge":{"type":"choice","instructions":"Can Hutang Lain-lain Principal by unit merge into Pinjaman Principal?","criteria":{"conditional":"Yes only where counterparty and repayment substance prove it is the same Principal financing; otherwise keep one separate Principal payable nature, never one per unit.","yes_all":"Merge every balance regardless of substance.","keep14":"Keep all unit-specific accounts."}},
+    "principal_cost_center":{"type":"choice","instructions":"Should unit-specific Principal account copies be replaced by cost center/site?","criteria":{"yes":"One proper natural account per substance, with cost center and principal/facility dimensions.","no":"Retain 14 natural accounts."}},
+    "current_noncurrent_schedule":{"type":"choice","instructions":"Is maturity-schedule classification acceptable for both Bank and Principal loans?","criteria":{"yes":"Derive current/non-current presentation from contractual maturity at report date, with reconciliation to GL.","no":"Classification must be permanently encoded only in separate GL accounts."}},
+    "tax_expense_core":{"type":"choice","instructions":"Should the existing Current Tax Inc/Exp PPh 25 family remain as one core income-tax expense account with cost center?","criteria":{"retain_normalize":"Retain one client-traceable family, preferably normalized as Pajak Penghasilan/Beban Pajak Kini; cost center replaces unit copies.","remove":"Use only tax assets and liabilities with no P&L tax expense.","per_unit":"Keep one tax-expense natural account per unit."}},
+    "mixed_other_core":{"type":"choice","instructions":"Should Pendapatan (Biaya) Lain-Lain remain one core family as the owner requested?","criteria":{"retain_controlled":"Retain one client family with cost center, restricted reason codes and review so material recurring items are reclassified.","remove":"Remove it entirely.","per_unit":"Keep one natural account per unit."}},
+    "disposed_core":{"type":"choice","instructions":"Should the existing Disposed Inventory family remain in core?","criteria":{"retain_clearing":"Retain as a controlled clearing account tied to disposal documents and expected to clear, with site/reason dimensions.","remove":"Map every disposal directly to loss without a clearing stage.","per_unit":"Keep one account per unit."}},
+    "inventory_damage_core":{"type":"choice","instructions":"Should Biaya Kerusakan Persediaan Barang Dagangan remain one core expense account?","criteria":{"yes":"Retain one natural account; item, cause and site are dimensions/documents.","no":"Remove inventory-damage expense capability.","per_unit":"Keep one account per unit."}},
+    "replacement_count":{"type":"choice","instructions":"What client-traceable core treatment is appropriate for 72 Replacement OE item accounts?","criteria":{"one_expense":"Retain one Biaya Replacement OE family for qualifying expenses; capital replacements go to existing OE asset families; item/site detail stays in register.","two":"Retain one Reserve Replacement OE balance-sheet family and one expense family.","all72":"Keep all item-specific natural accounts.","none":"Use existing maintenance/asset families and retire both reserve and replacement families."}},
+    "land_keep":{"type":"choice","instructions":"Given the owner decision, should the existing land/HGB/land-right and rent families remain available as distinct natures?","criteria":{"yes":"Keep prepaid land rent, HGB/land right cost, accumulated amortization, land-right amortization expense and land rent expense separately; cost center/facility/contract carries identity.","merge":"Merge all into one land account.","remove":"Remove all."}},
+    "preopening_keep":{"type":"choice","instructions":"Should the existing Pre Opening cost, accumulated amortization and amortization expense families remain?","criteria":{"yes_controlled":"Retain the three client families with controlled approval and schedule.","one":"Merge all three statement natures into one account.","remove":"Remove all."}},
+    "giro_delete":{"type":"choice","instructions":"Should Giro Keluar be removed from future posting while Outstanding Giro remains?","criteria":{"yes":"Use Outstanding Giro lifecycle and freeze Giro Keluar legacy history.","no":"Keep both available for future posting."}},
+    "client_only_result":{"type":"choice","instructions":"Does this corrected design remain compliant with the client-only constraint?","criteria":{"yes":"Every retained core nature maps to a confirmed client family; unit/bank/item/product copies become dimensions or schedules.","no":"It still depends on invented GRNI or other absent families."}}
+  }
+}

@@ -69,6 +69,8 @@ export interface PurchaseOrderRow {
   /// Summed from the DC's goods receipts on every read, never stored.
   readonly received_stock_units: number
   readonly outstanding_stock_units: number
+  /// Quantities covered by non-rejected, non-void supplier bills.
+  readonly invoiced_stock_units: number
   readonly fully_received: boolean
 }
 

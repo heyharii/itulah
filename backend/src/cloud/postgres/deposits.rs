@@ -42,6 +42,14 @@
 //! moment somebody records it, rather than at posting time, which is the
 //! arrangement `cash_counts` already makes and for the same reason.
 //!
+//! **A code is no longer enough to name a drawer.** `1011001001 CASH ON HAND`,
+//! `1011001002 PETTY CASH` and `1011001003 Modal Kasir` are one account with
+//! three categories now — `1101 × DRAWER`, `× PETTY`, `× FLOAT` — so reading
+//! backwards from `1101` alone finds three meanings and can only refuse. The
+//! slip therefore says which pot as well as which account, and keeps it:
+//! `store_deposit.drawer_category_code` (0294) is what makes the second
+//! posting, days later, resolve to the same meaning the first one did.
+//!
 //! The third leg, `cash_in_transit`, is a meaning like any other and is unmapped
 //! in the client's imported chart — their chart has no such account, and
 //! `docs/coa-final.md` §8.7 names it as one of exactly two that have to be
@@ -54,6 +62,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
+use super::ledger::{assert_category_for_account, Intent};
 use super::payables::PayableFacet;
 use super::poster::{post, PostingIntent, PostingLine};
 use super::{decode_cursor, encode_cursor};
@@ -85,8 +94,17 @@ pub struct StoreDeposit {
     pub site_id: String,
     pub drawer_account_code: String,
     pub drawer_account_name: String,
+    /// Which pot the money left, on the accounts that keep several in one.
+    /// `None` where the account declares no family, which is how every deposit
+    /// recorded before the chart shrank reads.
+    pub drawer_category_code: Option<String>,
     pub bank_account_code: String,
     pub bank_account_name: String,
+    /// The same for the account it went into. `1102 Bank` declares no family —
+    /// which bank is `bank_account_id` — so this is empty today; it is carried
+    /// rather than assumed absent so that the day a money account does declare
+    /// one, the slip and the entry already agree.
+    pub bank_category_code: Option<String>,
     pub amount_minor: i64,
     pub currency: String,
     /// The day the bag left the drawer. Our side of the two dates.
@@ -125,8 +143,23 @@ pub struct RecordDepositRequest {
     pub site_id: String,
     /// The client's own account code for the drawer the notes came out of.
     pub drawer_account_code: String,
+    /// Which pot, when the account carries several.
+    ///
+    /// Required on `1101 Kas`, because the drawer, the petty cash tin and the
+    /// till float are one account there and the money left exactly one of them.
+    /// Optional in the type and not in the rule: an account that declares no
+    /// family refuses a category, and one that declares a family refuses a slip
+    /// without one, both by name — which is a better answer than a required
+    /// field that is meaningless half the time.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub drawer_category_code: Option<String>,
     /// And for the bank account they are going into.
     pub bank_account_code: String,
+    /// The same, for the bank side. Nothing declares a family there today.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub bank_category_code: Option<String>,
     pub amount_minor: i64,
     pub banked_on: NaiveDate,
     /// Who carried it. Not ceremony: an in-transit balance with nobody's name
@@ -210,8 +243,8 @@ struct DepositCursor {
 }
 
 const DEPOSIT_COLUMNS: &str = "d.deposit_id, d.deposit_number, d.site_id,
-     d.drawer_account_code, da.name AS drawer_account_name,
-     d.bank_account_code, ba.name AS bank_account_name,
+     d.drawer_account_code, da.name AS drawer_account_name, d.drawer_category_code,
+     d.bank_account_code, ba.name AS bank_account_name, d.bank_category_code,
      d.amount_minor, d.currency, d.banked_on, d.landed_on, d.carried_by,
      d.slip_reference, d.note, d.status, d.sent_entry_id, d.landed_entry_id,
      d.bank_line_id, d.recorded_by, d.recorded_at, d.sent_by, d.landed_by,
@@ -234,8 +267,10 @@ fn to_deposit(row: &sqlx::postgres::PgRow) -> Result<StoreDeposit, AppError> {
         site_id: row.try_get("site_id")?,
         drawer_account_code: row.try_get("drawer_account_code")?,
         drawer_account_name: row.try_get("drawer_account_name")?,
+        drawer_category_code: row.try_get("drawer_category_code")?,
         bank_account_code: row.try_get("bank_account_code")?,
         bank_account_name: row.try_get("bank_account_name")?,
+        bank_category_code: row.try_get("bank_category_code")?,
         amount_minor: row.try_get("amount_minor")?,
         currency: row.try_get("currency")?,
         banked_on: row.try_get("banked_on")?,
@@ -426,6 +461,19 @@ pub async fn deposit(pool: &PgPool, deposit_id: Uuid) -> Result<StoreDeposit, Ap
     to_deposit(&row)
 }
 
+/// An optional field a person typed, with blank read as absent.
+///
+/// A form posts an empty string where it means "nothing chosen", and an empty
+/// string would be looked up as a category code and refused as one. Here rather
+/// than at each of the four call sites so the two requests and the two postings
+/// cannot drift apart on it.
+fn trimmed(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
 /// Which meaning carries this account at this unit, out of a list of meanings
 /// the caller is allowed to name.
 ///
@@ -433,38 +481,77 @@ pub async fn deposit(pool: &PgPool, deposit_id: Uuid) -> Result<StoreDeposit, Ap
 /// gives: a deposit out of an account nobody mapped is a deposit nothing can
 /// ever be posted from, and finding that out at posting time is finding it out
 /// too late.
+///
+/// # Why the category is part of the lookup
+///
+/// One account carried one meaning until the chart became forty. `1101 Kas`
+/// carries four — the drawer, the petty tin, the till float and the money in
+/// the bag — and the map tells them apart by `category_code`, which is exactly
+/// the part of `1011001002` that stopped being an account. Without it this
+/// function finds three rows for every drawer in the estate and refuses every
+/// deposit ever recorded; with it, `1101 × DRAWER` answers `cash` and nothing
+/// else.
+///
+/// A category the caller does not give is not filled in here. Two meanings on
+/// one pairing is still a real fault on the Account Map, and the refusal below
+/// says which of the two the reader is looking at: a slip that did not say
+/// which pot, or a map that says the same pot twice.
 async fn meaning_of(
     pool: &PgPool,
     account_code: &str,
     site_id: &str,
+    category_code: Option<&str>,
     allowed: &[&str],
     role: &str,
 ) -> Result<(String, String), AppError> {
     let rows = sqlx::query(
-        "SELECT semantic_key, qualifier FROM account_map
-          WHERE account_code = $1 AND site_id = $2 AND semantic_key = ANY($3)
-          ORDER BY semantic_key, qualifier",
+        "SELECT m.semantic_key, m.qualifier, a.category_family
+           FROM account_map m
+           JOIN ledger_account a ON a.account_code = m.account_code
+          WHERE m.account_code = $1 AND m.site_id = $2 AND m.semantic_key = ANY($3)
+            AND ($4::text IS NULL OR m.category_code = $4)
+          ORDER BY m.semantic_key, m.qualifier",
     )
     .bind(account_code)
     .bind(site_id)
     .bind(allowed)
+    .bind(category_code)
     .fetch_all(pool)
     .await?;
 
+    let under = match category_code {
+        Some(category) => format!(" under {category}"),
+        None => String::new(),
+    };
+
     match rows.len() {
         0 => Err(AppError::Validation(format!(
-            "{account_code} at {site_id} is not {role}: point one of {} at it on the Account Map \
-             screen, or name the account that is",
+            "{account_code}{under} at {site_id} is not {role}: point one of {} at it on the \
+             Account Map screen, or name the account that is",
             allowed.join(", ")
         ))),
         1 => Ok((
             rows[0].try_get("semantic_key")?,
             rows[0].try_get("qualifier")?,
         )),
-        _ => Err(AppError::Validation(format!(
-            "{account_code} at {site_id} is mapped by more than one meaning; one account carries \
-             one meaning, so fix the Account Map before banking against it"
-        ))),
+        // Several, and which of the two faults this is depends on whether the
+        // account keeps its meanings apart by category at all. The family comes
+        // off the rows this already read, so the extra sentence costs nothing
+        // on the path that succeeds.
+        found => {
+            let family: Option<String> = rows[0].try_get("category_family")?;
+            match (family, category_code) {
+                (Some(family), None) => Err(AppError::Validation(format!(
+                    "{account_code} at {site_id} carries {found} of them — it is kept by {family} \
+                     — so the slip has to say which: name the category beside the account"
+                ))),
+                _ => Err(AppError::Validation(format!(
+                    "{account_code}{under} at {site_id} is mapped by more than one meaning; one \
+                     account and one category carry one meaning, so fix the Account Map before \
+                     banking against it"
+                ))),
+            }
+        }
     }
 }
 
@@ -504,8 +591,32 @@ pub async fn record_deposit(
         ));
     }
     let site = request.site_id.trim();
-    meaning_of(pool, drawer, site, &DRAWER_MEANINGS, "a cash drawer").await?;
-    meaning_of(pool, bank, site, &BANK_MEANINGS, "a bank account").await?;
+    let drawer_category = trimmed(request.drawer_category_code.as_deref());
+    let bank_category = trimmed(request.bank_category_code.as_deref());
+    // Checked before the map is read, so a category that does not belong to the
+    // account is named as that rather than reaching the reader as "nothing is
+    // mapped there" — which would be true of the pairing and false of the
+    // account, and would send somebody to the wrong screen.
+    assert_category_for_account(pool, drawer, drawer_category.as_deref(), Intent::Post).await?;
+    assert_category_for_account(pool, bank, bank_category.as_deref(), Intent::Post).await?;
+    meaning_of(
+        pool,
+        drawer,
+        site,
+        drawer_category.as_deref(),
+        &DRAWER_MEANINGS,
+        "a cash drawer",
+    )
+    .await?;
+    meaning_of(
+        pool,
+        bank,
+        site,
+        bank_category.as_deref(),
+        &BANK_MEANINGS,
+        "a bank account",
+    )
+    .await?;
 
     let deposit_id = Uuid::new_v4();
     let mut tx = pool.begin().await?;
@@ -515,15 +626,18 @@ pub async fn record_deposit(
         .try_get("n")?;
     sqlx::query(
         "INSERT INTO store_deposit
-           (deposit_id, deposit_number, site_id, drawer_account_code, bank_account_code,
+           (deposit_id, deposit_number, site_id, drawer_account_code, drawer_category_code,
+            bank_account_code, bank_category_code,
             amount_minor, banked_on, carried_by, slip_reference, note, recorded_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
     )
     .bind(deposit_id)
     .bind(format!("DP-{number:08}"))
     .bind(site)
     .bind(drawer)
+    .bind(drawer_category.as_deref())
     .bind(bank)
+    .bind(bank_category.as_deref())
     .bind(request.amount_minor)
     .bind(request.banked_on)
     .bind(request.carried_by.trim())
@@ -559,10 +673,15 @@ pub async fn bank_deposit(
             existing.status.to_lowercase()
         )));
     }
+    // The pot the slip named, days ago. Read off the document and not asked
+    // again: the map could have gained a second meaning on this account since,
+    // and a posting that resolved differently from the slip it is posting would
+    // credit a pot nobody chose.
     let (drawer_key, drawer_qualifier) = meaning_of(
         pool,
         &existing.drawer_account_code,
         &existing.site_id,
+        existing.drawer_category_code.as_deref(),
         &DRAWER_MEANINGS,
         "a cash drawer",
     )
@@ -642,6 +761,7 @@ pub async fn land_deposit(
         pool,
         &existing.bank_account_code,
         &existing.site_id,
+        existing.bank_category_code.as_deref(),
         &BANK_MEANINGS,
         "a bank account",
     )

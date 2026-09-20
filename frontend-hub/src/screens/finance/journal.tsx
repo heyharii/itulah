@@ -25,7 +25,6 @@ import {
   NoMatch,
   Truncated,
 } from "@/components/ui/states"
-import { Tag } from "@/components/ui/tag"
 import { useFilters } from "@/lib/filters"
 import { count, day, label, money, moment } from "@/lib/format"
 import {
@@ -41,10 +40,12 @@ import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { useWindow } from "@/screens/finance/hooks"
 import {
-  AccountPicker,
+  AccountAndCategory,
+  accountChoiceReady,
   LocationSelect,
   SiteName,
   WindowControl,
+  type AccountChoice,
 } from "@/screens/finance/parts"
 import { parseMinor, todayIso } from "@/screens/finance/chart"
 import { idempotencyKey } from "@itulah/contract/client"
@@ -507,6 +508,18 @@ function EntrySheet({
                     <td className="py-2 pr-2">
                       <span className="block text-[0.8125rem] text-ink">
                         {line.account_name}
+                        {/* The category is what the account code used to say
+                            on its own. Without it an expense entry is eight
+                            lines all reading "Beban umum & administrasi". */}
+                        {line.category_name !== null && (
+                          <span
+                            className="text-mute"
+                            title={line.category_code ?? undefined}
+                          >
+                            {" · "}
+                            {line.category_name}
+                          </span>
+                        )}
                       </span>
                       {/* No dead ends: the question a line raises is "what else
                           is in that account", and the ledger is the answer. The
@@ -585,9 +598,13 @@ function EntrySheet({
 /// server accepts one — an existing entry's lines display theirs — but this
 /// composer has never had a box for it, and a field on the draft that nothing
 /// can fill is not a feature, it is a `null` with extra steps.
+/// `account` is a pair — the code and the category its family asks for — and
+/// not a code on its own. Since the chart collapsed to forty accounts, 6301 is
+/// one line of the profit and loss and has not yet said what the money went
+/// on; the category is what two account codes used to say between them, and
+/// the database refuses a line that carries only half of it.
 interface DraftLine {
-  account_code: string
-  account_name: string
+  account: AccountChoice | null
   site_id: string
   debit: string
   credit: string
@@ -595,8 +612,7 @@ interface DraftLine {
 
 function blankLine(): DraftLine {
   return {
-    account_code: "",
-    account_name: "",
+    account: null,
     site_id: "",
     debit: "",
     credit: "",
@@ -622,7 +638,7 @@ function entryTotals(draft: EntryDraft) {
     }))
     .filter(
       (row) =>
-        row.line.account_code !== "" &&
+        row.line.account !== null &&
         row.line.site_id.trim() !== "" &&
         row.debit !== null &&
         row.credit !== null &&
@@ -630,11 +646,21 @@ function entryTotals(draft: EntryDraft) {
     )
   const debits = usable.reduce((sum, row) => sum + (row.debit ?? 0), 0)
   const credits = usable.reduce((sum, row) => sum + (row.credit ?? 0), 0)
+  /// Otherwise-finished rows whose account declares a family and whose
+  /// category is still empty. The one refusal this form can see coming.
+  const uncategorised = usable.filter(
+    (row) => !accountChoiceReady(row.line.account)
+  )
   return {
     usable,
     debits,
     credits,
-    balanced: usable.length >= 2 && debits === credits && debits > 0,
+    uncategorised,
+    balanced:
+      usable.length >= 2 &&
+      debits === credits &&
+      debits > 0 &&
+      uncategorised.length === 0,
   }
 }
 
@@ -662,9 +688,6 @@ function ComposerSheet({
   onClose: () => void
 }) {
   const client = useQueryClient()
-  // Which line's account picker is open. A disclosure, not a value the entry
-  // carries, so it stays out of the draft.
-  const [picking, setPicking] = useState<number | null>(null)
   const [receipt, setReceipt] = useState<string | null>(null)
   // Minted once per composer, not per attempt: a retry after a dropped
   // connection must land the same entry, and generating the key inside the
@@ -680,7 +703,13 @@ function ComposerSheet({
           posting_date: draft.postingDate,
           memo: draft.memo.trim() === "" ? null : draft.memo.trim(),
           lines: entryTotals(draft).usable.map((row): ManualLine => ({
-            account: { kind: "account", account_code: row.line.account_code },
+            account: {
+              kind: "account",
+              account_code: row.line.account!.account_code,
+              // `null` when the account declares no family: that is the
+              // answer, not the absence of one.
+              category_code: row.line.account!.category_code,
+            },
             site_id: row.line.site_id.trim(),
             debit_minor: row.debit ?? 0,
             credit_minor: row.credit ?? 0,
@@ -696,7 +725,6 @@ function ComposerSheet({
       // the same date.
       form.setFieldValue("lines", [blankLine(), blankLine()])
       form.setFieldValue("memo", "")
-      setPicking(null)
       setKey(idempotencyKey())
       // A posting moves the register, every balance, both statements and the
       // trial balance. There is no narrower honest answer.
@@ -805,63 +833,28 @@ function ComposerSheet({
                   key={index}
                   className="rounded-inner border border-hairline p-3"
                 >
-                  <div className="mb-2 flex items-center gap-2">
-                    {line.account_code === "" ? (
-                      <span className="text-[0.71875rem] text-mute">
-                        No account chosen
-                      </span>
-                    ) : (
-                      <>
-                        <Tag>{line.account_code}</Tag>
-                        <span className="min-w-0 flex-1 truncate text-[0.78125rem] text-ink">
-                          {line.account_name}
-                        </span>
-                      </>
-                    )}
-                    <div className="flex-1" />
-                    <Button
-                      size="sm"
-                      variant="quiet"
-                      onClick={() =>
-                        setPicking(picking === index ? null : index)
-                      }
-                    >
-                      {line.account_code === "" ? "Choose account" : "Change"}
-                    </Button>
+                  <div className="mb-2 flex items-start gap-2">
+                    <span className="min-w-0 flex-1">
+                      <AccountAndCategory
+                        value={line.account}
+                        onChange={(next) =>
+                          form.setFieldValue(`lines[${index}].account`, next)
+                        }
+                        categoryLabel={`Category on line ${index + 1}`}
+                        explain
+                      />
+                    </span>
                     {lines.state.value.length > 2 && (
                       <Button
                         size="sm"
                         variant="quiet"
                         aria-label="Remove line"
-                        onClick={() => {
-                          lines.removeValue(index)
-                          // The picker is keyed by position, and the positions
-                          // below this one just moved.
-                          setPicking(null)
-                        }}
+                        onClick={() => lines.removeValue(index)}
                       >
                         <Trash2 />
                       </Button>
                     )}
                   </div>
-
-                  {picking === index && (
-                    <div className="mb-3">
-                      <AccountPicker
-                        onPick={(account) => {
-                          form.setFieldValue(
-                            `lines[${index}].account_code`,
-                            account.account_code
-                          )
-                          form.setFieldValue(
-                            `lines[${index}].account_name`,
-                            account.name
-                          )
-                          setPicking(null)
-                        }}
-                      />
-                    </div>
-                  )}
 
                   <div className="grid grid-cols-3 gap-2">
                     <form.Field name={`lines[${index}].site_id`}>

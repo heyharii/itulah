@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="id"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Proses Bisnis Finance</title>
+<style>
+:root{
+  --paper:#fbfaf8; --panel:#fff; --ink:#15181c; --ink2:#5b6470; --ink3:#8b95a1;
+  --line:#e6e3dd; --line2:#f0eeea; --accent:#0f766e; --accent-soft:#d9f0ec;
+  --dr:#8a5a00; --dr-bg:#fdf3e0; --cr:#0e6b5e; --cr-bg:#ddf2ee;
+  --auto:#0e7c66; --man:#9a6a00; --new:#6d4bb6; --gap:#b03a48; --unk:#a05a1e;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --paper:#101317; --panel:#171b21; --ink:#e8eaed; --ink2:#a4adb8; --ink3:#727d8a;
+  --line:#262c34; --line2:#1e242b; --accent:#5eead4; --accent-soft:#12312e;
+  --dr:#e0a94a; --dr-bg:#2a2116; --cr:#5eead4; --cr-bg:#11302c;
+  --auto:#4ade9f; --man:#e0b64a; --new:#b195f0; --gap:#f08a96; --unk:#e0a065;
+}}
+:root[data-theme="dark"]{
+  --paper:#101317; --panel:#171b21; --ink:#e8eaed; --ink2:#a4adb8; --ink3:#727d8a;
+  --line:#262c34; --line2:#1e242b; --accent:#5eead4; --accent-soft:#12312e;
+  --dr:#e0a94a; --dr-bg:#2a2116; --cr:#5eead4; --cr-bg:#11302c;
+  --auto:#4ade9f; --man:#e0b64a; --new:#b195f0; --gap:#f08a96; --unk:#e0a065;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font:15px/1.55 ui-sans-serif,-apple-system,"Segoe UI",Inter,system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:0 16px}
+header.top{padding:44px 0 26px;border-bottom:1px solid var(--line)}
+h1{margin:0 0 10px;font-size:clamp(26px,4vw,38px);letter-spacing:-.02em;line-height:1.12}
+.lede{margin:0;max-width:62ch;color:var(--ink2);font-size:16px}
+.rule{margin:22px 0 0;padding:14px 16px;border-left:3px solid var(--accent);
+  background:var(--accent-soft);border-radius:0 8px 8px 0;font-size:14.5px;max-width:72ch}
+.rule b{color:var(--ink)}
+nav.doms{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--paper) 92%,transparent);
+  backdrop-filter:blur(8px);border-bottom:1px solid var(--line);padding:9px 0;margin-bottom:26px}
+nav.doms .wrap{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none}
+nav.doms a{white-space:nowrap;padding:5px 11px;border-radius:99px;font-size:12.5px;
+  color:var(--ink2);text-decoration:none;border:1px solid transparent}
+nav.doms a:hover{color:var(--ink);border-color:var(--line);background:var(--panel)}
+.tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 26px}
+.chip{display:inline-flex;align-items:center;gap:7px;padding:6px 12px;border:1px solid var(--line);
+  border-radius:99px;background:var(--panel);color:var(--ink2);font:inherit;font-size:12.5px;cursor:pointer}
+.chip b{color:var(--ink)}
+.chip[aria-pressed="true"]{border-color:var(--accent);color:var(--ink);box-shadow:inset 0 0 0 1px var(--accent)}
+.chip i{width:8px;height:8px;border-radius:99px;display:inline-block}
+.st-auto{background:var(--auto)} .st-man{background:var(--man)} .st-new{background:var(--new)}
+.st-gap{background:var(--gap)} .st-unk{background:var(--unk)}
+#q{flex:1;min-width:190px;padding:7px 13px;border:1px solid var(--line);border-radius:99px;
+  background:var(--panel);color:var(--ink);font:inherit;font-size:13px}
+#q:focus{outline:2px solid var(--accent);outline-offset:1px}
+section.dom{margin:0 0 40px;scroll-margin-top:56px}
+section.dom h2{font-size:13px;text-transform:uppercase;letter-spacing:.1em;color:var(--ink3);
+  font-weight:650;margin:0 0 14px;display:flex;align-items:baseline;gap:10px}
+.count{font-size:11px;letter-spacing:.04em;color:var(--ink3);text-transform:none}
+.grid{display:grid;gap:14px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+.card header{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.pid{font:600 11px/1 var(--mono);color:var(--ink3);border:1px solid var(--line);
+  padding:4px 6px;border-radius:5px}
+.card h3{margin:0;font-size:16.5px;letter-spacing:-.01em;flex:1;min-width:180px}
+.badge{font-size:11px;padding:3px 9px;border-radius:99px;font-weight:600;color:#fff;white-space:nowrap}
+.badge.st-auto{background:var(--auto)} .badge.st-man{background:var(--man)}
+.badge.st-new{background:var(--new)} .badge.st-gap{background:var(--gap)}
+.badge.st-unk{background:var(--unk)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .badge{color:#0e1216}}
+:root[data-theme="dark"] .badge{color:#0e1216}
+.trigger{margin:0 0 14px;font-size:13px;color:var(--ink2)}
+.trigger span{font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink3);margin-right:8px}
+.body{display:grid;grid-template-columns:1fr 1fr;gap:20px;padding-top:14px;border-top:1px solid var(--line2)}
+.col h4{margin:0 0 9px;font-size:10.5px;text-transform:uppercase;letter-spacing:.09em;color:var(--ink3);font-weight:650}
+ol.steps{margin:0;padding:0;list-style:none;counter-reset:s}
+ol.steps li{counter-increment:s;display:grid;grid-template-columns:18px 1fr;gap:9px;
+  padding:4px 0;font-size:13.5px;align-items:start}
+ol.steps .txt{display:block}
+ol.steps li::before{content:counter(s);font:600 10px/16px var(--mono);color:var(--ink3);
+  width:16px;height:16px;text-align:center;border:1px solid var(--line);border-radius:99px;margin-top:3px}
+.who{display:inline-block;font-size:11px;font-weight:600;padding:1px 7px;border-radius:4px;margin-right:6px;
+  white-space:nowrap;vertical-align:1px}
+.a-kasir{background:#e8ecf5;color:#33456b} .a-admin{background:#e2f0ea;color:#17604c}
+.a-kepala{background:#f5ece0;color:#7a5320} .a-fin{background:#e9e4f6;color:#4b3b7a}
+.a-mesin{background:#eceef0;color:#4e5762} .a-dc{background:#e4eef5;color:#245570}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  .a-kasir{background:#1e2738;color:#9db4e0} .a-admin{background:#123029;color:#6fd9bb}
+  .a-kepala{background:#2e2415;color:#e0b878} .a-fin{background:#241d38;color:#b6a5e8}
+  .a-mesin{background:#20262d;color:#9aa5b1} .a-dc{background:#152935;color:#8cc2e0}}}
+:root[data-theme="dark"] .a-kasir{background:#1e2738;color:#9db4e0}
+:root[data-theme="dark"] .a-admin{background:#123029;color:#6fd9bb}
+:root[data-theme="dark"] .a-kepala{background:#2e2415;color:#e0b878}
+:root[data-theme="dark"] .a-fin{background:#241d38;color:#b6a5e8}
+:root[data-theme="dark"] .a-mesin{background:#20262d;color:#9aa5b1}
+:root[data-theme="dark"] .a-dc{background:#152935;color:#8cc2e0}
+.j-block{margin-bottom:11px}
+.j-unit{font:600 10.5px/1 var(--mono);color:var(--ink3);letter-spacing:.06em;
+  text-transform:uppercase;margin-bottom:5px}
+.j-row{display:grid;grid-template-columns:26px 1fr;gap:8px;align-items:baseline;padding:2.5px 0}
+.side{font:700 10px/16px var(--mono);text-align:center;border-radius:4px}
+.side.dr{background:var(--dr-bg);color:var(--dr)} .side.cr{background:var(--cr-bg);color:var(--cr)}
+.acc{font-size:13px}
+.jnote{grid-column:2;font-size:11.5px;color:var(--ink3);display:block;margin-top:-1px}
+.j-none{font-size:12.5px;color:var(--ink3);font-style:italic}
+.card footer{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;
+  margin-top:14px;padding-top:11px;border-top:1px solid var(--line2);font-size:12px;color:var(--ink2)}
+.mesin{font:11px var(--mono);color:var(--ink3)}
+.note{margin:34px 0 60px;padding:16px 18px;border:1px solid var(--line);border-radius:12px;
+  background:var(--panel)}
+.note h3{margin:0 0 8px;font-size:15px}
+.note p{margin:0 0 8px;font-size:13.5px;color:var(--ink2);max-width:74ch}
+.note p:last-child{margin:0}
+.empty{display:none;padding:30px 0;color:var(--ink3);font-size:14px}
+@media (max-width:760px){.body{grid-template-columns:1fr;gap:16px}}
+</style></head><body>
+<header class="top"><div class="wrap">
+<h1>Proses bisnis finance — 55 proses, jurnalnya, dan pemiliknya</h1>
+<p class="lede">Seluruh kejadian yang menyentuh uang atau buku besar, dari kasir membuka shift
+sampai tutup tahun. Akun yang dipakai adalah nama dari bagan 144 akun yang dibekukan 19 September 2026.</p>
+<p class="rule"><b>Aturan yang berlaku di semua proses:</b> orang mengisi <b>dokumen</b>, mesin menulis
+<b>jurnal</b>. Tidak ada satu pun layar di unit yang meminta nama akun atau sisi debit.
+Jurnal manual hanya ada di Finance HO, dan itu pun tidak bisa menyentuh kas unit.</p>
+</div></header>
+<nav class="doms"><div class="wrap"><a href="#Penjualan-di-toko">Penjualan di toko</a><a href="#Uang-toko">Uang toko</a><a href="#Pembelian-dan-persediaan">Pembelian &amp; persediaan</a><a href="#Payroll">Payroll</a><a href="#Aset">Aset</a><a href="#Bank-giro-dan-pajak">Bank, giro &amp; pajak</a><a href="#Pinjaman-dan-modal">Pinjaman &amp; modal</a><a href="#Buku-besar">Buku besar</a></div></nav>
+<div class="wrap">
+<div class="tools"><button class="chip" data-f="otomatis"><i class="st-auto"></i>sudah otomatis <b>34</b></button><button class="chip" data-f="baru"><i class="st-new"></i>perlu dibangun <b>11</b></button><button class="chip" data-f="manual dulu"><i class="st-man"></i>manual dulu <b>7</b></button><button class="chip" data-f="belum ada"><i class="st-gap"></i>belum ada <b>3</b></button><input id="q" type="search" placeholder="Cari proses, pemilik, pemicu…"></div>
+<section class="dom" id="Penjualan-di-toko"><h2>Penjualan di toko <span class="count">7 proses</span></h2><div class="grid"><article class="card" data-owner="Kasir" data-status="otomatis" data-q="buka shift kasir kasir mulai jaga kasir penjualan di toko">
+  <header><span class="pid">A1</span><h3>Buka shift kasir</h3>
+    <span class="badge st-auto">sudah otomatis</span></header>
+  <p class="trigger"><span>Pemicu</span>Kasir mulai jaga</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-kasir">Kasir</span>Ambil modal kasir dari brankas, hitung di depan saksi</span></li><li><span class="txt"><span class="who a-kasir">Kasir</span>Buka shift di till — jumlah modal awal tercatat</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Modal kasir sudah ada di buku sejak dikirim HO; membuka shift tidak memindahkan uang</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-none">Tidak ada jurnal — langkah ini bukan kejadian akuntansi.</div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Kasir</b></span><span class="mesin">CASH_SHIFT</span></footer>
+</article><article class="card" data-owner="Mesin" data-status="otomatis" data-q="penjualan harian hari dagang ditutup mesin penjualan di toko">
+  <header><span class="pid">A2</span><h3>Penjualan harian</h3>
+    <span class="badge st-auto">sudah otomatis</span></header>
+  <p class="trigger"><span>Pemicu</span>Hari dagang ditutup</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-kasir">Kasir</span>Transaksi sepanjang hari tercatat di till</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Hari dagang dikunci pada tengah malam, lalu diposting satu kali per toko</span></li><li><span class="txt"><span class="who a-fin">Finance HO</span>Melihat rekonsiliasi penjualan; tidak menjurnal apa pun</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">Toko</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">CASH ON HAND</span><span class=jnote>bagian tunai</span></div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Piutang Acquirer Kartu</span><span class=jnote>debit · kredit · QRIS</span></div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Hutang Voucher</span><span class=jnote>voucher ditukar — kewajiban berkurang</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Penjualan Barang Dagangan</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Hutang Pajak</span><span class=jnote>PPN keluaran</span></div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Discount / Potongan Penjualan</span><span class=jnote>kalau ada diskon</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Mesin</b></span><span class="mesin">SALE_DAY</span></footer>
+</article><article class="card" data-owner="Mesin" data-status="otomatis" data-q="harga pokok hari itu hari dagang yang sama mesin penjualan di toko">
+  <header><span class="pid">A3</span><h3>Harga pokok hari itu</h3>
+    <span class="badge st-auto">sudah otomatis</span></header>
+  <p class="trigger"><span>Pemicu</span>Hari dagang yang sama</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-mesin">Mesin</span>Lapisan biaya dipakai sesuai barang yang terjual, per toko</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">Toko</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Harga Pokok Pembelian / HPP</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Persediaan Barang Dagangan</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Mesin</b></span><span class="mesin">COGS_DAY</span></footer>
+</article><article class="card" data-owner="Mesin" data-status="otomatis" data-q="retur penjualan pelanggan mengembalikan barang mesin penjualan di toko">
+  <header><span class="pid">A4</span><h3>Retur penjualan</h3>
+    <span class="badge st-auto">sudah otomatis</span></header>
+  <p class="trigger"><span>Pemicu</span>Pelanggan mengembalikan barang</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-kasir">Kasir</span>Proses retur di till — barang kembali ke rak</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Ikut hari dagang: penjualan, PPN dan HPP dibalik</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">Toko</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Retur Penjualan</span></div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Hutang Pajak</span><span class=jnote>PPN keluaran dibalik</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">CASH ON HAND</span><span class=jnote>uang dikembalikan</span></div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Persediaan Barang Dagangan</span><span class=jnote>barang kembali</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Harga Pokok Pembelian / HPP</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Mesin</b></span><span class="mesin">SALE_DAY</span></footer>
+</article><article class="card" data-owner="Mesin" data-status="otomatis" data-q="voucher terjual pelanggan membeli voucher mesin penjualan di toko">
+  <header><span class="pid">A5</span><h3>Voucher terjual</h3>
+    <span class="badge st-auto">sudah otomatis</span></header>
+  <p class="trigger"><span>Pemicu</span>Pelanggan membeli voucher</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-kasir">Kasir</span>Jual voucher — belum jadi pendapatan</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Tercatat sebagai kewajiban sampai ditukar</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">Toko</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">CASH ON HAND</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Hutang Voucher</span><span class=jnote>uang yang sudah diterima, barang belum diserahkan</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Mesin</b></span><span class="mesin">SALE_DAY</span></footer>
+</article><article class="card" data-owner="Kasir" data-status="baru" data-q="tutup shift kasir kasir selesai jaga kasir penjualan di toko">
+  <header><span class="pid">A6</span><h3>Tutup shift kasir</h3>
+    <span class="badge st-new">perlu dibangun</span></header>
+  <p class="trigger"><span>Pemicu</span>Kasir selesai jaga</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-kasir">Kasir</span>Hitung fisik laci, catat jumlahnya</span></li><li><span class="txt"><span class="who a-kepala">Kepala Toko</span>Saksi dan tanda tangan</span></li><li><span class="txt"><span class="who a-kasir">Kasir</span>Modal kasir dikembalikan ke brankas — custody berpindah, nilainya tidak</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Tidak ada jurnal. Selisih dicatat sebagai temuan, bukan sebagai posting</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-none">Tidak ada jurnal — buka/tutup shift hanya memindahkan custody; Modal Kasir tidak berubah</div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Kasir</b></span><span class="mesin">CASH_SHIFT</span></footer>
+</article><article class="card" data-owner="Finance HO" data-status="otomatis" data-q="settlement kartu &amp; qris acquirer mengirim uang finance ho penjualan di toko">
+  <header><span class="pid">A7</span><h3>Settlement kartu &amp; QRIS</h3>
+    <span class="badge st-auto">sudah otomatis</span></header>
+  <p class="trigger"><span>Pemicu</span>Acquirer mengirim uang</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-fin">Finance HO</span>Impor laporan settlement acquirer</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Piutang kartu dilunasi, biaya MDR diakui</span></li><li><span class="txt"><span class="who a-fin">Finance HO</span>Selisih yang tidak cocok muncul di layar rekonsiliasi</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">Toko</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Bank - Giro</span><span class=jnote>uang bersih masuk</span></div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Biaya Credit Card</span><span class=jnote>potongan acquirer</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Piutang Acquirer Kartu</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Finance HO</b></span><span class="mesin">ACQ_SETTLEMENT</span></footer>
+</article></div></section><section class="dom" id="Uang-toko"><h2>Uang toko <span class="count">9 proses</span></h2><div class="grid"><article class="card" data-owner="Kepala Toko" data-status="baru" data-q="setor hasil penjualan uang tunai menumpuk di toko kepala toko uang toko">
+  <header><span class="pid">B1</span><h3>Setor hasil penjualan</h3>
+    <span class="badge st-new">perlu dibangun</span></header>
+  <p class="trigger"><span>Pemicu</span>Uang tunai menumpuk di toko</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-kepala">Kepala Toko</span>Siapkan setoran, bawa ke bank</span></li><li><span class="txt"><span class="who a-admin">Admin Unit</span>Catat slip setoran — nilai yang dinyatakan toko</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Yang dinyatakan toko dianggap diterima bank; tanpa akun transit, tanpa penerimaan sebagian</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">Toko</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Saldo Affiliasi Atas Barang</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">CASH ON HAND</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Kepala Toko</b></span><span class="mesin">STORE_DEPOSIT</span></footer>
+</article><article class="card" data-owner="Finance HO" data-status="baru" data-q="ho menerima setoran di bank kredit bank terlihat finance ho uang toko">
+  <header><span class="pid">B9</span><h3>HO menerima setoran di bank</h3>
+    <span class="badge st-new">perlu dibangun</span></header>
+  <p class="trigger"><span>Pemicu</span>Kredit bank terlihat</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-fin">Finance HO</span>Cocokkan mutasi bank dengan slip setoran toko</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Kaki HO ditulis; saldo afiliasi atas barang tertutup</span></li><li><span class="txt"><span class="who a-fin">Finance HO</span>Setoran yang belum berpasangan muncul di layar rekonsiliasi</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">HO</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Bank - Giro</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Saldo Affiliasi Atas Barang</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Finance HO</b></span><span class="mesin">STORE_DEPOSIT</span></footer>
+</article><article class="card" data-owner="Admin Unit" data-status="otomatis" data-q="pengeluaran dari petty cash toko perlu belanja kecil admin unit uang toko">
+  <header><span class="pid">B2</span><h3>Pengeluaran dari petty cash</h3>
+    <span class="badge st-auto">sudah otomatis</span></header>
+  <p class="trigger"><span>Pemicu</span>Toko perlu belanja kecil</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-admin">Admin Unit</span>Keluarkan uang, simpan nota + foto</span></li><li><span class="txt"><span class="who a-admin">Admin Unit</span>Catat pengeluaran di layar — pilih jenis biaya, bukan akun</span></li><li><span class="txt"><span class="who a-fin">Finance HO</span>Meninjau SEMUA pengeluaran, berapa pun nilainya</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Setelah disetujui, jurnalnya ditulis</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">Toko</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Biaya Kebersihan (Cleaning)</span><span class=jnote>atau jenis biaya lain yang dipilih</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">PETTY CASH</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Admin Unit</b></span><span class="mesin">STORE_EXPENSE</span></footer>
+</article><article class="card" data-owner="Admin Unit" data-status="otomatis" data-q="minta ho membayar nilainya di atas rp500.000 admin unit uang toko">
+  <header><span class="pid">B3</span><h3>Minta HO membayar</h3>
+    <span class="badge st-auto">sudah otomatis</span></header>
+  <p class="trigger"><span>Pemicu</span>Nilainya di atas Rp500.000</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-admin">Admin Unit</span>Ajukan permintaan + lampiran tagihan</span></li><li><span class="txt"><span class="who a-fin">Finance HO</span>Tinjau, tentukan vendornya, setujui atau tolak</span></li><li><span class="txt"><span class="who a-fin">Finance HO</span>Bayar dari bank HO — lihat proses C9</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-none">Tidak ada jurnal di tahap ini — permintaan bukan kejadian akuntansi</div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Admin Unit</b></span><span class="mesin">payment_instruction</span></footer>
+</article><article class="card" data-owner="Admin Unit" data-status="baru" data-q="hitung kas mingguan setiap minggu admin unit uang toko">
+  <header><span class="pid">B4</span><h3>Hitung kas mingguan</h3>
+    <span class="badge st-new">perlu dibangun</span></header>
+  <p class="trigger"><span>Pemicu</span>Setiap minggu</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-admin">Admin Unit</span>Hitung fisik: laci, petty cash, modal kasir</span></li><li><span class="txt"><span class="who a-kepala">Kepala Toko</span>Saksi</span></li><li><span class="txt"><span class="who a-fin">Finance HO</span>Pantau selisih sistem vs fisik per unit</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Tidak ada jurnal. Selisih jadi daftar terbuka sampai ada keputusan tersendiri</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-none">Tidak ada jurnal — hitung kas adalah bukti, bukan keputusan akuntansi</div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Admin Unit</b></span><span class="mesin">CASH_COUNT</span></footer>
+</article><article class="card" data-owner="Finance HO + Admin Unit" data-status="baru" data-q="terima dana petty cash dari ho ho sudah mentransfer finance ho + admin unit uang toko">
+  <header><span class="pid">B5</span><h3>Terima dana petty cash dari HO</h3>
+    <span class="badge st-new">perlu dibangun</span></header>
+  <p class="trigger"><span>Pemicu</span>HO sudah mentransfer</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-fin">Finance HO</span>Terbitkan pendanaan — nomor IUT + BKK HO</span></li><li><span class="txt"><span class="who a-kepala">Kepala Toko</span>Uang masuk rekening pribadinya, dibawa ke toko</span></li><li><span class="txt"><span class="who a-admin">Admin Unit</span>Buka layar Dana Masuk, ketik uang fisik yang diterima, foto, tekan Terima</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>BKM unit terbit; jurnal ditulis mesin</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">HO</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Saldo Affiliasi Pembiayaan</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Bank - Giro</span></div></div><div class="j-block"><div class="j-unit">Toko</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">PETTY CASH</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Saldo Affiliasi Pembiayaan</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Finance HO + Admin Unit</b></span><span class="mesin">INTERUNIT_SETTLE</span></footer>
+</article><article class="card" data-owner="Finance HO + Admin Unit" data-status="baru" data-q="terima modal kasir dari ho toko baru atau tambah kasir finance ho + admin unit uang toko">
+  <header><span class="pid">B6</span><h3>Terima modal kasir dari HO</h3>
+    <span class="badge st-new">perlu dibangun</span></header>
+  <p class="trigger"><span>Pemicu</span>Toko baru atau tambah kasir</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-fin">Finance HO</span>Terbitkan pendanaan modal kasir — IUT + BKK HO</span></li><li><span class="txt"><span class="who a-kepala">Kepala Toko</span>Bawa uang fisik ke toko</span></li><li><span class="txt"><span class="who a-admin">Admin Unit</span>Terima, hitung, simpan di brankas</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Modal kasir tidak pernah berpindah ke laci atau petty cash — dikunci aturan akun</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">HO</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Saldo Affiliasi Pembiayaan</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Bank - Giro</span></div></div><div class="j-block"><div class="j-unit">Toko</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">MODAL KASIR</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Saldo Affiliasi Pembiayaan</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Finance HO + Admin Unit</b></span><span class="mesin">INTERUNIT_SETTLE</span></footer>
+</article><article class="card" data-owner="Finance HO" data-status="baru" data-q="uang yang diterima kurang fisik lebih kecil dari yang dikirim finance ho uang toko">
+  <header><span class="pid">B7</span><h3>Uang yang diterima kurang</h3>
+    <span class="badge st-new">perlu dibangun</span></header>
+  <p class="trigger"><span>Pemicu</span>Fisik lebih kecil dari yang dikirim</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-admin">Admin Unit</span>Ketik jumlah fisik yang benar-benar diterima, sebut penanggung jawabnya</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Status kiriman jadi SELISIH — belum ada jurnal di unit</span></li><li><span class="txt"><span class="who a-fin">Finance HO</span>Konfirmasi ke pegawai yang bersangkutan</span></li><li><span class="txt"><span class="who a-fin">Finance HO</span>Putuskan: bebankan ke pegawai</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>BKM terbit UTUH — total tetap sama dengan BKK</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">Toko</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">PETTY CASH</span><span class=jnote>Rp400.000 — yang benar-benar diterima</span></div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Piutang Pegawai dan Manajemen</span><span class=jnote>Rp100.000 — jadi tagihan</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Saldo Affiliasi Pembiayaan</span><span class=jnote>Rp500.000 — utuh</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Finance HO</b></span><span class="mesin">INTERUNIT_SETTLE</span></footer>
+</article><article class="card" data-owner="Admin Unit + Finance HO" data-status="baru" data-q="kembalikan modal kasir ke ho toko tutup atau kurangi kasir admin unit + finance ho uang toko">
+  <header><span class="pid">B8</span><h3>Kembalikan modal kasir ke HO</h3>
+    <span class="badge st-new">perlu dibangun</span></header>
+  <p class="trigger"><span>Pemicu</span>Toko tutup atau kurangi kasir</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-admin">Admin Unit</span>Setor modal kasir ke rekening unit</span></li><li><span class="txt"><span class="who a-fin">Finance HO</span>Terima dan cocokkan</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Kebalikan dari B6</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">Toko</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Saldo Affiliasi Pembiayaan</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">MODAL KASIR</span></div></div><div class="j-block"><div class="j-unit">HO</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Bank - Giro</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Saldo Affiliasi Pembiayaan</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Admin Unit + Finance HO</b></span><span class="mesin">INTERUNIT_SETTLE</span></footer>
+</article></div></section><section class="dom" id="Pembelian-dan-persediaan"><h2>Pembelian &amp; persediaan <span class="count">10 proses</span></h2><div class="grid"><article class="card" data-owner="Buyer HO" data-status="otomatis" data-q="pesan barang ke supplier stok perlu diisi buyer ho pembelian &amp; persediaan">
+  <header><span class="pid">C1</span><h3>Pesan barang ke supplier</h3>
+    <span class="badge st-auto">sudah otomatis</span></header>
+  <p class="trigger"><span>Pemicu</span>Stok perlu diisi</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-fin">Buyer HO</span>Buat PO, kirim ke supplier</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Tidak ada jurnal — komitmen belum kejadian akuntansi</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-none">Tidak ada jurnal — PO adalah janji, bukan transaksi</div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Buyer HO</b></span></footer>
+</article><article class="card" data-owner="Gudang DC" data-status="baru" data-q="terima barang di dc barang datang gudang dc pembelian &amp; persediaan">
+  <header><span class="pid">C2</span><h3>Terima barang di DC</h3>
+    <span class="badge st-new">perlu dibangun</span></header>
+  <p class="trigger"><span>Pemicu</span>Barang datang</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-dc">Gudang DC</span>Hitung dan terima barang, tag RFID</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Persediaan bertambah; utang belum ditagih dicatat</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Unit akuntansinya HO — DC bukan unit akuntansi</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">HO</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Persediaan Barang Dagangan</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Hutang Suppliers Barang Dagangan</span><span class=jnote>utang lahir saat barang diterima, bukan saat ditagih</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Gudang DC</b></span><span class="mesin">GOODS_RECEIPT</span></footer>
+</article><article class="card" data-owner="Finance HO" data-status="baru" data-q="faktur supplier masuk supplier menagih finance ho pembelian &amp; persediaan">
+  <header><span class="pid">C3</span><h3>Faktur supplier masuk</h3>
+    <span class="badge st-new">perlu dibangun</span></header>
+  <p class="trigger"><span>Pemicu</span>Supplier menagih</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-fin">Finance HO</span>Catat faktur, cocokkan dengan penerimaan yang sudah ada</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Utangnya sudah lahir saat barang diterima — faktur MELENGKAPI, bukan membuat</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Yang ditambahkan faktur: PPN masukan, nomor dokumen, tanggal jatuh tempo</span></li><li><span class="txt"><span class="who a-fin">Finance HO</span>Beda harga dengan penerimaan diselesaikan lewat koreksi harga — lihat C4</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">HO</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">PPN Masukan</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Hutang Suppliers Barang Dagangan</span><span class=jnote>hanya bagian pajaknya</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Finance HO</b></span><span class="mesin">SUPPLIER_INVOICE</span></footer>
+</article><article class="card" data-owner="Finance HO" data-status="otomatis" data-q="koreksi harga / nota debet supplier menagih beda harga finance ho pembelian &amp; persediaan">
+  <header><span class="pid">C4</span><h3>Koreksi harga / nota debet</h3>
+    <span class="badge st-auto">sudah otomatis</span></header>
+  <p class="trigger"><span>Pemicu</span>Supplier menagih beda harga</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-fin">Finance HO</span>Catat nota debet terhadap penerimaan tertentu</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Selisih dibagi: yang masih di rak menambah persediaan, yang sudah terjual menambah HPP</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">HO</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Persediaan Barang Dagangan</span><span class=jnote>porsi yang masih ada</span></div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Harga Pokok Pembelian / HPP</span><span class=jnote>porsi yang sudah terjual</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Hutang Suppliers Barang Dagangan</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Finance HO</b></span><span class="mesin">PRICE_CORRECTION</span></footer>
+</article><article class="card" data-owner="Finance HO" data-status="otomatis" data-q="retur barang ke supplier barang cacat / salah kirim finance ho pembelian &amp; persediaan">
+  <header><span class="pid">C5</span><h3>Retur barang ke supplier</h3>
+    <span class="badge st-auto">sudah otomatis</span></header>
+  <p class="trigger"><span>Pemicu</span>Barang cacat / salah kirim</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-dc">Gudang DC</span>Kirim balik, catat retur</span></li><li><span class="txt"><span class="who a-fin">Finance HO</span>Terbitkan nota kredit</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Persediaan berkurang, utang berkurang</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">HO</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Hutang Suppliers Barang Dagangan</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Persediaan Barang Dagangan</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">PPN Masukan</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Finance HO</b></span><span class="mesin">CREDIT_NOTE</span></footer>
+</article><article class="card" data-owner="Gudang DC" data-status="otomatis" data-q="kirim barang dc → toko alokasi ke toko gudang dc pembelian &amp; persediaan">
+  <header><span class="pid">C6</span><h3>Kirim barang DC → toko</h3>
+    <span class="badge st-auto">sudah otomatis</span></header>
+  <p class="trigger"><span>Pemicu</span>Alokasi ke toko</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-dc">Gudang DC</span>Picking, packing, kirim</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Barang keluar dari persediaan HO, masuk barang dalam perjalanan</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Kaki afiliasi ATAS BARANG ditulis otomatis — bukan uang, jadi tidak lewat BKK/BKM</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">HO</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Saldo Affiliasi Atas Barang</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Persediaan Barang Dagangan</span></div></div><div class="j-block"><div class="j-unit">Toko</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Barang Dagangan dalam Perjalanan</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Saldo Affiliasi Atas Barang</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Gudang DC</b></span><span class="mesin">TRANSFER</span></footer>
+</article><article class="card" data-owner="Admin Unit" data-status="otomatis" data-q="toko terima barang kiriman sampai admin unit pembelian &amp; persediaan">
+  <header><span class="pid">C7</span><h3>Toko terima barang</h3>
+    <span class="badge st-auto">sudah otomatis</span></header>
+  <p class="trigger"><span>Pemicu</span>Kiriman sampai</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-admin">Admin Unit</span>Pindai kiriman, cocokkan jumlah</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Barang dalam perjalanan jadi persediaan toko</span></li><li><span class="txt"><span class="who a-admin">Admin Unit</span>Selisih kiriman jadi temuan, bukan diam-diam hilang</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">Toko</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Persediaan Barang Dagangan</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Barang Dagangan dalam Perjalanan</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Admin Unit</b></span><span class="mesin">TRANSFER</span></footer>
+</article><article class="card" data-owner="Admin Unit" data-status="belum ada" data-q="stock opname hitung fisik berkala admin unit pembelian &amp; persediaan">
+  <header><span class="pid">C8</span><h3>Stock opname</h3>
+    <span class="badge st-gap">belum ada</span></header>
+  <p class="trigger"><span>Pemicu</span>Hitung fisik berkala</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-admin">Admin Unit</span>Hitung fisik dengan RFID</span></li><li><span class="txt"><span class="who a-fin">Finance HO</span>Setujui selisihnya</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Selisih diposting ke biaya kehilangan</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">Toko</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Biaya Kerusakan/Kehilangan Persediaan</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Persediaan Barang Dagangan</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Admin Unit</b></span><span class="mesin">STOCK_COUNT</span></footer>
+</article><article class="card" data-owner="Finance HO" data-status="otomatis" data-q="bayar supplier jatuh tempo finance ho pembelian &amp; persediaan">
+  <header><span class="pid">C9</span><h3>Bayar supplier</h3>
+    <span class="badge st-auto">sudah otomatis</span></header>
+  <p class="trigger"><span>Pemicu</span>Jatuh tempo</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-fin">Finance HO</span>Pilih faktur yang mau dibayar, buat batch</span></li><li><span class="txt"><span class="who a-fin">Finance HO</span>Terbitkan BKK — transfer atau giro</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Utang berkurang, bank berkurang</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">HO</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Hutang Suppliers Barang Dagangan</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Bank - Giro</span></div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Potongan Pembelian</span><span class=jnote>kalau ada diskon pelunasan</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Finance HO</b></span><span class="mesin">PAYMENT</span></footer>
+</article><article class="card" data-owner="Finance HO" data-status="otomatis" data-q="uang muka ke supplier supplier minta dp finance ho pembelian &amp; persediaan">
+  <header><span class="pid">C10</span><h3>Uang muka ke supplier</h3>
+    <span class="badge st-auto">sudah otomatis</span></header>
+  <p class="trigger"><span>Pemicu</span>Supplier minta DP</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-fin">Finance HO</span>Bayar di muka, catat sebagai uang muka</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Saat faktur datang, uang muka dipakai mengurangi utang</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">HO</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Uang Muka Supplier/Kontraktor</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Bank - Giro</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Finance HO</b></span><span class="mesin">SUPPLIER_ADVANCE</span></footer>
+</article></div></section><section class="dom" id="Payroll"><h2>Payroll <span class="count">4 proses</span></h2><div class="grid"><article class="card" data-owner="Finance HO" data-status="belum ada" data-q="akrual gaji bulanan akhir bulan finance ho payroll">
+  <header><span class="pid">D1</span><h3>Akrual gaji bulanan</h3>
+    <span class="badge st-gap">belum ada</span></header>
+  <p class="trigger"><span>Pemicu</span>Akhir bulan</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-fin">HR HO</span>Jalankan payroll run — komponen, lembur, potongan</span></li><li><span class="txt"><span class="who a-fin">Finance HO</span>Periksa, lalu posting akrualnya</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Beban diakui di unit tempat orangnya bekerja</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">Toko / HO</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Beban Gaji</span></div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Beban Lembur</span></div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Beban Uang Makan</span></div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Beban Asuransi Pegawai / BPJS</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Akrual Pegawai dan Imbalan Kerja</span><span class=jnote>utang ke pegawai</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Finance HO</b></span><span class="mesin">PAYROLL_RUN</span></footer>
+</article><article class="card" data-owner="Admin Unit" data-status="baru" data-q="bayar gaji tanggal gajian admin unit payroll">
+  <header><span class="pid">D2</span><h3>Bayar gaji</h3>
+    <span class="badge st-new">perlu dibangun</span></header>
+  <p class="trigger"><span>Pemicu</span>Tanggal gajian</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-admin">Admin Unit</span>Bayar pegawai dari petty cash — tanpa instruksi HO</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Utang gaji berkurang; afiliasi TIDAK tersentuh lagi</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">Toko</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Akrual Pegawai dan Imbalan Kerja</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">PETTY CASH</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Admin Unit</b></span></footer>
+</article><article class="card" data-owner="Finance HO" data-status="otomatis" data-q="setor pph 21 &amp; bpjs tenggat bulanan finance ho payroll">
+  <header><span class="pid">D3</span><h3>Setor PPh 21 &amp; BPJS</h3>
+    <span class="badge st-auto">sudah otomatis</span></header>
+  <p class="trigger"><span>Pemicu</span>Tenggat bulanan</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-fin">Finance HO</span>Hitung dan setor ke kas negara / BPJS</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Utang pajak berkurang</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">HO</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Hutang Pajak</span><span class=jnote>PPh 21</span></div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Akrual Pegawai dan Imbalan Kerja</span><span class=jnote>iuran BPJS</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Bank - Giro</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Finance HO</b></span><span class="mesin">TAX_SETTLEMENT</span></footer>
+</article><article class="card" data-owner="Finance HO" data-status="otomatis" data-q="kasbon pegawai pegawai minta pinjaman finance ho payroll">
+  <header><span class="pid">D4</span><h3>Kasbon pegawai</h3>
+    <span class="badge st-auto">sudah otomatis</span></header>
+  <p class="trigger"><span>Pemicu</span>Pegawai minta pinjaman</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-kepala">Kepala Toko</span>Ajukan, HO menyetujui</span></li><li><span class="txt"><span class="who a-fin">Finance HO</span>Bayar, catat sebagai piutang</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Dipotong dari gaji bulan berikutnya</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">Toko</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Piutang Pegawai dan Manajemen</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">PETTY CASH</span><span class=jnote>atau Bank - Giro kalau dibayar HO</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Finance HO</b></span><span class="mesin">ADVANCE</span></footer>
+</article></div></section><section class="dom" id="Aset"><h2>Aset <span class="count">6 proses</span></h2><div class="grid"><article class="card" data-owner="Finance HO" data-status="otomatis" data-q="beli aset tetap belanja modal disetujui finance ho aset">
+  <header><span class="pid">E1</span><h3>Beli aset tetap</h3>
+    <span class="badge st-auto">sudah otomatis</span></header>
+  <p class="trigger"><span>Pemicu</span>Belanja modal disetujui</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-fin">Finance HO</span>Catat pembelian sebagai aset, bukan beban</span></li><li><span class="txt"><span class="who a-fin">Finance HO</span>Tentukan kelas aset dan umur ekonomisnya</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Register aset terisi, jadwal penyusutan dibuat</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">Unit pemakai</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Mesin dan Peralatan</span><span class=jnote>atau Bangunan · Kendaraan · FFE · Operating Equipment</span></div><div class="j-row"><span class="side dr">Dr</span><span class="acc">PPN Masukan</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Hutang Supplier Non Barang Dagang</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Finance HO</b></span><span class="mesin">ASSET_CAPITALIZATION</span></footer>
+</article><article class="card" data-owner="Finance HO" data-status="otomatis" data-q="pekerjaan yang belum selesai renovasi berjalan finance ho aset">
+  <header><span class="pid">E2</span><h3>Pekerjaan yang belum selesai</h3>
+    <span class="badge st-auto">sudah otomatis</span></header>
+  <p class="trigger"><span>Pemicu</span>Renovasi berjalan</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-fin">Finance HO</span>Biaya dikumpulkan di CIP selama pekerjaan berjalan</span></li><li><span class="txt"><span class="who a-fin">Finance HO</span>Saat selesai, dipindah ke kelas asetnya</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">Unit</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Contract in Progress (CIP)</span><span class=jnote>selama berjalan</span></div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Bangunan</span><span class=jnote>saat selesai</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Contract in Progress (CIP)</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Finance HO</b></span><span class="mesin">ASSET_CAPITALIZATION</span></footer>
+</article><article class="card" data-owner="Mesin" data-status="otomatis" data-q="penyusutan bulanan setiap akhir bulan mesin aset">
+  <header><span class="pid">E3</span><h3>Penyusutan bulanan</h3>
+    <span class="badge st-auto">sudah otomatis</span></header>
+  <p class="trigger"><span>Pemicu</span>Setiap akhir bulan</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-mesin">Mesin</span>Jadwal penyusutan berjalan sendiri per aset per unit</span></li><li><span class="txt"><span class="who a-fin">Finance HO</span>Periksa hasilnya sebelum tutup buku</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">Unit</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Beban Penyusutan/Amortisasi Bangunan</span><span class=jnote>atau kelas aset lainnya</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Akumulasi Bangunan</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Mesin</b></span><span class="mesin">DEPRECIATION</span></footer>
+</article><article class="card" data-owner="Finance HO" data-status="otomatis" data-q="cadangan penggantian operating equipment bulanan finance ho aset">
+  <header><span class="pid">E4</span><h3>Cadangan penggantian Operating Equipment</h3>
+    <span class="badge st-auto">sudah otomatis</span></header>
+  <p class="trigger"><span>Pemicu</span>Bulanan</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-fin">Finance HO</span>Rak, keranjang dan peralatan toko tidak disusutkan — dibebankan ke cadangan</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Saat diganti, cadangan dipakai</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">Unit</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Biaya Replacement OE</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Operating Equipment</span><span class=jnote>saat penggantian dipakai</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Finance HO</b></span><span class="mesin">ASSET_RESERVE</span></footer>
+</article><article class="card" data-owner="Finance HO" data-status="otomatis" data-q="pelepasan aset aset dijual atau dibuang finance ho aset">
+  <header><span class="pid">E5</span><h3>Pelepasan aset</h3>
+    <span class="badge st-auto">sudah otomatis</span></header>
+  <p class="trigger"><span>Pemicu</span>Aset dijual atau dibuang</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-fin">Finance HO</span>Catat pelepasan, hitung laba/rugi</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Aset dan akumulasinya dihapus bersamaan</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">Unit</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Akumulasi Bangunan</span></div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Bank - Giro</span><span class=jnote>hasil penjualan</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Bangunan</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Pendapatan (Biaya) Lain-lain</span><span class=jnote>laba pelepasan</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Finance HO</b></span><span class="mesin">ASSET_DISPOSAL</span></footer>
+</article><article class="card" data-owner="Mesin" data-status="otomatis" data-q="amortisasi pre-opening &amp; software bulanan mesin aset">
+  <header><span class="pid">E6</span><h3>Amortisasi pre-opening &amp; software</h3>
+    <span class="badge st-auto">sudah otomatis</span></header>
+  <p class="trigger"><span>Pemicu</span>Bulanan</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-mesin">Mesin</span>Biaya pembukaan toko dan lisensi software diamortisasi bertahap</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">Unit</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Biaya Amortisasi Pre Opening</span><span class=jnote>atau Beban Penyusutan/Amortisasi Software</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Akumulasi Amortisasi Pre Opening</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Mesin</b></span><span class="mesin">AMORTIZATION_RUN</span></footer>
+</article></div></section><section class="dom" id="Bank-giro-dan-pajak"><h2>Bank, giro &amp; pajak <span class="count">8 proses</span></h2><div class="grid"><article class="card" data-owner="Finance HO" data-status="otomatis" data-q="impor rekening koran bank mengirim mutasi finance ho bank, giro &amp; pajak">
+  <header><span class="pid">F1</span><h3>Impor rekening koran</h3>
+    <span class="badge st-auto">sudah otomatis</span></header>
+  <p class="trigger"><span>Pemicu</span>Bank mengirim mutasi</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-fin">Finance HO</span>Impor berkas atau biarkan masuk lewat email otomatis</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Baris mutasi tersimpan — belum jadi jurnal</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-none">Tidak ada jurnal — mutasi adalah bukti, bukan keputusan</div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Finance HO</b></span></footer>
+</article><article class="card" data-owner="Finance HO" data-status="otomatis" data-q="cocokkan baris bank setiap hari finance ho bank, giro &amp; pajak">
+  <header><span class="pid">F2</span><h3>Cocokkan baris bank</h3>
+    <span class="badge st-auto">sudah otomatis</span></header>
+  <p class="trigger"><span>Pemicu</span>Setiap hari</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-fin">Finance HO</span>Cocokkan mutasi dengan dokumen yang sudah ada</span></li><li><span class="txt"><span class="who a-fin">Finance HO</span>Mutasi yang tak punya dokumen: buat BKK/BKM dari layar itu</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Jurnal lahir dari dokumen, bukan dari mutasi</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">HO</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Biaya Bank HO</span><span class=jnote>contoh: biaya administrasi bank</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Bank - Giro</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Finance HO</b></span><span class="mesin">CASH_DOC</span></footer>
+</article><article class="card" data-owner="Finance HO" data-status="otomatis" data-q="terbitkan giro bayar supplier dengan giro mundur finance ho bank, giro &amp; pajak">
+  <header><span class="pid">F3</span><h3>Terbitkan giro</h3>
+    <span class="badge st-auto">sudah otomatis</span></header>
+  <p class="trigger"><span>Pemicu</span>Bayar supplier dengan giro mundur</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-fin">Finance HO</span>Terbitkan giro, catat nomor dan tanggal jatuh tempo</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Utang supplier pindah ke giro yang belum cair</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">HO</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Hutang Suppliers Barang Dagangan</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Outstanding Giro</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Finance HO</b></span><span class="mesin">GIRO</span></footer>
+</article><article class="card" data-owner="Finance HO" data-status="otomatis" data-q="giro cair jatuh tempo finance ho bank, giro &amp; pajak">
+  <header><span class="pid">F4</span><h3>Giro cair</h3>
+    <span class="badge st-auto">sudah otomatis</span></header>
+  <p class="trigger"><span>Pemicu</span>Jatuh tempo</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-fin">Finance HO</span>Cocokkan dengan mutasi bank</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Giro hilang dari daftar belum cair</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">HO</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Outstanding Giro</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Bank - Giro</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Finance HO</b></span><span class="mesin">GIRO</span></footer>
+</article><article class="card" data-owner="Finance HO" data-status="otomatis" data-q="ppn bulanan tenggat spt finance ho bank, giro &amp; pajak">
+  <header><span class="pid">F5</span><h3>PPN bulanan</h3>
+    <span class="badge st-auto">sudah otomatis</span></header>
+  <p class="trigger"><span>Pemicu</span>Tenggat SPT</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-fin">Finance HO</span>Hitung PPN keluaran dikurangi PPN masukan</span></li><li><span class="txt"><span class="who a-fin">Finance HO</span>Setor dan lapor</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">HO</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Hutang Pajak</span><span class=jnote>PPN keluaran</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">PPN Masukan</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Bank - Giro</span><span class=jnote>kurang bayar</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Finance HO</b></span><span class="mesin">TAX_SETTLEMENT</span></footer>
+</article><article class="card" data-owner="Finance HO" data-status="otomatis" data-q="pajak penghasilan badan bulanan &amp; tahunan finance ho bank, giro &amp; pajak">
+  <header><span class="pid">F6</span><h3>Pajak penghasilan badan</h3>
+    <span class="badge st-auto">sudah otomatis</span></header>
+  <p class="trigger"><span>Pemicu</span>Bulanan &amp; tahunan</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-fin">Finance HO</span>Angsuran PPh 25 tiap bulan</span></li><li><span class="txt"><span class="who a-fin">Finance HO</span>Perhitungan akhir tahun — PPh 29</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">HO</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Kredit/Pajak Penghasilan Dibayar Dimuka</span><span class=jnote>angsuran PPh 25</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Bank - Giro</span></div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Pajak Penghasilan / Beban Pajak Kini</span><span class=jnote>akhir tahun</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Hutang Pajak</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Finance HO</b></span><span class="mesin">TAX_SETTLEMENT</span></footer>
+</article><article class="card" data-owner="Finance HO" data-status="otomatis" data-q="biaya dibayar dimuka sewa, asuransi, lisensi finance ho bank, giro &amp; pajak">
+  <header><span class="pid">F7</span><h3>Biaya dibayar dimuka</h3>
+    <span class="badge st-auto">sudah otomatis</span></header>
+  <p class="trigger"><span>Pemicu</span>Sewa, asuransi, lisensi</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-fin">Finance HO</span>Bayar di muka, buat jadwal amortisasi</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Tiap bulan sebagian jadi beban</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">Unit</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Sewa Dibayar Dimuka</span><span class=jnote>saat membayar</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Bank - Giro</span></div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Biaya Sewa Bangunan Toko dan Gudang</span><span class=jnote>tiap bulan</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Sewa Dibayar Dimuka</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Finance HO</b></span><span class="mesin">AMORTIZATION_RUN</span></footer>
+</article><article class="card" data-owner="Finance HO" data-status="manual dulu" data-q="biaya utilitas toko listrik, air, telepon finance ho bank, giro &amp; pajak">
+  <header><span class="pid">F8</span><h3>Biaya utilitas toko</h3>
+    <span class="badge st-man">manual dulu</span></header>
+  <p class="trigger"><span>Pemicu</span>Listrik, air, telepon</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-admin">Admin Unit</span>Tagihan datang ke toko</span></li><li><span class="txt"><span class="who a-fin">Finance HO</span>Bayar dari bank HO — beban tetap milik unitnya</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Kaki afiliasi ditulis otomatis karena HO membayar untuk unit</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">Toko</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Biaya Pemakaian Listrik</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Saldo Affiliasi Pembiayaan</span></div></div><div class="j-block"><div class="j-unit">HO</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Saldo Affiliasi Pembiayaan</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Bank - Giro</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Finance HO</b></span><span class="mesin">SUPPLIER_INVOICE</span></footer>
+</article></div></section><section class="dom" id="Pinjaman-dan-modal"><h2>Pinjaman &amp; modal <span class="count">5 proses</span></h2><div class="grid"><article class="card" data-owner="Finance HO" data-status="manual dulu" data-q="terima pinjaman bank fasilitas cair finance ho pinjaman &amp; modal">
+  <header><span class="pid">G1</span><h3>Terima pinjaman bank</h3>
+    <span class="badge st-man">manual dulu</span></header>
+  <p class="trigger"><span>Pemicu</span>Fasilitas cair</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-fin">Finance HO</span>Catat fasilitas, jadwal angsuran</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Bank bertambah, utang jangka panjang lahir</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">HO</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Bank - Giro</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Pinjaman Bank</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Finance HO</b></span></footer>
+</article><article class="card" data-owner="Finance HO" data-status="manual dulu" data-q="angsuran &amp; bunga tiap bulan finance ho pinjaman &amp; modal">
+  <header><span class="pid">G2</span><h3>Angsuran &amp; bunga</h3>
+    <span class="badge st-man">manual dulu</span></header>
+  <p class="trigger"><span>Pemicu</span>Tiap bulan</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-fin">Finance HO</span>Bayar angsuran</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Pokok mengurangi utang, bunga jadi beban</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">HO</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Pinjaman Bank</span><span class=jnote>pokok</span></div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Beban Bunga Pinjaman Bank</span><span class=jnote>bunga</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Bank - Giro</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Finance HO</b></span></footer>
+</article><article class="card" data-owner="Finance HO" data-status="manual dulu" data-q="setoran modal pemilik pemilik menyetor finance ho pinjaman &amp; modal">
+  <header><span class="pid">G3</span><h3>Setoran modal pemilik</h3>
+    <span class="badge st-man">manual dulu</span></header>
+  <p class="trigger"><span>Pemicu</span>Pemilik menyetor</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-fin">Finance HO</span>Catat setoran modal — butuh persetujuan lebih tinggi</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">HO</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Bank - Giro</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Modal Disetor</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Finance HO</b></span></footer>
+</article><article class="card" data-owner="Finance HO" data-status="manual dulu" data-q="prive / penarikan pemilik pemilik menarik uang finance ho pinjaman &amp; modal">
+  <header><span class="pid">G4</span><h3>Prive / penarikan pemilik</h3>
+    <span class="badge st-man">manual dulu</span></header>
+  <p class="trigger"><span>Pemicu</span>Pemilik menarik uang</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-fin">Finance HO</span>Catat penarikan — bukan beban, mengurangi ekuitas</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">HO</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Prive/Penarikan Pemilik</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Bank - Giro</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Finance HO</b></span></footer>
+</article><article class="card" data-owner="Finance HO" data-status="manual dulu" data-q="pinjaman dari principal pemegang saham mendanai finance ho pinjaman &amp; modal">
+  <header><span class="pid">G5</span><h3>Pinjaman dari principal</h3>
+    <span class="badge st-man">manual dulu</span></header>
+  <p class="trigger"><span>Pemicu</span>Pemegang saham mendanai</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-fin">Finance HO</span>Catat sebagai utang ke pihak berelasi, bukan modal</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">HO</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">Bank - Giro</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Pinjaman Principal</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Finance HO</b></span></footer>
+</article></div></section><section class="dom" id="Buku-besar"><h2>Buku besar <span class="count">6 proses</span></h2><div class="grid"><article class="card" data-owner="Finance HO" data-status="manual dulu" data-q="jurnal manual kejadian yang tak punya dokumen finance ho buku besar">
+  <header><span class="pid">H1</span><h3>Jurnal manual</h3>
+    <span class="badge st-man">manual dulu</span></header>
+  <p class="trigger"><span>Pemicu</span>Kejadian yang tak punya dokumen</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-fin">Finance HO</span>Buat jurnal manual — hanya Finance HO, hanya di HO</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Ditolak kalau menyentuh kas unit, persediaan, atau akun yang dikunci aturan</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">Unit mana pun</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">akun yang kebijakannya mengizinkan</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">akun yang kebijakannya mengizinkan</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Finance HO</b></span><span class="mesin">MANUAL</span></footer>
+</article><article class="card" data-owner="Finance HO" data-status="otomatis" data-q="koreksi bertanda tangan ada yang salah posting finance ho buku besar">
+  <header><span class="pid">H2</span><h3>Koreksi bertanda tangan</h3>
+    <span class="badge st-auto">sudah otomatis</span></header>
+  <p class="trigger"><span>Pemicu</span>Ada yang salah posting</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-fin">Finance HO</span>Ajukan koreksi — reklasifikasi, penyesuaian, atau penghapusan</span></li><li><span class="txt"><span class="who a-fin">Finance HO (kedua)</span>Setujui</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Hanya lewat jalur ini akun berkebijakan ketat bisa disentuh tangan</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">Unit terkait</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">akun tujuan koreksi</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">akun asal koreksi</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Finance HO</b></span><span class="mesin">RECLASS · ADJUSTMENT · WRITE_OFF</span></footer>
+</article><article class="card" data-owner="Finance HO" data-status="otomatis" data-q="saldo awal pindah dari sistem lama finance ho buku besar">
+  <header><span class="pid">H3</span><h3>Saldo awal</h3>
+    <span class="badge st-auto">sudah otomatis</span></header>
+  <p class="trigger"><span>Pemicu</span>Pindah dari sistem lama</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-fin">Finance HO</span>Impor saldo per akun per unit</span></li><li><span class="txt"><span class="who a-fin">Finance HO</span>Saldo afiliasi diimpor per pasangan unit, lewat dokumen</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Tiap unit harus seimbang sendiri</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">Tiap unit</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">seluruh akun bersaldo debit</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">seluruh akun bersaldo kredit</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Finance HO</b></span><span class="mesin">OPENING</span></footer>
+</article><article class="card" data-owner="Finance HO" data-status="otomatis" data-q="tutup buku bulanan setelah tanggal 10 finance ho buku besar">
+  <header><span class="pid">H4</span><h3>Tutup buku bulanan</h3>
+    <span class="badge st-auto">sudah otomatis</span></header>
+  <p class="trigger"><span>Pemicu</span>Setelah tanggal 10</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-fin">Finance HO</span>Jalankan daftar periksa: kiriman antar-unit belum diakui, kas belum dihitung, bank belum cocok</span></li><li><span class="txt"><span class="who a-fin">Finance HO</span>Tutup bulan — penghalang yang dilewati ikut tercatat</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Posting mundur ke bulan tertutup ditolak</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-none">Tidak ada jurnal — menutup bulan bukan transaksi</div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Finance HO</b></span></footer>
+</article><article class="card" data-owner="Finance HO" data-status="belum ada" data-q="tutup tahun akhir tahun buku finance ho buku besar">
+  <header><span class="pid">H5</span><h3>Tutup tahun</h3>
+    <span class="badge st-gap">belum ada</span></header>
+  <p class="trigger"><span>Pemicu</span>Akhir tahun buku</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-fin">Finance HO</span>Laba tahun berjalan dipindah ke saldo laba</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Hanya proses ini yang boleh menulis Saldo Laba</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-unit">HO</div><div class="j-row"><span class="side dr">Dr</span><span class="acc">seluruh akun pendapatan</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">seluruh akun beban</span></div><div class="j-row"><span class="side cr">Cr</span><span class="acc">Saldo Laba</span><span class=jnote>selisihnya</span></div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Finance HO</b></span></footer>
+</article><article class="card" data-owner="Finance HO" data-status="otomatis" data-q="laporan keuangan kapan saja finance ho buku besar">
+  <header><span class="pid">H6</span><h3>Laporan keuangan</h3>
+    <span class="badge st-auto">sudah otomatis</span></header>
+  <p class="trigger"><span>Pemicu</span>Kapan saja</p>
+  <div class="body">
+    <div class="col"><h4>Alur bisnis</h4><ol class="steps"><li><span class="txt"><span class="who a-fin">Finance HO</span>Neraca dan laba-rugi per unit atau gabungan</span></li><li><span class="txt"><span class="who a-fin">Finance HO</span>Bisa dicetak dalam kode kita, kode akuntan, atau 43 baris laporan</span></li><li><span class="txt"><span class="who a-mesin">Mesin</span>Saldo afiliasi antar-unit saling meniadakan saat digabung</span></li></ol></div>
+    <div class="col"><h4>Jurnal</h4><div class="j-block"><div class="j-none">Tidak ada jurnal — laporan adalah pembacaan</div></div></div>
+  </div>
+  <footer><span class="ownr">Pemilik proses: <b>Finance HO</b></span></footer>
+</article></div></section>
+<p class="empty" id="empty">Tidak ada proses yang cocok.</p>
+<div class="note">
+<h3>Tiga perilaku yang berjalan sekarang dan dicabut</h3>
+<p><b>1. Penerimaan barang.</b> Hari ini mengkredit akun Suspend, dan faktur yang melunasinya.
+Sesudah ini: penerimaan mengkredit <b>Hutang Suppliers Barang Dagangan</b> langsung — utang lahir
+saat barang diterima. Faktur berhenti membuat utang; ia hanya menambah PPN masukan, nomor dokumen,
+dan tanggal jatuh tempo.</p>
+<p><b>2. Buka/tutup shift.</b> Hari ini memposting dan mendebit modal kasir. Sesudah ini nol jurnal —
+yang berpindah hanya custody, nilainya tidak berubah.</p>
+<p><b>3. Hitung kas.</b> Hari ini memposting selisih otomatis. Sesudah ini nol jurnal — selisih jadi
+daftar terbuka sampai ada keputusan bisnis tersendiri yang disetujui.</p>
+</div>
+</div>
+<script>
+const cards=[...document.querySelectorAll('.card')], chips=[...document.querySelectorAll('.chip')],
+      q=document.getElementById('q'), empty=document.getElementById('empty');
+let active=null;
+function apply(){
+  const t=q.value.trim().toLowerCase(); let n=0;
+  for(const c of cards){
+    const okS=!active||c.dataset.status===active;
+    const okQ=!t||c.dataset.q.includes(t);
+    const show=okS&&okQ; c.style.display=show?'':'none'; if(show)n++;
+  }
+  for(const s of document.querySelectorAll('section.dom'))
+    s.style.display=[...s.querySelectorAll('.card')].some(c=>c.style.display!=='none')?'':'none';
+  empty.style.display=n?'none':'block';
+}
+chips.forEach(ch=>ch.addEventListener('click',()=>{
+  const f=ch.dataset.f; active=active===f?null:f;
+  chips.forEach(o=>o.setAttribute('aria-pressed', o.dataset.f===active));
+  apply();
+}));
+q.addEventListener('input',apply);
+</script>
+</body></html>

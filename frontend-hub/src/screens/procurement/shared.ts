@@ -44,6 +44,52 @@ export function useActor(): string {
 /// regenerated on every render or every click. Rotating after a success is what
 /// makes the next, genuinely different write a new one rather than a replay of
 /// the last.
+/// The next number in the series, from the orders already raised.
+///
+/// `PO-20260904-2217` is the shape the book is written in: the day it was
+/// raised, then a counter that does not restart. So the counter is the largest
+/// tail anybody has used plus one — read from the order list rather than
+/// invented, because a number that collides is refused by a UNIQUE constraint
+/// and the buyer is the one who has to guess again.
+///
+/// It is a suggestion, not an allocation. Nothing reserves it, two people
+/// composing at once are offered the same one, and the second to press Create
+/// PO is told the number is taken. That is the honest failure for a book with
+/// no server-side counter behind it — and the reason a refused order refetches
+/// the book: the next press is offered a number that is free, without asking
+/// a buyer to invent one.
+///
+/// Shared between the composer and the import screen: two places offering
+/// numbers from one book must not drift into two shapes.
+export function nextPoNumber(
+  existing: readonly { po_number: string }[]
+): string {
+  const highest = existing.reduce((top, order) => {
+    const tail = /-(\d+)$/.exec(order.po_number)
+    if (tail === null) return top
+    const seen = Number.parseInt(tail[1], 10)
+    return Number.isFinite(seen) && seen > top ? seen : top
+  }, 0)
+  const today = new Date()
+  const stamp = [
+    today.getFullYear(),
+    String(today.getMonth() + 1).padStart(2, "0"),
+    String(today.getDate()).padStart(2, "0"),
+  ].join("")
+  return `PO-${stamp}-${String(highest + 1).padStart(4, "0")}`
+}
+
+/// Advance a number already suggested by `nextPoNumber`. Importing several
+/// orders at once needs one distinct candidate per order; the order endpoint
+/// still remains the final authority if another buyer wins a race.
+export function offsetPoNumber(base: string, offset: number): string {
+  const match = /^(.*-)(\d+)$/.exec(base)
+  if (match === null || offset === 0) return base
+  const serial = Number.parseInt(match[2], 10)
+  if (!Number.isFinite(serial)) return base
+  return `${match[1]}${String(serial + offset).padStart(match[2].length, "0")}`
+}
+
 export function useIdempotencyKey(): {
   readonly key: string
   readonly rotate: () => void

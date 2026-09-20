@@ -35,8 +35,9 @@
 //! frozen by a trigger: the journal that quotes them cannot move, so neither can
 //! they.
 
-use super::assets::{asset_drafts_for_bill, is_asset_account, ASSET_FAMILIES};
-use super::ledger::{assert_postable, Intent};
+use super::asset_classes::assert_asset_class;
+use super::assets::{asset_cost_accounts, asset_drafts_for_bill, is_asset_account};
+use super::ledger::{assert_category_for_account, assert_postable, Intent};
 use super::poster::{post, LineAccount, PostingIntent, PostingLine};
 use super::{decode_cursor, encode_cursor};
 use crate::cloud::application::AppError;
@@ -155,6 +156,18 @@ pub struct SupplierBillLine {
     /// can be enabled by dropping a constraint rather than by a migration.
     pub site_id: String,
     pub amount_minor: i64,
+    /// What kind of cost this is, on the accounts that are kept by kind.
+    ///
+    /// The half of the coding a four-digit chart no longer carries: every
+    /// general and administrative expense the company pays is `6301`, and a
+    /// bill whose four lines all read `6301` is a bill nobody can read.
+    pub category_code: Option<String>,
+    /// The client's own word for that kind, joined here rather than looked up
+    /// in the browser — the same bargain `account_name` beside it already
+    /// struck, and for a stronger reason: there are a hundred and forty
+    /// categories, and a screen that resolved this itself would hold the whole
+    /// list to render one cell.
+    pub category_name: Option<String>,
     /// Set when this line buys a fixed asset. Posting the bill mints a DRAFT
     /// asset in that class pointing back at the line — the acquisition link
     /// 0099 left to somebody noticing.
@@ -179,8 +192,15 @@ pub struct RecordBillLine {
     /// locations. See `SupplierBillLine::site_id`.
     pub site_id: String,
     pub amount_minor: i64,
-    /// The client's asset class this line buys, when it buys one: a family
-    /// under `10215`, or one of the thirty-six operating-equipment classes.
+    /// What kind of cost this is. Required when the account declares a family,
+    /// which every expense account on the forty-account chart does — so on an
+    /// ordinary expense bill this is not optional in practice, only in shape.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub category_code: Option<String>,
+    /// The asset class this line buys, when it buys one: an
+    /// `asset_class.class_code` — a building, a machine, one of the thirty-six
+    /// operating-equipment classes.
     ///
     /// Said here, by the person holding the paper, because that is the only
     /// moment anybody knows. Everything downstream — the register row, the
@@ -519,9 +539,11 @@ fn to_bill(row: &sqlx::postgres::PgRow) -> Result<SupplierBill, AppError> {
 async fn bill_lines(pool: &PgPool, invoice_id: Uuid) -> Result<Vec<SupplierBillLine>, AppError> {
     let rows = sqlx::query(
         "SELECT l.line_id, l.line_number, l.account_code, a.name AS account_name,
-                l.site_id, l.amount_minor, l.asset_class_code, l.draws_reserve, l.memo
+                l.site_id, l.amount_minor, l.category_code, k.name AS category_name,
+                l.asset_class_code, l.draws_reserve, l.memo
            FROM supplier_invoice_expense_line l
            JOIN ledger_account a ON a.account_code = l.account_code
+           LEFT JOIN line_category k ON k.category_code = l.category_code
           WHERE l.invoice_id = $1
           ORDER BY l.line_number",
     )
@@ -537,6 +559,8 @@ async fn bill_lines(pool: &PgPool, invoice_id: Uuid) -> Result<Vec<SupplierBillL
                 account_name: row.try_get("account_name")?,
                 site_id: row.try_get("site_id")?,
                 amount_minor: row.try_get("amount_minor")?,
+                category_code: row.try_get("category_code")?,
+                category_name: row.try_get("category_name")?,
                 asset_class_code: row.try_get("asset_class_code")?,
                 draws_reserve: row.try_get("draws_reserve")?,
                 memo: row.try_get("memo")?,
@@ -938,32 +962,55 @@ pub async fn record_bill(
                     }
                     other => other,
                 })?;
+            // And what kind of cost it is, on the accounts that are kept by
+            // kind. Checked beside the account, because the two are one
+            // decision: a person who chose `6301` has not finished coding the
+            // line until they have said which kind of `6301` it is.
+            assert_category_for_account(
+                pool,
+                line.account_code.trim(),
+                line.category_code
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|code| !code.is_empty()),
+                Intent::Post,
+            )
+            .await
+            .map_err(|error| match error {
+                AppError::Validation(message) => {
+                    AppError::Validation(format!("line {}: {message}", index + 1))
+                }
+                other => other,
+            })?;
             // What the line says it is buying, checked while the person who
             // wrote it is still on the screen. The alternative is a refusal at
             // the moment somebody posts the bill, days later, naming a class
             // they did not choose.
             if let Some(class) = line.asset_class_code.as_deref().map(str::trim) {
-                if !is_asset_account(class) {
-                    return Err(AppError::Validation(format!(
-                        "line {} says it buys a {class}, which is not an asset class; they are \
-                         the families under {}",
-                        index + 1,
-                        ASSET_FAMILIES.join(", ")
-                    )));
-                }
-                // A line that MINTS an asset has to be coded to the fixed-asset
-                // family too, because that debit is the cost the register will
-                // carry. A line that DRAWS the reserve is the opposite: its
-                // account is whatever the person chose and the posting rule
-                // ignores it, so nothing is asked of it here.
-                if !line.draws_reserve && !is_asset_account(line.account_code.trim()) {
-                    return Err(AppError::Validation(format!(
-                        "line {} buys a {class} but is coded to {}; a capital purchase is coded \
-                         to the asset account it lands in, under {}",
-                        index + 1,
-                        line.account_code.trim(),
-                        ASSET_FAMILIES.join(", ")
-                    )));
+                assert_asset_class(pool, class)
+                    .await
+                    .map_err(|error| match error {
+                        AppError::Validation(message) => {
+                            AppError::Validation(format!("line {}: {message}", index + 1))
+                        }
+                        other => other,
+                    })?;
+                // A line that MINTS an asset has to be coded to an account an
+                // asset's cost sits in too, because that debit is the cost the
+                // register will carry. A line that DRAWS the reserve is the
+                // opposite: its account is whatever the person chose and the
+                // posting rule ignores it, so nothing is asked of it here.
+                if !line.draws_reserve {
+                    let cost_accounts = asset_cost_accounts(pool).await?;
+                    if !is_asset_account(&cost_accounts, line.account_code.trim()) {
+                        return Err(AppError::Validation(format!(
+                            "line {} buys a {class} but is coded to {}; a capital purchase is \
+                             coded to the account its cost lands in, one of {}",
+                            index + 1,
+                            line.account_code.trim(),
+                            cost_accounts.join(", ")
+                        )));
+                    }
                 }
             } else if line.draws_reserve {
                 return Err(AppError::Validation(format!(
@@ -1038,8 +1085,8 @@ pub async fn record_bill(
         sqlx::query(
             "INSERT INTO supplier_invoice_expense_line
                (line_id, invoice_id, line_number, account_code, site_id, amount_minor,
-                asset_class_code, draws_reserve, memo)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+                category_code, asset_class_code, draws_reserve, memo)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
         )
         .bind(Uuid::new_v4())
         .bind(invoice_id)
@@ -1047,6 +1094,12 @@ pub async fn record_bill(
         .bind(line.account_code.trim())
         .bind(line.site_id.trim())
         .bind(line.amount_minor)
+        .bind(
+            line.category_code
+                .as_deref()
+                .map(str::trim)
+                .filter(|code| !code.is_empty()),
+        )
         .bind(
             line.asset_class_code
                 .as_deref()
@@ -1254,6 +1307,11 @@ pub async fn post_bill(
                     _ => PostingLine {
                         account: LineAccount::Account {
                             account_code: line.account_code.clone(),
+                            // The person's own coding, carried from the line
+                            // they keyed. Not re-derived: a bill posted today
+                            // and reversed in March has to land in the same
+                            // place both times.
+                            category_code: line.category_code.clone(),
                         },
                         site_id: line.site_id.clone(),
                         // Nothing to say: where a cost line sits somewhere else

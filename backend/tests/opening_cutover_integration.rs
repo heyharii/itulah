@@ -27,131 +27,25 @@ const CUTOVER: &str = "2026-08-31";
 // A world small enough to read
 // ---------------------------------------------------------------------------
 
-/// A chart shaped like the client's: the ladder, then the postable leaves.
-///
-/// The rungs are not decoration. The client's codes ARE the tree, a balance
-/// rolls up by prefix, and a seed of leaves hanging off the roots would pass
-/// tests a real chart fails. Every code and every name below is copied from
-/// their own master account report, five rungs and a twelve-digit leaf per
-/// place, double spaces in the names and all.
-async fn seed_chart(pool: &PgPool) {
-    let ladder: [(&str, &str, Option<&str>); 26] = [
-        ("1", "ASSET", None),
-        ("101", "CURRENT ASSET", Some("1")),
-        ("10110", "KAS & SETARA KAS", Some("101")),
-        ("1011001", "CASH ON HAND", Some("10110")),
-        ("1011001001", "CASH ON HAND", Some("1011001")),
-        ("10111", "PIUTANG", Some("101")),
-        ("1011101", "PIUTANG DAGANG", Some("10111")),
-        ("1011101001", "Piutang kartu Kredit", Some("1011101")),
-        ("10112", "INVENTORY", Some("101")),
-        ("1011201", "Persediaan Barang Dagang", Some("10112")),
-        ("1011201001", "Persediaan Barang Dagangan", Some("1011201")),
-        ("2", "LIABILITIES", None),
-        ("201", "HUTANG JANGKA PENDEK", Some("2")),
-        ("20120", "HUTANG DAGANG", Some("201")),
-        ("2012001", "HUTANG SUPPLIER", Some("20120")),
-        (
-            "2012001001",
-            "Hutang Suppliers  Barang Dagangan",
-            Some("2012001"),
-        ),
-        ("3", "MODAL", None),
-        ("301", "MODAL", Some("3")),
-        ("30130", "MODAL", Some("301")),
-        ("3013001", "MODAL", Some("30130")),
-        ("3013001002", "Laba (Rugi) Ditahan", Some("3013001")),
-        ("5", "BIAYA / BEBAN POKOK", None),
-        ("501", "HARGA POKOK PEMBELIAN", Some("5")),
-        ("50101", "HARGA POKOK PEMBELIAN", Some("501")),
-        ("5010110", "HARGA POKOK PEMBELIAN", Some("50101")),
-        ("5010110001", "Harga Pokok Pembelian", Some("5010110")),
-    ];
-    for (code, name, parent) in ladder {
-        sqlx::query(
-            "INSERT INTO ledger_account (account_code, name, parent_code, is_group)
-             VALUES ($1,$2,$3,true)
-             ON CONFLICT (account_code) DO NOTHING",
-        )
-        .bind(code)
-        .bind(name)
-        .bind(parent)
-        .execute(pool)
-        .await
-        .unwrap_or_else(|error| panic!("{code}: {error}"));
-    }
-    // The leaves. `00` is head office and `01` is the client's C001, which is
-    // this system's `store-01` — the suffix IS the place, which is why an
-    // opening balance can name a client code and a place in the same row.
-    for (code, name, parent, site) in [
-        (
-            "101110100100",
-            "Piutang Kartu Kredit HO",
-            "1011101001",
-            "dc",
-        ),
-        (
-            "101120100100",
-            "Persediaan Barang Dagangan  HO",
-            "1011201001",
-            "dc",
-        ),
-        (
-            "101120100101",
-            "Persediaan Barang Dagangan  C001",
-            "1011201001",
-            "store-01",
-        ),
-        (
-            "201200100100",
-            "Hutang Suppliers  Barang Dagangan HO",
-            "2012001001",
-            "dc",
-        ),
-        ("301300100200", "Laba (Rugi) Ditahan HO", "3013001002", "dc"),
-        (
-            "301300100201",
-            "Laba (Rugi) Ditahan C001",
-            "3013001002",
-            "store-01",
-        ),
-        (
-            "501011000100",
-            "Harga Pokok Pembelian HO",
-            "5010110001",
-            "dc",
-        ),
-    ] {
-        sqlx::query(
-            "INSERT INTO ledger_account (account_code, name, parent_code, is_group, site_id)
-             VALUES ($1,$2,$3,false,$4)
-             ON CONFLICT (account_code) DO NOTHING",
-        )
-        .bind(code)
-        .bind(name)
-        .bind(parent)
-        .bind(site)
-        .execute(pool)
-        .await
-        .unwrap_or_else(|error| panic!("{code}: {error}"));
-    }
-    // One retired account, so "the chart cannot take a posting" can be shown
-    // for a reason other than a typo — which is the reason that survives a
-    // year, because a mapping made while an account was live goes on resolving
-    // after Finance quietly retires it. The code is the client's own; whether
-    // THIS one is retired in their chart is not something the report says, and
-    // a chart of 7,528 accounts has some that are.
-    sqlx::query(
-        "INSERT INTO ledger_account (account_code, name, parent_code, is_group, site_id, is_active)
-         VALUES ('101100100100','Cash on Hand HO','1011001001',false,'dc',false)
-         ON CONFLICT (account_code) DO NOTHING",
-    )
-    .execute(pool)
-    .await
-    .unwrap_or_else(|error| panic!("retired account: {error}"));
-}
+// The chart is not seeded, and neither is the retired account.
+//
+// This file used to mint twenty-six rungs and seven twelve-digit leaves,
+// because the client's codes WERE the tree and the suffix WAS the place. It
+// also planted one inactive account by hand so that "the chart cannot take a
+// posting" could be shown for a reason other than a typo. Neither is needed:
+// 0289 installs the forty and 0290 retires all 190 of the client's own codes,
+// so a retired account is whichever of theirs somebody pastes in — which is
+// exactly the mistake the refusal is there to catch during a cutover.
 
-async fn map(pool: &PgPool, key: &str, site: &str, qualifier: &str, code: &str) {
+/// Point one meaning at one account, with the category the map chooses with it.
+async fn map(
+    pool: &PgPool,
+    key: &str,
+    site: &str,
+    qualifier: &str,
+    code: &str,
+    category: Option<&str>,
+) {
     cloud::set_account_mapping(
         pool,
         &cloud::SetAccountMappingRequest {
@@ -159,6 +53,7 @@ async fn map(pool: &PgPool, key: &str, site: &str, qualifier: &str, code: &str) 
             site_id: site.into(),
             qualifier: qualifier.into(),
             account_code: code.into(),
+            category_code: category.map(str::to_string),
             note: None,
         },
         ACTOR,
@@ -181,7 +76,6 @@ async fn seed_article(pool: &PgPool, code: &str) -> Uuid {
 
 /// Everything a cutover needs before it can be rehearsed, in one call.
 async fn a_world(pool: &PgPool) {
-    seed_chart(pool).await;
     // August is the last month of the old system and September the first of
     // this one. Both open: the opening entry is dated the 31st of August and
     // the first sale is on the 1st of September.
@@ -190,11 +84,28 @@ async fn a_world(pool: &PgPool) {
             .await
             .unwrap_or_else(|error| panic!("open 2026-{month}: {error}"));
     }
-    map(pool, "inventory", "dc", "", "101120100100").await;
-    map(pool, "inventory", "store-01", "", "101120100101").await;
-    map(pool, "trade_payable", "dc", "", "201200100100").await;
-    map(pool, "card_receivable_debit", "dc", "BCA", "101110100100").await;
-    map(pool, "cogs", "dc", "", "501011000100").await;
+    // One inventory account for both places; which place is `site_id`.
+    map(pool, "inventory", "dc", "", "1301", Some("MERCHANDISE")).await;
+    map(
+        pool,
+        "inventory",
+        "store-01",
+        "",
+        "1301",
+        Some("MERCHANDISE"),
+    )
+    .await;
+    map(pool, "trade_payable", "dc", "", "2101", None).await;
+    map(
+        pool,
+        "card_receivable_debit",
+        "dc",
+        "BCA",
+        "1201",
+        Some("DEBIT_BCA"),
+    )
+    .await;
+    map(pool, "cogs", "dc", "", "5101", Some("COGS")).await;
 }
 
 fn cutover() -> NaiveDate {
@@ -209,23 +120,43 @@ fn request(csv: &str, commit: bool) -> OpeningImportRequest {
     }
 }
 
-/// A trial balance that agrees: stock and a payable at head office, stock and
-/// retained earnings at one shop.
-const BALANCES: &str = "site_id,account_code,debit,credit,document_no,memo
-dc,101120100100,15.000.000,,TB-2026-08,Persediaan per 31 Agustus
-dc,201200100100,,9.000.000,TB-2026-08,Hutang dagang
-dc,301300100200,,6.000.000,TB-2026-08,Laba ditahan
-store-01,101120100101,4.000.000,,TB-2026-08,Persediaan toko
-store-01,301300100201,,4.000.000,TB-2026-08,Laba ditahan toko
+/// A trial balance that agrees: stock, a payable and retained earnings at head
+/// office, stock and an accrual at one shop.
+///
+/// The shop's balancing line CHANGED, and the reason is worth reading before
+/// the next cutover rehearsal. It used to be `301300100201 Laba (Rugi) Ditahan
+/// C001` — the client keeps retained earnings at every one of the fourteen
+/// units. `3201 Laba ditahan` is a `company` account (one legal entity, one
+/// equity), so a shop line naming it is refused by `validate_account_posting`
+/// before it reaches the balance check.
+///
+/// KNOWN GAP: what SHOULD carry a shop's net position against head office is
+/// `1501 Rekening koran antar-unit`, and `1501` requires `counter_site_id` —
+/// which this CSV has no column for and `opening::opening_import_balances`
+/// hard-codes to `None`. So there is currently NO way to import a shop's
+/// opening trial balance that does not balance within its own unit. Accrued
+/// wages is a legitimate shop balance and is used here so the rest of the file
+/// can test what it is about; the gap belongs to the importer.
+const BALANCES: &str = "site_id,account_code,category_code,debit,credit,document_no,memo
+dc,1301,MERCHANDISE,15.000.000,,TB-2026-08,Persediaan per 31 Agustus
+dc,2101,,,9.000.000,TB-2026-08,Hutang dagang
+dc,3201,,,6.000.000,TB-2026-08,Laba ditahan
+store-01,1301,MERCHANDISE,4.000.000,,TB-2026-08,Persediaan toko
+store-01,2301,BIAYA_GAJI_DAN_UPAH_YMHD,,4.000.000,TB-2026-08,Gaji Agustus belum dibayar
 ";
 
-/// What one account has on it, straight from the lines.
-async fn balance(pool: &PgPool, code: &str) -> i64 {
+/// What one account has on it at one place, straight from the lines.
+///
+/// The place is not optional any more: head office and the shop keep their
+/// stock in the same account now, and a sum over both would be the company's
+/// inventory rather than either one's.
+async fn balance(pool: &PgPool, code: &str, site: &str) -> i64 {
     sqlx::query(
         "SELECT COALESCE(SUM(debit_minor - credit_minor), 0)::bigint AS b
-           FROM journal_line WHERE account_code = $1",
+           FROM journal_line WHERE account_code = $1 AND site_id = $2",
     )
     .bind(code)
+    .bind(site)
     .fetch_one(pool)
     .await
     .unwrap_or_else(|error| panic!("balance: {error}"))
@@ -274,9 +205,9 @@ async fn a_trial_balance_that_agrees_posts_one_balanced_entry_per_place(pool: Pg
         "the client's own reference is kept, because their auditors look for it"
     );
 
-    assert_eq!(balance(&pool, "101120100100").await, 15_000_000);
-    assert_eq!(balance(&pool, "201200100100").await, -9_000_000);
-    assert_eq!(balance(&pool, "101120100101").await, 4_000_000);
+    assert_eq!(balance(&pool, "1301", "dc").await, 15_000_000);
+    assert_eq!(balance(&pool, "2101", "dc").await, -9_000_000);
+    assert_eq!(balance(&pool, "1301", "store-01").await, 4_000_000);
 
     // Every place's own books balance as at the cutover.
     for equation in &outcome.equations {
@@ -302,10 +233,10 @@ async fn a_trial_balance_that_agrees_posts_one_balanced_entry_per_place(pool: Pg
 async fn a_trial_balance_that_does_not_agree_is_refused_and_the_difference_is_named(pool: PgPool) {
     a_world(&pool).await;
 
-    let out_by_a_million = "site_id,account_code,debit,credit,document_no
-dc,101120100100,15.000.000,,TB-2026-08
-dc,201200100100,,9.000.000,TB-2026-08
-dc,301300100200,,5.000.000,TB-2026-08
+    let out_by_a_million = "site_id,account_code,category_code,debit,credit,document_no
+dc,1301,MERCHANDISE,15.000.000,,TB-2026-08
+dc,2101,,,9.000.000,TB-2026-08
+dc,3201,,,5.000.000,TB-2026-08
 ";
     let error = cloud::opening_import_balances(&pool, &request(out_by_a_million, true), ACTOR)
         .await
@@ -325,11 +256,11 @@ async fn one_place_being_out_does_not_hide_behind_another_being_over(pool: PgPoo
     a_world(&pool).await;
 
     // The company total agrees exactly; neither place does.
-    let crossed = "site_id,account_code,debit,credit,document_no
-dc,101120100100,15.000.000,,TB-2026-08
-dc,201200100100,,14.000.000,TB-2026-08
-store-01,101120100101,4.000.000,,TB-2026-08
-store-01,301300100201,,5.000.000,TB-2026-08
+    let crossed = "site_id,account_code,category_code,debit,credit,document_no
+dc,1301,MERCHANDISE,15.000.000,,TB-2026-08
+dc,2101,,,14.000.000,TB-2026-08
+store-01,1301,MERCHANDISE,4.000.000,,TB-2026-08
+store-01,2301,BIAYA_GAJI_DAN_UPAH_YMHD,,5.000.000,TB-2026-08
 ";
     let error = cloud::opening_import_balances(&pool, &request(crossed, true), ACTOR)
         .await
@@ -345,22 +276,24 @@ async fn an_account_the_chart_cannot_take_is_named_and_never_dropped(pool: PgPoo
     // Three faults at once: a code that is not there, a heading, and one the
     // client has retired. All three have to come back together — the person
     // fixing them is in a spreadsheet, and one per round trip is a week.
-    let three_faults = "site_id,account_code,debit,credit,document_no
-dc,999999999999,1.000.000,,TB-2026-08
-dc,1011201,2.000.000,,TB-2026-08
-dc,101100100100,3.000.000,,TB-2026-08
-dc,301300100200,,6.000.000,TB-2026-08
+    let three_faults = "site_id,account_code,category_code,debit,credit,document_no
+dc,999999999999,,1.000.000,,TB-2026-08
+dc,1,,2.000.000,,TB-2026-08
+dc,1011201001,,3.000.000,,TB-2026-08
+dc,3201,,,6.000.000,TB-2026-08
 ";
     let error = cloud::opening_import_balances(&pool, &request(three_faults, true), ACTOR)
         .await
         .expect_err("an opening balance may not drop a figure");
     let message = error.to_string();
     assert!(message.contains("999999999999"), "the typo: {message}");
-    assert!(message.contains("1011201"), "the heading: {message}");
     assert!(
-        message.contains("101100100100"),
-        "the retired one: {message}"
+        message.contains("1 ASET is a heading"),
+        "the heading, named: {message}"
     );
+    // Their own inventory code, which is exactly what somebody pasting a
+    // trial balance straight out of the old system would write.
+    assert!(message.contains("1011201001"), "the retired one: {message}");
     assert!(
         message.contains("heading") && message.contains("inactive"),
         "each says which of the three things is wrong with it: {message}"
@@ -384,7 +317,7 @@ async fn a_ledger_begins_once_and_a_second_import_is_refused(pool: PgPool) {
         "and it says so rather than doubling every balance: {error}"
     );
     assert_eq!(
-        balance(&pool, "101120100100").await,
+        balance(&pool, "1301", "dc").await,
         15_000_000,
         "the stock did not double"
     );
@@ -468,7 +401,7 @@ async fn opening_stock_creates_the_layers_the_inventory_account_is_explained_by(
     // And the opening layers post no journal of their own: the debit to
     // inventory already has an owner in the opening trial balance, and a second
     // one would put the same stock into the asset twice with both balancing.
-    assert_eq!(balance(&pool, "101120100100").await, 15_000_000);
+    assert_eq!(balance(&pool, "1301", "dc").await, 15_000_000);
 }
 
 #[sqlx::test(migrations = "./migrations/postgres")]
@@ -488,7 +421,7 @@ store-01,ART-001,store-01.floor,40,100.000,SO-2026-08
         .expect_err("the reconciliation is the point of this import");
     let message = error.to_string();
     assert!(message.contains("1000000"), "the difference: {message}");
-    assert!(message.contains("101120100100"), "the account: {message}");
+    assert!(message.contains("1301"), "the account: {message}");
     assert_eq!(count(&pool, "cost_layer").await, 0);
 }
 
@@ -596,12 +529,12 @@ async fn a_sale_on_the_first_morning_consumes_the_opening_layer(pool: PgPool) {
     );
     assert_eq!(posting.allocations.len(), 1);
     assert_eq!(
-        balance(&pool, "501011000100").await,
+        balance(&pool, "5101", "dc").await,
         500_000,
         "and the cost reached the books"
     );
     assert_eq!(
-        balance(&pool, "101120100100").await,
+        balance(&pool, "1301", "dc").await,
         14_500_000,
         "the inventory account came down by what left it"
     );
@@ -612,7 +545,7 @@ async fn a_sale_on_the_first_morning_consumes_the_opening_layer(pool: PgPool) {
 // ---------------------------------------------------------------------------
 
 /// Nine million of unpaid supplier bills at head office: exactly what the
-/// opening trial balance credited to `201200100100`.
+/// opening trial balance credited to `2101`.
 const OPEN_ITEMS: &str = "site_id,account_key,qualifier,party_type,party_id,party_name,side,voucher_kind,voucher_id,amount,document_date,due_date
 dc,trade_payable,,SUPPLIER,SUP-01,PT Kain Jaya,PAYABLE,INVOICE,INV-8891,6.000.000,2026-08-02,2026-09-30
 dc,trade_payable,,SUPPLIER,SUP-02,CV Benang Mas,PAYABLE,INVOICE,INV-8892,3.000.000,2026-07-15,2026-08-14
@@ -681,7 +614,7 @@ dc,trade_payable,,SUPPLIER,SUP-01,PT Kain Jaya,PAYABLE,INVOICE,INV-8891,6.000.00
         .expect_err("a sub-ledger that starts out of agreement never catches up");
     let message = error.to_string();
     assert!(message.contains("trade_payable"), "{message}");
-    assert!(message.contains("201200100100"), "the account: {message}");
+    assert!(message.contains("2101"), "the account: {message}");
     assert_eq!(count(&pool, "payment_ledger_entry").await, 0);
 }
 
@@ -717,7 +650,7 @@ async fn a_rehearsal_posts_nothing_and_reports_what_the_run_would(pool: PgPool) 
         "a rehearsal posts nothing"
     );
     assert_eq!(count(&pool, "opening_balance_line").await, 0);
-    assert_eq!(balance(&pool, "101120100100").await, 0);
+    assert_eq!(balance(&pool, "1301", "dc").await, 0);
 
     // And what it reported is what the run does. Not "close to" — the same
     // numbers, because it is the same code with the transaction rolled back.

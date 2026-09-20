@@ -104,7 +104,7 @@ pub struct InterunitReport {
     /// answer, and a screen should say so rather than showing an empty list.
     pub disagreeing: Vec<String>,
     /// Pairs with no mapping, as `store-07 PEMBIAYAAN`. A posting that needed
-    /// one of these would be refused by `resolve_account`, so this is a list of
+    /// one of these would be refused by `resolve_account_code`, so this is a list of
     /// entries that cannot be written yet — worth seeing before somebody tries.
     pub unmapped: Vec<String>,
 }

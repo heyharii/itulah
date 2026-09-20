@@ -591,8 +591,13 @@ pub struct ApproveVarianceRequest {
 /// person accepting each one is how somebody notices that C007's afternoon
 /// shift is always forty thousand light.
 ///
-///   short  Dr cash_variance [site] / Cr cash [site]
+///   short  Dr cash_shortage [site] / Cr cash [site]
 ///   over   Dr cash [site]          / Cr cash_variance [site]
+///
+/// Two meanings and not one signed one, since 0296: `cash_variance` is on
+/// `4301`, a revenue account, and a short drawer debited there was a cost
+/// filed under income. The sign is known here and nowhere else, so the side is
+/// chosen here.
 pub async fn cash_shift_approve_variance(
     pool: &PgPool,
     shift_id: Uuid,
@@ -654,7 +659,7 @@ pub async fn cash_shift_approve_variance(
     let amount = variance.abs();
     let lines = if variance < 0 {
         vec![
-            PostingLine::debit("cash_variance", &site_id, amount),
+            PostingLine::debit("cash_shortage", &site_id, amount),
             PostingLine::credit("cash", &site_id, amount),
         ]
     } else {

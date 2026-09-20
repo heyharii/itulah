@@ -140,3 +140,82 @@ measured.
 - **30 dBm eats the battery.** Plug in before a long session.
 - Writing tags: `setFilter()` is silently ignored on the E710. See the reader
   notes in `README.md` before touching that path.
+
+## The imager, and who owns the trigger
+
+Two things here are **not proven on hardware**. Both are written down as
+questions rather than answers, because the vendor's own sample states them and
+then declines to demonstrate them.
+
+### Scan sound and vibration — vendor-sanctioned, untested
+
+`Barcode.init()` now calls the three settings Chainway's 2D sample puts beside
+`barcodeDecoder.open()`:
+
+```java
+BarcodeUtility.getInstance().enablePlaySuccessSound(ctx, true);
+BarcodeUtility.getInstance().enablePlayFailureSound(ctx, true);
+BarcodeUtility.getInstance().enableVibrate(ctx, true);
+```
+
+In `barcode-2d-demo/.../MainActivity.java` those three lines sit inside a
+`/*TODO ... */` block — **commented out**. So the vendor shows the wiring on
+exactly our `BarcodeDecoder` + `setDecodeCallback` path and never runs it. It is
+possible the system scanner service only sounds for scans IT performed, in
+which case these do nothing and the fallback is `res/raw/scan_beep.wav`, which
+is in the tree for that reason.
+
+Two properties worth holding in mind:
+
+- **They are DEVICE settings, not app settings.** Broadcasts to the system
+  scanner service; they outlive this process and change every other app on the
+  handheld. `Barcode.close()` puts them back.
+- **There is no getter.** `BarcodeUtility` exposes no way to read the current
+  value, so `close()` restores to *off*, not to whatever was there before. A
+  handheld that arrived with the beep already on loses it.
+
+### The trigger does nothing in Labels mode
+
+Reported from the floor: in Labels mode the physical gun trigger does nothing at
+all, while the same key drives an RFID sweep normally. So the keycode exists;
+the question is who gets it.
+
+The one thing that differs between the two modes is whether `BarcodeDecoder` is
+open — `setLabelMode(true)` opens it, RFID mode closes it. That points at the
+**keyboard helper**, the system component that owns the scan key on these
+handhelds. `IBarcodeUtility` documents its master switch:
+
+```
+openKeyboardHelper(Context)    打开键盘助手功能总开关
+closeKeyboardHelper(Context)   关闭键盘助手功能总开关
+setOutputMode(Context, mode)   0:to cursor 1:clipboard 2:broadcast 3:analog keyboard
+```
+
+It is also why Chainway's own 2D sample scans from an **on-screen button**
+(`btnScan.setOnClickListener(v -> start())`) and never touches `onKeyDown` or
+`dispatchKeyEvent`: with the module open, the trigger is not the app's to read.
+
+**Do not "fix" this by calling `closeKeyboardHelper` on a hunch.** It is another
+device-wide switch with no getter, and the cause is not established yet.
+
+#### Separating the two causes, without guessing
+
+The screen could not tell them apart before, because the note under "Trigger
+reads labels" is only written on refusal — a scan that starts cleanly and
+decodes nothing is silent by design. `Barcode` now counts the ask separately
+from the outcome:
+
+| `Barcode.requested` on a pull | Reading |
+|---|---|
+| does **not** move | the key never reached the app — the keyboard helper has it |
+| moves, outcome `started — waiting for a decode` | imager is fine; the label is not being read |
+| moves, outcome `startScan() refused` | the module is open but will not scan |
+
+`Barcode.diagnostics()` returns that as one line. Surface it under the label
+card before testing, or the pull is unobservable again.
+
+If it turns out to be the keyboard helper, the vendor-shaped answer is probably
+not to fight it for the key but to let it scan and take the result:
+`setOutputMode(ctx, 2)` plus `setScanResultBroadcast(ctx, action, extra)`. That
+also makes the sound question moot, because the service performing the scan is
+the thing that beeps.

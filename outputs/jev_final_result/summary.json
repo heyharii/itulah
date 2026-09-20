@@ -1,0 +1,21 @@
+{
+  "source_families": 499,
+  "covered_families": 499,
+  "active_target_groups": 142,
+  "deactivate_after_reclass_families": 71,
+  "family_status_counts": {
+    "RETAIN": 64,
+    "CONDITIONAL_MERGE": 260,
+    "DEACTIVATE_AFTER_RECLASS": 71,
+    "UNRESOLVED_EVIDENCE": 104
+  },
+  "target_status_counts": {
+    "CONDITIONAL_MERGE": 63,
+    "RETAIN": 58,
+    "UNRESOLVED_EVIDENCE": 21
+  },
+  "legacy_detail_rows": 6908,
+  "unmapped_families": 0,
+  "no_merge_after_deactivation": 428,
+  "recommended_with_unresolved_separate": 225
+}

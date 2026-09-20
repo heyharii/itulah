@@ -1417,6 +1417,19 @@ pub async fn origin_credential_digest(
     Ok(row.map(|r| r.get("ingest_key_sha256")))
 }
 
+/// The shop a registered origin speaks for.
+///
+/// Read rather than taken from the request body: a relay stamps the shop id it
+/// believes it is, and this is what the centre checks it against. Two shops
+/// cannot both be store-07, and the register is the only thing that knows.
+pub async fn origin_site(pool: &PgPool, origin_id: &str) -> Result<Option<String>, AppError> {
+    let row = sqlx::query("SELECT site_id FROM sync_origin_credential WHERE origin_id = $1")
+        .bind(origin_id)
+        .fetch_optional(pool)
+        .await?;
+    Ok(row.and_then(|r| r.get::<Option<String>, _>("site_id")))
+}
+
 /// The key material both sides sign commands under.
 ///
 /// The cloud never stores a plaintext ingest key, so it signs with the stored
@@ -6021,6 +6034,34 @@ async fn apply_sale(
         .execute(&mut **tx)
         .await?;
     }
+    // A voucher that settled a basket was authorised at the centre before the
+    // sale: the hold is what stopped two shops spending one card. Now that the
+    // fact has landed, the hold becomes the redemption — in this transaction,
+    // so a sale and the money it took from a card either both exist or neither
+    // does. Only a VOUCHER tender can carry one (`validate_tenders` refuses it
+    // anywhere else), so this loop can only ever do something for that method.
+    for tender in &sale.tenders {
+        if let Some(hold_id) = tender
+            .voucher_authorization_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            let authorization_id = Uuid::parse_str(hold_id).map_err(|_| {
+                AppError::Validation(format!(
+                    "sale {} carries a malformed voucher hold id {hold_id:?}",
+                    sale.sale_id
+                ))
+            })?;
+            super::vouchers::commit_voucher_hold_for_fact(
+                tx,
+                authorization_id,
+                sale.sale_id,
+                &sale.actor_id,
+            )
+            .await?;
+        }
+    }
     for promotion in &sale.promotions {
         // The detail, kept beside the count. Both are written from this one
         // accepted fact and behind the same idempotency guard, so the totals on
@@ -7458,6 +7499,9 @@ pub struct PurchaseOrderRow {
     /// Quantity that answered the order. Excess is not in here.
     pub received_stock_units: i64,
     pub outstanding_stock_units: i64,
+    /// Quantity covered by active supplier bills linked to the order lines.
+    /// Draft, matched, and posted bills count; rejected and void bills do not.
+    pub invoiced_stock_units: i64,
     /// Quantity that arrived beyond the order and is waiting for a buyer to
     /// say whether the company is keeping it.
     pub excess_stock_units: i64,
@@ -7591,6 +7635,12 @@ const ORDER_BOOK_ROWS: &str = "
                              FROM goods_receipt_line r
                              WHERE r.po_line_id = l.po_line_id)), 0)::bigint
                    AS received_stock_units,
+               COALESCE(sum((SELECT COALESCE(sum(il.quantity), 0)
+                             FROM supplier_invoice_line il
+                             JOIN supplier_invoice si ON si.invoice_id = il.invoice_id
+                             WHERE il.po_line_id = l.po_line_id
+                               AND si.status IN ('DRAFT', 'MATCHED', 'POSTED'))), 0)::bigint
+                   AS invoiced_stock_units,
                COALESCE(sum((SELECT COALESCE(sum(r.excess_quantity), 0)
                              FROM goods_receipt_line r
                              WHERE r.po_line_id = l.po_line_id)), 0)::bigint
@@ -7741,6 +7791,7 @@ pub async fn list_purchase_orders(
             expected_stock_units: expected,
             received_stock_units: received,
             outstanding_stock_units: (expected - received).max(0),
+            invoiced_stock_units: r.try_get("invoiced_stock_units")?,
             excess_stock_units: r.try_get("excess_stock_units")?,
             fully_received: received >= expected,
         });

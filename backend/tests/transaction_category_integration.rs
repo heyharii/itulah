@@ -30,96 +30,56 @@ use uuid::Uuid;
 
 const ACTOR: &str = "ana";
 
-type ChartRow = (
-    &'static str,
-    &'static str,
-    Option<&'static str>,
-    bool,
-    Option<&'static str>,
-);
-
-/// Enough of the client's chart to explain a statement two ways.
+/// The map, the two open months and the bank account. The chart is the
+/// migrations' own.
 ///
-/// Their codes, and their two-digit location suffix: `601031000400` is Biaya
-/// Bank at head office and `601031000401` the same expense at store 01. Both
-/// are here because the point of a category is that it means one thing and
-/// lands on a different leaf per place, and a fixture with one leaf could not
-/// tell that from a category that hard-codes a code.
+/// This used to mint fourteen rows of the client's ladder, and the reason was
+/// the sharpest in any of these fixtures: `601031000400` was Biaya Bank at head
+/// office and `601031000401` the same expense at store 01, "because the point
+/// of a category is that it means one thing and lands on a different leaf per
+/// place, and a fixture with one leaf could not tell that from a category that
+/// hard-codes a code".
+///
+/// There is one leaf now. Both places resolve to `6301 x BIAYA_BANK_HO`, and
+/// what still differs per place is the MAP ROW, not what it answers. See the
+/// note on `a_category_and_a_location_resolve_to_the_client_own_code`.
 async fn seed(pool: &PgPool) {
-    let rows: [ChartRow; 14] = [
-        ("1", "ASSET", None, true, None),
-        ("101", "CURRENT ASSET", Some("1"), true, None),
-        ("10110", "KAS & SETARA KAS", Some("101"), true, None),
-        ("1011002", "CASH IN BANK GIRO", Some("10110"), true, None),
-        (
-            "101100200100",
-            "Cash In Bank Giro Bank BCA HO",
-            Some("1011002"),
-            false,
-            Some("dc"),
-        ),
-        ("2", "LIABILITIES", None, true, None),
-        ("20120", "HUTANG DAGANG", Some("2"), true, None),
-        ("2012001", "HUTANG SUPPLIER", Some("20120"), true, None),
-        (
-            "201200100100",
-            "Hutang Suppliers Barang Dagangan HO",
-            Some("2012001"),
-            false,
-            Some("dc"),
-        ),
-        ("6", "BEBAN USAHA", None, true, None),
-        (
-            "6010310",
-            "BIAYA ADMINISTRASI DAN UMUM",
-            Some("6"),
-            true,
-            None,
-        ),
-        (
-            "601031000400",
-            "Biaya Bank HO",
-            Some("6010310"),
-            false,
-            Some("dc"),
-        ),
-        (
-            "601031000401",
-            "Biaya Bank C001",
-            Some("6010310"),
-            false,
-            Some("store-01"),
-        ),
-        ("8", "PENDAPATAN LAIN", None, true, None),
-    ];
-    for (code, name, parent, is_group, site) in rows {
-        sqlx::query(
-            "INSERT INTO ledger_account (account_code, name, parent_code, is_group, site_id)
-             VALUES ($1,$2,$3,$4,$5)
-             ON CONFLICT (account_code) DO NOTHING",
-        )
-        .bind(code)
-        .bind(name)
-        .bind(parent)
-        .bind(is_group)
-        .bind(site)
-        .execute(pool)
-        .await
-        .unwrap_or_else(|error| panic!("{code}: {error}"));
-    }
     for month in [9, 10] {
         cloud::open_period(pool, 2026, month)
             .await
             .unwrap_or_else(|error| panic!("period {month}: {error}"));
     }
-    map(pool, "dc", "bank_giro", "BCA", "101100200100").await;
-    map(pool, "dc", "bank_admin_fee", "", "601031000400").await;
-    map(pool, "store-01", "bank_admin_fee", "", "601031000401").await;
-    map(pool, "dc", "trade_payable", "", "201200100100").await;
-    register_bank_account(pool, "101100200100", "dc").await;
+    map(pool, "dc", "bank_giro", "BCA", "1102", None).await;
+    map(
+        pool,
+        "dc",
+        "bank_admin_fee",
+        "",
+        "6301",
+        Some("BIAYA_BANK_HO"),
+    )
+    .await;
+    map(
+        pool,
+        "store-01",
+        "bank_admin_fee",
+        "",
+        "6301",
+        Some("BIAYA_BANK_HO"),
+    )
+    .await;
+    map(pool, "dc", "trade_payable", "", "2101", None).await;
+    register_bank_account(pool, "1102", "dc").await;
 }
 
-async fn map(pool: &PgPool, site: &str, key: &str, qualifier: &str, code: &str) {
+async fn map(
+    pool: &PgPool,
+    site: &str,
+    key: &str,
+    qualifier: &str,
+    code: &str,
+    category: Option<&str>,
+) {
     cloud::set_account_mapping(
         pool,
         &cloud::SetAccountMappingRequest {
@@ -127,6 +87,7 @@ async fn map(pool: &PgPool, site: &str, key: &str, qualifier: &str, code: &str) 
             site_id: site.into(),
             qualifier: qualifier.into(),
             account_code: code.into(),
+            category_code: category.map(str::to_string),
             note: None,
         },
         ACTOR,
@@ -141,7 +102,7 @@ fn day(number: u32) -> NaiveDate {
 
 fn statement(lines: Vec<ImportStatementLine>) -> ImportStatementRequest {
     ImportStatementRequest {
-        account_code: "101100200100".into(),
+        account_code: "1102".into(),
         site_id: "dc".into(),
         bank_account_id: None,
         period_start: day(1),
@@ -227,27 +188,62 @@ async fn a_category_and_a_location_resolve_to_the_client_own_code(pool: PgPool) 
     assert_eq!(at_head_office.semantic_key, "bank_admin_fee");
     assert_eq!(
         at_head_office.account_code.as_deref(),
-        Some("601031000400"),
+        Some("6301"),
         "one category, resolved at head office"
     );
     assert_eq!(
         at_head_office.account_name.as_deref(),
-        Some("Biaya Bank HO")
+        Some("Beban umum & administrasi")
     );
 
     // The same category at a shop. Nothing about the category changed; the map
     // answered for a different place.
+    //
+    // WHAT THIS CAN NO LONGER SHOW. It used to answer `601031000400` at head
+    // office and `601031000401` at the shop, which is what distinguished a
+    // category that resolves through the map from one that hard-codes a code.
+    // Both answer `6301` now: the unit left the code at 0244 and the kind of
+    // expense left it at 0289, so a per-place ANSWER is no longer something the
+    // account can carry. What is still per place is the map ROW — and this is
+    // the assertion left that says so.
     let at_the_shop = cloud::transaction_category_read(&pool, "ops_bank_charges", Some("store-01"))
         .await
         .unwrap_or_else(|error| panic!("read: {error}"));
     assert_eq!(at_the_shop.code, at_head_office.code);
-    assert_eq!(at_the_shop.account_code.as_deref(), Some("601031000401"));
+    assert_eq!(at_the_shop.account_code.as_deref(), Some("6301"));
 
-    // And the expectation quoted from the client's chart is the ten-digit
-    // template both leaves hang off, not either leaf.
+    let rows: i64 = count(
+        &pool,
+        "SELECT COUNT(*)::bigint AS n FROM account_map
+          WHERE semantic_key = 'bank_admin_fee'",
+    )
+    .await;
     assert_eq!(
-        at_head_office.expects_account_code.as_deref(),
-        Some("6010310004")
+        rows, 2,
+        "two places, two map rows; a category that hard-coded a code would have one"
+    );
+
+    // And the expectation is now an account somebody can act on.
+    //
+    // `transaction_category.expects_account_code` still HOLDS the client's
+    // ten-digit template — it is a quotation from their chart and their chart
+    // has not changed — but `6010310004` was retired by 0290, so a screen
+    // offering it was offering a code nobody can map a meaning to, and it was
+    // the last dead code showing anywhere in the estate. The read goes through
+    // `ledger_account_remap`, which is exactly what 0291 did to every stored
+    // account code.
+    assert_eq!(at_head_office.expects_account_code.as_deref(), Some("6301"));
+    assert_eq!(
+        at_head_office.expects_category_code.as_deref(),
+        Some("BIAYA_BANK_HO"),
+        "half of the old code became the account and half became the category; \
+         offering `6301` alone is offering one row for forty-eight expenses"
+    );
+    // The NAME stays theirs. It is what somebody mapping the meaning has to
+    // recognise, and `Beban umum & administrasi` is the line it rolls into.
+    assert_eq!(
+        at_head_office.expects_account_name.as_deref(),
+        Some("Biaya Bank HO")
     );
 }
 
@@ -345,8 +341,8 @@ async fn a_bank_charge_categorised_makes_one_document_and_one_balanced_entry(poo
     );
 
     // Debited the expense, credited the bank, and it balances.
-    assert_eq!(balance(&pool, "601031000400").await, 35_000);
-    assert_eq!(balance(&pool, "101100200100").await, -35_000);
+    assert_eq!(balance(&pool, "6301").await, 35_000);
+    assert_eq!(balance(&pool, "1102").await, -35_000);
 
     // And the line is agreed with the entry, so it cannot be explained twice.
     assert_eq!(
@@ -443,10 +439,10 @@ async fn a_category_marked_not_directly_postable_is_refused_from_a_bank_line(poo
     seed(&pool).await;
     let lines = import(&pool, vec![line(28, "TARIK TUNAI PEMILIK", 20_000_000, 0)]).await;
 
-    // A drawing is a real category on a real client account — `3013001004
-    // Prive` — and a person may key a cash document for it. What they may not
-    // do is explain a statement line away as one, because that is the act with
-    // nobody's signature on it.
+    // A drawing is a real category on a real account — `3102 Prive`, which was
+    // the client's `3013001004` — and a person may key a cash document for it.
+    // What they may not do is explain a statement line away as one, because
+    // that is the act with nobody's signature on it.
     let drawing = cloud::transaction_category_read(&pool, "equity_owner_drawing", Some("dc"))
         .await
         .unwrap_or_else(|error| panic!("read: {error}"));
@@ -700,7 +696,7 @@ async fn a_rule_proposes_a_category_and_a_person_accepting_it_makes_the_document
     );
     // Resolved through the category's key, so the screen can show the account
     // without knowing that a category has one.
-    assert_eq!(proposal.account_code.as_deref(), Some("601031000400"));
+    assert_eq!(proposal.account_code.as_deref(), Some("6301"));
     assert_eq!(proposal.category_refusal, None);
 
     // It appears on the line's options as a suggestion, first among the
@@ -729,8 +725,8 @@ async fn a_rule_proposes_a_category_and_a_person_accepting_it_makes_the_document
         .await
         .unwrap_or_else(|error| panic!("accept: {error}"));
     assert_eq!(document.status, "POSTED");
-    assert_eq!(balance(&pool, "601031000400").await, 35_000);
-    assert_eq!(balance(&pool, "101100200100").await, -35_000);
+    assert_eq!(balance(&pool, "6301").await, 35_000);
+    assert_eq!(balance(&pool, "1102").await, -35_000);
 
     let stored: Option<String> =
         sqlx::query("SELECT category_code FROM cash_document WHERE document_id = $1")
@@ -878,7 +874,7 @@ async fn a_rule_names_a_category_or_a_meaning_and_never_both(pool: PgPool) {
     assert!(!fallback.category_refuses);
     assert_eq!(
         fallback.account_code.as_deref(),
-        Some("601031000400"),
+        Some("6301"),
         "the fallback resolves through the map the same way a category does"
     );
 }

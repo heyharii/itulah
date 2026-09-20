@@ -1,0 +1,249 @@
+{
+  "model": "jev-latest",
+  "state": {
+    "facts": [
+      "499 families after stripping unit suffix. Bank accounts associated with individual units; only HO personnel have access and operational authority. No direct unit-to-unit transactions.",
+      "Bank access authorization is separate from unit attribution. Original COA retained.",
+      "No balances, transaction examples, deposit original maturities/restrictions, loan contracts or cheque posting policy supplied."
+    ],
+    "source_families": [
+      {
+        "code": "1011002001",
+        "name": "Cash In Bank Giro Bank BCA"
+      },
+      {
+        "code": "1011002002",
+        "name": "Cash In Bank Giro Bank MANDIRI"
+      },
+      {
+        "code": "1011002003",
+        "name": "Cash In Bank Giro Bank BRI"
+      },
+      {
+        "code": "1011002004",
+        "name": "Cash In Bank Giro Bank BNI"
+      },
+      {
+        "code": "1011002005",
+        "name": "Cash In Bank Giro Bank DANAMON"
+      },
+      {
+        "code": "1011003001",
+        "name": "Cash In Bank Tabungan Bank BCA"
+      },
+      {
+        "code": "1011003002",
+        "name": "Cash In Bank Tabungan Bank Mandiri"
+      },
+      {
+        "code": "1011003003",
+        "name": "Cash In Bank Tabungan Bank BRI"
+      },
+      {
+        "code": "1011003004",
+        "name": "Cash In Bank Tabungan Bank BNI"
+      },
+      {
+        "code": "1011003005",
+        "name": "Cash In Bank Tabungan Bank BTN"
+      },
+      {
+        "code": "1011004001",
+        "name": "TIME DEPOSIT BANK BCA"
+      },
+      {
+        "code": "1011004002",
+        "name": "TIME DEPOSIT BANK MANDIRI"
+      },
+      {
+        "code": "1011004003",
+        "name": "TIME DEPOSIT BANK BRI"
+      },
+      {
+        "code": "1011004004",
+        "name": "TIME DEPOSIT BANK BNI"
+      },
+      {
+        "code": "2012002001",
+        "name": "Outstanding Giro Bank BCA"
+      },
+      {
+        "code": "2012002002",
+        "name": "Outstanding Giro Bank Mandiri"
+      },
+      {
+        "code": "2012002003",
+        "name": "Outstanding Giro Bank BRI"
+      },
+      {
+        "code": "2012002004",
+        "name": "Outstanding Giro Bank BNI"
+      },
+      {
+        "code": "2012002005",
+        "name": "Outstanding Giro Bank DANAMON"
+      },
+      {
+        "code": "2012303001",
+        "name": "Hutang Lain-lain Principal HEAD OFFICE"
+      },
+      {
+        "code": "2012303002",
+        "name": "Hutang Lain-lain Principal CIKUPA"
+      },
+      {
+        "code": "2012303003",
+        "name": "Hutang Lain-lain Principal MUARO BUNGO"
+      },
+      {
+        "code": "2012303004",
+        "name": "Hutang Lain-lain Principal PURBALINGGA"
+      },
+      {
+        "code": "2012303005",
+        "name": "Hutang Lain-lain Principal BUMIAYU"
+      },
+      {
+        "code": "2012303006",
+        "name": "Hutang Lain-lain Principal JAMBI"
+      },
+      {
+        "code": "2012303007",
+        "name": "Hutang Lain-lain Principal WIRAMODE"
+      },
+      {
+        "code": "2012303008",
+        "name": "Hutang Lain-lain Principal BREBES"
+      },
+      {
+        "code": "2012303009",
+        "name": "Hutang Lain-lain Principal PASURUAN"
+      },
+      {
+        "code": "2012303010",
+        "name": "Hutang Lain-lain Principal WMJB"
+      },
+      {
+        "code": "2012303011",
+        "name": "Hutang Lain-lain Principal WMBA"
+      },
+      {
+        "code": "2012303012",
+        "name": "Hutang Lain-lain Principal SIPIN"
+      },
+      {
+        "code": "2012303013",
+        "name": "Hutang Lain-lain Principal BANJARAN"
+      },
+      {
+        "code": "2012303014",
+        "name": "Hutang Lain-lain Principal WONOSOBO"
+      },
+      {
+        "code": "2012501001",
+        "name": "PJP Jatuh Tempo - Principal"
+      },
+      {
+        "code": "2012502001",
+        "name": "PJP Jatuh Tempo  Bank BCA"
+      },
+      {
+        "code": "2012502002",
+        "name": "PJP Jatuh Tempo  Bank Mandiri"
+      },
+      {
+        "code": "2012502003",
+        "name": "PJP Jatuh Tempo  Bank BRI"
+      },
+      {
+        "code": "2012502004",
+        "name": "PJP Jatuh Tempo  Bank BNI"
+      },
+      {
+        "code": "2012502005",
+        "name": "PJP Jatuh Tempo  Bank Danamon"
+      },
+      {
+        "code": "2022401001",
+        "name": "Pinjaman Jangka Panjang  Principal"
+      },
+      {
+        "code": "2022402001",
+        "name": "Pinjaman Jangka Panjang  Bank BCA"
+      },
+      {
+        "code": "2022402002",
+        "name": "Pinjaman Jangka Panjang  Bank Mandiri"
+      },
+      {
+        "code": "2022402003",
+        "name": "Pinjaman Jangka Panjang  Bank BRI"
+      },
+      {
+        "code": "2022402004",
+        "name": "Pinjaman Jangka Panjang  Bank BNI"
+      },
+      {
+        "code": "2022402005",
+        "name": "Pinjaman Jangka Panjang  Bank Danamon"
+      },
+      {
+        "code": "204001",
+        "name": "Giro Keluar"
+      }
+    ],
+    "count_scope": "14 asset families: 5 Giro, 5 savings, 4 deposits. 5 named Outstanding Giro plus separate legacy Giro Keluar. 5 bank current-maturity loan families and 5 bank long-term loan families. Principal loans are excluded from bank-name compression.",
+    "previous_inconsistency": "Previous Jev supported one savings GL in overall 488 count but chose retain five savings GL on a specific question. Resolve conditions, do not accept an earlier model answer as evidence."
+  },
+  "questions": {
+    "outstanding_challenge": {
+      "type": "choice",
+      "instructions": "Earlier evaluation conditionally supported five Outstanding Giro names to one. If bank cash is already credited at cheque issue, should clearing again credit bank cash?",
+      "criteria": {
+        "no": "No: that risks duplicate cash reduction; establish issue/clear/void journal lifecycle first.",
+        "yes": "Yes always."
+      }
+    },
+    "savings_challenge": {
+      "type": "choice",
+      "instructions": "Earlier evaluation alternated between retaining and merging savings accounts. What actual evidence should decide?",
+      "criteria": {
+        "treatment": "Restrictions, currency/reporting policy, account purpose and reconciliation capability; bank name alone is insufficient.",
+        "votes": "Majority of repeated model calls.",
+        "name": "Different institution names require different GLs."
+      }
+    },
+    "deposit_challenge": {
+      "type": "choice",
+      "instructions": "If four deposits span different required reporting classifications, does a deposit_id justify putting all into one undifferentiated GL without validated reporting classification?",
+      "criteria": {
+        "no": "No: preserve required classification in GL or validated reporting design.",
+        "yes": "Yes an ID alone suffices."
+      }
+    },
+    "unit_challenge": {
+      "type": "choice",
+      "instructions": "Does HO-only access justify removing associated unit from actual bank records?",
+      "criteria": {
+        "no": "No: keep unit association separately from permissions.",
+        "yes": "Yes."
+      }
+    },
+    "finality": {
+      "type": "choice",
+      "instructions": "Can repeated Jev answers establish final migration classification without bank terms, loan schedules and cheque posting evidence?",
+      "criteria": {
+        "no": "No: answers are conditional design evaluations, not evidence of client facts.",
+        "yes": "Yes repetition proves correctness."
+      }
+    },
+    "count_scope": {
+      "type": "choice",
+      "instructions": "Which bank-stage reduction can be confirmed from names and arithmetic alone?",
+      "criteria": {
+        "candidate": "Candidate group counts and arithmetic only; operational equivalence still needs evidence.",
+        "approved": "All476 families approved for migration."
+      }
+    }
+  }
+}

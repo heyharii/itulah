@@ -21,87 +21,34 @@ const MAKER: &str = "ana";
 const CHECKER: &str = "budi";
 
 // ---------------------------------------------------------------------------
-// A chart shaped like the client's
+// The map, on the chart the migrations bring
 // ---------------------------------------------------------------------------
 
 async fn seed_chart(pool: &PgPool) {
-    // Parents before children, and every parent a prefix of its child — which
-    // the schema checks, and which matters because a balance rolls up by prefix.
-    let tree: &[(&str, &str, Option<&str>)] = &[
-        ("1", "ASSET", None),
-        ("101", "CURRENT ASSET", Some("1")),
-        ("10110", "KAS DAN BANK", Some("101")),
-        ("1011001", "KAS", Some("10110")),
-        ("10112", "INVENTORY", Some("101")),
-        ("1011201", "Persediaan Barang Dagang", Some("10112")),
-        ("10113", "PREPAID", Some("101")),
-        ("1011301", "Biaya Dibayar Dimuka", Some("10113")),
-        ("2", "LIABILITIES", None),
-        ("201", "HUTANG JANGKA PENDEK", Some("2")),
-        ("20120", "HUTANG DAGANG", Some("201")),
-        ("2012001", "HUTANG SUPPLIER", Some("20120")),
-        ("8", "BEBAN  NON OPERASIONAL", None),
-        ("801", "PENDAPATAN DAN (BIAYA) LAIN - LAIN", Some("8")),
-        ("80101", "PENDAPATAN DAN (BIAYA) LAIN - LAIN", Some("801")),
-        ("8010110", "Pendapatan (Biaya) Lain-lain", Some("80101")),
-    ];
-    for (code, name, parent) in tree {
-        sqlx::query(
-            "INSERT INTO ledger_account (account_code, name, parent_code, is_group)
-             VALUES ($1,$2,$3,true)
-             ON CONFLICT (account_code) DO NOTHING",
-        )
-        .bind(code)
-        .bind(name)
-        .bind(parent)
-        .execute(pool)
-        .await
-        .unwrap_or_else(|error| panic!("{code}: {error}"));
-    }
-    let leaves: &[(&str, &str, &str)] = &[
-        ("101100100100", "Kas Besar HO", "1011001"),
-        ("101120100100", "Persediaan Barang Dagangan HO", "1011201"),
-        ("101130100100", "Biaya Dibayar Dimuka HO", "1011301"),
+    // Nothing to mint: 0289 installs the forty, so what is left is the map.
+    //
+    // Three of these used to share `8010110007 Pendapatan (Biaya) Lain-Lain`
+    // and a reader had to guess which was which from the sign. `bad_debt_expense`
+    // is an expense with the client's own name for it, and the other two are
+    // named categories on the other-income account.
+    for (key, code, category) in [
+        ("cash", "1101", Some("DRAWER")),
+        ("inventory", "1301", Some("MERCHANDISE")),
+        ("prepaid_expense", "1401", Some("ASURANSI_BAYAR_DIMUKA")),
+        ("trade_payable", "2101", None),
+        ("other_income_expense", "4301", Some("INCOME_OTHER")),
         (
-            "201200100100",
-            "Hutang Suppliers Barang Dagangan HO",
-            "2012001",
+            "bad_debt_expense",
+            "6301",
+            Some("BIAYA_PENYISIHAN_KERUGIAN_PIUTANG"),
         ),
-        // 8010110007 is where the client files income and expense that has no
-        // other home. Both write-off sides land there; so does asset disposal.
-        ("801011000700", "Pendapatan (Biaya) Lain-Lain HO", "8010110"),
-        (
-            "801011000600",
-            "Kehilangan Barang atau Selisih Stock Opname HO",
-            "8010110",
-        ),
-        // 8010110008 does not exist in the client's chart. Store money proposes
-        // it for cash over and short and this is the same proposal, seeded so
-        // the adjustment below has somewhere to go.
-        ("801011000800", "Selisih Kas HO", "8010110"),
-    ];
-    for (code, name, parent) in leaves {
-        sqlx::query(
-            "INSERT INTO ledger_account (account_code, name, parent_code, is_group, site_id)
-             VALUES ($1,$2,$3,false,'dc')
-             ON CONFLICT (account_code) DO NOTHING",
-        )
-        .bind(code)
-        .bind(name)
-        .bind(parent)
-        .execute(pool)
-        .await
-        .unwrap_or_else(|error| panic!("{code}: {error}"));
-    }
-    for (key, code) in [
-        ("cash", "101100100100"),
-        ("inventory", "101120100100"),
-        ("prepaid_expense", "101130100100"),
-        ("trade_payable", "201200100100"),
-        ("other_income_expense", "801011000700"),
-        ("bad_debt_expense", "801011000700"),
-        ("cash_variance", "801011000800"),
-        ("stock_loss", "801011000600"),
+        // `8010110008 Selisih Kas` never existed in the client's chart; store
+        // money proposed it, and the forty answer it with a category instead —
+        // one per side since 0296, because a shortage is a cost and not a
+        // debit inside other income.
+        ("cash_variance", "4301", Some("CASH_VARIANCE")),
+        ("cash_shortage", "8301", Some("CASH_SHORTAGE")),
+        ("stock_loss", "5102", Some("SHRINKAGE")),
     ] {
         cloud::set_account_mapping(
             pool,
@@ -110,6 +57,7 @@ async fn seed_chart(pool: &PgPool) {
                 site_id: "dc".into(),
                 qualifier: String::new(),
                 account_code: code.into(),
+                category_code: category.map(str::to_string),
                 note: None,
             },
             MAKER,
@@ -210,7 +158,7 @@ async fn agree_and_post(pool: &PgPool, correction_id: Uuid) -> cloud::Correction
 async fn a_reclassification_credits_back_the_account_the_original_actually_used(pool: PgPool) {
     seed_chart(&pool).await;
     let entry = post_entry(&pool, "inventory", "trade_payable", 10_000_000, "a bill").await;
-    let inventory_line = line_on(&pool, entry, "101120100100").await;
+    let inventory_line = line_on(&pool, entry, "1301").await;
 
     // The map moves after the original posted. This is the trap.
     cloud::set_account_mapping(
@@ -219,7 +167,11 @@ async fn a_reclassification_credits_back_the_account_the_original_actually_used(
             semantic_key: "inventory".into(),
             site_id: "dc".into(),
             qualifier: String::new(),
-            account_code: "101130100100".into(),
+            // Somewhere else entirely — prepaid TAX, which nothing else in this
+            // fixture touches — so that crediting the map's answer instead of
+            // the line's own would show up as a balance on a third account.
+            account_code: "1402".into(),
+            category_code: Some("PPN_IN".into()),
             note: Some("somebody remapped inventory".into()),
         },
         MAKER,
@@ -249,12 +201,12 @@ async fn a_reclassification_credits_back_the_account_the_original_actually_used(
     agree_and_post(&pool, drafted.correction_id).await;
 
     assert_eq!(
-        balance(&pool, "101120100100").await,
+        balance(&pool, "1301").await,
         7_500_000,
         "the amount left the account the original really used"
     );
     assert_eq!(
-        balance(&pool, "101130100100").await,
+        balance(&pool, "1401").await,
         2_500_000,
         "and arrived where the document said, once"
     );
@@ -284,8 +236,8 @@ async fn a_reclassification_credits_back_the_account_the_original_actually_used(
 async fn a_reclassification_refuses_a_cash_account_on_either_side(pool: PgPool) {
     seed_chart(&pool).await;
     let entry = post_entry(&pool, "cash", "trade_payable", 4_000_000, "a receipt").await;
-    let cash_line = line_on(&pool, entry, "101100100100").await;
-    let payable_line = line_on(&pool, entry, "201200100100").await;
+    let cash_line = line_on(&pool, entry, "1101").await;
+    let payable_line = line_on(&pool, entry, "2101").await;
 
     let from_cash = cloud::reclass_create(
         &pool,
@@ -328,7 +280,7 @@ async fn a_reclassification_refuses_a_cash_account_on_either_side(pool: PgPool) 
     assert!(as_shown_to_a_person(&to_cash).contains("transfer"));
 
     assert_eq!(
-        balance(&pool, "101100100100").await,
+        balance(&pool, "1101").await,
         4_000_000,
         "neither refusal moved anything"
     );
@@ -373,14 +325,21 @@ async fn an_adjustment_for_a_cash_shortage_posts_against_the_shift_it_names(pool
     let posted = agree_and_post(&pool, drafted.correction_id).await;
 
     assert_eq!(
-        balance(&pool, "101100100100").await,
+        balance(&pool, "1101").await,
         4_850_000,
         "the shortage came out of cash"
     );
     assert_eq!(
-        balance(&pool, "801011000800").await,
+        balance(&pool, "8301").await,
         150_000,
-        "and landed in cash over and short, not in a rounding account"
+        "and landed in cash shortage, not in a rounding account"
+    );
+    // `8301` also holds `ROUNDING_LOSS` and `OTHER_EXPENSE`; nothing else in
+    // this test posts there, so the account total is the shortage.
+    assert_eq!(
+        balance(&pool, "4301").await,
+        0,
+        "a LOSS never reaches the income side of the family (0296)"
     );
 
     // The entry can be found from the shift, which is the question somebody
@@ -438,15 +397,11 @@ async fn a_write_off_names_the_item_it_closes_and_clears_that_balance(pool: PgPo
 
     agree_and_post(&pool, drafted.correction_id).await;
 
+    assert_eq!(balance(&pool, "2101").await, 0, "the payable is gone");
     assert_eq!(
-        balance(&pool, "201200100100").await,
-        0,
-        "the payable is gone"
-    );
-    assert_eq!(
-        balance(&pool, "801011000700").await,
+        balance(&pool, "4301").await,
         -3_000_000,
-        "a payable given up on is income, on the leaf the client keeps it under"
+        "a payable given up on is income, under the client's own INCOME_OTHER"
     );
 }
 
@@ -561,7 +516,7 @@ async fn a_posted_correction_is_undone_by_a_mirror_and_never_erased(pool: PgPool
     .await
     .unwrap_or_else(|error| panic!("draft: {}", as_shown_to_a_person(&error)));
     agree_and_post(&pool, drafted.correction_id).await;
-    assert_eq!(balance(&pool, "101120100100").await, 750_000);
+    assert_eq!(balance(&pool, "1301").await, 750_000);
 
     let reversed = cloud::correction_reverse(
         &pool,
@@ -575,7 +530,7 @@ async fn a_posted_correction_is_undone_by_a_mirror_and_never_erased(pool: PgPool
     assert_eq!(reversed.status, "REVERSED");
     assert!(reversed.reversal_entry_id.is_some());
     assert_eq!(
-        balance(&pool, "101120100100").await,
+        balance(&pool, "1301").await,
         1_000_000,
         "the mirror put the stock back"
     );

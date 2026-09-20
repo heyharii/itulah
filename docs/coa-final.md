@@ -1,6 +1,28 @@
 # Bagan akun yang disederhanakan — satu sumbu `unit`
 
-**Tanggal:** 13 September 2026 · **Status:** usulan, diturunkan dari data klien
+**Tanggal:** 13 September 2026 · **Status:** ~~usulan~~ **DIGANTIKAN 18 September
+2026** oleh [`coa-thirty.md`](./coa-thirty.md), yang diputuskan dan dibekukan
+bentuknya di [`coa-40-contract.md`](./coa-40-contract.md).
+
+> **Apa yang digantikan.** Bagan 175 akun posting yang diusulkan di §5, dan
+> tabel pemetaannya di §6. Migrasi 0243–0277 membangunnya (menjadi 190 setelah
+> 0247/0253 memulihkan tangga dan nama klien); 0287–0292 meleburnya lagi menjadi
+> **40**. Yang dicabut pada putaran kedua adalah sumbu *identitas* yang masih
+> terpanggang di kode — 36 jenis rak, 14 rekening bank, 26 komponen gaji kembar —
+> yang sekarang menjadi `journal_line.category_code`, `bank_account_id`,
+> `asset_id` dan sub-ledger yang sudah ada.
+>
+> **Apa yang tetap berlaku.** §1–§2 (bentuk berkas klien dan rekonsiliasi
+> hitungannya), §3 (penolakan cost center — masih berlaku dan diperkuat), §4
+> (bacaan akun antar-unit), §7 (cacat dan keanehan di bagan klien — termasuk
+> §7.4, bug qualifier 10-vs-7 karakter yang `asset_class` tutup), §10 dan §11
+> (kenapa tangga dan nama klien dipulihkan — alasannya tidak berubah: nama-nama
+> itu sekarang jadi nilai `line_category`).
+>
+> 190 akun lama **tidak dihapus**: `is_active = false`, `posting_mode =
+> 'BLOCKED'`, riwayatnya utuh, dan `ledger_account_remap` mencatat mana menjadi
+> mana.
+
 **Sumber:** `~/Downloads/Laporan_Master_Account1.csv` (7.538 baris fisik / 7.528 baris akun),
 diurai ulang di sesi ini. Kerangka berpikirnya dari `/Users/hari/itulah/docs/coa-cube.md`,
 yang diverifikasi ulang terhadap CSV dan **cocok persis** (lihat §2).

@@ -30,7 +30,16 @@ account_code: string,
 /**
  * The client's own name for that account, never translated.
  */
-account_name: string, site_id: string, 
+account_name: string, 
+/**
+ * What kind of thing this line is, on an account that is kept by kind,
+ * and the client's own name for that kind.
+ *
+ * The same argument `account_code` above makes, one level down: under
+ * `6301` every row would otherwise be called "Beban Umum & Administrasi",
+ * and telling them apart would mean opening each voucher.
+ */
+category_code: string | null, category_name: string | null, site_id: string, 
 /**
  * The unit on the other side of the movement, when the posting named
  * one. 0120 put it on the line.

@@ -370,8 +370,7 @@ impl Sheet {
                     font,
                     text,
                 } => {
-                    let placed =
-                        (x + width - text_dots(text.chars().count(), *font)).max(*x);
+                    let placed = (x + width - text_dots(text.chars().count(), *font)).max(*x);
                     out.push_str(&format!(
                         "TEXT {placed},{y},\"0\",0,{font},{font},\"{}\"\n",
                         tspl_quoted(text)
@@ -821,6 +820,54 @@ fn lay_out_label(data: &LabelData<'_>, size: LabelSize, brand: LabelBrand<'_>) -
 ///
 /// The output is a complete ZPL job: header, fields, RFID write, quantity,
 /// footer. It is safe to concatenate several of these onto one printer socket.
+/// The two settings that belong to the machine, not to the label.
+///
+/// Darkness and speed describe the ribbon, the stock and the head — things
+/// that change when somebody loads a reel, and never because of what is being
+/// printed. So they go out ONCE per pass, ahead of the labels, rather than
+/// riding every format: a printer told the same thing forty times is forty
+/// chances for one of them to land mid-feed.
+///
+/// Absent means silence. This node cannot read the machine's stored values back
+/// over a one-way queue, so a bench that has not chosen keeps whatever it was
+/// calibrated to rather than being overwritten by a default nobody picked.
+///
+/// `~SD` is an immediate command and persists in the printer; `^PR` is a format
+/// command, so it needs a format of its own to travel in. On a TSC pretending
+/// to be a Zebra both are accepted — whether both are HONOURED is a separate
+/// question, and the only way to see what the machine settled on is to make it
+/// print its configuration label.
+pub fn machine_prelude(
+    language: PrinterLanguage,
+    darkness: Option<i64>,
+    speed_ips: Option<i64>,
+) -> String {
+    let mut out = String::new();
+    match language {
+        PrinterLanguage::Zpl => {
+            if let Some(value) = darkness {
+                out.push_str(&format!("~SD{value:02}\n"));
+            }
+            if let Some(value) = speed_ips {
+                out.push_str(&format!("^XA^PR{value},{value},{value}^XZ\n"));
+            }
+        }
+        PrinterLanguage::Tspl => {
+            // TSPL counts density 0-15 against ZPL's 0-30, so the figure the
+            // bench typed is halved rather than sent through a scale it does
+            // not share. One number on the screen, two machines that mean
+            // different things by it.
+            if let Some(value) = darkness {
+                out.push_str(&format!("DENSITY {}\r\n", (value / 2).clamp(0, 15)));
+            }
+            if let Some(value) = speed_ips {
+                out.push_str(&format!("SPEED {value}\r\n"));
+            }
+        }
+    }
+    out
+}
+
 pub fn render_label(data: &LabelData<'_>, size: LabelSize, brand: LabelBrand<'_>) -> String {
     render_label_in(data, size, brand, PrinterLanguage::Zpl)
 }
@@ -1127,7 +1174,7 @@ mod tests {
             barcode_payload: "812345678123",
             price_minor: 89_000,
             // The golden EPC from the shared codec: encode("12345678123", 100).
-            epc: "a01234567812300000000064",
+            epc: "a11234567812300000000064",
             copies: 1,
         }
     }
@@ -1147,7 +1194,7 @@ mod tests {
             "^FO59,134^A0N,17,17^FDNavy^FS\n",
             "^FO16,178^A0N,48,48^FDRp 89.000^FS\n",
             "^FO16,238^BY2,3,50^BCN,50,Y,N,N^FD812345678123^FS\n",
-            "^RFW,H,1,12,1^FDA01234567812300000000064^FS\n",
+            "^RFW,H,1,12,1^FDA11234567812300000000064^FS\n",
             "^PQ1,0,1,Y\n",
             "^XZ\n",
         );
@@ -1259,7 +1306,7 @@ mod tests {
         // 12 bytes of EPC plus the 2-byte PC word, and the payload is the PC
         // word followed by the EPC exactly as given.
         assert!(
-            zpl.contains("^RFW,H,1,14,1^FD3000A01234567812300000000064^FS"),
+            zpl.contains("^RFW,H,1,14,1^FD3000A11234567812300000000064^FS"),
             "{zpl}"
         );
 
@@ -1301,7 +1348,7 @@ mod tests {
             assert!(tspl.contains(word), "{word} missing from {tspl}");
             assert!(zpl.contains(word), "{word} missing from {zpl}");
         }
-        assert!(tspl.contains("A01234567812300000000064"), "{tspl}");
+        assert!(tspl.contains("A11234567812300000000064"), "{tspl}");
 
         // Every text mark carries over at the height the ZPL side uses, so a
         // field that fits one printer fits the other.
@@ -1553,7 +1600,7 @@ mod tests {
         // The EPC leaves no mark on the paper. Showing it on the picture would
         // be drawing something the operator will never find on the tag.
         let svg = preview_label(&sample(), LabelSize::default(), LabelBrand("CENTRAL"));
-        assert!(!svg.to_uppercase().contains("A0123456781230"), "{svg}");
+        assert!(!svg.to_uppercase().contains("A1123456781230"), "{svg}");
         assert!(!svg.contains("RFW"), "{svg}");
     }
 

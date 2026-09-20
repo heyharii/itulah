@@ -19,6 +19,21 @@ Three things are checked, and only the first two can fail:
 A migration cannot do this itself: it cannot read the client's CSV. So the
 check lives here and is run against a database by hand or in CI.
 
+# What the forty-account chart does to this audit (18 September 2026)
+
+0289 adds forty accounts whose CODES are ours — four digits, `1101`, `4101`,
+`8201` — and marks all forty `code_provenance = 'PENDING_CLIENT_CODE'`. They
+therefore land in the *declared* list rather than the checked one, and the run
+stays green while printing forty MENUNGGU lines instead of eight. The 190 old
+accounts are still in the chart, still `CLIENT`, still checked name for name —
+so rule 1 and rule 2 keep their full force over everything the client wrote.
+
+Say plainly what that costs: nobody is checking the NAMES of the forty against
+the client's words, because those names (`Kas`, `Bank`, `Pendapatan lain-lain`)
+are ours — each stands for several of the client's accounts at once and there
+is no single client name to compare them with. That is a gap in this audit's
+coverage, not a pass.
+
     python3 scripts/audit-chart-against-client.py [--db coa_live_probe] [--loops 3]
 """
 

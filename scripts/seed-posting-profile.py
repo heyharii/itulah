@@ -1,6 +1,20 @@
 #!/usr/bin/env python3
 """Audit the committed posting policy against the COA 162 workbook.
 
+# The workbook is about a chart that has been retired (18 September 2026)
+
+The 162 accounts this reads, and the ~190 it bridges them onto, are the chart
+migrations 0287-0292 replaced with FORTY. The 190 are still in the database —
+inactive, `posting_mode = 'BLOCKED'`, still carrying their history — so this
+still runs and still reports drift, but the drift it reports is now between two
+descriptions of a chart nobody posts to.
+
+What replaced the job: policy that used to distinguish accounts within one
+family — bank charges against consultancy fees, say — is a DENY per
+`line_category` on one account, and the reviewed result lives in the migration
+chain as before. Read the drift here as history until a workbook for the forty
+exists; do not treat a green run as a statement about current policy.
+
     python3 scripts/seed-posting-profile.py --xlsx ~/Downloads/Retail_OS_COA_v1_162_Merged_Master.xlsx
     python3 scripts/seed-posting-profile.py --xlsx ... --database inventory_edge_dev
     python3 scripts/seed-posting-profile.py --xlsx ... --database "$DATABASE_URL" --strict

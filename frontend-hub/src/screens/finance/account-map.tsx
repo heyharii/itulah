@@ -27,7 +27,13 @@ import { useSheet } from "@/lib/sheets"
 import { useFilters } from "@/lib/filters"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { accountMapGaps } from "@/screens/finance/badges"
-import { AccountPicker } from "@/screens/finance/parts"
+import { useCategoryName } from "@/screens/finance/hooks"
+import {
+  AccountAndCategory,
+  accountChoiceProblem,
+  accountChoiceReady,
+  type AccountChoice,
+} from "@/screens/finance/parts"
 import type { AccountMapping, SemanticKeyDoc } from "@itulah/contract"
 
 /// Which meanings the posting rules can resolve, and which they cannot.
@@ -314,6 +320,11 @@ function MappingSheet({
   const [editing, setEditing] = useState<string | null>(null)
   const [qualifier, setQualifier] = useState("")
   const [note, setNote] = useState("")
+  // The account AND the category it asks for. One piece of state because they
+  // are one answer: a meaning now resolves to a pair, and a mapping that named
+  // 6301 without saying which cost would post nothing — the trigger refuses
+  // every line it produced.
+  const [choice, setChoice] = useState<AccountChoice | null>(null)
 
   const map = useQuery({
     queryKey: financeKeys.accountMap(null),
@@ -326,7 +337,7 @@ function MappingSheet({
   )
 
   const save = useMutation({
-    mutationFn: (input: { site: string; account_code: string }) =>
+    mutationFn: (input: { site: string; picked: AccountChoice }) =>
       setAccountMapping({
         semantic_key: semanticKey!,
         site_id: input.site,
@@ -334,13 +345,18 @@ function MappingSheet({
         // part of the primary key, and the server writes `""` for "needs no
         // narrowing".
         qualifier: doc?.qualified ? qualifier.trim() : "",
-        account_code: input.account_code,
+        account_code: input.picked.account_code,
+        // `null` is the answer for an account that declares no family, and it
+        // is not the same as "not answered yet" — the trigger refuses a
+        // mapping that carries a category the account cannot take.
+        category_code: input.picked.category_code,
         note: note.trim() === "" ? null : note.trim(),
       }),
     onSuccess: () => {
       setEditing(null)
       setQualifier("")
       setNote("")
+      setChoice(null)
       client.invalidateQueries({ queryKey: financeKeys.accountMap(null) })
     },
   })
@@ -393,6 +409,17 @@ function MappingSheet({
                     per scheme
                   </Pill>
                 )}
+                {/* Said before anybody picks, not after. A meaning that
+                    resolves to an account with a family needs a category in
+                    the mapping itself — the poster reads BOTH off the map and
+                    writes both onto every line it produces — and finding that
+                    out from a disabled Save button is finding it out late. */}
+                {doc.category_family !== null && (
+                  <Pill tone="info">
+                    Resolves to a category too — family{" "}
+                    <span className="font-mono">{doc.category_family}</span>
+                  </Pill>
+                )}
               </div>
 
               <div className="flex flex-col gap-2">
@@ -421,13 +448,18 @@ function MappingSheet({
                         <Button
                           size="sm"
                           variant="quiet"
-                          onClick={() =>
+                          onClick={() => {
+                            // A choice belongs to the location it was made
+                            // for. Carrying it to the next one would offer to
+                            // save an account somebody picked for Store 04
+                            // against Store 07.
+                            setChoice(null)
                             setEditing(
                               editing === location.site_id
                                 ? null
                                 : location.site_id
                             )
-                          }
+                          }}
                         >
                           {set.length > 0 ? "Add or change" : "Set"}
                         </Button>
@@ -469,14 +501,12 @@ function MappingSheet({
                               onChange={(event) => setNote(event.target.value)}
                             />
                           </Field>
-                          <AccountPicker
+                          <AccountAndCategory
                             seed={doc.expects.split(" ")[0].replace(/\*$/, "")}
-                            onPick={(picked) =>
-                              save.mutate({
-                                site: location.site_id,
-                                account_code: picked.account_code,
-                              })
-                            }
+                            value={choice}
+                            onChange={setChoice}
+                            categoryLabel="Category for this mapping"
+                            explain
                           />
                           {doc.qualified && qualifier.trim() === "" && (
                             <p className="text-[0.71875rem] text-warn-fg">
@@ -485,6 +515,34 @@ function MappingSheet({
                               which is probably not what you want.
                             </p>
                           )}
+                          <div className="flex items-center justify-end gap-2.5">
+                            {/* Choosing the account no longer saves on its
+                                own. It cannot: an account that declares a
+                                family is half an answer until the category
+                                beside it is chosen, and a picker that wrote
+                                the mapping on the first click would write the
+                                half that gets refused. */}
+                            <span className="min-w-0 flex-1 text-[0.71875rem] text-mute">
+                              {accountChoiceProblem(choice) ??
+                                `${choice?.account_code} will carry ${doc.label.toLowerCase()} here.`}
+                            </span>
+                            <Button
+                              variant="primary"
+                              size="sm"
+                              disabled={
+                                !accountChoiceReady(choice) || save.isPending
+                              }
+                              onClick={() =>
+                                choice !== null &&
+                                save.mutate({
+                                  site: location.site_id,
+                                  picked: choice,
+                                })
+                              }
+                            >
+                              {save.isPending ? "Saving…" : "Save mapping"}
+                            </Button>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -499,6 +557,7 @@ function MappingSheet({
 }
 
 function MappedRow({ row }: { row: AccountMapping }) {
+  const categoryName = useCategoryName()
   return (
     <div className="flex items-center gap-2 text-[0.71875rem]">
       {row.qualifier !== "" && <Pill tone="neutral">{row.qualifier}</Pill>}
@@ -507,6 +566,17 @@ function MappedRow({ row }: { row: AccountMapping }) {
       </span>
       <span className="min-w-0 flex-1 truncate text-text">
         {row.account_name}
+        {/* The client's own word for it, not the code: with forty accounts
+            the category is what tells two mappings on 6301 apart, so it is
+            the half of this row somebody is actually reading. */}
+        {row.category_code !== null && (
+          <span className="text-mute">
+            {" · "}
+            <span title={row.category_code}>
+              {categoryName(row.category_code)}
+            </span>
+          </span>
+        )}
       </span>
       <span className="shrink-0 text-[0.65625rem] text-faint">
         {row.set_by} · {moment(row.set_at)}

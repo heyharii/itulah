@@ -1,0 +1,132 @@
+{
+  "model": "jev-latest",
+  "state": {
+    "objective": "Adversarially test a client-only inventory compression proposal without inventing accounts or general counter-site dimensions.",
+    "confirmed_facts": [
+      "There are 11 on-hand families: one merchandise inventory and ten shopping-bag families split by plastic/paper and size.",
+      "There are 28 BDP/in-transit families: 14 named locations for merchandise and 14 named locations for shopping bags.",
+      "There are two damage/loss allowance families, one for merchandise and one for shopping bags.",
+      "Round 1 supported item dimensions conditionally, kept on-hand versus transit versus allowance as distinct accounting natures, and rejected a general counter_site_id.",
+      "Round 1 conditionally supported ten bag families to one, each set of 14 transit-location families to one, and two allowance families to one when policies and reconciliation align.",
+      "Round 1 did not support merging merchandise and bags from names alone and left Disposed Inventory and two loss-expense accounts unresolved.",
+      "Operational shipment documents can store shipment_id, origin_site_id, destination_site_id, dispatch date, receipt date and ownership/control-transfer status.",
+      "No policy, entries, balances, shipment samples or reconciliation has yet been provided."
+    ],
+    "candidate_mapping": {
+      "on_hand": "Keep Merchandise Inventory provisionally separate; compress ten shopping-bag on-hand GLs to one Shopping Bag Inventory only after policy validation.",
+      "transit": "Compress 14 merchandise BDP location GLs to one Merchandise In Transit and 14 bag BDP location GLs to one Shopping Bags In Transit after location meaning and cut-off validation.",
+      "allowance": "Compress two allowance GLs to one Inventory Damage/Loss Allowance only if measurement and reporting are common, with inventory_class detail.",
+      "unresolved": "Do not map Disposed Inventory or merge damage/loss expense accounts until postings and workflow are inspected."
+    }
+  },
+  "questions": {
+    "mapping_quality": {
+      "type": "choice",
+      "instructions": "Which assessment best fits the candidate mapping?",
+      "criteria": {
+        "conditional": "Sound target hypothesis with explicit evidence gates.",
+        "too_aggressive": "Even conditionally, the proposed dimensional compression is unsound.",
+        "too_conservative": "All merchandise and bag balances should already be one GL regardless of policy."
+      }
+    },
+    "twenty_eight_to_two": {
+      "type": "choice",
+      "instructions": "If each named location is only a shipment location and both location sets reconcile by inventory class, is reducing 28 BDP GLs to two transit GLs reasonable?",
+      "criteria": {
+        "yes_conditional": "Yes: merchandise transit and shopping-bag transit, with shipment/location detail outside the natural account.",
+        "retain_28": "No, location must remain encoded in GL.",
+        "one": "Reduce directly to one transit GL without validating class treatment."
+      }
+    },
+    "site_id_sufficiency": {
+      "type": "choice",
+      "instructions": "Is a single journal site_id always sufficient to control and explain an in-transit balance?",
+      "criteria": {
+        "no": "The shipment subledger must retain origin, destination, dispatch/receipt and control-transfer status; journal may reference shipment and relevant accounting site.",
+        "yes": "One site_id alone always explains transit.",
+        "two_gl_sites": "Encode origin and destination into separate natural GLs."
+      }
+    },
+    "ho_unit_only": {
+      "type": "choice",
+      "instructions": "Given HO-controlled movement and no unit-to-unit process, should the system enforce allowed HO-to-unit/unit-to-HO routes in the transfer workflow rather than adding counter_site_id to the COA?",
+      "criteria": {
+        "workflow": "Yes, validate routes on shipment/transfer documents.",
+        "coa": "Create natural accounts for every HO-unit route.",
+        "journal_dimension": "Add a mandatory general counter_site_id to every posting."
+      }
+    },
+    "ownership_cutoff": {
+      "type": "choice",
+      "instructions": "Can dispatch and receipt dates alone determine when BDP is recognized?",
+      "criteria": {
+        "no": "Recognition also depends on ownership/control-transfer terms and policy.",
+        "dispatch": "Always recognize at dispatch.",
+        "receipt": "Always recognize only at receipt."
+      }
+    },
+    "bag_asset_or_expense": {
+      "type": "choice",
+      "instructions": "Before retaining even one Shopping Bag Inventory GL, must the client verify whether bags are controlled inventory/supplies and when they are expensed?",
+      "criteria": {
+        "yes": "Validate recognition, counting, valuation and consumption/issue point.",
+        "no": "The word Kantong proves inventory treatment."
+      }
+    },
+    "one_inventory_account": {
+      "type": "choice",
+      "instructions": "Does dimensional design require all gross inventory classes to use one natural account?",
+      "criteria": {
+        "no": "Use dimensions within the number of natural accounts justified by different accounting/reporting treatment.",
+        "yes": "Every inventory class must use a single GL.",
+        "target_count": "Choose solely based on the desired total COA count."
+      }
+    },
+    "allowance_merge_gate": {
+      "type": "choice",
+      "instructions": "What would block merging the two allowance families?",
+      "criteria": {
+        "different_method": "Different measurement, posting, presentation, tax or reporting treatment that cannot be reliably reported by inventory_class.",
+        "different_names": "Different account names alone.",
+        "different_items": "Different items always require separate GLs."
+      }
+    },
+    "clearing_balance": {
+      "type": "choice",
+      "instructions": "Should aged or unexplained transit balances be solved by creating more location GLs?",
+      "criteria": {
+        "no": "Use shipment aging, reconciliation, exception workflow and cut-off controls.",
+        "yes": "Create additional GLs for each exception.",
+        "writeoff": "Automatically expense all aged transit."
+      }
+    },
+    "safe_approval_now": {
+      "type": "choice",
+      "instructions": "What can be approved before client evidence is obtained?",
+      "criteria": {
+        "architecture": "Approve item/shipment dimensions and candidate mapping; leave GL merges conditional.",
+        "all_merges": "Approve the proposed GL reductions immediately.",
+        "none": "Do not design dimensions or mappings."
+      }
+    },
+    "required_evidence": {
+      "type": "choice",
+      "instructions": "Which package best closes the inventory decision?",
+      "criteria": {
+        "full": "Inventory policy, item master, sample receipts/issues/transfers, normal balances, shipment aging/cut-off, allowance roll-forward, opening mapping and subledger reconciliation.",
+        "coa": "COA names alone.",
+        "model": "Repeated Jev answers alone."
+      }
+    },
+    "next_after_inventory": {
+      "type": "choice",
+      "instructions": "After bank, assets and inventory identity, which supplied COA pattern should be examined next for dimensional compression?",
+      "criteria": {
+        "expense_categories": "Repeated expense types and payroll components, while preserving distinct natural expense natures.",
+        "interunit": "Create counter-site accounts despite the confirmed no-unit-to-unit model.",
+        "nothing": "No further COA families should be reviewed.",
+        "random_merge": "Merge accounts based only on similar wording."
+      }
+    }
+  }
+}

@@ -292,9 +292,12 @@ fn parse_card_kind(raw: Option<String>) -> Option<CardKind> {
 /// filing it under "cards in general" would not be.
 ///
 /// Only for the methods whose accounts are per counterparty. Cash is cash.
+/// OTHER is per counterparty too — the reference is the only place a
+/// marketplace or a sender's name can arrive from, and it is what the
+/// receivable is qualified by.
 fn acquirer_of(method: &str, acquirer: Option<&str>, reference: Option<&str>) -> String {
     match method {
-        "CARD" | "QRIS" => acquirer
+        "CARD" | "QRIS" | "OTHER" => acquirer
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .or_else(|| reference.map(str::trim).filter(|value| !value.is_empty()))
@@ -1760,6 +1763,10 @@ fn receivable_of(
         ("CARD", Some(CardKind::Credit)) => Ok(("card_receivable_credit", acquirer.to_string())),
         ("QRIS", _) => Ok(("qris_receivable", acquirer.to_string())),
         ("VOUCHER", _) => Ok(("voucher_liability", String::new())),
+        // The same pairing `domain::sales_posting::meanings_for` gives it:
+        // OTHER is a receivable from whoever the reference names, never a
+        // refusal — a day containing one must still post.
+        ("OTHER", _) => Ok(("other_receivable", acquirer.to_string())),
         (other, _) => Err(AppError::Validation(format!(
             "tender method {other:?} has no account behind it, so a posted day cannot be \
              reclassified into or out of it"

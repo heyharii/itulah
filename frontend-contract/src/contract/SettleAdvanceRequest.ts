@@ -10,6 +10,13 @@ kind: string, amount_minor: number, posting_date: string,
  */
 account_code: string | null, 
 /**
+ * And what it was. Required when that account declares a family: an
+ * advance settled into `6301` without saying which kind of cost is an
+ * advance nobody accounted for, which is the thing the refusal below
+ * already exists to prevent.
+ */
+category_code: string | null, 
+/**
  * Where a refund went back into.
  */
 cash_key: string | null, cash_qualifier: string, evidence: string | null, note: string | null, };

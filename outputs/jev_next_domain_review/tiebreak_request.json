@@ -1,0 +1,100 @@
+{
+  "model": "jev-latest",
+  "state": {
+    "objective": "Break a near tie between reviewing tax/prepaid/accrual accounts and reviewing legacy interunit accounts next. Choose review priority, not final accounting treatment.",
+    "confirmed_operating_model": [
+      "One centralized retail company with HO and operating units/sites.",
+      "Units are not separate finance centers and cannot transact directly with other units; finance is controlled by HO.",
+      "Unit/site has already been removed from natural GL suffixes and is recorded as site_id.",
+      "No general counter_site_id or related_site_id will be added.",
+      "Operational HO-unit shipments can use origin/destination fields on transfer documents.",
+      "It is not yet confirmed whether all locations belong to one legal entity or whether any balances involve separate legal entities/affiliates."
+    ],
+    "candidate_A_tax_prepaid_accrual": {
+      "families": 35,
+      "details": [
+        "Nine prepaid-expense families: insurance, land rent, store rent, house rent, maintenance contracts, vehicle rent, promotion, business permits, other.",
+        "Eleven tax asset/liability families: six prepaid tax types and five tax payable types.",
+        "One unresolved Current Tax Inc/Exp PPh 25 family.",
+        "Ten accrued-expense/YMHD families: payroll, THR/bonus/severance, loan interest, medical, insurance/BPJS, telephone, electricity, water, store rent, house rent.",
+        "Four advance families: travel, purchase, contractors, others."
+      ],
+      "main_risk": "Different tax rights/obligations and different expense natures may need separate natural accounts even when schedules provide detail."
+    },
+    "candidate_B_legacy_interunit": {
+      "families": 70,
+      "details": [
+        "Forty-two receivable families: 14 named locations for each of Financing, Goods, and Other affiliate receivables.",
+        "Twenty-eight payable families: 14 named locations for each of Financing and Goods affiliate payables."
+      ],
+      "main_risk": "The names suggest affiliate/interunit balances, but the stated process says HO-unit only and no unit-to-unit activity. Legal-entity status, historical postings, settlement and eliminations are unknown."
+    },
+    "prior_result": "Previous Jev choice was tax/prepaid/accrual 0.48 versus interunit cleanup 0.43, confidence 0.32.",
+    "rule": "Prioritize the domain where review is most likely to prevent a structurally wrong target design or expose obsolete/misused accounts. Do not choose solely by number of families."
+  },
+  "questions": {
+    "legal_entity_dependency": {
+      "type": "choice",
+      "instructions": "Which domain has the stronger dependency on confirming whether sites are the same legal entity?",
+      "criteria": {
+        "interunit": "Receivable/payable and elimination treatment changes fundamentally with legal-entity status.",
+        "tax": "Tax/prepaid/accrual structure changes more fundamentally from site legal status.",
+        "equal": "Both depend equally on it."
+      }
+    },
+    "operating_model_conflict": {
+      "type": "choice",
+      "instructions": "Which domain shows a more direct conflict between legacy COA structure and the confirmed HO-unit operating model?",
+      "criteria": {
+        "interunit": "Seventy location-specific affiliate receivable/payable accounts conflict with no unit-to-unit finance unless justified by legal entities or legacy clearing.",
+        "tax": "Tax/prepaid/accrual accounts conflict more directly with HO-unit centralization.",
+        "neither": "Neither shows a conflict."
+      }
+    },
+    "risk_if_deferred": {
+      "type": "choice",
+      "instructions": "Which review is more important before designing posting workflows for HO and units?",
+      "criteria": {
+        "interunit": "Clarify whether HO-unit movements create internal clearing, receivable/payable, branch accounting, or no balance-sheet claim.",
+        "tax": "Compress tax schedules first even while HO-unit settlement logic remains unknown.",
+        "equal": "No meaningful ordering difference."
+      }
+    },
+    "compression_readiness": {
+      "type": "choice",
+      "instructions": "Which domain is more ready for safe compression based on names alone?",
+      "criteria": {
+        "neither": "Both require policy, transactions, balances and reconciliation.",
+        "interunit": "Seventy location names alone prove the correct mapping.",
+        "tax": "Tax labels alone prove they can share one account."
+      }
+    },
+    "audit_priority": {
+      "type": "choice",
+      "instructions": "Which domain should be audited first to determine whether accounts are valid, obsolete, or structurally misused?",
+      "criteria": {
+        "interunit": "Audit legal entity, counterparty, settlement and elimination behind 70 legacy families first.",
+        "tax": "Audit 35 tax/prepaid/accrual/advance families first.",
+        "parallel": "Both must be audited simultaneously before any progress."
+      }
+    },
+    "implementation_dependency": {
+      "type": "choice",
+      "instructions": "Which decision has more impact on core document and posting architecture?",
+      "criteria": {
+        "interunit": "Determines internal transfer, due-to/from, branch/legal-entity and elimination architecture.",
+        "tax": "Determines tax codes, schedules and accrual postings but not internal transfer architecture.",
+        "equal": "Same architectural impact."
+      }
+    },
+    "recommended_sequence": {
+      "type": "choice",
+      "instructions": "Choose the next two-step review sequence given all supplied facts.",
+      "criteria": {
+        "interunit_then_tax": "Resolve legal-entity and HO-unit clearing first, then tax/prepaid/accrual schedules.",
+        "tax_then_interunit": "Resolve tax/prepaid/accrual first, then legacy interunit.",
+        "stop": "Do not review either."
+      }
+    }
+  }
+}

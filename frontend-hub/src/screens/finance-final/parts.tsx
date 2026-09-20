@@ -17,9 +17,15 @@ import { cn } from "@/lib/utils"
 ///    period nobody has posted to yet.
 ///
 /// Controls that already exist — `LocationSelect`, `SiteName`, `AsOfControl`,
-/// `WindowControl`, `AccountPicker`, `SupplierPicker` — are imported from
-/// `@/screens/finance/parts` rather than copied. They are the unit dimension's
-/// controls, and a second copy would be a second opinion about what a unit is.
+/// `WindowControl`, `AccountPicker`, `AccountAndCategory`, `SupplierPicker` —
+/// are imported from `@/screens/finance/parts` rather than copied. They are the
+/// unit dimension's controls, and a second copy would be a second opinion about
+/// what a unit is.
+///
+/// `AccountAndCategory` matters most of the six. An account and the category
+/// its family asks for are one answer, not two fields, and a screen here that
+/// drew its own pair would be a screen that can post a line the database
+/// refuses.
 
 /// One of the figures above a table.
 export function NumberCard({
@@ -237,7 +243,11 @@ export function DebitCredit({
   return (
     <>
       <Td align="right">
-        {debit === 0 ? <span className="text-hairline-strong">·</span> : money(debit)}
+        {debit === 0 ? (
+          <span className="text-hairline-strong">·</span>
+        ) : (
+          money(debit)
+        )}
       </Td>
       <Td align="right">
         {credit === 0 ? (

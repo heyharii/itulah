@@ -1,0 +1,58 @@
+{
+  "model":"jev-latest",
+  "state":{
+    "objective":"Define the minimum evidence and likely resolution path for 104 legacy COA accounts currently held separately, so they can be migrated, merged, reclassified or retained safely.",
+    "organization":"One PT Perorangan; all named units are sites, not separate legal entities. Centralized HO Finance. No unit-to-unit legal balances. No foreign currency, overdraft or pledged deposits.",
+    "approved_core":"Jev approved the 121-account core as a reasonable production baseline with confidence 1.0. Jev rejected making all 225 permanent and rejected implementing the 142 conditional target without evidence, both with confidence 1.0.",
+    "hold_groups":{
+      "replacement_oe":{
+        "count":72,
+        "composition":"36 Reserve Replacement OE asset/contra-like accounts and 36 matching Replacement OE expense accounts, split by rack, display, table, mannequin, hanger and store-equipment item names."
+      },
+      "principal":{
+        "count":15,
+        "composition":"14 Hutang Lain-lain Principal accounts named by HO/unit plus one PJP Jatuh Tempo - Principal. All units are sites of the same PT."
+      },
+      "land_right_and_rent":{
+        "count":6,
+        "composition":"HGB/land-right cost, accumulated amortization, land-right expense, land rent, store/warehouse building rent and staff-house/mess rent."
+      },
+      "preopening":{
+        "count":3,
+        "composition":"Pre Opening asset, accumulated amortization and pre-opening amortization expense."
+      },
+      "purchase_cogs":{
+        "count":2,
+        "composition":"Harga Pokok Pembelian and Potongan Pembelian."
+      },
+      "singletons":{
+        "count":6,
+        "composition":"Disposed Inventory; Contract in Progress/CIP; Giro Keluar; Inventory Damage Expense; mixed Pendapatan (Biaya) Lain-Lain; Current Tax Income/Expense PPh 25."
+      }
+    },
+    "existing_dimensions":"site_id, asset_id, asset_class_id, facility_id, contract_id, supplier/party_id, bank_account_id, inventory_class, document_id and tax code are available or planned.",
+    "principle":"A legacy name alone is not evidence. Decisions should be supported by transaction history, balances, contracts, registers, schedules, tax filings and reconciliation to GL."
+  },
+  "questions":{
+    "replacement_oe_minimum":{"type":"choice","instructions":"What is the minimum decisive evidence for the 72 Replacement OE accounts?","criteria":{"register_policy_activity":"Asset/OE register by item and site, capitalization/replacement policy, useful lives, opening balances and transaction history tied to disposal/replacement documents.","names":"The account names alone.","none":"They can all be deleted without checking balances."}},
+    "replacement_oe_likely":{"type":"choice","instructions":"If item identity is fully held in an asset/OE register and accounting policy is uniform, what is the likely resolution?","criteria":{"compress":"Map cost/contra balances to the appropriate Operating Equipment asset/allowance accounts and replacement expense to a small number of expense natures; retain item/site in subledger dimensions.","keep72":"Keep all 72 permanent natural accounts.","delete":"Delete balances without reclassification."}},
+    "replacement_oe_obligation":{"type":"choice","instructions":"What must be established before treating Reserve Replacement OE as a liability or contra account?","criteria":{"present_obligation":"A present legal/constructive obligation, measurement basis, approval policy and roll-forward; an internal earmark alone is insufficient.","name":"The word Reserve in the account name is sufficient.","budget":"A budget automatically creates a liability."}},
+    "principal_minimum":{"type":"choice","instructions":"What evidence is required for the 15 Principal accounts?","criteria":{"counterparty_agreement_aging":"Counterparty identity, owner/related-party status, contracts or funding documents, opening balances, transaction ledger, maturity/current-noncurrent terms and settlement history.","site_names":"Unit names in account titles are sufficient.","none":"Merge immediately into bank loans."}},
+    "principal_likely":{"type":"choice","instructions":"If the 14 unit-named Principal accounts are the same counterparty/funding nature and units are only sites, what is the likely resolution?","criteria":{"one_related_balance":"Use the proper related-party/owner payable or equity account, with site/document dimensions only if analytically needed.","keep14":"Retain one GL account per unit.","intercompany":"Treat units as separate intercompany counterparties."}},
+    "principal_equity_gate":{"type":"choice","instructions":"What distinguishes a Principal balance that should be liability versus owner equity/drawings?","criteria":{"rights_terms":"Repayment obligation, contractual terms, subordination, owner authorization, and legal/tax substance.","debit_credit":"Credit balance alone proves it is equity.","name":"The word Principal determines classification."}},
+    "hgb_minimum":{"type":"choice","instructions":"What evidence is required for HGB/land-right accounts?","criteria":{"legal_policy_schedule":"Land certificate/right contract, acquisition terms, right period/renewal, accounting policy, useful life/amortization schedule, tax treatment and GL roll-forward.","name":"Account names alone.","rent_invoice":"One rent invoice is sufficient for every HGB balance."}},
+    "rent_minimum":{"type":"choice","instructions":"What evidence is required for land, store/warehouse and staff-house rent accounts?","criteria":{"contracts_schedules_use":"Contracts, payment schedules, lease term/options, asset use, site/facility mapping, tax and applicable lease-accounting assessment.","vendor":"Vendor name only.","gl":"A GL balance with no contract."}},
+    "preopening_minimum":{"type":"choice","instructions":"What evidence is required for the three pre-opening accounts?","criteria":{"cost_detail_dates_policy":"Detailed cost composition, store opening dates, recognition policy, remaining balances, amortization schedule and impairment/recoverability review.","balance":"Total balance only.","name":"Name alone proves an asset."}},
+    "cip_minimum":{"type":"choice","instructions":"What evidence is required for CIP?","criteria":{"project_cost_progress":"Project list, approved budgets, invoices, directly attributable costs, physical progress, placed-in-service dates and reconciliation to fixed-asset additions.","balance":"Closing balance only.","site":"Site name only."}},
+    "giro_keluar_minimum":{"type":"choice","instructions":"What evidence decides whether Giro Keluar can merge with Outstanding Giro?","criteria":{"instrument_register":"Cheque/giro register, issuance and clearing/cancellation lifecycle, bank statement reconciliation, aging and posting examples for both accounts.","names":"Similar words are sufficient.","bank":"Bank identity alone."}},
+    "purchase_cogs_minimum":{"type":"choice","instructions":"What evidence is needed for Harga Pokok Pembelian and Potongan Pembelian?","criteria":{"inventory_method_postings":"Perpetual/periodic inventory policy, purchase/receipt/invoice/return/discount posting rules, transaction samples and reconciliation to inventory and COGS.","names":"Names alone.","supplier":"Supplier list only."}},
+    "inventory_disposal_damage":{"type":"choice","instructions":"What evidence is required for Disposed Inventory and Inventory Damage Expense?","criteria":{"writeoff_documents":"Approved write-off/disposal documents, quantity/value movement, recovery proceeds, reason codes, insurance claims and reconciliation to inventory allowance/COGS.","balance":"Balance only.","count":"Stock-count sheet with no accounting trace."}},
+    "mixed_other_minimum":{"type":"choice","instructions":"How should mixed Pendapatan (Biaya) Lain-Lain be resolved?","criteria":{"transaction_split":"Export transaction-level ledger with source documents and classify income and expense separately; do not retain a mixed-sign account merely for convenience.","keep_mixed":"Keep one permanent mixed income/expense account.","net":"Net everything without review."}},
+    "pph25_minimum":{"type":"choice","instructions":"What evidence is required for Current Tax Income/Expense PPh 25?","criteria":{"returns_payments_recon":"SPT/tax returns, installment payments, current-tax computation, tax payable/prepaid reconciliation and transaction history.","name":"Name alone.","bank":"Bank payment list alone."}},
+    "evidence_period":{"type":"choice","instructions":"What transaction-history period is normally sufficient to assess recurring use and mapping?","criteria":{"two_years_plus_opening":"At least the current and prior fiscal year plus opening balance and all still-open items; extend for long-lived assets/contracts.","one_month":"One recent month only.","none":"No transaction history is required."}},
+    "zero_balance_accounts":{"type":"choice","instructions":"Can a zero-balance hold account be retired solely because its closing balance is zero?","criteria":{"activity_check":"Only after checking historical/current activity, open documents, integrations and whether future posting rules still reference it.","yes":"Yes, zero balance alone is sufficient.","never":"A zero-balance account can never be retired."}},
+    "evidence_package":{"type":"choice","instructions":"What is the most efficient evidence package to request from the client?","criteria":{"seven_exports":"GL transaction export and opening balance; asset/OE register; loan/owner funding schedule and agreements; lease/HGB contracts and schedules; inventory write-off/movement report; bank giro register/reconciliation; tax returns/reconciliation and accounting policies.","coa":"Only the COA list.","interviews":"Only verbal interviews without reconciled data."}},
+    "resolution_order":{"type":"choice","instructions":"In what order should the hold groups be resolved?","criteria":{"volume_risk":"Replacement OE first for volume, Principal second for classification/related-party risk, then leases/HGB/pre-opening/CIP, then giro/purchase/inventory/tax singletons.","alphabetical":"Alphabetically by account name.","random":"Randomly."}},
+    "can_resolve":{"type":"choice","instructions":"Can the 104 held accounts be resolved without redesigning the approved 121-account core?","criteria":{"yes_evidence":"Yes; obtain the evidence package, reconcile balances and map each account to core, a justified new account, or retirement.","no":"They must remain permanent forever.","delete":"Delete them immediately without mapping."}}
+  }
+}

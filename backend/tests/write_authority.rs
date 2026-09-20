@@ -201,7 +201,12 @@ const MATRIX: &[Authority] = &[
                  balancer in `domain::interunit` — a line that named a \
                  counterparty by hand would put a figure in the inter-unit \
                  check that no document caused, and that check is the one place \
-                 in these books where two people are asked to agree",
+                 in these books where two people are asked to agree. Since 0288 \
+                 `category_code` carries the same weight: with forty accounts \
+                 in the chart it is the only thing that says electricity from \
+                 water or a drawer from a deposit bag, so a second writer would \
+                 be a second answer to what a figure MEANS and not only to \
+                 where it sits",
     },
     Authority {
         table: "member",

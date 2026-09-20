@@ -22,113 +22,33 @@ use uuid::Uuid;
 const ACTOR: &str = "ana";
 const CHECKER: &str = "budi";
 
-type ChartRow = (
-    &'static str,
-    &'static str,
-    Option<&'static str>,
-    bool,
-    Option<&'static str>,
-);
-
-/// Enough of the client's chart to move money four ways.
+/// The map, and two open months. The chart is the migrations' own.
 ///
-/// Their codes, not invented ones, because the codes ARE the tree: a balance
-/// rolls up by prefix, and leaves hanging off the roots would pass tests a real
-/// chart fails.
+/// This used to mint twenty rows of the client's ladder down to twelve-digit
+/// per-unit leaves, on the argument that the codes ARE the tree. They were, and
+/// they are not any more: 0244 forbade an account that names a unit and 0289
+/// replaced the ladder with forty accounts hanging off the roots. What a
+/// document names is an account and a category.
 async fn seed(pool: &PgPool) {
-    let rows: [ChartRow; 20] = [
-        ("1", "ASSET", None, true, None),
-        ("101", "CURRENT ASSET", Some("1"), true, None),
-        ("10110", "KAS & SETARA KAS", Some("101"), true, None),
-        ("1011001", "CASH ON HAND", Some("10110"), true, None),
-        (
-            "101100100100",
-            "Cash On Hand HO",
-            Some("1011001"),
-            false,
-            Some("dc"),
-        ),
-        ("1011002", "CASH IN BANK GIRO", Some("10110"), true, None),
-        (
-            "101100200100",
-            "Cash In Bank Giro Bank BCA HO",
-            Some("1011002"),
-            false,
-            Some("dc"),
-        ),
-        (
-            "101100200200",
-            "Cash In Bank Giro Bank MANDIRI HO",
-            Some("1011002"),
-            false,
-            Some("dc"),
-        ),
-        ("1011004", "TIME DEPOSIT", Some("10110"), true, None),
-        (
-            "101100400100",
-            "TIME DEPOSIT BANK BCA HO",
-            Some("1011004"),
-            false,
-            Some("dc"),
-        ),
-        ("2", "LIABILITIES", None, true, None),
-        ("201", "HUTANG JANGKA PENDEK", Some("2"), true, None),
-        ("20120", "HUTANG DAGANG", Some("201"), true, None),
-        ("2012001", "HUTANG SUPPLIER", Some("20120"), true, None),
-        (
-            "201200100100",
-            "Hutang Suppliers Barang Dagangan HO",
-            Some("2012001"),
-            false,
-            Some("dc"),
-        ),
-        ("6", "BEBAN USAHA", None, true, None),
-        ("60103", "BIAYA KANTOR", Some("6"), true, None),
-        ("6010310", "BIAYA UMUM KANTOR", Some("60103"), true, None),
-        (
-            "601031000400",
-            "Biaya Bank HO",
-            Some("6010310"),
-            false,
-            Some("dc"),
-        ),
-        (
-            "601031000500",
-            "Biaya Perbaikan HO",
-            Some("6010310"),
-            false,
-            Some("dc"),
-        ),
-    ];
-    for (code, name, parent, is_group, site) in rows {
-        sqlx::query(
-            "INSERT INTO ledger_account (account_code, name, parent_code, is_group, site_id)
-             VALUES ($1,$2,$3,$4,$5)
-             ON CONFLICT (account_code) DO NOTHING",
-        )
-        .bind(code)
-        .bind(name)
-        .bind(parent)
-        .bind(is_group)
-        .bind(site)
-        .execute(pool)
-        .await
-        .unwrap_or_else(|error| panic!("{code}: {error}"));
-    }
     for (year, month) in [(2026, 9), (2026, 10)] {
         cloud::open_period(pool, year, month)
             .await
             .unwrap_or_else(|error| panic!("period {year}-{month}: {error}"));
     }
-    map(pool, "cash", "", "101100100100").await;
-    map(pool, "bank_giro", "BCA", "101100200100").await;
-    map(pool, "bank_giro", "MANDIRI", "101100200200").await;
-    map(pool, "time_deposit", "BCA", "101100400100").await;
-    map(pool, "bank_admin_fee", "", "601031000400").await;
-    map(pool, "trade_payable", "", "201200100100").await;
+    map(pool, "cash", "", "1101", Some("DRAWER")).await;
+    // Giro at BCA, giro at Mandiri and the time deposit are three meanings on
+    // one account now: which bank is `bank_account_id`, and `1102` declares no
+    // category family at all. The map still narrows by qualifier, which is what
+    // keeps `bank_giro`/`MANDIRI` a different ROW even though it resolves to
+    // the same code.
+    map(pool, "bank_giro", "BCA", "1102", None).await;
+    map(pool, "bank_giro", "MANDIRI", "1102", None).await;
+    map(pool, "time_deposit", "BCA", "1102", None).await;
+    map(pool, "bank_admin_fee", "", "6301", Some("BIAYA_BANK_HO")).await;
+    map(pool, "trade_payable", "", "2101", None).await;
 }
 
-async fn map(pool: &PgPool, key: &str, qualifier: &str, code: &str) {
+async fn map(pool: &PgPool, key: &str, qualifier: &str, code: &str, category: Option<&str>) {
     cloud::set_account_mapping(
         pool,
         &cloud::SetAccountMappingRequest {
@@ -136,6 +56,7 @@ async fn map(pool: &PgPool, key: &str, qualifier: &str, code: &str) {
             site_id: "dc".into(),
             qualifier: qualifier.into(),
             account_code: code.into(),
+            category_code: category.map(str::to_string),
             note: None,
         },
         ACTOR,
@@ -153,17 +74,29 @@ fn meaning(key: &str, qualifier: &str) -> CashSide {
         semantic_key: Some(key.into()),
         qualifier: qualifier.into(),
         account_code: None,
+        // Refused beside a meaning: the map already chose the pair, and a
+        // second answer here could only disagree with it.
+        category_code: None,
         site_id: "dc".into(),
     }
 }
 
-fn account(code: &str) -> CashSide {
+/// The other way a side is named: a code chosen by the person keying the slip,
+/// and — on an account kept by kind — what kind of thing it is.
+fn account(code: &str, category: Option<&str>) -> CashSide {
     CashSide {
         semantic_key: None,
         qualifier: String::new(),
         account_code: Some(code.into()),
+        category_code: category.map(str::to_string),
         site_id: "dc".into(),
     }
+}
+
+/// The repair the slips in this file pay for. Was `601031000500 Biaya Perbaikan
+/// HO`; it is `6301` with the client's own words for it now.
+fn repairs() -> CashSide {
+    account("6301", Some("BIAYA_PERBAIKAN_DAN_PERAWATAN_BANGUNAN"))
 }
 
 fn document(from: CashSide, to: CashSide, amount: i64, day: u32) -> RecordCashDocumentRequest {
@@ -241,7 +174,7 @@ async fn the_three_kinds_take_the_three_prefixes(pool: PgPool) {
     // Out of the till into an expense: Kas Keluar.
     let pay = cloud::cash_document_record(
         &pool,
-        &document(meaning("cash", ""), account("601031000500"), 350_000, 3),
+        &document(meaning("cash", ""), repairs(), 350_000, 3),
         ACTOR,
     )
     .await
@@ -254,12 +187,7 @@ async fn the_three_kinds_take_the_three_prefixes(pool: PgPool) {
     // Into the bank from nowhere in particular: Kas Masuk.
     let receive = cloud::cash_document_record(
         &pool,
-        &document(
-            account("601031000500"),
-            meaning("bank_giro", "BCA"),
-            90_000,
-            3,
-        ),
+        &document(repairs(), meaning("bank_giro", "BCA"), 90_000, 3),
         ACTOR,
     )
     .await
@@ -307,13 +235,13 @@ async fn the_counter_starts_again_in_the_next_month_and_not_before(pool: PgPool)
     for day in [3, 4, 5] {
         through(
             &pool,
-            &document(meaning("cash", ""), account("601031000500"), 100_000, day),
+            &document(meaning("cash", ""), repairs(), 100_000, day),
         )
         .await;
     }
     let october = RecordCashDocumentRequest {
         doc_date: NaiveDate::from_ymd_opt(2026, 10, 1).unwrap_or_else(|| panic!("date")),
-        ..document(meaning("cash", ""), account("601031000500"), 100_000, 3)
+        ..document(meaning("cash", ""), repairs(), 100_000, 3)
     };
     let fourth = cloud::cash_document_record(&pool, &october, ACTOR)
         .await
@@ -344,11 +272,7 @@ async fn the_counter_starts_again_in_the_next_month_and_not_before(pool: PgPool)
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn a_posted_document_debits_where_it_went_and_credits_where_it_came_from(pool: PgPool) {
     seed(&pool).await;
-    let document_id = through(
-        &pool,
-        &document(meaning("cash", ""), account("601031000500"), 350_000, 3),
-    )
-    .await;
+    let document_id = through(&pool, &document(meaning("cash", ""), repairs(), 350_000, 3)).await;
 
     let read = cloud::cash_document_read(&pool, document_id)
         .await
@@ -378,10 +302,10 @@ async fn a_posted_document_debits_where_it_went_and_credits_where_it_came_from(p
         credits += credit;
         // The money left the till, so the till is credited and the expense
         // takes the debit. Getting this backwards is the mistake that balances.
-        if code == "101100100100" {
+        if code == "1101" {
             assert_eq!(credit, 350_000, "the till should be credited");
         }
-        if code == "601031000500" {
+        if code == "6301" {
             assert_eq!(debit, 350_000, "the expense should be debited");
         }
     }
@@ -401,11 +325,7 @@ async fn a_posted_document_debits_where_it_went_and_credits_where_it_came_from(p
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn posting_twice_is_refused_and_says_so_in_words(pool: PgPool) {
     seed(&pool).await;
-    let document_id = through(
-        &pool,
-        &document(meaning("cash", ""), account("601031000500"), 350_000, 3),
-    )
-    .await;
+    let document_id = through(&pool, &document(meaning("cash", ""), repairs(), 350_000, 3)).await;
 
     let again = cloud::cash_document_post(&pool, document_id, None, CHECKER).await;
     let message = match again {
@@ -431,11 +351,7 @@ async fn posting_twice_is_refused_and_says_so_in_words(pool: PgPool) {
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn a_reversal_mirrors_the_entry_and_the_original_stays_posted(pool: PgPool) {
     seed(&pool).await;
-    let document_id = through(
-        &pool,
-        &document(meaning("cash", ""), account("601031000500"), 350_000, 3),
-    )
-    .await;
+    let document_id = through(&pool, &document(meaning("cash", ""), repairs(), 350_000, 3)).await;
 
     let reversed = cloud::cash_document_reverse(
         &pool,
@@ -455,7 +371,9 @@ async fn a_reversal_mirrors_the_entry_and_the_original_stays_posted(pool: PgPool
 
     let net: i64 = sqlx::query(
         "SELECT COALESCE(SUM(debit_minor - credit_minor), 0)::bigint AS net
-           FROM journal_line WHERE account_code = '601031000500'",
+           FROM journal_line
+          WHERE account_code = '6301'
+            AND category_code = 'BIAYA_PERBAIKAN_DAN_PERAWATAN_BANGUNAN'",
     )
     .fetch_one(&pool)
     .await
@@ -484,7 +402,7 @@ async fn two_accounts_that_hold_no_money_is_not_a_cash_document(pool: PgPool) {
     // exists to close.
     let refusal = cloud::cash_document_record(
         &pool,
-        &document(account("601031000400"), account("601031000500"), 10_000, 3),
+        &document(account("6301", Some("BIAYA_BANK_HO")), repairs(), 10_000, 3),
         ACTOR,
     )
     .await;
@@ -510,7 +428,7 @@ async fn naming_a_bank_by_its_code_is_refused_rather_than_mislabelled(pool: PgPo
     // moved money between two pots we hold.
     let refusal = cloud::cash_document_record(
         &pool,
-        &document(meaning("cash", ""), account("101100200100"), 1_000_000, 3),
+        &document(meaning("cash", ""), account("1102", None), 1_000_000, 3),
         ACTOR,
     )
     .await;
@@ -554,7 +472,7 @@ async fn a_supplier_with_open_bills_is_sent_to_payables(pool: PgPool) {
         party_kind: Some("SUPPLIER".into()),
         supplier_id: Some("SUP01".into()),
         party_name: "PT Sumber Jaya".into(),
-        ..document(meaning("cash", ""), account("601031000500"), 2_000_000, 3)
+        ..document(meaning("cash", ""), repairs(), 2_000_000, 3)
     };
     let refusal = cloud::cash_document_record(&pool, &request, ACTOR).await;
     let message = match refusal {
@@ -578,7 +496,7 @@ async fn posting_before_approving_is_refused_because_a_slip_needs_a_number(pool:
     seed(&pool).await;
     let keyed = cloud::cash_document_record(
         &pool,
-        &document(meaning("cash", ""), account("601031000500"), 350_000, 3),
+        &document(meaning("cash", ""), repairs(), 350_000, 3),
         ACTOR,
     )
     .await
@@ -659,22 +577,33 @@ async fn a_transfer_between_our_own_banks_settles_nothing(pool: PgPool) {
 
     // And it moved the two banks in opposite directions by the same amount,
     // which is the whole of what a transfer is.
-    for (code, expected) in [
-        ("101100200100", -25_000_000i64),
-        ("101100200200", 25_000_000),
-    ] {
-        let net: i64 = sqlx::query(
-            "SELECT COALESCE(SUM(debit_minor - credit_minor), 0)::bigint AS net
-               FROM journal_line WHERE account_code = $1",
-        )
-        .bind(code)
-        .fetch_one(&pool)
-        .await
-        .unwrap_or_else(|error| panic!("net: {error}"))
-        .try_get("net")
-        .unwrap_or_else(|error| panic!("read: {error}"));
-        assert_eq!(net, expected, "{code}");
-    }
+    //
+    // KNOWN GAP in HOW this can be read. It used to be two account codes with
+    // opposite nets; both giros are `1102` now and which bank a line was about
+    // is `bank_account_id`. This fixture registers no `company_bank_account`,
+    // so the column is null on both legs and the only thing left to assert is
+    // that the account nets to nothing across two legs of the stated size.
+    //
+    // That is weaker, and it is weak for a reason worth writing down: a
+    // transfer between two of our own banks is now a debit and a credit on ONE
+    // account, and reading it back needs the bank master. Under
+    // `bank_giro`/`BCA` and `bank_giro`/`MANDIRI` both mapped at `dc`, `1102`
+    // is also what `banking::statement_meaning` will refuse as "mapped by more
+    // than one meaning".
+    let legs: Vec<i64> = sqlx::query_scalar(
+        "SELECT (debit_minor - credit_minor)::bigint FROM journal_line l
+           JOIN journal_entry e USING (entry_id)
+          WHERE e.source_kind = 'CASH_DOC' AND l.account_code = '1102'
+          ORDER BY 1",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("legs: {error}"));
+    assert_eq!(
+        legs,
+        vec![-25_000_000i64, 25_000_000],
+        "one account, two legs, opposite and equal"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -686,7 +615,7 @@ async fn the_slip_carries_the_letterhead_the_title_and_the_amount_in_words(pool:
     seed(&pool).await;
     let document_id = through(
         &pool,
-        &document(meaning("cash", ""), account("601031000500"), 2_500_000, 3),
+        &document(meaning("cash", ""), repairs(), 2_500_000, 3),
     )
     .await;
 
@@ -700,8 +629,8 @@ async fn the_slip_carries_the_letterhead_the_title_and_the_amount_in_words(pool:
     assert_eq!(slip.amount_in_words, "Dua juta lima ratus ribu rupiah");
     // The client's own name for the account, untranslated: an accountant looks
     // for the string they know.
-    assert_eq!(slip.from.account_name, "Cash On Hand HO");
-    assert_eq!(slip.from.account_code, "101100100100");
+    assert_eq!(slip.from.account_name, "Kas");
+    assert_eq!(slip.from.account_code, "1101");
 
     assert_eq!(slip.prepared_by, ACTOR);
     assert_eq!(slip.approved_by.as_deref(), Some(CHECKER));

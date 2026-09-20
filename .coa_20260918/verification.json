@@ -1,0 +1,62 @@
+{
+  "stats": {
+    "rows": 7528,
+    "parents": 620,
+    "leaves": 6908,
+    "twelve_digit": 6902,
+    "base_rules": 499,
+    "detail_types": 70,
+    "flag_n": 104,
+    "unresolved": 56,
+    "review": 3604,
+    "proposed": 3248,
+    "branch_count": 14
+  },
+  "dimensionValues": 227,
+  "summary": [
+    [
+      7528
+    ],
+    [
+      620
+    ],
+    [
+      6908
+    ],
+    [
+      30
+    ],
+    [
+      0.9956572090330053
+    ],
+    [
+      14
+    ],
+    [
+      499
+    ],
+    [
+      56
+    ],
+    [
+      3604
+    ],
+    [
+      3248
+    ],
+    [
+      104
+    ]
+  ],
+  "journalBalances": [
+    [
+      0
+    ],
+    [
+      0
+    ],
+    [
+      0
+    ]
+  ]
+}

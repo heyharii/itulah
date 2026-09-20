@@ -1,0 +1,131 @@
+{
+  "model": "jev-latest",
+  "state": {
+    "objective": "Challenge a conservative payroll and expense compression candidate and determine the next COA domain to review.",
+    "confirmed_facts": [
+      "There are two parallel legacy payroll sets with the same 13 component labels, total 26 families. The meaning of the two prefixes is unknown.",
+      "Round 1 conditionally supported 26 to 13 only if the duplicate axis is a reliable department/function dimension, and rejected collapsing all components into one payroll GL.",
+      "There are ten maintenance-related families. One is Software Maintenance. Nine relate to physical FFE/computer/building/staff house/vehicle/AC-refrigerator/power plant/painting/lift objects.",
+      "Round 1 conditionally supported fewer maintenance GLs using asset_class/work_order, but required separate review of Software Maintenance.",
+      "There are 36 Replacement OE expense families named only by replaced OE item type. Their expense-versus-capitalization and reserve posting mechanism remain unresolved.",
+      "Round 1 rejected indiscriminate combination of utilities, vehicle costs, bank charges, miscellaneous and leases.",
+      "No management P&L, payroll/statutory mapping, tax treatment, capitalization policy, postings or balances have been supplied."
+    ],
+    "candidate_mapping": {
+      "payroll": "26 to 13 natural payroll components, only after confirming the duplicate legacy prefix is function/department and dimensions reproduce existing reports.",
+      "maintenance": "Keep Software Maintenance provisional; conditionally reduce nine physical-object maintenance accounts to one Repairs & Maintenance GL with asset_class/work_order detail if policy/reporting align.",
+      "replacement_oe": "Conditionally reduce 36 named Replacement OE expense accounts to one Replacement OE Expense GL with item_class/asset/work_order detail only after expense-versus-capitalization and reserve mechanics are resolved.",
+      "other_expenses": "No compression proposed from names alone."
+    }
+  },
+  "questions": {
+    "candidate_quality": {
+      "type": "choice",
+      "instructions": "How should the candidate mapping be treated?",
+      "criteria": {
+        "conditional": "A defensible hypothesis with explicit client-evidence gates.",
+        "approve_now": "Final mapping can be approved from names.",
+        "invalid": "Dimensional compression is inherently invalid for all three candidates."
+      }
+    },
+    "payroll_thirteen": {
+      "type": "choice",
+      "instructions": "Given missing statutory and management mappings, is retaining 13 distinct payroll components after removing the duplicate function axis safer than reducing them further now?",
+      "criteria": {
+        "yes": "Use 13 provisionally; later combine only when accounting, tax, accrual and reporting treatment match.",
+        "one": "Use one payroll expense now.",
+        "twenty_six": "Keep both duplicate sets even if dimensions fully reproduce the axis."
+      }
+    },
+    "payroll_dimension_controls": {
+      "type": "choice",
+      "instructions": "What must replace the lost payroll prefix if 26 become 13?",
+      "criteria": {
+        "function_costcenter": "Mandatory function/cost_center derived from employee assignment and payroll run, with reconciliation to the old reporting axis.",
+        "free_text": "Optional free-text note.",
+        "nothing": "No replacement field or reconciliation."
+      }
+    },
+    "physical_maintenance_nine_to_one": {
+      "type": "choice",
+      "instructions": "If the nine physical-object maintenance families share expense recognition and reporting can be reproduced by asset_class/work_order, is nine to one reasonable?",
+      "criteria": {
+        "conditional": "Yes, with capitalization controls and dimension reconciliation.",
+        "retain_nine": "Object identity must remain in GL.",
+        "immediate": "Merge without policy evidence."
+      }
+    },
+    "software_separate_provisional": {
+      "type": "choice",
+      "instructions": "Is keeping Software Maintenance separate provisionally reasonable while checking subscriptions, implementation work and capitalization?",
+      "criteria": {
+        "yes": "Keep separate until service/capitalization treatment is understood.",
+        "merge": "Merge with physical maintenance immediately.",
+        "capitalize": "Capitalize all software maintenance immediately."
+      }
+    },
+    "replacement_thirty_six_to_one": {
+      "type": "choice",
+      "instructions": "If transaction testing proves all 36 Replacement OE accounts are the same expense nature and item names only identify the replaced object, is 36 to one reasonable?",
+      "criteria": {
+        "conditional": "Yes, use item_class/asset_id/work_order for object detail.",
+        "retain_36": "Every object type must remain a GL.",
+        "reserve": "Merge automatically with the balance-sheet Reserve Replacement OE accounts."
+      }
+    },
+    "reserve_expense_separation": {
+      "type": "choice",
+      "instructions": "Even if both 36-account sets are compressed, must balance-sheet Reserve Replacement OE and Replacement OE Expense remain separate accounting natures?",
+      "criteria": {
+        "yes": "Keep reserve/contra/provision balance separately from expense and link through policy/subledger.",
+        "combine": "Use one GL for both balance-sheet and expense balances.",
+        "unknown": "Account nature never matters."
+      }
+    },
+    "capitalization_control": {
+      "type": "choice",
+      "instructions": "What control is needed when entering repair or replacement costs?",
+      "criteria": {
+        "rule_workflow": "Policy-based expense-versus-capitalize decision using amount, useful-life enhancement, replacement component and asset/work-order evidence.",
+        "account_name": "Choose solely from the legacy account label.",
+        "user_choice": "Uncontrolled user preference."
+      }
+    },
+    "expense_type_dimension": {
+      "type": "choice",
+      "instructions": "Should expense_type be allowed to replace every natural expense account?",
+      "criteria": {
+        "no": "Use it for operational detail beneath meaningful natural expense natures, not to erase all distinctions.",
+        "yes": "Use one operating-expense GL with expense_type for everything.",
+        "optional": "Allow users to omit both nature and type."
+      }
+    },
+    "safe_now": {
+      "type": "choice",
+      "instructions": "What can be approved before client evidence?",
+      "criteria": {
+        "architecture": "Approve payroll component, cost center/function, asset/work-order dimensions and candidate mappings; keep GL reductions conditional.",
+        "all": "Approve all reductions immediately.",
+        "none": "Do not design any dimensions."
+      }
+    },
+    "next_domain": {
+      "type": "choice",
+      "instructions": "Which client COA pattern should be reviewed next after bank, assets, inventory and the expense candidates?",
+      "criteria": {
+        "interunit_cleanup": "Review the 70 legacy interunit-party families against the confirmed HO-unit-only centralized model, without creating a general counter_site dimension.",
+        "tax_accrual": "Review tax/prepaid/accrual identities and schedules next.",
+        "ar_ap_party": "Review customer/supplier identity in receivable and payable accounts next.",
+        "stop": "Stop reviewing the remaining COA."
+      }
+    },
+    "evidence_limit": {
+      "type": "choice",
+      "instructions": "Can repeated Jev agreement finalize these mappings without client reports, policy and transaction evidence?",
+      "criteria": {
+        "no": "Use Jev to define hypotheses and evidence gates only.",
+        "yes": "Model agreement replaces client evidence."
+      }
+    }
+  }
+}

@@ -1,0 +1,175 @@
+{
+  "model": "jev-latest",
+  "state": {
+    "objective": "Lock the confirmed same-legal-entity HO-unit model and challenge a concrete target grouping for prepaid, tax, accrued expense and advances.",
+    "new_confirmed_fact": "All HO and operating units/sites belong to one Indonesian PT Perorangan. The units are operating branches/sites of that same legal entity, not separate companies.",
+    "other_confirmed_facts": [
+      "Finance and bank access are centralized at HO; units cannot transact directly with other units.",
+      "Site is already represented by site_id; no general counter_site_id or related_site_id is needed.",
+      "The 70 legacy affiliate receivable/payable families have three receivable natures and two payable natures, each repeated for 14 named HO/sites.",
+      "No balances or transaction history has been supplied, so legacy balances still require traceable reclassification and reconciliation before accounts are deactivated.",
+      "There are nine prepaid-expense, six prepaid-tax, five tax-payable, one unresolved Current Tax Inc/Exp PPh 25, ten accrued-expense and four advance families.",
+      "A controlled schedule can store type, counterparty/employee, document, dates, tax code/period, due date, settlement, site and cost center."
+    ],
+    "candidate_schedule_grouping": {
+      "prepaid": [
+        "General prepaid control: insurance, maintenance contract, promotion, business permit and other, subject to recognition/reporting alignment.",
+        "Rent/lease prepaid remains provisional until land/store/house/vehicle contracts and ROU policy are reviewed."
+      ],
+      "tax": [
+        "Income-tax credits/installments provisional control: PPh 21/25/29 only if returns establish compatible asset treatment.",
+        "Input VAT remains separately controlled from output VAT.",
+        "PBB and Other Tax remain provisional pending return/recoverability review.",
+        "Five tax-payable families may become one Tax Payable control GL only if tax ledger and statutory reconciliation preserve each tax code and due date.",
+        "Current Tax Inc/Exp PPh 25 remains unmapped pending transaction analysis."
+      ],
+      "accrual": [
+        "Employee/payroll accrual control: salary, THR/bonus/severance, medical and BPJS, provided statutory/disclosure detail remains in payroll/accrual schedules.",
+        "Loan-interest accrual control remains separate and linked to facility_id.",
+        "Operating accrual control: telephone, electricity and water with accrual_type/site detail.",
+        "Rent accrual control: store and house rent, subject to lease-policy review."
+      ],
+      "advances": [
+        "Employee/travel advances remain distinguishable from supplier/contractor advances.",
+        "Purchase and contractor advances may share a Supplier/Contractor Advance control only if party, PO/contract, tax and settlement treatment align.",
+        "Other advances remain controlled and provisional."
+      ]
+    }
+  },
+  "questions": {
+    "interunit_zero_permanent": {
+      "type": "choice",
+      "instructions": "With one legal entity and centralized books, should the target COA contain permanent affiliate receivable/payable accounts between HO and its units?",
+      "criteria": {
+        "no": "Reclassify to underlying cash, inventory, expense or justified temporary clearing; deactivate all 70 legacy permanent affiliate accounts after reconciliation.",
+        "five": "Keep five affiliate AR/AP natures between internal sites.",
+        "seventy": "Keep all 70 location accounts."
+      }
+    },
+    "interunit_balance_action": {
+      "type": "choice",
+      "instructions": "What should happen to any nonzero balances in the 70 accounts?",
+      "criteria": {
+        "trace_reclass": "Match counterpart and source transactions, reclassify to underlying nature or justified clearing, reconcile, then deactivate.",
+        "delete": "Delete them because all sites are one entity.",
+        "writeoff": "Write them all to expense."
+      }
+    },
+    "prepaid_general_group": {
+      "type": "choice",
+      "instructions": "Can insurance, maintenance contract, promotion, permit and other prepaids use one general prepaid control GL when schedules preserve type and recognition pattern?",
+      "criteria": {
+        "conditional": "Yes, if financial reporting, materiality and amortization reconciliation align.",
+        "retain5": "Always keep five natural GLs.",
+        "immediate": "Merge without schedule/policy evidence."
+      }
+    },
+    "prepaid_rent_group": {
+      "type": "choice",
+      "instructions": "After contracts confirm the same prepaid-expense treatment rather than ROU/land-right treatment, can land/store/house/vehicle rent prepaids use one prepaid-rent control GL with lease_type/object detail?",
+      "criteria": {
+        "conditional": "Yes, after contract and policy validation.",
+        "retain4": "Object identity must always remain in GL.",
+        "merge_now": "Merge before contract review."
+      }
+    },
+    "income_tax_credit_group": {
+      "type": "choice",
+      "instructions": "Can PPh 21, PPh 25 and PPh 29 prepaid/credit balances share one Income Tax Credits GL if tax returns and ledger reconcile them by tax_code and period?",
+      "criteria": {
+        "conditional": "Possible subject to legal recoverability, classification and return reconciliation.",
+        "always_separate": "Every PPh article must always be a GL.",
+        "merge_now": "Names alone are enough."
+      }
+    },
+    "input_vat_separate": {
+      "type": "choice",
+      "instructions": "Should Input VAT remain a separate tax-asset control from income-tax credits and Output VAT liability?",
+      "criteria": {
+        "yes": "Keep separately controlled; tax return settlement may later offset under applicable rules.",
+        "one_tax": "Combine all tax assets and liabilities in one posting GL.",
+        "expense": "Expense Input VAT automatically."
+      }
+    },
+    "pbb_other_tax": {
+      "type": "choice",
+      "instructions": "Can prepaid PBB and Other Tax be assigned to the income-tax-credit or VAT controls from names alone?",
+      "criteria": {
+        "no": "Keep provisional until recoverability, return and nature are verified.",
+        "income_tax": "Merge with PPh credits immediately.",
+        "vat": "Merge with Input VAT immediately."
+      }
+    },
+    "tax_payable_one": {
+      "type": "choice",
+      "instructions": "Can five tax-payable GLs become one Tax Payable control when a mandatory tax ledger preserves tax code, period, return, due date and payment reconciliation?",
+      "criteria": {
+        "conditional": "Yes, subject to statutory presentation and reliable reconciliation.",
+        "retain5": "Always retain five GLs.",
+        "net_assets": "Net automatically against tax assets."
+      }
+    },
+    "employee_accrual_one": {
+      "type": "choice",
+      "instructions": "Can four employee-related accruals become one Employee Benefits Accrued GL with payroll component detail?",
+      "criteria": {
+        "conditional": "Yes, if current/noncurrent, statutory, severance and disclosure distinctions remain reportable and reconciled.",
+        "retain4": "Always keep four GLs.",
+        "merge_operating": "Merge with utilities and rent immediately."
+      }
+    },
+    "operating_accrual_one": {
+      "type": "choice",
+      "instructions": "Can telephone, electricity and water accruals use one Operating Utilities Accrued GL with accrual_type and site detail?",
+      "criteria": {
+        "conditional": "Yes, if vendor/subledger and management reporting reconcile.",
+        "retain3": "Always keep three GLs.",
+        "expense": "Post only to expense and omit liability."
+      }
+    },
+    "rent_accrual_one": {
+      "type": "choice",
+      "instructions": "Can store and house rent accruals use one Rent Accrued GL after lease-policy validation?",
+      "criteria": {
+        "conditional": "Yes, with lease/object detail and reconciliation.",
+        "retain2": "Always retain two GLs.",
+        "merge_now": "Merge before contract review."
+      }
+    },
+    "interest_accrual_separate": {
+      "type": "choice",
+      "instructions": "Should accrued loan interest remain a separate financing liability linked to facility_id rather than merge into operating accruals?",
+      "criteria": {
+        "yes": "Keep a separate accrued-interest natural account.",
+        "operating": "Merge into utilities/rent accrual.",
+        "principal": "Add automatically to loan principal."
+      }
+    },
+    "advances_two_plus_other": {
+      "type": "choice",
+      "instructions": "Is a provisional structure of Employee/Travel Advances, Supplier/Contractor Advances, and Other Advances more defensible than one unrestricted advance GL?",
+      "criteria": {
+        "yes": "Use three controls with party/purpose/aging details; consider further merge only after evidence.",
+        "one": "Use one unrestricted advance account.",
+        "four": "Purpose labels must always stay as four GLs."
+      }
+    },
+    "safe_count_basis": {
+      "type": "choice",
+      "instructions": "May the proposed group counts be treated as final before schedules, tax returns, contracts and balances are reconciled?",
+      "criteria": {
+        "no": "They are conditional target groups only.",
+        "yes": "Approve from Jev answers and names."
+      }
+    },
+    "next_domain": {
+      "type": "choice",
+      "instructions": "After schedules and tax, which remaining identity-heavy domain should be reviewed next?",
+      "criteria": {
+        "ar_ap_party": "Customer/supplier identities in receivables and payables.",
+        "more_interunit": "Recreate site-counterparty accounts.",
+        "stop": "Stop reviewing the COA."
+      }
+    }
+  }
+}

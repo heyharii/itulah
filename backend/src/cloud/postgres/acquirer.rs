@@ -33,7 +33,7 @@
 //! this module's — writing them here would be a second implementation of a rule
 //! that has one home.
 
-use super::ledger::resolve_account;
+use super::ledger::resolve_account_code;
 use super::payables::AgingBuckets;
 use super::poster::{post, Posted, PostingIntent, PostingLine};
 use super::sales_posting::{RetenderOutcome, RetenderRequest};
@@ -1225,11 +1225,17 @@ const fn receivable_key(tender_kind: &str) -> &'static str {
 ///
 /// An earlier draft gave QRIS its own key, on the argument that a QRIS fee and
 /// a card fee are different costs with different rates. They are — but the
-/// client's chart keeps exactly one account for both, `6010110002 Biaya Credit
-/// Card`, and there is no free code beside it that means "QRIS fee". Inventing
-/// one would put a leaf in their books that their own accountant did not ask
-/// for, which is the mistake lane-A caught itself making when a code it had
-/// proposed as free turned out to be `Penjualan Online Sendiri`.
+/// client's chart kept exactly one account for both — `6010110002 Biaya Credit
+/// Card`, now `6101 Beban penjualan` carrying `BIAYA_CREDIT_CARD` — and there
+/// was no free code beside it that meant "QRIS fee". Inventing one would have
+/// put a leaf in their books that their own accountant did not ask for, which
+/// is the mistake lane-A caught itself making when a code it had proposed as
+/// free turned out to be `Penjualan Online Sendiri`.
+///
+/// The forty-account chart does not reopen this. A QRIS fee could now be its
+/// own `expense_category` without minting an account at all, which is a real
+/// option — but it is still a question for their accountant rather than one to
+/// answer by writing a category nobody asked for.
 ///
 /// Nothing is lost. Every fee line is qualified by the acquirer, so "what did
 /// QRIS cost us this quarter" is a filter on the qualifier — the same way the
@@ -2268,7 +2274,7 @@ pub async fn acq_settlement_unmapped_keys(
         let site_id: String = row.try_get("site_id")?;
         let tender_kind: String = row.try_get("tender_kind")?;
         for key in [receivable_key(&tender_kind), fee_key(&tender_kind)] {
-            if resolve_account(pool, key, &site_id, &settlement.acquirer)
+            if resolve_account_code(pool, key, &site_id, &settlement.acquirer)
                 .await
                 .is_err()
             {

@@ -1,0 +1,29 @@
+{
+  "model":"jev-latest",
+  "state":{
+    "objective":"Confirm the arithmetic production COA count after adding proven accounts not present in the approved core list.",
+    "facts":[
+      "The approved core CSV contains exactly 121 accounts.",
+      "The 121 list contains no natural account named or keyed for Contract in Progress/CIP.",
+      "The 121 list contains no rent-expense natural account. It contains prepaid rent, but prepaid rent is an asset and cannot replace rent expense.",
+      "The available current asset register contains 668 CIP rows and the balance sheet contains a non-zero CIP balance.",
+      "The comparative P&L shows active store/warehouse rent expense and staff-house/mess rent expense.",
+      "Jev previously selected one governed CIP account with confidence 1.0 and two active rent-expense natures with confidence 0.99.",
+      "Therefore the proposed production set is 121 existing core accounts plus one CIP plus two rent expense accounts.",
+      "Up to 104 legacy accounts remain frozen migration-only and are excluded from transaction-form account search."
+    ],
+    "proposed_additions":[
+      "Construction/Contract in Progress (CIP), dimensions project_id and site_id.",
+      "Rent Expense - Store/Warehouse, dimensions facility_id, contract_id and site_id.",
+      "Rent Expense - Staff House/Mess, dimensions facility_id, contract_id and site_id."
+    ]
+  },
+  "questions":{
+    "count_math":{"type":"choice","instructions":"What is the production COA count when three proven, non-duplicated accounts are added to an exact 121-account core?","criteria":{"124":"121 plus 3 equals 124.","121":"Ignore the three required additions.","225":"Include frozen legacy accounts as production."}},
+    "cip_not_prepaid":{"type":"choice","instructions":"Can CIP be represented by an existing prepaid, fixed-asset cost or operating-expense account without a CIP control account?","criteria":{"no":"CIP requires a separate control account until assets are placed in service.","yes":"No CIP account is needed."}},
+    "rent_not_prepaid":{"type":"choice","instructions":"Can active rent expense be represented only by the existing prepaid-rent asset account?","criteria":{"no":"Prepaid rent and recognized rent expense have different statement classification and must remain distinct.","yes":"One prepaid asset account covers expense recognition."}},
+    "two_rent":{"type":"choice","instructions":"Given material active store/warehouse and staff-house/mess use, should the two rent expense natures remain separate pending contract review?","criteria":{"yes":"Their use, control and possible tax/benefit treatment differ; facility/contract/site remain dimensions.","one":"Use one rent expense immediately.","none":"No rent expense account is needed."}},
+    "production_final":{"type":"choice","instructions":"What should be called the final production COA for implementation now?","criteria":{"124":"124 posting accounts, subject only to future evidence-based refinements.","225":"225 posting accounts including all migration holds.","142":"142 conditional target accounts despite missing evidence."}},
+    "migration_label":{"type":"choice","instructions":"How should the remaining legacy accounts be described?","criteria":{"frozen":"Up to 104 frozen migration-only accounts, declining as reclassification is completed; not part of the normal production COA.","production":"Permanent production accounts.","deleted":"Already deleted and fully resolved."}}
+  }
+}

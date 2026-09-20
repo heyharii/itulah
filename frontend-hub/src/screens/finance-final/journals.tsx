@@ -41,10 +41,12 @@ import {
 import { parseMinor, todayIso } from "@/screens/finance/chart"
 import { useWindow } from "@/screens/finance/hooks"
 import {
-  AccountPicker,
+  AccountAndCategory,
+  accountChoiceReady,
   LocationSelect,
   SiteName,
   WindowControl,
+  type AccountChoice,
 } from "@/screens/finance/parts"
 import { idempotencyKey } from "@itulah/contract/client"
 import type { JournalEntryRow, JournalLineView } from "@itulah/contract"
@@ -228,7 +230,7 @@ export function Journals() {
               }
             >
               {label(facet.value)}{" "}
-              <span className="tabular-nums text-mute">
+              <span className="text-mute tabular-nums">
                 {count(facet.count)}
               </span>
             </button>
@@ -341,7 +343,9 @@ export function Journals() {
                     </Td>
                     <Td />
                     <Td align="right">{count(matched)}</Td>
-                    <Td align="right">{money(entries.data?.total_minor ?? 0)}</Td>
+                    <Td align="right">
+                      {money(entries.data?.total_minor ?? 0)}
+                    </Td>
                     <Td />
                   </TotalRow>
                 </tbody>
@@ -396,7 +400,11 @@ function toneOf(entry: JournalEntryRow): "warn" | "info" | "neutral" {
 /// close its own books on; anything else is an inter-unit entry, and the two
 /// numbers are what the client's grid of inter-unit accounts used to carry.
 function byUnit(
-  lines: readonly { site_id: string; debit_minor: number; credit_minor: number }[]
+  lines: readonly {
+    site_id: string
+    debit_minor: number
+    credit_minor: number
+  }[]
 ): { site_id: string; net_minor: number }[] {
   const table = new Map<string, number>()
   for (const line of lines) {
@@ -479,7 +487,10 @@ function EntryPanel({
           const units = byUnit(lines)
           const interUnit = units.length > 1
           const debits = lines.reduce((sum, line) => sum + line.debit_minor, 0)
-          const credits = lines.reduce((sum, line) => sum + line.credit_minor, 0)
+          const credits = lines.reduce(
+            (sum, line) => sum + line.credit_minor,
+            0
+          )
 
           return (
             <div className="flex flex-col gap-5">
@@ -502,8 +513,12 @@ function EntryPanel({
                 <Pill tone={byHand(header) ? "warn" : "neutral"}>
                   {byHand(header) ? "Written by hand" : "Posted by the system"}
                 </Pill>
-                {header.reversal_of !== null && <Pill tone="info">Reversal</Pill>}
-                {header.reversed_by !== null && <Pill tone="bad">Reversed</Pill>}
+                {header.reversal_of !== null && (
+                  <Pill tone="info">Reversal</Pill>
+                )}
+                {header.reversed_by !== null && (
+                  <Pill tone="bad">Reversed</Pill>
+                )}
                 {interUnit && <Pill tone="accent">Inter-unit</Pill>}
               </div>
 
@@ -568,6 +583,22 @@ function EntryPanel({
                         <Td>
                           <span className="block text-ink">
                             {line.account_name}
+                            {/* What the line WAS. With forty accounts in the
+                                chart the name above is a row of the statement
+                                and this is the thing the reader came for, so
+                                it sits on the same line rather than under the
+                                code — an entry whose eight lines all read
+                                "Beban umum & administrasi" is an entry nobody
+                                can check. */}
+                            {line.category_name !== null && (
+                              <span
+                                className="text-mute"
+                                title={line.category_code ?? undefined}
+                              >
+                                {" · "}
+                                {line.category_name}
+                              </span>
+                            )}
                           </span>
                           <Code>{line.account_code}</Code>
                           {line.memo !== null && (
@@ -686,9 +717,14 @@ function EntryPanel({
 
 /// A line being typed, before it is anything the server would take. Amounts are
 /// text until they are submitted — a half-typed number is not a number.
+///
+/// `account` is a pair and not a code. With forty accounts in the chart, 6301
+/// is one line of the profit and loss and says nothing about what the money
+/// went on; the category beside it is what used to be the difference between
+/// two account codes, and the database refuses the line without it. Holding
+/// them as one field is what stops a row ever carrying one half of the answer.
 interface DraftLine {
-  account_code: string
-  account_name: string
+  account: AccountChoice | null
   site_id: string
   debit: string
   credit: string
@@ -696,8 +732,7 @@ interface DraftLine {
 
 function blankLine(): DraftLine {
   return {
-    account_code: "",
-    account_name: "",
+    account: null,
     site_id: "",
     debit: "",
     credit: "",
@@ -718,7 +753,7 @@ function draftTotals(lines: readonly DraftLine[]) {
     }))
     .filter(
       (row) =>
-        row.line.account_code !== "" &&
+        row.line.account !== null &&
         row.line.site_id !== "" &&
         (row.debit > 0 || row.credit > 0)
     )
@@ -731,14 +766,31 @@ function draftTotals(lines: readonly DraftLine[]) {
       credit_minor: row.credit,
     }))
   )
+  /// Rows with an account chosen and no category, where the account's family
+  /// asks for one.
+  ///
+  /// Counted over `usable` and not over every row, for the same reason the
+  /// totals are: a row somebody has started and not finished is not an error
+  /// yet. A row that is otherwise complete and is missing its category is,
+  /// and it is the one refusal a composer can see coming — the trigger's
+  /// sentence names the account and lists five legal codes, which is a fine
+  /// message to never have to read.
+  const uncategorised = usable.filter(
+    (row) => !accountChoiceReady(row.line.account)
+  )
   return {
     usable,
     debits,
     credits,
+    uncategorised,
     /// Units this entry would leave carrying something — empty when each unit's
     /// own books foot.
     adrift: units.filter((unit) => unit.net_minor !== 0),
-    balanced: usable.length >= 2 && debits === credits && debits > 0,
+    balanced:
+      usable.length >= 2 &&
+      debits === credits &&
+      debits > 0 &&
+      uncategorised.length === 0,
   }
 }
 
@@ -774,7 +826,6 @@ function ComposerPanel({
     blankLine(),
     blankLine(),
   ])
-  const [picking, setPicking] = useState<number | null>(null)
   const [receipt, setReceipt] = useState<string | null>(null)
   // Minted once per composer and not per attempt: a retry after a dropped
   // connection must land the same entry, and generating the key inside the
@@ -789,18 +840,20 @@ function ComposerPanel({
         {
           posting_date: postingDate,
           memo: memo.trim() === "" ? null : memo.trim(),
-          lines: totals.usable.map(
-            (row): ManualLine => ({
-              account: {
-                kind: "account",
-                account_code: row.line.account_code,
-              },
-              site_id: row.line.site_id,
-              debit_minor: row.debit,
-              credit_minor: row.credit,
-              memo: null,
-            })
-          ),
+          lines: totals.usable.map((row): ManualLine => ({
+            account: {
+              kind: "account",
+              account_code: row.line.account!.account_code,
+              // `null` for an account that declares no family, which is the
+              // answer and not the absence of one: the trigger refuses a
+              // line carrying a category its account cannot take.
+              category_code: row.line.account!.category_code,
+            },
+            site_id: row.line.site_id,
+            debit_minor: row.debit,
+            credit_minor: row.credit,
+            memo: null,
+          })),
         },
         key
       ),
@@ -808,7 +861,6 @@ function ComposerPanel({
       setReceipt(posted.entry_number)
       setLines([blankLine(), blankLine()])
       setMemo("")
-      setPicking(null)
       setKey(idempotencyKey())
       // A posting moves the register, every balance, both statements and the
       // trial balance. There is no narrower honest answer.
@@ -882,42 +934,11 @@ function ComposerPanel({
               {lines.map((line, index) => (
                 <tr key={index}>
                   <Td>
-                    <div className="flex items-center gap-2">
-                      {line.account_code === "" ? (
-                        <span className="text-[0.71875rem] text-mute">
-                          No account chosen
-                        </span>
-                      ) : (
-                        <span className="min-w-0">
-                          <span className="block truncate text-ink">
-                            {line.account_name}
-                          </span>
-                          <Code>{line.account_code}</Code>
-                        </span>
-                      )}
-                      <Button
-                        size="sm"
-                        variant="quiet"
-                        onClick={() =>
-                          setPicking(picking === index ? null : index)
-                        }
-                      >
-                        {line.account_code === "" ? "Choose" : "Change"}
-                      </Button>
-                    </div>
-                    {picking === index && (
-                      <div className="mt-2">
-                        <AccountPicker
-                          onPick={(account) => {
-                            setLine(index, {
-                              account_code: account.account_code,
-                              account_name: account.name,
-                            })
-                            setPicking(null)
-                          }}
-                        />
-                      </div>
-                    )}
+                    <AccountAndCategory
+                      value={line.account}
+                      onChange={(next) => setLine(index, { account: next })}
+                      categoryLabel={`Category on row ${index + 1}`}
+                    />
                   </Td>
                   <Td>
                     <LocationSelect
@@ -952,14 +973,9 @@ function ComposerPanel({
                         size="sm"
                         variant="quiet"
                         aria-label={`Remove row ${index + 1}`}
-                        onClick={() => {
-                          setLines((was) =>
-                            was.filter((_, at) => at !== index)
-                          )
-                          // The picker is keyed by position, and every position
-                          // below this one just moved.
-                          setPicking(null)
-                        }}
+                        onClick={() =>
+                          setLines((was) => was.filter((_, at) => at !== index))
+                        }
                       >
                         <Trash2 />
                       </Button>
@@ -1009,7 +1025,9 @@ function ComposerPanel({
               ? `Balanced at ${money(totals.debits)}`
               : totals.usable.length === 0
                 ? "No usable row yet — a row needs an account, a unit and a figure"
-                : `Debits ${money(totals.debits)} · credits ${money(totals.credits)}`}
+                : totals.uncategorised.length > 0
+                  ? `${count(totals.uncategorised.length)} ${totals.uncategorised.length === 1 ? "row needs" : "rows need"} a category — the account is one line of the statement, the category is what it was for`
+                  : `Debits ${money(totals.debits)} · credits ${money(totals.credits)}`}
           </span>
           <Button
             variant="primary"

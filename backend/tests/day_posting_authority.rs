@@ -183,23 +183,25 @@ async fn the_authority_posted(pool: &PgPool, day: u32, gross_minor: i64) -> Uuid
     // An entry with no lines is refused by 0051's deferred trigger, which is the
     // guarantee this file depends on rather than tests: a day in the book is a day
     // with legs. Cash in, revenue out, both at the shop.
-    for (index, (code, debit, credit)) in [
-        ("1011001001", gross_minor, 0),
-        ("4010110001", 0, gross_minor),
+    for (index, (code, category, debit, credit)) in [
+        ("1101", "DRAWER", gross_minor, 0),
+        ("4101", "CASH", 0, gross_minor),
     ]
     .into_iter()
     .enumerate()
     {
         sqlx::query(
             "INSERT INTO journal_line
-               (line_id, entry_id, line_number, account_code, site_id, debit_minor, credit_minor)
-             VALUES ($1,$2,$3,$4,$5,$6,$7)",
+               (line_id, entry_id, line_number, account_code, site_id, category_code,
+                debit_minor, credit_minor)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
         )
         .bind(Uuid::new_v4())
         .bind(entry_id)
         .bind(index as i32 + 1)
         .bind(code)
         .bind(SHOP)
+        .bind(category)
         .bind(debit)
         .bind(credit)
         .execute(&mut *tx)
@@ -368,26 +370,36 @@ async fn the_list_reports_the_authoritys_days_as_posted(pool: PgPool) {
     );
 }
 
-/// QRIS has a receivable of its own, and it is the only tender that needed one
-/// back.
+/// QRIS is a tender the books can name on both sides of a day.
 ///
-/// This replaces the 0248-era assertion that `1011101003` AND `1011101004` both
-/// exist. `1011101004 Piutang Tender Lain-Lain` is deliberately NOT restored: the
-/// authority refuses a tender it does not recognise and offers `retender`
-/// instead, so there is no unnamed-tender debt to hold. That receivable belonged
-/// to the retired writer's `other_tender_clearing`.
+/// The question is the same one 0248 asked — can a QRIS day be posted at all —
+/// and the answer has moved from "there is an account for it" to "there is a
+/// category for it". `1011101003 Piutang QRIS` and `4010114001 Penjualan QRIS`
+/// were two accounts minted for one tender; they are `1201 × QRIS` and
+/// `4101 × QRIS` now, on the two accounts that carry every tender.
+///
+/// NOTE what this can no longer say. 0248 refused to restore `1011101004
+/// Piutang Tender Lain-Lain`, deliberately: the authority refuses a tender it
+/// does not recognise and offers `retender` instead, so there was to be no
+/// unnamed-tender debt to hold. 0287 seeds `TENDER_OTHER` in the same family,
+/// so `1201 × TENDER_OTHER` is a legal posting again. Nothing maps it and the
+/// authority still refuses an unknown tender, so the door is shut one level up
+/// rather than in the chart — which is a weaker guarantee than the one 0248
+/// chose, and worth a decision rather than a discovery.
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn qris_is_owed_by_a_provider_and_the_unnamed_tender_is_not(pool: PgPool) {
+    // Both halves of a QRIS day, and the family they are drawn from.
     let rows = sqlx::query(
-        "SELECT account_code, name, parent_code, is_group, dimension, site_id,
-                posting_mode, manual_je_policy
-           FROM ledger_account
-          WHERE account_code IN ('1011101002','1011101003','1011101004')
-          ORDER BY account_code",
+        "SELECT a.account_code, a.name, a.is_group, a.dimension, a.site_id,
+                a.posting_mode, a.category_family, c.name AS category_name
+           FROM ledger_account a
+           JOIN line_category c ON c.family = a.category_family AND c.category_code = 'QRIS'
+          WHERE a.account_code IN ('1201','4101')
+          ORDER BY a.account_code",
     )
     .fetch_all(&pool)
     .await
-    .expect("the receivables");
+    .expect("the receivable and the income");
 
     let codes: Vec<String> = rows
         .iter()
@@ -395,82 +407,84 @@ async fn qris_is_owed_by_a_provider_and_the_unnamed_tender_is_not(pool: PgPool) 
         .collect();
     assert_eq!(
         codes,
-        vec!["1011101002".to_string(), "1011101003".to_string()],
-        "the card and QRIS are two accounts; the unnamed tender is not an account"
+        vec!["1201".to_string(), "4101".to_string()],
+        "a QRIS day needs a receivable and an income line, and QRIS has to be a \
+         legal category on both"
     );
 
-    let qris = &rows[1];
-    assert_eq!(qris.get::<String, _>("name"), "Piutang QRIS");
-    assert_eq!(
-        qris.get::<String, _>("parent_code"),
-        rows[0].get::<String, _>("parent_code"),
-        "QRIS sits beside the card receivable"
-    );
-    assert!(!qris.get::<bool, _>("is_group"), "it takes postings");
-    assert_eq!(
-        qris.get::<Option<String>, _>("dimension").as_deref(),
-        Some("unit"),
-        "kept per unit"
-    );
-    assert!(
-        qris.get::<Option<String>, _>("site_id").is_none(),
-        "it names no unit; the line does"
-    );
-    assert_eq!(qris.get::<String, _>("posting_mode"), "AUTO_ONLY");
+    for row in &rows {
+        assert!(!row.get::<bool, _>("is_group"), "it takes postings");
+        assert_eq!(
+            row.get::<Option<String>, _>("dimension").as_deref(),
+            Some("unit"),
+            "kept per unit"
+        );
+        assert!(
+            row.get::<Option<String>, _>("site_id").is_none(),
+            "it names no unit; the line does"
+        );
+        assert_eq!(row.get::<String, _>("posting_mode"), "AUTO_ONLY");
+        assert_eq!(row.get::<String, _>("category_family"), "tender");
+        assert_eq!(row.get::<String, _>("category_name"), "QRIS");
+    }
 
     // No per-unit copies, which is how 0238 built them and 0243/0244 abolished.
     let copies: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM ledger_account
-          WHERE account_code LIKE '1011101003%' AND account_code <> '1011101003'",
+          WHERE account_code LIKE '1201%' AND account_code <> '1201'",
     )
     .fetch_one(&pool)
     .await
     .expect("copies");
     assert_eq!(copies, 0, "one account per meaning");
-
-    // And the income side exists too, which is what made a QRIS day unpostable:
-    // both halves of the mapping had no account to point at.
-    let income: (String, String) = sqlx::query_as(
-        "SELECT name, posting_mode FROM ledger_account WHERE account_code = '4010114001'",
-    )
-    .fetch_one(&pool)
-    .await
-    .expect("the QRIS income account");
-    assert_eq!(income.0, "Penjualan QRIS");
-    assert_eq!(income.1, "AUTO_ONLY");
 }
 
 /// A voucher redemption has a liability to settle, for the same reason.
+///
+/// `2012305001 Hutang Voucher` is `2401 × VOUCHER_LIABILITY`, sharing its
+/// account with the customer deposit — two things somebody has paid for and not
+/// yet had. It is a `company` account now rather than a `unit` one, which is
+/// the honest reading: a voucher is sold at one shop and spent at another, and
+/// the liability was never the selling shop's.
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn a_voucher_has_a_liability_to_settle(pool: PgPool) {
     let row = sqlx::query(
-        "SELECT name, parent_code, dimension, posting_mode, posting_policy_configured
-           FROM ledger_account WHERE account_code = '2012305001'",
+        "SELECT a.name, a.parent_code, a.dimension, a.posting_mode,
+                a.posting_policy_configured, a.category_family, c.name AS category_name
+           FROM ledger_account a
+           JOIN line_category c
+             ON c.family = a.category_family AND c.category_code = 'VOUCHER_LIABILITY'
+          WHERE a.account_code = '2401'",
     )
     .fetch_one(&pool)
     .await
     .expect("the voucher liability");
-    assert_eq!(row.get::<String, _>("name"), "Hutang Voucher");
-    assert_eq!(row.get::<String, _>("parent_code"), "2012305");
+    assert_eq!(row.get::<String, _>("parent_code"), "2");
     assert_eq!(
         row.get::<Option<String>, _>("dimension").as_deref(),
-        Some("unit")
+        Some("company")
     );
     assert_eq!(row.get::<String, _>("posting_mode"), "AUTO_ONLY");
     assert!(row.get::<bool, _>("posting_policy_configured"));
+    assert_eq!(
+        row.get::<String, _>("category_family"),
+        "deferred_revenue_kind"
+    );
+    assert_eq!(row.get::<String, _>("category_name"), "Hutang Voucher");
 
     // Not filed against a related company: 0264 had to split four affiliate
-    // natures apart because they had been collapsed into one, and money owed to a
-    // shopper is not money owed to an affiliate.
-    let siblings: Vec<String> = sqlx::query_scalar(
-        "SELECT account_code FROM ledger_account
-          WHERE parent_code = '20123' AND account_code <> '2012305' ORDER BY 1",
+    // natures apart because they had been collapsed into one, and money owed to
+    // a shopper is not money owed to an affiliate. `1501` is where an affiliate
+    // balance lives now, and it is not this account.
+    let affiliate: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM ledger_account
+          WHERE account_code = '1501' AND category_family = 'interunit_reason'",
     )
-    .fetch_all(&pool)
+    .fetch_one(&pool)
     .await
-    .expect("its siblings");
-    assert!(
-        !siblings.is_empty(),
-        "it sits under the client's own Hutang Lain-lain"
+    .expect("the interunit account");
+    assert_eq!(
+        affiliate, 1,
+        "what one unit owes another is its own account, and it is not the voucher's"
     );
 }

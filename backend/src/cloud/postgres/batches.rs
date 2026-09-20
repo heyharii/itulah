@@ -78,6 +78,12 @@ pub struct CreatePaymentBatchRequest {
     #[serde(default)]
     pub counter_qualifier: String,
     pub counter_account_code: Option<String>,
+    /// What kind of thing the account is, when the batch names a code. Required
+    /// when that account declares a family, refused beside `counter_key` — the
+    /// map already chose a category for the meaning, and a second answer could
+    /// only disagree with it.
+    #[serde(default)]
+    pub counter_category_code: Option<String>,
     /// `BANK_TRANSFER`, `CASH` or `GIRO`.
     pub method: String,
     pub doc_date: NaiveDate,
@@ -106,6 +112,7 @@ pub struct PaymentBatchRow {
     pub counter_key: Option<String>,
     pub counter_qualifier: String,
     pub counter_account_code: Option<String>,
+    pub counter_category_code: Option<String>,
     pub method: String,
     pub doc_date: NaiveDate,
     pub currency: String,
@@ -200,6 +207,7 @@ pub struct PaymentBatchRunOutcome {
 
 const BATCH_COLUMNS: &str = "b.batch_id, b.source_kind, b.source_id, b.from_key, b.from_qualifier,
      b.site_id, b.counter_key, b.counter_qualifier, b.counter_account_code,
+     b.counter_category_code,
      b.method, b.doc_date, b.currency, b.total_minor, b.item_count,
      b.unverified_policy, b.unverified_policy_reason, b.status, b.held_reason, b.memo,
      b.created_by, b.created_at, b.authorised_by, b.authorised_at, b.cancelled_reason";
@@ -215,6 +223,7 @@ fn to_batch(row: &sqlx::postgres::PgRow) -> Result<PaymentBatchRow, AppError> {
         counter_key: row.try_get("counter_key")?,
         counter_qualifier: row.try_get("counter_qualifier")?,
         counter_account_code: row.try_get("counter_account_code")?,
+        counter_category_code: row.try_get("counter_category_code")?,
         method: row.try_get("method")?,
         doc_date: row.try_get("doc_date")?,
         currency: row.try_get("currency")?,
@@ -300,16 +309,40 @@ pub async fn payment_batch_create(
                 .into(),
         ));
     }
+    let counter_category_code = trimmed(request.counter_category_code.as_deref());
+    match (&counter_account_code, &counter_category_code) {
+        // The batch pays a hundred people against one account, so the category
+        // is decided once here and not a hundred times. Checked before anything
+        // is written: a batch that cannot post is a batch that must not be
+        // authorised, and this one is authorised at the moment it is created.
+        (Some(code), _) => {
+            super::ledger::assert_category_for_account(
+                pool,
+                code,
+                counter_category_code.as_deref(),
+                super::ledger::Intent::Post,
+            )
+            .await?;
+        }
+        (None, Some(named)) => {
+            return Err(AppError::Validation(format!(
+                "this batch answers the meaning '{}' and also names the category {named}; the \
+                 Account Map already chose one for that meaning",
+                counter_key.as_deref().unwrap_or_default()
+            )))
+        }
+        (None, None) => {}
+    }
 
     let mut tx = pool.begin().await?;
     let batch_id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO payment_batch
            (batch_id, source_kind, source_id, from_key, from_qualifier, site_id,
-            counter_key, counter_qualifier, counter_account_code,
+            counter_key, counter_qualifier, counter_account_code, counter_category_code,
             method, doc_date, unverified_policy, unverified_policy_reason,
             status, memo, created_by, authorised_by, authorised_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'READY',$14,$15,$15,now())",
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'READY',$15,$16,$16,now())",
     )
     .bind(batch_id)
     .bind(request.source_kind.trim())
@@ -324,6 +357,7 @@ pub async fn payment_batch_create(
         ""
     })
     .bind(counter_account_code.as_deref())
+    .bind(counter_category_code.as_deref())
     .bind(&method)
     .bind(request.doc_date)
     .bind(policy.as_str())
@@ -788,6 +822,7 @@ async fn execute_one(
     let counter_key: Option<String> = batch.try_get("counter_key")?;
     let counter_qualifier: String = batch.try_get("counter_qualifier")?;
     let counter_account_code: Option<String> = batch.try_get("counter_account_code")?;
+    let counter_category_code: Option<String> = batch.try_get("counter_category_code")?;
     let batch_memo: String = batch.try_get("memo")?;
 
     let item = sqlx::query(
@@ -910,6 +945,7 @@ async fn execute_one(
         counter_key,
         counter_qualifier,
         counter_account_code,
+        counter_category_code,
         amount_minor,
         party_kind: party_type.clone(),
         supplier_id: (party_type == "SUPPLIER").then(|| party_id.clone()),

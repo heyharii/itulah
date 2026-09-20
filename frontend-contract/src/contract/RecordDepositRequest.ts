@@ -6,9 +6,24 @@ export type RecordDepositRequest = { site_id: string,
  */
 drawer_account_code: string, 
 /**
+ * Which pot, when the account carries several.
+ *
+ * Required on `1101 Kas`, because the drawer, the petty cash tin and the
+ * till float are one account there and the money left exactly one of them.
+ * Optional in the type and not in the rule: an account that declares no
+ * family refuses a category, and one that declares a family refuses a slip
+ * without one, both by name — which is a better answer than a required
+ * field that is meaningless half the time.
+ */
+drawer_category_code?: string, 
+/**
  * And for the bank account they are going into.
  */
-bank_account_code: string, amount_minor: number, banked_on: string, 
+bank_account_code: string, 
+/**
+ * The same, for the bank side. Nothing declares a family there today.
+ */
+bank_category_code?: string, amount_minor: number, banked_on: string, 
 /**
  * Who carried it. Not ceremony: an in-transit balance with nobody's name
  * on it is a number nobody can be asked about.

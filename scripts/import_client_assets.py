@@ -25,11 +25,30 @@ decision for an import script.
   `C013`. HO maps to `dc`, the head office and distribution centre being one
   building; `C0nn` maps to `store-nn`.
 * **What kind** — their ACCOUNT column without that suffix is the client's own
-  account NAME, which is matched against the chart already loaded in this
-  database. No second category list is invented: the chart is the register.
-* **How it is charged** — depreciation for the ordinary families, a replacement
-  reserve for `1021507*` (operating equipment), amortisation for `10217*`
-  (software). That mapping is the one migration 0159 wrote down.
+  account NAME, which is matched against the ASSET CLASSES already loaded in
+  this database (`GET /api/v1/finance/asset-classes`). No second category list
+  is invented: the class list is the client's own words, taken from the same
+  export the chart came from.
+* **How it is charged** — depreciation for `PPE`, a replacement reserve for
+  `OE` (operating equipment), amortisation for `INTANGIBLE` and `DEFERRED`.
+  That mapping is the one migration 0159 wrote down, restated over the class
+  kinds 0287 gave it.
+
+# Why a class and not an account code (0287)
+
+This script used to write ten-character account codes — `1021507001` for
+*OE - Rak 1* — into `fixed_asset.category_code`, which pointed at
+`ledger_account`. `seed-finance.py` mapped the SEVEN-character family
+`1021507` as the `account_map` qualifier. Both are valid account codes, both
+pass the same foreign key, and `resolve_account` matches a qualifier exactly —
+so every asset this script imported resolved to nothing, the depreciation run
+refused it, and nothing anywhere reported a mismatch, because at the level of
+types there was none.
+
+With the forty-account chart the class is a code of its own
+(`asset_class.class_code`), `fixed_asset.category_code` points there, and the
+cost of every one of them lands in `1601` or `1602`. A class spelled two ways
+is no longer possible.
 
 Run:  python3 scripts/import_client_assets.py "~/Downloads/MASTER ASSET (2).xls"
       --api http://127.0.0.1:8080            # where to post
@@ -72,12 +91,23 @@ def account_name(account: str) -> str:
     return UNIT.sub("", account.strip()).strip()
 
 
-def charge_kind(code: str) -> str:
-    if code.startswith("1021507"):
-        return "REPLACEMENT_RESERVE"
-    if code.startswith("10217"):
-        return "AMORTISATION"
-    return "DEPRECIATION"
+# What the monthly charge is called, by the class's kind. `asset_class.kind`
+# says what sort of thing the class holds; `ChargeKind` says what the charge is
+# called. The client replaces racks and hangers rather than writing them down,
+# which is why `OE` is a reserve and not depreciation (migration 0159).
+CHARGE_BY_KIND: dict[str, str] = {
+    "PPE": "DEPRECIATION",
+    "OE": "REPLACEMENT_RESERVE",
+    "INTANGIBLE": "AMORTISATION",
+    "DEFERRED": "AMORTISATION",
+}
+
+# Work being paid for on something not built yet: a cost, and nothing else
+# (0213). The class code is the client's own account name slugged, and Rust
+# names the same string in `asset_classes::WORK_IN_PROGRESS_CLASS` — the one
+# class code named in Rust, because recognising the class that is not a resting
+# place is not the same as choosing one.
+WORK_IN_PROGRESS = {"CONTRACT_IN_PROGRESS"}
 
 
 def normalise(text: str) -> str:
@@ -130,54 +160,28 @@ def main() -> int:
             continue
         rows.append({key: sheet.cell_value(r, c) for key, c in at.items()})
 
-    # The chart, as this database holds it. Matched by NAME because that is
-    # what their register carries; the code is what we store.
+    # The asset classes, as this database holds them. Matched by NAME because
+    # that is what their register carries; the class code is what we store.
     #
-    # Asked family by family rather than in one request: the accounts endpoint
-    # answers as a TREE unless it is searching, and a tree of 7,528 accounts
-    # arrives as its eight roots. Searching flattens it, and the three prefixes
-    # below are the only families an asset may belong to.
-    #
-    # Family by family rather than by the three roots, because the search caps
-    # its answer: `q=10215` returns 500 of the family's 833 accounts, and the
-    # ones it drops are the ten-digit categories this needs. Asking for each
-    # seven-digit family keeps every answer well under the cap.
-    chart = {}
-    families = [f"102150{n}" for n in range(1, 8)] + ["1021701", "1021702", "1031803"]
-    for prefix in families:
-        for account in get(
-            args.api, f"/api/v1/finance/accounts?q={prefix}&limit=1000"
-        ).get("rows", []):
-            code = account["account_code"]
-            # The per-unit leaves (`102150700100`) are not categories: an
-            # asset's category is the family, and WHERE it is, is its site.
-            if len(code) == 10 and code.startswith(prefix):
-                chart.setdefault(normalise(account["name"]), code)
+    # One request, and there is no paging to worry about: sixty classes, not
+    # 833 accounts across fourteen units. The three-prefix search this used to
+    # do — and the by-name second pass it needed because the search capped at
+    # 500 rows and dropped the last two racks — are both gone with the families
+    # they were reading.
+    classes: dict[str, tuple[str, str]] = {}
+    answer = get(args.api, "/api/v1/finance/asset-classes")
+    for entry in answer["classes"] if isinstance(answer, dict) else answer:
+        classes[normalise(entry["name"])] = (entry["class_code"], entry["kind"])
+    if not classes:
+        print(
+            "tidak ada asset class di database ini — jalankan migrasi 0287 dulu",
+            file=sys.stderr,
+        )
+        return 1
 
-    def category_of(name: str) -> str | None:
-        """The chart code for one of their account names.
-
-        The bulk load above misses the tail of the biggest family: operating
-        equipment has 36 categories across fourteen units and the search caps
-        at 500 rows, so `OE - PIN / Kawat Sensor` and `OE - Tas / Keranjang
-        Belanja` — the last two — never arrive. Rather than guess a bigger cap,
-        anything still unknown is asked for by name, which is one request per
-        distinct miss and answers in full.
-        """
-        key = normalise(name)
-        if key in chart:
-            return chart[key]
-        quoted = urllib.parse.quote(name)
-        for account in get(
-            args.api, f"/api/v1/finance/accounts?q={quoted}&limit=200"
-        ).get("rows", []):
-            code = account["account_code"]
-            if len(code) == 10 and code.startswith(("10215", "10217", "1031803")):
-                if normalise(account["name"]) == key:
-                    chart[key] = code
-                    return code
-        chart[key] = None
-        return None
+    def category_of(name: str) -> tuple[str, str] | None:
+        """(class code, kind) for one of their account names, or None."""
+        return classes.get(normalise(name))
 
     # What a previous run already landed. One request rather than a failed
     # write per row: a create that collides answers "database operation
@@ -209,13 +213,14 @@ def main() -> int:
 
         account = str(row["ACCOUNT"]).strip()
         site = site_of(account)
-        code = category_of(account_name(account))
+        found = category_of(account_name(account))
         if site is None:
             no_site[account or "(kosong)"] += 1
             continue
-        if code is None:
+        if found is None:
             unmatched[account_name(account) or "(kosong)"] += 1
             continue
+        code, kind = found
 
         cost = round(float(row["NILAI ASSET"] or 0) * 100)
         if cost <= 0:
@@ -231,7 +236,7 @@ def main() -> int:
 
         method_said = str(row["METODE DEPRESIASI"]).strip().upper()
         percent = float(row["PERSEN"] or 0)
-        cip = code.startswith("1031803")
+        cip = code in WORK_IN_PROGRESS
 
         asset = {
             "asset_number": f"AST-M-{index:05d}",
@@ -283,7 +288,7 @@ def main() -> int:
                 "capitalized_cost_minor": cost,
                 "salvage_value_minor": 0,
                 "method": "STRAIGHT_LINE" if depreciating else "NONE",
-                "charge_kind": charge_kind(code),
+                "charge_kind": CHARGE_BY_KIND[kind],
                 "in_service_on": acquired,
                 "reason": f"Nilai dan tarif dari register klien, baris {index}"
                 f" ({method_said.title()}"

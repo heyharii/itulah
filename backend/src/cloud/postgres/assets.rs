@@ -11,19 +11,34 @@
 //! how long. Keeping them apart is what lets a warehouse register a laptop the
 //! day it arrives without anybody having decided yet whether it is capital.
 //!
-//! # The category is the client's own account family
+//! # The class is the register's own code, and that is new
 //!
-//! There is no category register here. An asset's category is a family under
-//! `10215`, and the two accounts a depreciation entry needs — the accumulated
-//! account under `10216` and the expense account under `70102` — are resolved
-//! through `account_map` with the category as the qualifier. The client's chart
-//! already lists the seven kinds; a second list would be a second authority.
+//! Until the forty-account chart an asset's class WAS an account: a family
+//! under `10215`, with `fixed_asset.category_code` pointing at
+//! `ledger_account`. The argument for it was that the client's chart already
+//! listed the seven kinds and a second list would be a second authority.
+//!
+//! It had a live bug. The importer wrote ten-character sub-types
+//! (`1021507001 OE - Rak 1`) and the seed mapped seven-character families
+//! (`1021507`); both are account codes, both satisfy the same foreign key, and
+//! `resolve_account_code` matches a qualifier EXACTLY — so every imported asset
+//! resolved to nothing and the depreciation run refused it, with no type error
+//! anywhere to say why. The chart was not one authority, it was two spellings
+//! of one.
+//!
+//! So the class is now `asset_class(class_code)` — see
+//! `postgres::asset_classes`. What has NOT changed is how the accounts are
+//! found: the class is still the `account_map` qualifier, and the two accounts
+//! a depreciation entry needs are still resolved through the map from a
+//! meaning. Only the namespace the qualifier is drawn from is different, and
+//! it is now one that cannot be spelled two ways.
 
-use super::ledger::resolve_account;
+use super::asset_classes::{assert_asset_class, WORK_IN_PROGRESS_CLASS};
+use super::ledger::{resolve_account, Resolved};
 use super::poster::{post, PostingIntent, PostingLine};
 use crate::cloud::application::AppError;
 use crate::cloud::domain::{
-    monthly_charge, Basis, ChargeKind, DepreciationMethod, Outcome, SkipReason,
+    monthly_charge, Basis, ChargeKind, DepreciationMethod, Outcome, SkipReason, ASSET_IN_PROGRESS,
 };
 use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
@@ -164,7 +179,9 @@ pub struct AssetRow {
 pub struct RegisterAssetRequest {
     pub asset_number: String,
     pub name: String,
-    /// A family under `10215`, or under `10217` for an intangible.
+    /// One of the register's own asset classes — an `asset_class.class_code`,
+    /// not an account code. The account its cost lands in follows from the
+    /// class through `account_map`, and is `1601` or `1602` for every one.
     pub category_code: String,
     pub site_id: String,
     pub acquired_on: NaiveDate,
@@ -197,13 +214,13 @@ pub struct AssessAssetRequest {
     pub capitalized_cost_minor: Option<i64>,
     pub salvage_value_minor: Option<i64>,
     pub useful_life_months: Option<i32>,
-    /// The family this asset belongs in from now on.
+    /// The class this asset belongs in from now on.
     ///
     /// Only ever used for one thing: a shop fit-out finishing. Work in
-    /// progress sits under `1031803`, and the day it is done it becomes a
+    /// progress is its own class, and the day it is done it becomes a
     /// building, an instalation, or furniture — so the assessment that
     /// capitalises it also says which. Refused on anything else: an asset that
-    /// could be re-filed at will would let somebody move cost between families
+    /// could be re-filed at will would let somebody move cost between classes
     /// without a trace, and the client's own `REKLAS CIP` rows show this is
     /// the one move they actually make.
     #[serde(default)]
@@ -364,9 +381,8 @@ pub struct AssetScope {
     /// Locations to keep. Empty means every location — an empty filter and no
     /// filter are the same request.
     pub sites: Vec<String>,
-    /// Category account families to keep, as the client's own codes under
-    /// `10215` and `10217`. Plural where `category` was single; a caller
-    /// sending exactly one is unaffected.
+    /// Asset classes to keep, as `asset_class.class_code`. Plural where
+    /// `category` was single; a caller sending exactly one is unaffected.
     pub categories: Vec<String>,
     /// `CAPITALIZE`, `EXPENSE`, or `UNASSESSED` for the ones nobody has
     /// decided.
@@ -494,7 +510,7 @@ fn asset_rows() -> String {
                                FROM asset_depreciation_entry d
                               WHERE d.asset_id = a.asset_id), 0))::bigint AS book_key
            FROM fixed_asset a
-           JOIN ledger_account c ON c.account_code = a.category_code
+           JOIN asset_class c ON c.class_code = a.category_code
            {IN_FORCE}
           WHERE ($1::text IS NULL
                  OR a.asset_number ILIKE $1
@@ -722,7 +738,7 @@ async fn asset_facets(
 pub async fn asset(pool: &PgPool, asset_id: Uuid) -> Result<AssetRow, AppError> {
     let sql = format!(
         "SELECT {ASSET_BASE}, {ACQUIRED_VIA} FROM fixed_asset a
-           JOIN ledger_account c ON c.account_code = a.category_code
+           JOIN asset_class c ON c.class_code = a.category_code
            {IN_FORCE} WHERE a.asset_id = $1"
     );
     let row = sqlx::query(&sql)
@@ -733,24 +749,121 @@ pub async fn asset(pool: &PgPool, asset_id: Uuid) -> Result<AssetRow, AppError> 
     to_asset(&row)
 }
 
-/// The families an asset's COST hangs under in the client's own chart:
-/// `10215 AKTIVA TETAP`, `10217 INTANGIBLE ASSET` for the software they
-/// amortise, and `1031803 Contract In Progress` for what is being built.
+/// The meanings under which an asset's COST sits.
 ///
-/// Named in Rust, which 0050 forbids for a POSTING RULE and permits here: this
-/// is not choosing an account, it is recognising one. `register_asset` has
-/// checked `10215` since 0070; 0159 widened it, because until then an
-/// intangible could not be registered at all.
+/// Three, and they are the same three `ChargeKind::cost_key` names plus the
+/// one for work still being built. Until the forty-account chart this was a
+/// list of client account families in Rust — `["10215", "10217", "1031803"]`,
+/// matched by prefix — and it is now a list of MEANINGS, resolved through
+/// `account_map` like everything else. Two things follow from that and both
+/// were wrong before:
 ///
-/// `1031803` joined them with 0213, and it is the odd one — it sits under
-/// `103 OTHER ASSETS` rather than under fixed assets, which is where the
-/// client's own chart puts it. That is the point: work in progress is not a
-/// fixed asset yet, and their accountants already say so by filing it
-/// somewhere else. 668 of the 1,342 rows in their register are here.
-pub(super) const ASSET_FAMILIES: [&str; 3] = ["10215", "10217", "1031803"];
+///   * the codes are wherever the map says they are, so the check cannot drift
+///     from what the postings actually do, and
+///   * a prefix match is gone. `10215` matched `1021507001` and `102159` alike
+///     — one deliberately, one by accident — and a four-digit chart has no
+///     prefixes to match on anyway.
+const ASSET_COST_KEYS: [&str; 3] = ["fixed_asset", "intangible_asset", "work_in_progress"];
 
-pub(super) fn is_asset_account(code: &str) -> bool {
-    ASSET_FAMILIES.iter().any(|family| code.starts_with(family))
+/// The accounts an asset's cost can sit in, read off the map rather than
+/// spelled out here.
+///
+/// The same shape `stock_ledger` uses to find the inventory account: DISTINCT
+/// over the map, because one meaning is mapped per location and per class and
+/// the answer to "is this an asset account" is the same everywhere.
+pub(super) async fn asset_cost_accounts(
+    executor: impl sqlx::PgExecutor<'_>,
+) -> Result<Vec<String>, AppError> {
+    let rows = sqlx::query(
+        "SELECT DISTINCT account_code FROM account_map
+          WHERE semantic_key = ANY($1) ORDER BY account_code",
+    )
+    .bind(ASSET_COST_KEYS.map(str::to_string).to_vec())
+    .fetch_all(executor)
+    .await?;
+    rows.iter()
+        .map(|row| Ok(row.try_get("account_code")?))
+        .collect()
+}
+
+/// Resolve one of an asset rule's meanings and check the map answered with the
+/// category the charge kind requires.
+///
+/// # Why a rule checks a map it does not write
+///
+/// Because since 0294 the map row is the only place the two facts meet. `7101`
+/// carries depreciation, amortisation AND the replacement charge, told apart by
+/// `depreciation_kind`; `1601` carries finished work and work in progress, told
+/// apart by `asset_stage`. A posting rule names a MEANING and the map decides
+/// the account and the category together — that is the whole arrangement, and
+/// nothing here wants to override it.
+///
+/// What this adds is the sentence. A map row pointing `amortisation_expense` at
+/// `7101` with no category, or with DEPRECIATION on it, is refused by 0288's
+/// trigger at the moment the run posts — as "line 1: 7101 wants a
+/// depreciation_kind", weeks after somebody mapped it and in front of whoever
+/// pressed Run. Asked here, the same fault reads as the map row it is, names
+/// the meaning, and appears in the rehearsal and on the setup screen before a
+/// month is ever charged.
+async fn asset_leg(
+    executor: impl sqlx::PgExecutor<'_>,
+    semantic_key: &str,
+    site_id: &str,
+    qualifier: &str,
+    expected: Option<&str>,
+) -> Result<Resolved, AppError> {
+    let resolved = resolve_account(executor, semantic_key, site_id, qualifier).await?;
+    if resolved.category_code.as_deref() != expected {
+        return Err(AppError::Validation(format!(
+            "the map points {semantic_key} ({qualifier}) at {} at {site_id} {}, and this charge \
+             is {}. One account carries several of these now, and the category is the only thing \
+             that tells them apart — fix the row on the Account Map screen.",
+            resolved.account_code,
+            match resolved.category_code.as_deref() {
+                Some(found) => format!("under {found}"),
+                None => "with no category".to_string(),
+            },
+            match expected {
+                Some(wanted) => wanted.to_string(),
+                None => "an account that takes none".to_string(),
+            }
+        )));
+    }
+    Ok(resolved)
+}
+
+/// Both accounts one month's charge needs, resolved and checked.
+///
+/// The expense leg is the one that gained a category: all three charges land on
+/// `7101` and `depreciation_kind` is what keeps them apart on the profit and
+/// loss. The contra leg did not — `1609`, `1610` and `1619` are still three
+/// accounts — so it is checked for the absence of one, which is a real check:
+/// a map row that gave accumulated depreciation a category would be refused by
+/// the trigger at posting time, and here it is refused by name.
+pub(super) async fn charge_legs(
+    pool: &PgPool,
+    kind: ChargeKind,
+    site_id: &str,
+    class_code: &str,
+) -> Result<(), AppError> {
+    asset_leg(
+        pool,
+        kind.expense_key(),
+        site_id,
+        class_code,
+        Some(kind.expense_category()),
+    )
+    .await?;
+    asset_leg(pool, kind.contra_key(), site_id, class_code, None).await?;
+    Ok(())
+}
+
+/// Whether a bill line's account is one an asset's cost can sit in.
+///
+/// Takes the list rather than fetching it, because both callers check several
+/// lines against one answer and a query per line would be a query per line.
+pub(super) fn is_asset_account(accounts: &[String], code: &str) -> bool {
+    accounts.iter().any(|account| account == code.trim())
 }
 
 /// Point one or more bill lines at this asset, refusing any that could not
@@ -758,7 +871,7 @@ pub(super) fn is_asset_account(code: &str) -> bool {
 ///
 /// One thing is asked of each line and it names its figures, because "invalid
 /// acquisition line" is a message that sends somebody to read code: the line's
-/// account is under `10215` or `10217`, so the money went into an asset family
+/// account is one an asset's cost sits in, so the money went into an asset
 /// rather than into an expense. A line already bought for a DIFFERENT asset is
 /// refused too — that is somebody attaching the wrong receipt, and it would
 /// silently move cost from one asset to another.
@@ -773,6 +886,9 @@ async fn attach_acquisition_lines(
     asset_id: Uuid,
     line_ids: &[Uuid],
 ) -> Result<(), AppError> {
+    // Once for the whole call, not once per line: the answer is the same for
+    // every line and reading it per line would be a query per line.
+    let cost_accounts = asset_cost_accounts(&mut *tx).await?;
     for line_id in line_ids {
         let row = sqlx::query(
             "SELECT l.account_code, a.name AS account_name, l.asset_id,
@@ -793,11 +909,12 @@ async fn attach_acquisition_lines(
         let line_number: i32 = row.try_get("line_number")?;
         let claimed: Option<Uuid> = row.try_get("asset_id")?;
 
-        if !is_asset_account(&account_code) {
+        if !is_asset_account(&cost_accounts, &account_code) {
             return Err(AppError::Validation(format!(
                 "{invoice_number} line {line_number} is coded to {account_code} {account_name}, \
-                 which is not an asset account; an acquisition is a bill line under 10215 AKTIVA \
-                 TETAP or 10217 INTANGIBLE ASSET"
+                 which is not an account an asset's cost sits in; an acquisition is a bill line \
+                 coded to one of {}",
+                cost_accounts.join(", ")
             )));
         }
         if let Some(other) = claimed {
@@ -870,17 +987,11 @@ pub async fn register_asset(
     request: &RegisterAssetRequest,
     actor: &str,
 ) -> Result<AssetRow, AppError> {
-    // The category must be a family the client actually keeps, under 10215.
-    // Checked here so the message names the problem; the foreign key is the
-    // guarantee.
+    // The class must be one the register actually keeps. Checked here so the
+    // message names the problem and lists what would have worked; the foreign
+    // key to `asset_class` is the guarantee.
     let category = request.category_code.trim();
-    if !is_asset_account(category) {
-        return Err(AppError::Validation(format!(
-            "{category} is not an asset category; they are the families under \
-             10215 AKTIVA TETAP, 10217 INTANGIBLE ASSET, and 1031803 Contract In \
-             Progress for what is still being built"
-        )));
-    }
+    assert_asset_class(pool, category).await?;
     if let Some(quantity) = request.quantity {
         if quantity < 1 {
             return Err(AppError::Validation(
@@ -935,7 +1046,7 @@ pub async fn register_asset(
 /// acquired it by buying it from a supplier, and that purchase is already a
 /// document that posts. 0094's expense bill debits whatever account its line
 /// names, and class 1 is admitted precisely so a capital purchase can be coded
-/// to a `10215*` account. The acquisition entry therefore already exists, with
+/// to the asset account. The acquisition entry therefore already exists, with
 /// a supplier and a payable behind it, the moment the bill is posted.
 ///
 /// An assessment that also posted would double the cost. An assessment that
@@ -1105,10 +1216,11 @@ pub async fn assess_asset(
                         .into(),
                 ));
             }
-            if !is_asset_account(code) || code.starts_with("1031803") {
+            assert_asset_class(pool, code).await?;
+            if code == WORK_IN_PROGRESS_CLASS {
                 return Err(AppError::Validation(format!(
-                    "{code} is not a family finished work can become; it is one of those \
-                     under 10215 AKTIVA TETAP or 10217 INTANGIBLE ASSET"
+                    "{code} is what finished work stops being, not what it becomes; name the \
+                     class it now belongs to"
                 )));
             }
             Some(code.to_owned())
@@ -1116,9 +1228,9 @@ pub async fn assess_asset(
         _ => None,
     };
 
-    if refiled.is_none() && leaving_progress && filed_under.starts_with("1031803") {
+    if refiled.is_none() && leaving_progress && filed_under == WORK_IN_PROGRESS_CLASS {
         return Err(AppError::Validation(
-            "finished work has to be filed as what it became: send the family it now \
+            "finished work has to be filed as what it became: send the class it now \
              belongs to — a capitalised asset cannot stay under Contract In Progress"
                 .into(),
         ));
@@ -1204,7 +1316,7 @@ pub async fn assess_asset(
     // would be a cost that moved family for no stated reason, an assessment
     // without the re-filing would depreciate a building against the
     // work-in-progress account, and either without the journal would leave the
-    // client's `1031803*` carrying a shop that has been open for months.
+    // work-in-progress account carrying a shop that has been open for months.
     //
     // 0215 deliberately posted nothing here; 0242 is why that changed.
     if let Some(code) = refiled {
@@ -1222,29 +1334,77 @@ pub async fn assess_asset(
             .and_then(ChargeKind::parse)
             .unwrap_or(ChargeKind::Depreciation);
 
+        // Both legs of the move, and what each of them has to be.
+        //
+        // They land on ONE account now — `1031803 Contract In Progress` and the
+        // fixed-asset families all became `1601` — so the entry is only a move
+        // if the two carry different stages. Checked before anything is
+        // written, because `Dr 1601 IN_SERVICE / Cr 1601 IN_SERVICE` for the
+        // same asset balances, posts, and says nothing: the cost never leaves
+        // work in progress and the balance sheet cannot tell unfinished work
+        // from finished afterwards.
+        let progress = asset_leg(
+            &mut *tx,
+            "work_in_progress",
+            &site,
+            &filed_under,
+            Some(ASSET_IN_PROGRESS),
+        )
+        .await?;
+        let finished = asset_leg(
+            &mut *tx,
+            kind.cost_key(),
+            &site,
+            &code,
+            kind.cost_category(),
+        )
+        .await?;
+        let progress_account = progress.account_code.clone();
+
         // What this entry will credit, and what is actually in it. The balance
         // is checked rather than assumed: every row imported from the client's
         // register has a cost their old ledger holds and this one does not, and
         // crediting it here would take the client's own account negative and
         // call the difference finished work.
-        let progress_account =
-            resolve_account(&mut *tx, "work_in_progress", &site, &filed_under).await?;
+        //
+        // Narrowed to the STAGE and not just to the account. Summing `1601` at
+        // the site would count every capitalised asset at that shop as work in
+        // progress, so one finished building would let any number of contracts
+        // be capitalised out of an account that holds nothing for them — which
+        // is the guard defeating itself.
         let held: i64 = sqlx::query(
             "SELECT COALESCE(SUM(l.debit_minor - l.credit_minor), 0)::bigint AS held
                FROM journal_line l
-              WHERE l.account_code = $1 AND l.site_id = $2",
+              WHERE l.account_code = $1 AND l.site_id = $2
+                AND l.category_code IS NOT DISTINCT FROM $3",
         )
         .bind(&progress_account)
         .bind(&site)
+        .bind(progress.category_code.as_deref())
         .fetch_one(&mut *tx)
         .await?
         .try_get("held")?;
         if held < cost {
             return Err(AppError::Validation(format!(
-                "{progress_account} holds {held} and this capitalises {cost}: the work in \
+                "{progress_account}{} holds {held} and this capitalises {cost}: the work in \
                  progress was never posted here, so there is nothing to move out. Carry the \
                  opening balance in first — crediting it now would drive the client's own \
-                 account negative."
+                 account negative.",
+                match progress.category_code.as_deref() {
+                    Some(stage) => format!(" ({stage})"),
+                    None => String::new(),
+                }
+            )));
+        }
+        if (&finished.account_code, &finished.category_code)
+            == (&progress.account_code, &progress.category_code)
+        {
+            return Err(AppError::Validation(format!(
+                "capitalising this would debit and credit {progress_account} for the same asset \
+                 and leave the cost exactly where it was. Finished work and work in progress are \
+                 one account with two stages now — point {} and work_in_progress at different \
+                 ones on the Account Map screen.",
+                kind.cost_key()
             )));
         }
 
@@ -1481,9 +1641,13 @@ async fn charge_month(
             Outcome::Post(amount) => {
                 let category: String = row.try_get("category_code")?;
                 let site: String = row.try_get("site_id")?;
-                // The category is the qualifier. `1021504 Machineries` resolves
-                // to the client's `7010212` expense and `1021604` accumulated
-                // accounts through the map, so the run names no account itself.
+                // The class is the qualifier. `MACHINERY` resolves through the
+                // map to `7101` with its expense meaning and `1609` with its
+                // contra one, so the run names no account itself. It is also
+                // why the class had to stop being an account code: the qualifier
+                // is matched EXACTLY, and the client's register spelled the same
+                // class as `1021507` in the seed and `1021507001` in the import,
+                // so every imported asset resolved to nothing and was refused.
                 // DEPRECIATION, not MANUAL. A machine wrote this entry, and
                 // calling it manual made 44 of the ledger's 58 "hand-typed"
                 // entries machine-written: an auditor filtering for the ones a
@@ -1499,16 +1663,33 @@ async fn charge_month(
                 // the schema's own CHECK asks for: a non-MANUAL, non-REVERSAL
                 // entry must carry a source.
                 //
-                // `source_kind` stays DEPRECIATION for all three charge kinds.
-                // It names the RULE that wrote the entry — the monthly asset
-                // run — not what the charge is called, and one rule with three
-                // source kinds would mean widening 0083's CHECK so that a
-                // Journal filter could split a single rule's output three ways,
-                // which no reader has asked for. What the charge is called is
-                // in the memo, and the asset it charged is in `source_id`.
+                // `source_kind` was DEPRECIATION for all three charge kinds, on
+                // the argument that it names the RULE — the monthly asset run —
+                // rather than what the charge is called. 0266 had already
+                // decided otherwise and this file had not caught up: it added
+                // `AMORTIZATION_RUN` precisely because "pre-opening and
+                // intangible amortisation is a different economic event, and a
+                // source allow-list that cannot tell them apart cannot be read
+                // by the person maintaining it", and then 0267 wrote such a
+                // list — `AMORTIZATION_RUN` and `OPENING` and nothing else on
+                // the amortisation charge.
+                //
+                // Nothing ever wrote the kind, so the list bound nothing while
+                // the rule it was written against sat on a retired account.
+                // 0294 moved it onto `7101 × AMORTISATION`, where it applies —
+                // and would refuse every amortisation this run posts, because
+                // the run says DEPRECIATION. The honest fix is the one 0266
+                // asked for: say which event this is. A replacement charge
+                // keeps ASSET_RESERVE's own kind out of it, because the reserve
+                // is formed by `reserves.rs` and this run only ever charges an
+                // asset that has one.
+                let source_kind = match kind {
+                    ChargeKind::Amortisation => "AMORTIZATION_RUN",
+                    _ => "DEPRECIATION",
+                };
                 let intent = PostingIntent {
                     posting_date: period,
-                    source_kind: "DEPRECIATION".into(),
+                    source_kind: source_kind.into(),
                     source_id: Some(asset_id.to_string()),
                     rule_version: "depreciation/1".into(),
                     currency: "IDR".into(),
@@ -1524,13 +1705,10 @@ async fn charge_month(
                     // A rehearsal. Both legs are resolved so the report can
                     // name the asset that has nowhere to charge — the run
                     // itself cannot, because the first such asset ends it.
-                    let mut refusal = None;
-                    for key in kind.charge_keys() {
-                        if let Err(error) = resolve_account(pool, key, &site, &category).await {
-                            refusal = Some(error.to_string());
-                            break;
-                        }
-                    }
+                    let refusal = charge_legs(pool, kind, &site, &category)
+                        .await
+                        .err()
+                        .map(|error| error.to_string());
                     if refusal.is_some() {
                         blocked += 1;
                     } else {
@@ -1547,6 +1725,13 @@ async fn charge_month(
                     });
                     continue;
                 };
+
+                // The same two legs the rehearsal resolves, asked for real. The
+                // poster resolves them again a moment later and would refuse a
+                // miscategorised row on its own; asked here, the refusal names
+                // the map entry and the asset instead of a line number inside
+                // an entry nobody has seen.
+                charge_legs(pool, kind, &site, &category).await?;
 
                 let mut tx = pool.begin().await?;
                 // The month is the step. `source_id` is the asset and the asset
@@ -1627,9 +1812,16 @@ pub async fn unmapped_categories(pool: &PgPool) -> Result<Vec<String>, AppError>
             .as_deref()
             .and_then(ChargeKind::parse)
             .unwrap_or(ChargeKind::Depreciation);
-        for key in kind.charge_keys() {
-            if resolve_account(pool, key, &site, &category).await.is_err() {
-                missing.push(format!("{key} for {category} at {site}"));
+        // A row mapped to the wrong CATEGORY is as unusable as one mapped to
+        // nothing, and used to be invisible here: it resolved, this screen said
+        // nothing, and the month refused. Both faults are listed, and each one
+        // names which leg it is about.
+        for (key, expected) in [
+            (kind.expense_key(), Some(kind.expense_category())),
+            (kind.contra_key(), None),
+        ] {
+            if let Err(error) = asset_leg(pool, key, &site, &category, expected).await {
+                missing.push(format!("{key} for {category} at {site}: {error}"));
             }
         }
     }
@@ -1755,14 +1947,18 @@ fn charge_is_owed(asset: &AssetRow, period: NaiveDate) -> bool {
 ///   Cr  fixed_asset               cost              the asset leaves at what it came in at
 ///   Dr  accumulated_depreciation  accumulated       and so does everything charged against it
 ///   Dr  cash / bank_*             proceeds          what it fetched, if anything
-///   Dr/Cr asset_disposal_result   the difference    a loss if it was worth more than it fetched
+///   Dr  asset_disposal_loss       the difference    when it was worth more than it fetched
+///   Cr  asset_disposal_result     the difference    when it fetched more than it was worth
 /// ```
 ///
 /// Both asset accounts are qualified by the category, exactly as the monthly
 /// run qualifies them, so a disposal empties the same pair of accounts the
 /// charges filled. The result leg is the only one whose amount nobody chose: it
 /// is `cost - accumulated - proceeds`, which is net book value less what was
-/// received, and its sign decides which side it goes on.
+/// received, and its sign decides which MEANING it goes to — two since 0296,
+/// because a loss debited into the gain's revenue account was a cost filed
+/// under income. This is the one moment the sign is known, so the side is
+/// chosen here and not on the Account Map.
 pub async fn dispose_asset(
     pool: &PgPool,
     asset_id: Uuid,
@@ -1869,8 +2065,8 @@ pub async fn dispose_asset(
     let site = existing.site_id.clone();
     let category = existing.category_code.clone();
     // Where the cost sits and what its contra is called both follow the charge
-    // kind: an intangible's cost is not under `10215`, and operating
-    // equipment's contra is a reserve. The same two lines, through whichever
+    // kind: an intangible's cost is not in the fixed-asset account, and
+    // operating equipment's contra is a reserve. The same two lines, through whichever
     // pair of meanings this asset was charged through every month.
     let kind = existing
         .charge_kind
@@ -1895,13 +2091,16 @@ pub async fn dispose_asset(
         }
     }
     // Positive is a loss — the asset was worth more than it fetched — and a
-    // loss is a debit. Negative is a gain, and goes the other way. One key for
-    // both, because which way it falls is arithmetic and not a decision
-    // somebody makes twice on the Account Map.
+    // loss is a debit to `asset_disposal_loss` on `8301`. Negative is a gain,
+    // and a credit to `asset_disposal_result` on `4301`. Which way it falls is
+    // arithmetic, and so is which key: a disposal at exactly book value posts
+    // neither, and a disposal never debits the gain key, because that key sits
+    // in revenue and a loss there is the defect 0296 exists to cure.
     let result = cost - accumulated - request.proceeds_minor;
     match result.cmp(&0) {
-        std::cmp::Ordering::Greater => lines
-            .push(PostingLine::debit("asset_disposal_result", &site, result).for_asset(asset_id)),
+        std::cmp::Ordering::Greater => {
+            lines.push(PostingLine::debit("asset_disposal_loss", &site, result).for_asset(asset_id))
+        }
         std::cmp::Ordering::Less => lines
             .push(PostingLine::credit("asset_disposal_result", &site, -result).for_asset(asset_id)),
         std::cmp::Ordering::Equal => {}
@@ -2356,19 +2555,17 @@ pub async fn acquisition_gap(pool: &PgPool) -> Result<AcquisitionGap, AppError> 
            FROM supplier_invoice_expense_line l
            JOIN supplier_invoice i USING (invoice_id)
            JOIN ledger_account c ON c.account_code = l.account_code
-          WHERE l.account_code LIKE ANY($1)
+          WHERE l.account_code = ANY($1)
             AND i.status = 'POSTED'
             AND l.asset_id IS NULL
           ORDER BY i.invoice_date DESC, i.invoice_number, l.line_number",
     )
-    // Bound from `ASSET_FAMILIES` rather than written into the SQL, so
-    // widening the register is one edit and not two that must agree.
-    .bind(
-        ASSET_FAMILIES
-            .iter()
-            .map(|family| format!("{family}%"))
-            .collect::<Vec<_>>(),
-    )
+    // Bound from the map rather than written into the SQL, so widening the
+    // register is one edit and not two that must agree. Equality and no longer
+    // `LIKE ANY`: with four-digit codes there is no family to match a prefix
+    // against, and the prefix was never what was meant — `10215%` matched
+    // `102159` too, and nobody would have noticed.
+    .bind(asset_cost_accounts(pool).await?)
     .fetch_all(pool)
     .await?;
 
@@ -2439,7 +2636,7 @@ pub async fn asset_drafts_for_bill(
                 i.invoice_number, i.invoice_date, c.name AS class_name
            FROM supplier_invoice_expense_line l
            JOIN supplier_invoice i USING (invoice_id)
-           JOIN ledger_account c ON c.account_code = l.asset_class_code
+           JOIN asset_class c ON c.class_code = l.asset_class_code
           WHERE l.invoice_id = $1
             AND l.asset_class_code IS NOT NULL
             AND NOT l.draws_reserve
@@ -2463,13 +2660,14 @@ pub async fn asset_drafts_for_bill(
         // is the last place before a row exists, and an asset in a class that
         // is not an asset class is a row nothing can ever depreciate or dispose
         // of.
-        if !is_asset_account(&class_code) {
-            return Err(AppError::Validation(format!(
-                "{invoice_number} line {line_number} says it buys a {class_code}, which is not an \
-                 asset class; they are the families under {}",
-                ASSET_FAMILIES.join(", ")
-            )));
-        }
+        assert_asset_class(&mut **tx, &class_code)
+            .await
+            .map_err(|error| match error {
+                AppError::Validation(message) => {
+                    AppError::Validation(format!("{invoice_number} line {line_number}: {message}"))
+                }
+                other => other,
+            })?;
 
         // The client's own name for the class, unless the person keying wrote
         // something better. `OE - Rak 1` is a poor name for one rack and an

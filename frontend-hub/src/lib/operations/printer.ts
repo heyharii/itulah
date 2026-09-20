@@ -26,6 +26,30 @@ export interface Printer {
   /// How many labels one pass hands over. A smaller chunk is a longer wait
   /// between presses; a larger one is more to reprint when the ribbon jams.
   readonly chunk: number
+  /// How hard the head burns, 0-30.
+  ///
+  /// A fact about the ribbon and the stock in this machine, not about the job:
+  /// two people printing to the same printer must get the same tag. It moves
+  /// when a reel or a ribbon changes and at no other time.
+  ///
+  /// What is wanted is not the darkest setting but the MIDDLE of the band that
+  /// scans. The head warms over a run and a ribbon thins with use, so a value
+  /// that is only just good enough today fails at label two hundred. Too dark
+  /// fails more often than too light: the bars spread until the white gaps
+  /// between them close, and a barcode is the gaps as much as the bars.
+  readonly darkness: number
+  /// Inches per second, 2-6 on this class of machine.
+  ///
+  /// Faster means the head touches each dot for less time, so it prints
+  /// lighter — raise this and the darkness usually has to follow. Below a few
+  /// hundred labels it buys almost nothing: the difference across the whole
+  /// range is seconds on a run of ten, while the cost in sharpness is paid on
+  /// every one of them.
+  ///
+  /// The printer clamps silently to its own maximum. Asking for more than it
+  /// has is accepted and ignored, and over a one-way USB queue there is no way
+  /// to read back what it settled on — print a configuration label to see.
+  readonly speedIps: number
   /// Which language the machine at this bench speaks.
   ///
   /// A Printronix and a Zebra take ZPL; a TSC takes TSPL unless somebody has
@@ -49,6 +73,13 @@ const DEFAULT_PRINTER: Printer = {
   // and prints the same label.
   offsetMm: 6,
   chunk: 25,
+  // Mid-scale, and deliberately not the printer's own stored value: there is
+  // no way to read that back, so the app states what it wants rather than
+  // inheriting something nobody at the bench can see.
+  darkness: 18,
+  // The slow end. Sharpness is worth more than seconds at this volume, and a
+  // bench that wants the run faster can say so.
+  speedIps: 4,
   // Every tag in the field so far was written in ZPL. A bench that has not
   // chosen must not be guessed into the other one.
   language: "ZPL",

@@ -348,6 +348,35 @@ pub(crate) const ATTENDANCE_SCHEMA: &str = include_str!(concat!(
     "/migrations/sqlite/0040_a_terminal_greets_by_name_with_the_line_down.sql"
 ));
 
+/// Darkness and speed on the print session. See the migration.
+pub(crate) const PRINT_MACHINE_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0041_a_bench_says_how_hard_and_how_fast_the_head_runs.sql"
+));
+
+/// Add the two machine columns, and do nothing if they are already there.
+///
+/// Every other migration in this file is written `IF NOT EXISTS` and can be
+/// replayed. SQLite has no such form for `ALTER TABLE ADD COLUMN`, so a second
+/// start would fail on "duplicate column name" and take the node down with it —
+/// a node that will not open because a column it wanted already exists is the
+/// worst possible reading of success. The presence check is therefore in code
+/// rather than in SQL, which is the only place it can be expressed.
+fn apply_print_machine_schema(connection: &Connection) -> Result<(), EdgeError> {
+    let present: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('print_session')
+              WHERE name IN ('darkness','speed_ips')",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(db)?;
+    if present == 2 {
+        return Ok(());
+    }
+    connection.execute_batch(PRINT_MACHINE_SCHEMA).map_err(db)
+}
+
 /// Create the attendance tables on a bare connection.
 ///
 /// `pub(crate)` so `edge::attendance`'s own tests can stand up the four tables
@@ -980,6 +1009,7 @@ impl SqliteEdge {
         connection.execute_batch(PETTY_CASH_SCHEMA).map_err(db)?;
         connection.execute_batch(FINGERPRINT_SCHEMA).map_err(db)?;
         connection.execute_batch(STEP_UP_SCHEMA).map_err(db)?;
+        apply_print_machine_schema(&connection)?;
         // The claim table was written when a claim could only be a finger. A
         // PIN claim is the same event — a terminal asserting an identity — so
         // it goes in the same table rather than a parallel one, and the column
@@ -2903,8 +2933,12 @@ impl EdgeInventory for SqliteEdge {
             });
         }
 
-        let outcomes =
-            printing::dispatch_chunk(&chunk.printer_host, chunk.printer_port, &chunk.labels);
+        let outcomes = printing::dispatch_chunk(
+            &chunk.printer_host,
+            chunk.printer_port,
+            &chunk.labels,
+            &chunk.prelude,
+        );
         let printed = outcomes.iter().filter(|o| o.error.is_none()).count();
 
         let mut connection = self.lock()?;
@@ -5210,6 +5244,12 @@ impl EdgeInventory for SqliteEdge {
                     "method": tender.method.as_str(),
                     "amount_minor": tender.amount_minor,
                     "reference": tender.reference,
+                    // The hold a VOUCHER tender was taken against. It is what
+                    // lets the centre turn the hold into the redemption when
+                    // this fact lands — a card authorised and never committed
+                    // is money held forever and never spent, and one committed
+                    // without the id would be a guess at which hold.
+                    "voucher_authorization_id": tender.voucher_authorization_id,
                 })).collect::<Vec<_>>(),
                 // Which promotions actually came off, and what each was worth.
                 // Only the total travelled before, so "what did the Lebaran

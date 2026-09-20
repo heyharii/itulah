@@ -1,0 +1,145 @@
+﻿target_key,target_account_name,status,legacy_family_count,legacy_detail_rows,dimensions,evidence_required
+ACCRUAL:EMPLOYEE,Akrual Pegawai dan Imbalan Kerja,CORE,4,56,"accrual_type, facility_id, contract_id","Roll-forward, reversal, settlement and reporting reconciliation."
+ACCRUAL:INTEREST,Akrual Bunga Pinjaman,CORE,1,14,"accrual_type, facility_id, contract_id","Roll-forward, reversal, settlement and reporting reconciliation."
+ACCRUAL:RENT,Akrual Sewa,CORE,2,28,"accrual_type, facility_id, contract_id","Roll-forward, reversal, settlement and reporting reconciliation."
+ACCRUAL:UTILITIES,Akrual Utilitas,CORE,3,42,"accrual_type, facility_id, contract_id","Roll-forward, reversal, settlement and reporting reconciliation."
+ADV:EMPLOYEE,Uang Muka Karyawan/Perjalanan,CORE,1,14,"party_id, advance_purpose, document_id","Aging, settlement and tax reconciliation."
+ADV:OTHER,Uang Muka Lainnya,CORE,1,14,"party_id, advance_purpose, document_id","Aging, settlement and tax reconciliation."
+ADV:SUPPLIER,Uang Muka Supplier/Kontraktor,CORE,2,28,"party_id, advance_purpose, document_id","Aging, settlement and tax reconciliation."
+ALLOW:CARD_AR,Cadangan Piutang Acquirer Kartu,CORE,2,28,receivable_class,Loss method and write-off posting review.
+ALLOW:EMPLOYEE_AR,Cadangan Piutang Pegawai,CORE,1,14,receivable_class,Loss method and write-off posting review.
+ALLOW:INVENTORY,Cadangan Kerusakan/Kehilangan Persediaan,CORE,2,28,inventory_class,Measurement method and roll-forward.
+AP:MERCH_SUSPENSE,Hutang Supplier Barang Dagang - Suspend,CORE,1,14,"supplier_id, po_id, receipt_id, invoice_id",PO-GRN-invoice matching and aging.
+AP:MERCH,Hutang Suppliers  Barang Dagangan,CORE,1,14,"supplier_id, invoice_id",AP aging and purchasing/tax reconciliation.
+AP:NONMERCH,Hutang Supplier  Non Barang Dagang,CORE,1,14,"supplier_id, invoice_id",AP aging and purchasing/tax reconciliation.
+AR:ACQUIRER,Piutang Acquirer Kartu,CORE,2,28,"tender_type, acquirer_id","Settlement, fee and chargeback reconciliation."
+AR:EMPLOYEE,Piutang Pegawai dan Manajemen,CORE,3,42,"person_id, role_type","Terms, authorization, aging and tax/disclosure review."
+ASSET:ACCUM:BUILDING,Akumulasi Bangunan,CORE,4,56,"asset_id, asset_class_id, associated_site_id","Asset register, useful-life policy and GL reconciliation."
+ASSET:ACCUM:FFE,"Akumulasi Furniture, Fixture and Equipment",CORE,6,84,"asset_id, asset_class_id, associated_site_id","Asset register, useful-life policy and GL reconciliation."
+ASSET:ACCUM:MACHINE,Akumulasi Mesin dan Peralatan,CORE,3,42,"asset_id, asset_class_id, associated_site_id","Asset register, useful-life policy and GL reconciliation."
+ASSET:ACCUM:ME,Akumulasi Instalasi Mekanikal dan Elektrikal,CORE,1,14,"asset_id, asset_class_id, associated_site_id","Asset register, useful-life policy and GL reconciliation."
+ASSET:ACCUM:OTHER,Akumulasi Aset Lainnya,CORE,1,14,"asset_id, asset_class_id, associated_site_id","Asset register, useful-life policy and GL reconciliation."
+ASSET:ACCUM:VEHICLE,Akumulasi Kendaraan,CORE,2,28,"asset_id, asset_class_id, associated_site_id","Asset register, useful-life policy and GL reconciliation."
+ASSET:COST:BUILDING,Bangunan,CORE,4,56,"asset_id, asset_class_id, associated_site_id","Asset register, useful-life policy and GL reconciliation."
+ASSET:COST:FFE,"Furniture, Fixture and Equipment",CORE,6,84,"asset_id, asset_class_id, associated_site_id","Asset register, useful-life policy and GL reconciliation."
+ASSET:COST:LAND,Tanah Hak Milik,CORE,1,14,"asset_id, asset_class_id, associated_site_id","Asset register, useful-life policy and GL reconciliation."
+ASSET:COST:MACHINE,Mesin dan Peralatan,CORE,4,56,"asset_id, asset_class_id, associated_site_id","Asset register, useful-life policy and GL reconciliation."
+ASSET:COST:ME,Instalasi Mekanikal dan Elektrikal,CORE,1,14,"asset_id, asset_class_id, associated_site_id","Asset register, useful-life policy and GL reconciliation."
+ASSET:COST:OE,Operating Equipment,CORE,36,504,"asset_id, asset_class_id, associated_site_id","Asset register, useful-life policy and GL reconciliation."
+ASSET:COST:VEHICLE,Kendaraan,CORE,2,28,"asset_id, asset_class_id, associated_site_id","Asset register, useful-life policy and GL reconciliation."
+ASSET:EXP:BUILDING,Beban Penyusutan/Amortisasi Bangunan,CORE,4,56,"asset_id, asset_class_id, associated_site_id","Asset register, useful-life policy and GL reconciliation."
+ASSET:EXP:FFE,"Beban Penyusutan/Amortisasi Furniture, Fixture and Equipment",CORE,6,84,"asset_id, asset_class_id, associated_site_id","Asset register, useful-life policy and GL reconciliation."
+ASSET:EXP:MACHINE,Beban Penyusutan/Amortisasi Mesin dan Peralatan,CORE,4,56,"asset_id, asset_class_id, associated_site_id","Asset register, useful-life policy and GL reconciliation."
+ASSET:EXP:ME,Beban Penyusutan/Amortisasi Instalasi Mekanikal dan Elektrikal,CORE,1,14,"asset_id, asset_class_id, associated_site_id","Asset register, useful-life policy and GL reconciliation."
+ASSET:EXP:SOFTWARE,Beban Penyusutan/Amortisasi Software,CORE,6,84,"asset_id, asset_class_id, associated_site_id","Asset register, useful-life policy and GL reconciliation."
+ASSET:EXP:VEHICLE,Beban Penyusutan/Amortisasi Kendaraan,CORE,2,28,"asset_id, asset_class_id, associated_site_id","Asset register, useful-life policy and GL reconciliation."
+BANK:DEPOSIT,Deposito Berjangka,CORE,4,17,"bank_account_id, associated_site_id",Bank master and reconciliation; deposit maturity/restriction schedule.
+BANK:GIRO,Bank - Giro,CORE,5,70,"bank_account_id, associated_site_id",Bank master and reconciliation; deposit maturity/restriction schedule.
+BANK:SAVINGS,Bank - Tabungan,CORE,5,70,"bank_account_id, associated_site_id",Bank master and reconciliation; deposit maturity/restriction schedule.
+CASH:1011001001,CASH ON HAND,CORE,1,14,"cash_location_id, site_id",
+CASH:1011001002,PETTY CASH,CORE,1,14,"cash_location_id, site_id",
+CASH:1011001003,MODAL KASIR,CORE,1,14,"cash_location_id, site_id",
+COGS:INVENTORY_DAMAGE,Biaya Kerusakan/Kehilangan Persediaan,CORE,1,14,"item_id, reason_code, document_id, cost_center",Allowance policy and postings.
+CONTRA:DISCOUNT,Discount / Potongan Penjualan,CORE,1,14,"adjustment_type, return_id",
+CONTRA:RETURN,Retur Penjualan,CORE,1,14,"adjustment_type, return_id",
+EQUITY:CAPITAL,Modal Disetor,CORE,1,14,owner_id,
+EQUITY:DRAW,Prive/Penarikan Pemilik,CORE,1,14,owner_id,
+EQUITY:RETAINED,Saldo Laba,CORE,1,14,period_id,
+FINEXP:BANK,Beban Bunga Pinjaman Bank,CORE,6,84,facility_id,
+FINEXP:LEASE,Beban Bunga Leasing,CORE,2,28,facility_id,
+INV:BAGS,Persediaan Kantong Belanja,CORE,10,140,"item_id, material, size, warehouse_id","Recognition, valuation, counting and issue policy."
+INV:MERCH,Persediaan Barang Dagangan,CORE,1,14,"item_id, warehouse_id, site_id",
+INV_TRANSIT:BAGS,Kantong Belanja dalam Perjalanan,CORE,14,196,"shipment_id, origin_site_id, destination_site_id",Ownership cut-off and shipment reconciliation.
+INV_TRANSIT:MERCH,Barang Dagangan dalam Perjalanan,CORE,14,196,"shipment_id, origin_site_id, destination_site_id",Ownership cut-off and shipment reconciliation.
+LIAB:CUSTOMER_ADVANCE,Uang Muka Penjualan,CORE,1,1,"customer_id, voucher_id, order_id",
+LIAB:OTHER,Hutang Lain-lain,CORE,14,196,"liability_type, party_id, site_id","Aging, party, document and balance reconciliation."
+LIAB:OUTSTANDING_GIRO,Outstanding Giro,CORE,5,70,"bank_account_id, instrument_id","Issue, clearing and cancellation lifecycle reconciliation."
+LOAN:BANK,Pinjaman Bank,CORE,5,70,"bank_account_id, facility_id, maturity_schedule_id, cost_center",Maturity schedule reconciliation.
+OPEX:6010110001,Biaya Customer Supplies,CORE,1,14,"expense_type, party_id, contract_id",
+OPEX:6010110002,Biaya Credit Card,CORE,1,14,"expense_type, party_id, contract_id",
+OPEX:6010110003,Biaya Promosi,CORE,1,14,"expense_type, party_id, contract_id",
+OPEX:6010110004,Biaya Dekorasi,CORE,1,14,"expense_type, party_id, contract_id",
+OPEX:6010110005,Biaya Advertising / Iklan,CORE,1,14,"expense_type, party_id, contract_id",
+OPEX:6010110006,Biaya Bongkar Muat Barang,CORE,1,14,"expense_type, party_id, contract_id",
+OPEX:6010110007,Biaya Pengiriman Barang/kurir/Ekspedisi,CORE,1,14,"expense_type, party_id, contract_id",
+OPEX:6010310001,Biaya Kebersihan (Cleaning),CORE,1,14,"expense_type, party_id, contract_id",
+OPEX:6010310002,Alat Tulis Kantor & Barang Cetakan,CORE,1,14,"expense_type, party_id, contract_id",
+OPEX:6010310003,Biaya Rumah Tangga,CORE,1,14,"expense_type, party_id, contract_id",
+OPEX:6010310004,Biaya Bank HO,CORE,1,14,"expense_type, party_id, contract_id",
+OPEX:6010310005,"Biaya Telephone,Facsimile, Modem",CORE,1,14,"expense_type, party_id, contract_id",
+OPEX:6010310006,Biaya Pemakaian Listrik,CORE,1,14,"expense_type, party_id, contract_id",
+OPEX:6010310007,Biaya Pemakaian Air Bersih (PDAM),CORE,1,14,"expense_type, party_id, contract_id",
+OPEX:6010310008,Biaya Perjalanan Dinas,CORE,1,14,"expense_type, party_id, contract_id",
+OPEX:6010310009,Biaya Lokal Transport,CORE,1,14,"expense_type, party_id, contract_id",
+OPEX:6010310010,Biaya Perijinan,CORE,1,14,"expense_type, party_id, contract_id",
+OPEX:6010310011,Computer Expenses,CORE,1,14,"expense_type, party_id, contract_id",
+OPEX:6010310012,Biaya Penyisihan Kerugian Piutang,CORE,1,14,"expense_type, party_id, contract_id",
+OPEX:6010310013,Biaya Perlengkapan Toko dan Kantor,CORE,1,14,"expense_type, party_id, contract_id",
+OPEX:6010310014,Biaya Stock Opname,CORE,1,14,"expense_type, party_id, contract_id",
+OPEX:6010310015,Biaya Peralatan Listrik,CORE,1,14,"expense_type, party_id, contract_id",
+OPEX:6010310016,Tire & Tubes  Expences,CORE,1,14,"expense_type, party_id, contract_id",
+OPEX:6010310017,F u e l  & O I l  Expences,CORE,1,14,"expense_type, party_id, contract_id",
+OPEX:6010310018,T o o l s (Peralatan) Ekspences,CORE,1,14,"expense_type, party_id, contract_id",
+OPEX:6010310019,"Biaya Lubrication & Grease, Bahan Bakar Genset",CORE,1,14,"expense_type, party_id, contract_id",
+OPEX:6010310020,Biaya Telephone Equipment,CORE,1,14,"expense_type, party_id, contract_id",
+OPEX:6010310021,"Biaya Donasi (CSR, Zakat)",CORE,1,14,"expense_type, party_id, contract_id",
+OPEX:6010310022,Biaya Konsultan,CORE,1,14,"expense_type, party_id, contract_id",
+OPEX:6010310023,"Biaya Lisensi Kendaraan ( STNK, Uji Kir)",CORE,1,14,"expense_type, party_id, contract_id",
+OPEX:6010310024,Biaya Perlengkapan Mess atau Rumah Dinas,CORE,1,14,"expense_type, party_id, contract_id",
+OPEX:6010310099,Miscellaneous Expences,CORE,1,14,"expense_type, party_id, contract_id",
+OPEX:7010310001,Property All Risk & Fire Insurance,CORE,1,14,"expense_type, party_id, contract_id",
+OPEX:7010310002,Biaya Pajak Bumi Dan Bangunan  (PBB),CORE,1,14,"expense_type, party_id, contract_id",
+OPEX:7020310003,Biaya Pajak Reklame,CORE,1,14,"expense_type, party_id, contract_id",
+OPEX:7020310004,Biaya Management FEE,CORE,1,14,"expense_type, party_id, contract_id",
+OPEX:7020310005,Biaya Asuransi Kendaraan,CORE,1,14,"expense_type, party_id, contract_id",
+OPEX:PHYSICAL_MAINT,Beban Perbaikan dan Pemeliharaan,CORE,9,126,"asset_id, asset_class_id, work_order_id",Capitalization control and management-report reconciliation.
+OPEX:SOFTWARE_MAINT,Beban Pemeliharaan Software,CORE,1,14,"software_id, contract_id",
+PAYROLL:01,Beban Gaji,CORE,2,28,"payroll_component, employee_id, function_id, cost_center_id",Payroll/statutory and old-report reconciliation.
+PAYROLL:02,Beban Lembur,CORE,2,28,"payroll_component, employee_id, function_id, cost_center_id",Payroll/statutory and old-report reconciliation.
+PAYROLL:03,Beban Uang Makan,CORE,2,28,"payroll_component, employee_id, function_id, cost_center_id",Payroll/statutory and old-report reconciliation.
+PAYROLL:04,Beban Transport,CORE,2,28,"payroll_component, employee_id, function_id, cost_center_id",Payroll/statutory and old-report reconciliation.
+PAYROLL:05,Beban Kesehatan dan Pengobatan,CORE,2,28,"payroll_component, employee_id, function_id, cost_center_id",Payroll/statutory and old-report reconciliation.
+PAYROLL:06,Beban Asuransi Pegawai / BPJS,CORE,2,28,"payroll_component, employee_id, function_id, cost_center_id",Payroll/statutory and old-report reconciliation.
+PAYROLL:07,Beban THR,CORE,2,28,"payroll_component, employee_id, function_id, cost_center_id",Payroll/statutory and old-report reconciliation.
+PAYROLL:08,Beban Seragam Kerja,CORE,2,28,"payroll_component, employee_id, function_id, cost_center_id",Payroll/statutory and old-report reconciliation.
+PAYROLL:09,Beban Sport dan Rekreasi,CORE,2,28,"payroll_component, employee_id, function_id, cost_center_id",Payroll/statutory and old-report reconciliation.
+PAYROLL:10,Beban Funeral Contribution,CORE,2,28,"payroll_component, employee_id, function_id, cost_center_id",Payroll/statutory and old-report reconciliation.
+PAYROLL:11,Beban Pengembangan SDM,CORE,2,28,"payroll_component, employee_id, function_id, cost_center_id",Payroll/statutory and old-report reconciliation.
+PAYROLL:12,Beban Pesangon,CORE,2,28,"payroll_component, employee_id, function_id, cost_center_id",Payroll/statutory and old-report reconciliation.
+PAYROLL:13,Beban Komisi / Bonus / Insentif,CORE,2,28,"payroll_component, employee_id, function_id, cost_center_id",Payroll/statutory and old-report reconciliation.
+PREPAID:GENERAL,Biaya Dibayar Dimuka,CORE,5,70,"prepaid_type, contract_id, schedule_id","Contract, recognition and amortization reconciliation."
+PREPAID:RENT,Sewa Dibayar Dimuka,CORE,4,56,"prepaid_type, contract_id, schedule_id","Contract, recognition and amortization reconciliation."
+REV:4020110001,Management  Fee,CORE,1,14,income_type,
+REV:600104,Pendapatan lain-lain,CORE,1,1,income_type,
+REV:8010110001,Pendapatan Bunga Bank,CORE,1,14,income_type,
+REV:MERCH_SALES,Penjualan Barang Dagangan,CORE,9,126,"channel_id, tender_type, acquirer_id","Marketplace gross/net, fees, returns and settlement reconciliation."
+REV:RENTAL,Pendapatan Sewa,CORE,2,28,"leased_object_type, contract_id","Contract, tax and reporting alignment."
+ROUNDING,Selisih Pembulatan,CORE,1,14,transaction_type,
+TAX_ASSET:INCOME,Kredit/Pajak Penghasilan Dibayar Dimuka,CORE,3,42,"tax_code, tax_period",Tax return and recoverability reconciliation.
+TAX_ASSET:INPUT_VAT,PPN Masukan,CORE,1,14,"tax_code, tax_period",Tax return and recoverability reconciliation.
+TAX_ASSET:OTHER,Pajak Lain Dibayar Dimuka,CORE,1,14,"tax_code, tax_period",Tax return and recoverability reconciliation.
+TAX_ASSET:PBB,PBB Dibayar Dimuka,CORE,1,14,"tax_code, tax_period",Tax return and recoverability reconciliation.
+TAX_LIAB:PAYABLE,Hutang Pajak,CORE,5,70,"tax_code, tax_period","Statutory return, due-date and payment reconciliation."
+AFFIL:FUNDING,Saldo Affiliasi Pembiayaan,CORE,,,"cost_center, funding_document_id",Piutang/Hutang Affiliasi Pembiayaan
+AFFIL:GOODS,Saldo Affiliasi Atas Barang,CORE,,,"cost_center, transfer_document_id",Piutang/Hutang Affiliasi Atas Barang
+AFFIL:OTHER,Saldo Affiliasi Lain-lain,CORE,,,"cost_center, document_id, reason_code",Piutang Affiliasi Lain-lain
+INTANGIBLE:SOFTWARE_COST,Software / Intangible Asset,CORE,,,"asset_id, software_id, cost_center",Software; Seventh Soft; Opti Tex
+INTANGIBLE:SOFTWARE_ACCUM,Akumulasi Amortisasi Software,CORE,,,"asset_id, software_id, cost_center",Acc Amort Software
+COGS:HPP,Harga Pokok Pembelian / HPP,CORE,,,"item_id, division_id, cost_center",Harga Pokok Pembelian 5010110001
+CONTRA:PURCHASE_DISCOUNT,Potongan Pembelian,CORE,,,"supplier_id, invoice_id, item_id, cost_center",Potongan Pembelian 8010110003
+ASSET:CIP,Contract in Progress (CIP),CORE,,,"project_id, asset_id, cost_center",Contract In Progress 1031803001
+LOAN:PRINCIPAL,Pinjaman Principal,CORE,,,"principal_id, facility_id, maturity_schedule_id, cost_center",PJP Principal; Pinjaman Jangka Panjang Principal
+LIAB:PRINCIPAL_OTHER,Hutang Principal / Pihak Berelasi,CORE,,,"principal_id, document_id, cost_center",Hutang Lain-lain Principal
+TAX:INCOME_EXPENSE,Pajak Penghasilan / Beban Pajak Kini,CORE,,,"tax_code, tax_period, cost_center",Current Tax Inc/Exp PPh Pasal 25 8030112001
+MIXED:OTHER,Pendapatan (Biaya) Lain-lain,CORE,,,"reason_code, source_document_id, cost_center",Pendapatan (Biaya) Lain-Lain 8010110007
+INV:DISPOSED,Disposed Inventory,CORE,,,"item_id, disposal_document_id, reason_code, cost_center",Disposed Inventory 1031801001
+OPEX:REPLACEMENT_OE,Biaya Replacement OE,CORE,,,"asset_id, oe_type, reason_code, cost_center",Biaya Replacement OE families
+LAND:HGB_COST,Hak Sewa Tanah / HGB,CORE,,,"facility_id, contract_id, cost_center",Hak Sewa Tanah/HGB 1021501002
+LAND:HGB_ACCUM,Akumulasi Amortisasi Land Right / HGB,CORE,,,"facility_id, contract_id, cost_center",Acc Land Right/HGB 1021601002
+LAND:HGB_EXPENSE,Biaya Land Right,CORE,,,"facility_id, contract_id, cost_center",Biaya Land Right 7010110002
+OPEX:LAND_RENT,Biaya Sewa Tanah,CORE,,,"facility_id, contract_id, cost_center",Biaya Sewa Tanah 7010110001
+OPEX:STORE_RENT,Biaya Sewa Bangunan Toko dan Gudang,CORE,,,"facility_id, contract_id, cost_center",Biaya Sewa Bangunan Toko/Gudang 7010110003
+OPEX:MESS_RENT,Biaya Sewa Rumah Dinas / Mess,CORE,,,"facility_id, contract_id, cost_center",Biaya Sewa Rumah Dinas/Mess 7010110004
+PREOPEN:COST,Pre Opening,CORE,,,"project_id, opening_id, cost_center",Pre Opening 1031802001
+PREOPEN:ACCUM,Akumulasi Amortisasi Pre Opening,CORE,,,"project_id, opening_id, cost_center",Acc Amort Pre Opening 1031802002
+PREOPEN:EXPENSE,Biaya Amortisasi Pre Opening,CORE,,,"project_id, opening_id, cost_center",Biaya Amortisasi Pre Opening 7010216002

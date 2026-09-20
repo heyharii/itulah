@@ -19,11 +19,25 @@ qualifier_asked: boolean,
  */
 source_document: string, requires_party: boolean, requires_reference: boolean, requires_approval: boolean, domains: Array<string>, bank_postable: boolean, refusal: string | null, 
 /**
- * The client account this is expected to be, quoted from their chart. A
- * suggestion for whoever maps the key, exactly as `required_semantic_keys`
- * is; never applied.
+ * The account this is expected to be, read through `ledger_account_remap`
+ * so what the screen offers is one somebody can actually map a meaning to.
+ * A suggestion for whoever maps the key, exactly as
+ * `required_semantic_keys` is; never applied.
  */
-expects_account_code: string | null, expects_account_name: string | null, 
+expects_account_code: string | null, 
+/**
+ * And what the client calls the thing, quoted from their chart by 0155 and
+ * left as they wrote it. Not the new account's name: `Biaya Bank HO` is
+ * what somebody mapping a meaning is looking for, and `Beban umum &
+ * administrasi` is the statement line it rolls up into.
+ */
+expects_account_name: string | null, 
+/**
+ * And which category on it, where the remap knew. Half of the old code
+ * became the account and half became this; offering the account alone
+ * would be offering one row of `6301` for forty-eight kinds of expense.
+ */
+expects_category_code: string | null, 
 /**
  * What the meaning resolves to at the location asked about, today. Read
  * through the map on every read rather than remembered, so it follows a
@@ -31,4 +45,10 @@ expects_account_code: string | null, expects_account_name: string | null,
  * nobody has mapped the key yet — which is the honest answer and the one
  * that has to be visible.
  */
-account_code: string | null, account_name: string | null, active: boolean, note: string | null, sort_order: number, created_by: string, created_at: string, };
+account_code: string | null, 
+/**
+ * And which category the map chose with it, which on `6301` is most of
+ * what the reader is looking at: forty-eight expenses share that account
+ * and the code alone no longer says which one this category books to.
+ */
+category_code: string | null, account_name: string | null, active: boolean, note: string | null, sort_order: number, created_by: string, created_at: string, };

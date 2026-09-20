@@ -155,6 +155,19 @@ export const financeKeys = {
     site: string | null
   ) => ["finance", "statement", kind, from, to, site] as const,
 
+  /// The categories a journal line may carry, and the families they belong
+  /// to. One key per family plus one for the lot, because the picker asks for
+  /// one family at a time and the reference screen asks for all of them —
+  /// two different answers, and a shared key would let the narrow one
+  /// overwrite the wide one.
+  ///
+  /// `null` is "every family", which is what the reference screen reads.
+  lineCategories: (family: string | null) =>
+    ["finance", "line-categories", family] as const,
+  /// The client's asset classes. Not a category family: an asset account's
+  /// identity is the asset it names, and the class is read off the register.
+  assetClasses: () => ["finance", "asset-classes"] as const,
+
   accountMap: (site: string | null) =>
     ["finance", "account-map", site] as const,
   periods: () => ["finance", "periods"] as const,
@@ -317,6 +330,103 @@ export function searchAccounts(
     { signal }
   )
 }
+
+// ---------------------------------------------------------------------------
+// Line categories and asset classes
+// ---------------------------------------------------------------------------
+
+/// One of the things an account's family can be narrowed to.
+///
+/// The chart collapsed from 190 postable accounts to 40, and what used to tell
+/// two accounts apart — which rack, which bank, PPh 21 or PPh 23, electricity
+/// or water — is this, carried on the journal line instead of baked into a
+/// code. `ledger_account.category_family` says which family an account takes:
+/// 24 of the 40 declare one, and the 16 that do not are the accounts whose
+/// detail is already a row somewhere else — bank, the five asset accounts,
+/// trade payables, goods received not invoiced, cheques issued, both loans,
+/// capital, drawings, retained earnings, depreciation and interest. An account
+/// that declares a family refuses a line without a category from it, and an
+/// account that declares none refuses a line that carries one. Both refusals
+/// come from the database.
+///
+/// `category_code` is an `UPPER_SNAKE` slug of the client's own account name —
+/// `BIAYA_PEMAKAIAN_LISTRIK`, `TUNJANGAN_HARI_RAYA`, `DEBIT_BCA`, `PPH21` — so
+/// a picker can search the code and find what somebody half remembers the name
+/// of.
+///
+/// `name` is the client's own Indonesian and is NEVER translated. An
+/// accountant is looking for "Biaya Pemakaian Listrik"; `name_en` is a gloss
+/// for a reader who does not have the chart in their head, and never a
+/// replacement.
+///
+/// Transcribed rather than imported: the Rust side of this is being written in
+/// a parallel lane and ts-rs has nothing to generate from yet. The shape is
+/// the frozen one in `docs/coa-40-contract.md` §1. When `LineCategory` appears
+/// in `@itulah/contract`, this goes and the import takes its place.
+export interface LineCategory {
+  readonly category_code: string
+  /// `expense_category`, `pay_component`, `tax_kind`… Lowercase, and the same
+  /// string an account puts in `category_family`.
+  readonly family: string
+  readonly name: string
+  readonly name_en?: string | null
+  readonly sort_order: number
+  /// A retired category still explains the lines that already carry it, and is
+  /// refused for new postings. Shown and disabled rather than hidden, like a
+  /// retired account.
+  readonly is_active: boolean
+}
+
+export interface LineCategoryPage {
+  readonly categories: readonly LineCategory[]
+}
+
+/// The client's asset classes, now a table of their own.
+///
+/// `fixed_asset.category_code` used to point at a ledger account, which is how
+/// the chart came to carry 36 racks and seven furniture families as accounts.
+/// It points here instead, and the asset accounts — 1601, 1609, 7101 and the
+/// rest — take no category at all: their identity is the asset the line names.
+///
+/// Transcribed for the same reason as `LineCategory` above.
+export interface AssetClass {
+  readonly class_code: string
+  readonly name: string
+  readonly name_en?: string | null
+  /// `PPE`, `OE`, `INTANGIBLE` or `DEFERRED`.
+  readonly kind: string
+  readonly is_active: boolean
+}
+
+export interface AssetClassPage {
+  readonly classes: readonly AssetClass[]
+}
+
+/// Every category, or one family's.
+///
+/// The whole list is about a hundred and fifty rows and is imported once, so
+/// the family filter is a convenience for the picker rather than a size
+/// bargain — unlike `searchAccounts`, which asks the server on every keystroke
+/// because its list is a megabyte.
+export function listLineCategories(
+  family?: string | null,
+  signal?: AbortSignal
+): Promise<LineCategoryPage> {
+  return node.get<LineCategoryPage>(
+    `/api/v1/finance/line-categories${search({ family })}`,
+    { signal }
+  )
+}
+
+export function listAssetClasses(
+  signal?: AbortSignal
+): Promise<AssetClassPage> {
+  return node.get<AssetClassPage>("/api/v1/finance/asset-classes", { signal })
+}
+
+// ---------------------------------------------------------------------------
+// Chart of accounts, continued
+// ---------------------------------------------------------------------------
 
 /// One account, the headings above it, and what it is worth.
 export function accountDetail(
@@ -580,7 +690,15 @@ export function journalEntry(
 /// accounts a posting rule happens to know about. `LineAccount` in
 /// `postgres/poster.rs` is an internally tagged enum, hence the `kind`.
 export interface ManualLine {
-  readonly account: { readonly kind: "account"; readonly account_code: string }
+  readonly account: {
+    readonly kind: "account"
+    readonly account_code: string
+    /// Required when the account declares a `category_family`, and refused
+    /// when it does not. `LineAccount::Account` carries it beside the code
+    /// because the two are one answer: choosing 6301 has not said what the
+    /// cost was until the category is chosen too.
+    readonly category_code?: string | null
+  }
   readonly site_id: string
   readonly debit_minor: number
   readonly credit_minor: number

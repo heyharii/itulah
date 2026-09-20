@@ -1,0 +1,135 @@
+{
+  "model": "jev-latest",
+  "state": {
+    "objective": "Challenge the proposed fixed-asset COA compression and identify the next COA area to review after the bank stage.",
+    "confirmed_facts": [
+      "Current working baseline after the bank-name compression proposal is 488 account families.",
+      "The client has 57 asset-cost families, 20 accumulated depreciation/amortization families, 20 depreciation/amortization expense families, 36 Reserve Replacement OE families, plus unresolved CIP, HGB, pre-opening and Disposed Inventory accounts.",
+      "Round 1 concluded with high confidence that asset_id and associated_site_id belong in an asset register, cost/accumulated/expense remain separate natures, owned land remains separate, CIP remains separate, and HGB/pre-opening/Reserve Replacement OE/Disposed Inventory require evidence.",
+      "Round 1 preferred broad asset classes over one fixed-asset account or all 57 cost accounts. It was uncertain on compressing 36 OE items, seven FFE classes, and depreciation-expense detail.",
+      "No asset ledger, useful-life policy, materiality thresholds, transactions, balances, financial-statement notes or tax-book requirements have been supplied."
+    ],
+    "candidate_broad_classes": [
+      "Owned land",
+      "Land rights/HGB pending review",
+      "Buildings",
+      "Mechanical/electrical and machinery",
+      "Vehicles",
+      "FFE",
+      "Operating equipment (OE) pending policy review",
+      "Software/intangibles",
+      "CIP"
+    ],
+    "guardrail": "Choose what the evidence supports. Do not calculate the total COA count; arithmetic will be performed outside Jev. Repeated model answers are judgments, not accounting evidence."
+  },
+  "questions": {
+    "next_domain": {
+      "type": "choice",
+      "instructions": "After bank identity has been reviewed, which listed domain is the strongest next candidate for dimensional compression based on the supplied COA structure?",
+      "criteria": {
+        "fixed_assets": "Asset item identity repeats across cost, accumulated depreciation and expense and can be governed by an asset register.",
+        "receivables": "Review customer identity and receivable types next, despite no receivable evidence in this state.",
+        "payables": "Review supplier identity and payable types next, despite no payable evidence in this state.",
+        "revenue_expense": "Compress revenue and expense categories next, despite no such evidence in this state."
+      }
+    },
+    "broad_classes_gate": {
+      "type": "choice",
+      "instructions": "Are the proposed broad classes a final migration mapping now, or only a design hypothesis pending client records and policy?",
+      "criteria": {
+        "conditional": "Use as a target hypothesis; approve mappings only after register, policy, balances and reconciliation.",
+        "final": "Approve immediately from names.",
+        "reject": "Broad-class design is inherently invalid."
+      }
+    },
+    "building_three_to_one": {
+      "type": "choice",
+      "instructions": "Can Bangunan Utama, Bangunan Tambahan and Staff House/Mess use one building-cost GL plus asset_class_id if ownership, useful-life policy and reporting treatment are aligned?",
+      "criteria": {
+        "conditional_merge": "Yes, subject to aligned policy and reporting.",
+        "retain": "They must always remain three GLs.",
+        "immediate": "Merge now without validating policy."
+      }
+    },
+    "machine_four_to_one": {
+      "type": "choice",
+      "instructions": "Can AC, Lift, Eskalator and Genset use one machinery/equipment cost GL plus asset_class_id when useful lives and reporting treatment are controlled in the register?",
+      "criteria": {
+        "conditional_merge": "Yes, if accounting policy and reporting can be reconciled by class.",
+        "retain": "They must always remain four GLs.",
+        "immediate": "Merge now without evidence."
+      }
+    },
+    "vehicles_two_to_one": {
+      "type": "choice",
+      "instructions": "Can Mobil and Sepeda Motor use one vehicle-cost GL plus asset_class_id when depreciation and reporting are reconciled by class?",
+      "criteria": {
+        "conditional_merge": "Yes, subject to policy and reporting alignment.",
+        "retain": "They must always remain separate GLs.",
+        "immediate": "Merge now without evidence."
+      }
+    },
+    "software_two_to_one": {
+      "type": "choice",
+      "instructions": "Can Seventh Soft and Opti Tex use one software-cost GL plus asset_id/application type if both are capitalized software under the same accounting policy?",
+      "criteria": {
+        "conditional_merge": "Yes, subject to capitalization/useful-life policy and reconciliation.",
+        "retain": "Each application name must remain a GL.",
+        "immediate": "Merge now solely from the names."
+      }
+    },
+    "parallel_mapping": {
+      "type": "choice",
+      "instructions": "If a cost class is merged conditionally, should its accumulated depreciation and depreciation expense normally follow the same class mapping while staying separate natural-account natures?",
+      "criteria": {
+        "yes": "Use parallel class mapping across cost, accumulated and expense, with separate natural accounts.",
+        "no": "Class mapping should be unrelated across the three natures.",
+        "one_account": "Combine all three natures into one GL."
+      }
+    },
+    "oe_without_accumulated": {
+      "type": "choice",
+      "instructions": "Does the absence of explicit accumulated-depreciation accounts for 36 OE cost families support merging them immediately?",
+      "criteria": {
+        "no": "It increases the need to inspect postings and the Reserve Replacement OE mechanism first.",
+        "yes": "Absence proves they can be merged now.",
+        "expense": "Absence proves all OE is expense."
+      }
+    },
+    "reserve_posting_test": {
+      "type": "choice",
+      "instructions": "What evidence is most decisive for classifying the 36 Reserve Replacement OE accounts?",
+      "criteria": {
+        "entries_policy": "Sample journal entries, normal balances, counterpart accounts, policy and balance roll-forward.",
+        "names": "Account names alone.",
+        "asset_list": "Physical asset list alone without postings."
+      }
+    },
+    "expense_detail_gate": {
+      "type": "choice",
+      "instructions": "Before reducing 20 depreciation/amortization expense families, what should determine whether broad expense GLs still meet reporting needs?",
+      "criteria": {
+        "reporting_reconciliation": "Management/statutory reporting requirements plus reliable asset-class reporting and reconciliation.",
+        "names": "Similar names alone.",
+        "count_target": "The desire to reach a target account count."
+      }
+    },
+    "safe_now": {
+      "type": "choice",
+      "instructions": "Given the missing records, what may be approved now?",
+      "criteria": {
+        "architecture_only": "Approve asset_id, asset_class_id and associated_site_id architecture; keep GL merges conditional.",
+        "all_merges": "Approve every proposed asset merge now.",
+        "nothing": "Do not even design the asset-register dimensions."
+      }
+    },
+    "repeat_answers_limit": {
+      "type": "choice",
+      "instructions": "Can repeated Jev judgments replace client accounting policy, register reconciliation and transaction evidence for final migration?",
+      "criteria": {
+        "no": "Jev can structure hypotheses and gates but cannot replace the records.",
+        "yes": "Repeated model agreement is sufficient evidence."
+      }
+    }
+  }
+}

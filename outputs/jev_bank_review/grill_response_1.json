@@ -1,0 +1,149 @@
+{
+  "model": "jev-1.13.0",
+  "answers": {
+    "savings_controlled": {
+      "type": "choice",
+      "choice": "merge",
+      "confidence": 0.83,
+      "probabilities": {
+        "keep": 0.1,
+        "merge": 0.89,
+        "unknown": 0.01
+      }
+    },
+    "savings_evidence": {
+      "type": "choice",
+      "choice": "no",
+      "confidence": 1.0,
+      "probabilities": {
+        "yes": 0.0,
+        "no": 1.0
+      }
+    },
+    "outstanding_nature": {
+      "type": "choice",
+      "choice": "no",
+      "confidence": 1.0,
+      "probabilities": {
+        "yes": 0.0,
+        "no": 1.0
+      }
+    },
+    "outstanding_bank_names": {
+      "type": "choice",
+      "choice": "conditional_merge",
+      "confidence": 0.65,
+      "probabilities": {
+        "conditional_merge": 0.76,
+        "keep_names": 0.04,
+        "unknown": 0.2
+      }
+    },
+    "giro_keluar": {
+      "type": "choice",
+      "choice": "review",
+      "confidence": 1.0,
+      "probabilities": {
+        "review": 1.0,
+        "merge": 0.0
+      }
+    },
+    "cheque_policy": {
+      "type": "choice",
+      "choice": "unknown",
+      "confidence": 1.0,
+      "probabilities": {
+        "known": 0.0,
+        "unknown": 1.0
+      }
+    },
+    "loan_identity": {
+      "type": "choice",
+      "choice": "two",
+      "confidence": 0.84,
+      "probabilities": {
+        "ten": 0.11,
+        "one": 0.0,
+        "two": 0.89
+      }
+    },
+    "loan_keys": {
+      "type": "choice",
+      "choice": "facility",
+      "confidence": 0.96,
+      "probabilities": {
+        "facility": 0.98,
+        "bank_only": 0.02
+      }
+    },
+    "principal": {
+      "type": "choice",
+      "choice": "no",
+      "confidence": 1.0,
+      "probabilities": {
+        "yes": 0.0,
+        "no": 1.0
+      }
+    },
+    "deposit_identity": {
+      "type": "choice",
+      "choice": "conditional",
+      "confidence": 0.85,
+      "probabilities": {
+        "conditional": 0.9,
+        "names": 0.1,
+        "all": 0.0
+      }
+    },
+    "deposit_classification": {
+      "type": "choice",
+      "choice": "no",
+      "confidence": 1.0,
+      "probabilities": {
+        "yes": 0.0,
+        "no": 1.0
+      }
+    },
+    "deposit_key": {
+      "type": "choice",
+      "choice": "instrument",
+      "confidence": 0.92,
+      "probabilities": {
+        "instrument": 0.96,
+        "bank": 0.04
+      }
+    },
+    "count_488": {
+      "type": "choice",
+      "choice": "scenario",
+      "confidence": 0.91,
+      "probabilities": {
+        "final": 0.04,
+        "scenario": 0.96
+      }
+    },
+    "count_476": {
+      "type": "choice",
+      "choice": "476",
+      "confidence": 0.76,
+      "probabilities": {
+        "476": 0.84,
+        "488": 0.07,
+        "475": 0.09
+      }
+    },
+    "count_deposit_splits": {
+      "type": "choice",
+      "choice": "formula",
+      "confidence": 0.93,
+      "probabilities": {
+        "fixed": 0.03,
+        "formula": 0.97
+      }
+    }
+  },
+  "usage": {
+    "input_tokens": 3461,
+    "output_tokens": 512
+  }
+}

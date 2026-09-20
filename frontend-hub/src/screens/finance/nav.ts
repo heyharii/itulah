@@ -11,6 +11,7 @@ import {
   GitBranch,
   Landmark,
   Printer,
+  Tags,
   Receipt,
   Wallet,
 } from "lucide-react"
@@ -113,6 +114,15 @@ export const financeNav: AppModule = {
           path: "/finance/accounts",
           label: "Chart of accounts",
           icon: FileStack,
+        },
+        // Straight after the chart, because since the chart collapsed to forty
+        // accounts the two are one reference: the account is the line of the
+        // statement, and the category is everything the account code used to
+        // carry on its own.
+        {
+          path: "/finance/categories",
+          label: "Line categories",
+          icon: Tags,
         },
         {
           path: "/finance/account-map",

@@ -38,8 +38,18 @@ use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use uuid::Uuid;
 
+use super::ledger::{assert_category_for_account, Intent};
 use super::poster::{post, LineAccount, PostingIntent, PostingLine};
 use crate::cloud::application::AppError;
+
+/// A blank category box means no category, not a category called "".
+///
+/// Spelled once rather than at each call site: a form that cleared its box
+/// sends `Some("")`, and the difference between that and `None` must not
+/// decide whether a schedule can be written.
+fn trimmed(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|text| !text.is_empty())
+}
 
 /// What caused the entries this module writes.
 const SOURCE_KIND: &str = "PREPAID_ALLOCATION";
@@ -60,8 +70,21 @@ pub struct PrepaidSchedule {
     pub site_id: String,
     pub prepaid_account_code: String,
     pub prepaid_account_name: String,
+    /// Which kind of prepayment this is — `INSURANCE`, `RENT_STORE` — on the
+    /// chart where every prepayment is one account and is told apart by this.
+    pub prepaid_category_code: Option<String>,
+    /// The client's own word for that kind, joined here so a screen does not
+    /// have to hold the category list to render one cell.
+    pub prepaid_category_name: Option<String>,
     pub expense_account_code: String,
     pub expense_account_name: String,
+    /// And which kind of expense the month becomes. Chosen once, by the person
+    /// who wrote the schedule, and carried by every month it posts: a category
+    /// re-derived each month could send March somewhere February did not go,
+    /// which is the same reason the ACCOUNTS are named here rather than
+    /// resolved afresh.
+    pub expense_category_code: Option<String>,
+    pub expense_category_name: Option<String>,
     /// The document that put the money there, named as the journal names it.
     pub source_kind: String,
     pub source_id: String,
@@ -111,7 +134,15 @@ pub struct PrepaidScheduleDocument {
 pub struct CreatePrepaidScheduleRequest {
     pub site_id: String,
     pub prepaid_account_code: String,
+    /// Required when the prepaid account declares a family, which it does on
+    /// the forty-account chart: `1401` is every prepayment the company has.
+    #[serde(default)]
+    pub prepaid_category_code: Option<String>,
     pub expense_account_code: String,
+    /// Required when the expense account declares a family, which all four of
+    /// them do.
+    #[serde(default)]
+    pub expense_category_code: Option<String>,
     pub source_kind: String,
     pub source_id: String,
     pub amount_minor: i64,
@@ -211,7 +242,9 @@ fn first_of_month(date: NaiveDate) -> NaiveDate {
 
 const SCHEDULE_COLUMNS: &str = "s.schedule_id, s.schedule_number, s.site_id,
      s.prepaid_account_code, pa.name AS prepaid_account_name,
+     s.prepaid_category_code, pk.name AS prepaid_category_name,
      s.expense_account_code, ea.name AS expense_account_name,
+     s.expense_category_code, ek.name AS expense_category_name,
      s.source_kind, s.source_id, s.currency::text AS currency, s.amount_minor,
      s.start_period, s.end_period, s.frequency, s.status, s.memo,
      s.created_by, s.cancelled_at, s.cancelled_by, s.cancel_reason,
@@ -221,6 +254,8 @@ const SCHEDULE_COLUMNS: &str = "s.schedule_id, s.schedule_number, s.site_id,
 const SCHEDULE_FROM: &str = "FROM prepaid_schedule s
        JOIN ledger_account pa ON pa.account_code = s.prepaid_account_code
        JOIN ledger_account ea ON ea.account_code = s.expense_account_code
+       LEFT JOIN line_category pk ON pk.category_code = s.prepaid_category_code
+       LEFT JOIN line_category ek ON ek.category_code = s.expense_category_code
        LEFT JOIN (
             SELECT schedule_id,
                    SUM(amount_minor) AS allocated_minor,
@@ -238,8 +273,12 @@ fn to_schedule(row: &sqlx::postgres::PgRow) -> Result<PrepaidSchedule, AppError>
         schedule_number: row.try_get("schedule_number")?,
         site_id: row.try_get("site_id")?,
         prepaid_account_code: row.try_get("prepaid_account_code")?,
+        prepaid_category_code: row.try_get("prepaid_category_code")?,
+        prepaid_category_name: row.try_get("prepaid_category_name")?,
         prepaid_account_name: row.try_get("prepaid_account_name")?,
         expense_account_code: row.try_get("expense_account_code")?,
+        expense_category_code: row.try_get("expense_category_code")?,
+        expense_category_name: row.try_get("expense_category_name")?,
         expense_account_name: row.try_get("expense_account_name")?,
         source_kind: row.try_get("source_kind")?,
         source_id: row.try_get("source_id")?,
@@ -419,6 +458,26 @@ pub async fn prepaid_schedule_create(
         }
     }
 
+    // Both categories, while the person who chose the accounts is still on the
+    // screen. Left to the monthly run, the refusal would arrive on the first of
+    // a month, in front of whoever ran it, naming a schedule they did not write.
+    let prepaid_category = trimmed(request.prepaid_category_code.as_deref());
+    let expense_category = trimmed(request.expense_category_code.as_deref());
+    assert_category_for_account(
+        pool,
+        request.prepaid_account_code.trim(),
+        prepaid_category,
+        Intent::Post,
+    )
+    .await?;
+    assert_category_for_account(
+        pool,
+        request.expense_account_code.trim(),
+        expense_category,
+        Intent::Post,
+    )
+    .await?;
+
     let mut tx = pool.begin().await?;
     let number: String = sqlx::query_scalar(
         "SELECT 'PPD-' || to_char(nextval('prepaid_schedule_number_seq'), 'FM000000')",
@@ -429,15 +488,18 @@ pub async fn prepaid_schedule_create(
     sqlx::query(
         "INSERT INTO prepaid_schedule
            (schedule_id, schedule_number, site_id, prepaid_account_code,
-            expense_account_code, source_kind, source_id, currency, amount_minor,
+            prepaid_category_code, expense_account_code, expense_category_code,
+            source_kind, source_id, currency, amount_minor,
             start_period, end_period, memo, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,COALESCE($8,'IDR'),$9,$10,$11,$12,$13)",
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,COALESCE($10,'IDR'),$11,$12,$13,$14,$15)",
     )
     .bind(schedule_id)
     .bind(&number)
     .bind(&request.site_id)
     .bind(request.prepaid_account_code.trim())
+    .bind(prepaid_category)
     .bind(request.expense_account_code.trim())
+    .bind(expense_category)
     .bind(request.source_kind.trim())
     .bind(request.source_id.trim())
     .bind(request.currency.as_deref())
@@ -470,7 +532,8 @@ pub async fn prepaid_allocate(
 
     let rows = sqlx::query(
         "SELECT s.schedule_id, s.site_id, s.schedule_number, s.prepaid_account_code,
-                s.expense_account_code, s.currency::text AS currency, s.amount_minor,
+                s.prepaid_category_code, s.expense_account_code, s.expense_category_code,
+                s.currency::text AS currency, s.amount_minor,
                 s.start_period, s.end_period,
                 EXISTS(SELECT 1 FROM prepaid_allocation a
                         WHERE a.schedule_id = s.schedule_id
@@ -506,7 +569,9 @@ pub async fn prepaid_allocate(
         let site_id: String = row.try_get("site_id")?;
         let number: String = row.try_get("schedule_number")?;
         let prepaid_account: String = row.try_get("prepaid_account_code")?;
+        let prepaid_category: Option<String> = row.try_get("prepaid_category_code")?;
         let expense_account: String = row.try_get("expense_account_code")?;
+        let expense_category: Option<String> = row.try_get("expense_category_code")?;
         let currency: String = row.try_get::<String, _>("currency")?.trim().to_string();
         let amount: i64 = row.try_get("amount_minor")?;
         let start: NaiveDate = row.try_get("start_period")?;
@@ -536,10 +601,14 @@ pub async fn prepaid_allocate(
                 // Named as ACCOUNTS and not as meanings: the two accounts are
                 // the schedule's own, chosen by the person who wrote it, and a
                 // meaning resolved afresh at posting time could send March
-                // somewhere February did not go.
+                // somewhere February did not go. The CATEGORIES travel with
+                // them for the same reason, and on a chart of forty they are
+                // the half that says what this is: every prepayment is `1401`,
+                // and only `RENT_STORE` beside it says the schedule is rent.
                 PostingLine {
                     account: LineAccount::Account {
                         account_code: expense_account.clone(),
+                        category_code: expense_category.clone(),
                     },
                     site_id: site_id.clone(),
                     counter_site_id: None,
@@ -553,6 +622,7 @@ pub async fn prepaid_allocate(
                 PostingLine {
                     account: LineAccount::Account {
                         account_code: prepaid_account.clone(),
+                        category_code: prepaid_category.clone(),
                     },
                     site_id: site_id.clone(),
                     counter_site_id: None,

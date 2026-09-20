@@ -18,6 +18,11 @@ import { Banner, EmptyState, LoadingState } from "@/components/ui/states"
 import { day, money } from "@/lib/format"
 import { parseMinor } from "@/screens/finance/chart"
 import {
+  AccountAndCategory,
+  accountChoiceReady,
+  type AccountChoice,
+} from "@/screens/finance/parts"
+import {
   bookBankLine,
   confirmBankMatch,
   financeKeys,
@@ -194,12 +199,15 @@ export function BankReconciliation() {
   const create = useMutation({
     mutationFn: (input: {
       lineId: string
-      accountCode: string
+      picked: AccountChoice
       memo: string
     }) =>
       bookBankLine(input.lineId, {
-        account_code: input.accountCode,
+        account_code: input.picked.account_code,
         memo: input.memo,
+        // What the charge was. 6301 alone stopped saying it the day the chart
+        // collapsed to forty accounts.
+        category_code: input.picked.category_code,
         party_name: null,
       }),
     onSuccess: () => {
@@ -427,8 +435,8 @@ export function BankReconciliation() {
         onReconcile={(picks) =>
           line && reconcile.mutate({ lineId: line.line_id, picks })
         }
-        onCreate={(accountCode, memo) =>
-          line && create.mutate({ lineId: line.line_id, accountCode, memo })
+        onCreate={(picked, memo) =>
+          line && create.mutate({ lineId: line.line_id, picked, memo })
         }
         onUndo={(journalLineId) =>
           line && undo.mutate({ lineId: line.line_id, journalLineId })
@@ -579,7 +587,7 @@ function ReconcileDialog({
   problem: string | null
   onClose: () => void
   onReconcile: (picks: { suggestion: Suggestion; allocated: number }[]) => void
-  onCreate: (accountCode: string, memo: string) => void
+  onCreate: (picked: AccountChoice, memo: string) => void
   onUndo: (journalLineId: string) => void
   onUpdate: (request: UpdateBankLineRequest) => void
 }) {
@@ -587,7 +595,7 @@ function ReconcileDialog({
   // every line and the state starts as what the server last stored.
   const [action, setAction] = useState<Action>("match")
   const [picked, setPicked] = useState<Record<string, string>>({})
-  const [account, setAccount] = useState("")
+  const [account, setAccount] = useState<AccountChoice | null>(null)
   const [memo, setMemo] = useState("")
   const [kind, setKind] = useState(line?.counterparty_kind ?? "")
   const [who, setWho] = useState(line?.counterparty_name ?? "")
@@ -849,13 +857,26 @@ function ReconcileDialog({
                 a journal entry for what is left of the line and agrees it in
                 the same breath.
               </p>
-              <Field label="Account" hint="A postable account from the chart.">
-                <Input
+              {/* This was a text box somebody typed `602100100103` into,
+                  which is a twelve-digit exam rather than a field — and since
+                  the chart collapsed to forty accounts it could not have asked
+                  the second half of the question at all. The shared control
+                  searches the chart and then asks for the category the chosen
+                  account's family demands, or nothing at all when it demands
+                  nothing. */}
+              <div className="flex flex-col gap-[0.4375rem]">
+                <span className="text-[0.75rem] font-medium text-text">
+                  Account
+                </span>
+                <AccountAndCategory
                   value={account}
-                  onChange={(event) => setAccount(event.target.value)}
-                  placeholder="602100100103"
+                  onChange={setAccount}
+                  placeholder="Which account is the other side of this"
+                  accept={(one) => (one.is_active ? null : "retired")}
+                  categoryLabel="What this charge was"
+                  explain
                 />
-              </Field>
+              </div>
               <Field
                 label="Why"
                 hint="Required. The only record of the judgement somebody made."
@@ -869,8 +890,12 @@ function ReconcileDialog({
               <div className="flex justify-end">
                 <Button
                   variant="primary"
-                  disabled={busy || account.trim() === "" || memo.trim() === ""}
-                  onClick={() => onCreate(account.trim(), memo.trim())}
+                  disabled={
+                    busy || !accountChoiceReady(account) || memo.trim() === ""
+                  }
+                  onClick={() =>
+                    account !== null && onCreate(account, memo.trim())
+                  }
                 >
                   Create voucher and reconcile
                 </Button>

@@ -22,4 +22,23 @@ qualified: boolean,
 /**
  * Which menu group stops working without it.
  */
-needed_for: string, };
+needed_for: string, 
+/**
+ * The `line_category` family the account behind this meaning declares, or
+ * `None` when it declares none.
+ *
+ * The chart of forty keeps one account per REPORT LINE and moves every
+ * other distinction onto the line — which bank, which rack, which PPh
+ * article, electricity or water. Most of those distinctions already had a
+ * column or a sub-ledger; what was left became `line_category`, and this
+ * is the family the map row beside this meaning has to choose from.
+ *
+ * `None` is a statement, not a gap. It says the account this points at
+ * answers "which one" some other way — `bank_account_id` for the three
+ * bank meanings, `asset_id` for the six asset ones, `supplier_id`,
+ * `financing_facility`, `principal` — and the database will REFUSE a line
+ * that carries a category into it. Getting this wrong in either direction
+ * is a refusal at posting time, so the Account Map screen shows it beside
+ * the key rather than leaving somebody to find out.
+ */
+category_family: string | null, };

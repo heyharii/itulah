@@ -123,6 +123,8 @@ function PrintAction({
           label_height_mm: printer.heightMm,
           label_offset_mm: printer.offsetMm,
           chunk_size: printer.chunk,
+          darkness: printer.darkness,
+          speed_ips: printer.speedIps,
           language: printer.language,
           actor_id: actor,
         }))
@@ -163,6 +165,8 @@ function PrintAction({
             printer_host: printer.host,
             printer_port: printer.port,
             chunk_size: printer.chunk,
+            darkness: printer.darkness,
+            speed_ips: printer.speedIps,
             label_width_mm: printer.widthMm,
             label_height_mm: printer.heightMm,
             label_offset_mm: printer.offsetMm,
@@ -652,6 +656,37 @@ function PrinterCard() {
               />
             </Field>
           </div>
+          {/* Two facts about the machine, not about the job. They sit beside
+              the size for the same reason it does: a reel, a ribbon and a head
+              are what they describe, and all three change at the bench. */}
+          <div className="flex gap-3">
+            <Field label="Darkness" className="flex-1">
+              <Input
+                inputMode="numeric"
+                value={String(printer.darkness)}
+                onChange={(event) =>
+                  savePrinter({
+                    ...printer,
+                    darkness: clampTo(event.target.value, 0, 30, printer.darkness),
+                  })
+                }
+              />
+              <p className="mt-1 text-meta text-mute">0–30</p>
+            </Field>
+            <Field label="Speed" className="flex-1">
+              <Input
+                inputMode="numeric"
+                value={String(printer.speedIps)}
+                onChange={(event) =>
+                  savePrinter({
+                    ...printer,
+                    speedIps: clampTo(event.target.value, 1, 12, printer.speedIps),
+                  })
+                }
+              />
+              <p className="mt-1 text-meta text-mute">inci/detik</p>
+            </Field>
+          </div>
           <div className="flex flex-wrap gap-1.5">
             {TAG_PRESETS.map((preset) => {
               const chosen =
@@ -744,4 +779,17 @@ function PrinterCard() {
       </Collapsible.Panel>
     </Collapsible.Root>
   )
+}
+
+/// Keep a typed number inside what the machine accepts.
+///
+/// An empty box keeps the last value rather than becoming zero: zero darkness
+/// is a blank label, and a half-typed "1" on the way to "18" must not be sent
+/// as a setting. Out of range clamps rather than refuses, because the person
+/// is dragging toward a number and being told "no" mid-keystroke is worse than
+/// being stopped at the edge.
+function clampTo(raw: string, low: number, high: number, fallback: number) {
+  const value = Number(raw)
+  if (raw.trim() === "" || Number.isNaN(value)) return fallback
+  return Math.min(high, Math.max(low, Math.round(value)))
 }

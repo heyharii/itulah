@@ -17,8 +17,15 @@ account_code: string,
  */
 site_id: string, amount_minor: number, 
 /**
- * The client's asset class this line buys, when it buys one: a family
- * under `10215`, or one of the thirty-six operating-equipment classes.
+ * What kind of cost this is. Required when the account declares a family,
+ * which every expense account on the forty-account chart does — so on an
+ * ordinary expense bill this is not optional in practice, only in shape.
+ */
+category_code?: string, 
+/**
+ * The asset class this line buys, when it buys one: an
+ * `asset_class.class_code` — a building, a machine, one of the thirty-six
+ * operating-equipment classes.
  *
  * Said here, by the person holding the paper, because that is the only
  * moment anybody knows. Everything downstream — the register row, the

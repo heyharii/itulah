@@ -1,0 +1,37 @@
+{
+  "model":"jev-latest",
+  "state":{
+    "objective":"Decide the remaining Finance navigation ambiguities using concrete frequency, authorization and task-completion facts rather than abstract labels.",
+    "users_and_frequency":{
+      "AP_staff":"Daily: validate invoices, matching, aging, prepare payment candidates. Cannot release bank payments or approve own exceptions.",
+      "Treasury_staff":"Daily: payment instructions, bank release after approval, statements, bank reconciliation preparation. Cannot approve own release or final reconciliation.",
+      "General_Accounting":"Daily/periodic: ledger investigation, controlled manual journals, posting-rule exceptions, asset accounting and close preparation.",
+      "Tax_staff":"Periodic: obligations, filings and reconciliation.",
+      "Finance_Manager":"Approvals, exceptions, reports and close oversight.",
+      "Auditor":"Occasional read-only inspection of the same records, evidence, approvals and logs.",
+      "Unit_user":"Uses Operations/Store for physical cash and evidence; has no company-bank or manual-GL authority."
+    },
+    "screen_facts":[
+      "Cash & bank is one workspace row with tabs. Bank Accounts is restricted, changed infrequently and used as context for statements and reconciliation.",
+      "Charges without a sale arise from bank/acquirer lines and are worked as reconciliation exceptions; Overview can show their count.",
+      "System entries are visible through Ledger. Manual journal creation is rare, restricted, reason-coded, approved and audited; accountants still need a queue/history of drafts, approvals and reversals.",
+      "Reports holds financial statements and aging. Ledger holds searchable posted entries by account/dimension/document. Trial Balance is a summarized debit-credit balance for a period and is used in close/report review.",
+      "Financing contains bank-loan schedules plus owner capital/drawings. It is restricted and periodic, but these records drive current/noncurrent classification, interest, repayments and disclosures.",
+      "Role filtering can show AP 5-7 relevant rows, Treasury 4-6, General Accounting 7-10, Manager 8-11 and Auditor read-only 8-11. The union of all Finance capabilities may have 13 rows, but no ordinary specialist must see all of them.",
+      "Server permissions enforce every mutation; hiding a row is only a usability choice.",
+      "The agreed strong decisions already reduce the union menu to: Overview, Accounts payable, Payments, Cash & bank, Asset accounting, Manual journals, Reports, Ledger, Tax, Financing, Period close, Chart of accounts, Posting rules."
+    ]
+  },
+  "questions":{
+    "union_13_role_filtered":{"type":"choice","instructions":"Is a 13-row union acceptable when ordinary specialists see only their authorized 4-10 rows and groups remain Work, Books, Controls and Setup?","criteria":{"yes":"Judge the menu each role actually sees, not the union of all capabilities.","no":"The union itself must be reduced even if roles never see it all."}},
+    "bank_account_tab":{"type":"choice","instructions":"Given that bank accounts are infrequently maintained and directly contextualize statements and reconciliation, should Bank Accounts be a restricted tab/settings view within Cash & bank?","criteria":{"yes":"Keep the work and its master context in one workspace.","no":"Use a separate persistent sidebar destination."}},
+    "unmatched_exception":{"type":"choice","instructions":"Given that charges without a sale originate from statement/acquirer lines and are reconciliation exceptions, should they be an exception tab in Cash & bank plus an Overview alert?","criteria":{"yes":"They are a filtered work queue in the same reconciliation domain.","no":"They are an independent accounting domain requiring a top-level row."}},
+    "manual_journal_destination":{"type":"choice","instructions":"Given the need to find draft, pending-approval, posted, reversed and rejected manual journals, should authorized General Accounting have a persistent Manual journals destination?","criteria":{"yes":"A controlled document lifecycle requires its own queue/history screen.","no":"A create action inside Ledger is sufficient for the entire lifecycle."}},
+    "reports_ledger_jobs":{"type":"choice","instructions":"Given that Reports answers financial-position/performance questions while Ledger investigates individual postings and documents, should they remain separate destinations?","criteria":{"yes":"They are distinct recurring jobs with different filters and outputs.","no":"One screen should combine both jobs."}},
+    "trial_balance_report_tab":{"type":"choice","instructions":"Given that Trial Balance is a summarized period balance used in close and report review, should it be a Reports tab while Ledger opens detailed postings?","criteria":{"yes":"Summary belongs with period reports and can drill into Ledger.","no":"Ledger should open on Trial Balance before any account is selected."}},
+    "financing_persistent":{"type":"choice","instructions":"Given that loans and owner equity have schedules, classifications, interest/repayment events and disclosures, should assigned Finance roles have a Financing destination?","criteria":{"yes":"Keep a restricted persistent workspace for the controlled lifecycle.","no":"Use only generic Payments and Manual journals with no financing register."}},
+    "auditor_same_information_architecture":{"type":"choice","instructions":"Given that auditors inspect the same records, evidence, approval history and logs without mutation rights, should they use the same information architecture in read-only mode?","criteria":{"yes":"Reuse the same screens with read-only controls and audit filters.","no":"Maintain a separate auditor-only navigation tree and screens."}},
+    "specialist_row_target":{"type":"choice","instructions":"Which target best balances findability and cognitive load for a normal AP, Treasury, Tax or Accounting specialist after role filtering?","criteria":{"four_to_seven":"4-7 persistent rows for narrow specialists; managers/accounting may see more.","eight_to_ten":"Every specialist should see 8-10 rows.","eleven_to_thirteen":"Every Finance role should see nearly the full union."}},
+    "manager_row_target":{"type":"choice","instructions":"How many rows should a Finance Manager normally see for oversight and approval?","criteria":{"seven_to_nine":"7-9 rows, with less frequent setup reached from relevant workspaces.","ten_to_thirteen":"10-13 rows including all controls and restricted setup.","four_to_six":"4-6 rows only."}}
+  }
+}

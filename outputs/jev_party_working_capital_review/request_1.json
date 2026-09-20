@@ -1,0 +1,39 @@
+{
+  "model": "jev-latest",
+  "state": {
+    "objective": "Review every remaining receivable, payable, party and customer-advance family in the client COA for dimensional compression.",
+    "confirmed_context": [
+      "One PT Perorangan owns HO and all operating sites; site_id is a dimension.",
+      "Customer, employee, supplier, acquirer, invoice, PO and GRN can be represented in controlled subledgers.",
+      "Party identity may move out of the natural account, but asset, liability, allowance, clearing/suspense and income/expense natures must remain distinguishable.",
+      "No balances, aging, contracts, settlement workflows or posting samples are supplied, so all merges require reconciliation gates."
+    ],
+    "actual_families": {
+      "card_receivable_2": ["Credit Card Receivable", "Debit Card Receivable"],
+      "employee_related_receivable_3": ["Employee Receivable", "Store Manager Receivable", "Management Receivable"],
+      "allowance_3": ["Allowance/write-off Credit Card Receivable", "Allowance/write-off Debit Card Receivable", "Allowance/write-off Employee Receivable"],
+      "supplier_payable_2": ["Trade Merchandise Supplier Payable", "Non-merchandise Supplier Payable"],
+      "grn_suspense_1": "Merchandise Supplier Payable - Suspend",
+      "other_payable_site_14": "Other Payable repeated for HO and 13 operating-site names",
+      "sales_advance_1": "Sales Advance",
+      "principal_site_14": "Other Payable Principal repeated for HO and 13 operating-site names"
+    }
+  },
+  "questions": {
+    "card_receivable": {"type":"choice","instructions":"Can credit-card and debit-card receivables use one Card/Acquirer Receivable control GL with tender_type and acquirer_id?","criteria":{"conditional":"Yes if settlement timing, fees, chargebacks and reconciliation remain reportable.","retain2":"Always keep two GLs.","cash":"Treat both as cash immediately."}},
+    "employee_receivable": {"type":"choice","instructions":"Can employee, store-manager and management receivables use one Employee/Related-person Receivable control GL with person_id and role_type?","criteria":{"conditional":"Yes if terms, authorization, tax/disclosure and aging are controlled.","retain3":"Role must remain in GL.","payroll":"Net automatically against payroll."}},
+    "receivable_allowance": {"type":"choice","instructions":"Can three allowance/write-off families become fewer allowance control GLs with receivable_class detail?","criteria":{"conditional":"Yes if expected-loss/write-off methodology and presentation align; keep allowance separate from gross receivable.","retain3":"Every receivable class must be a GL.","gross":"Net postings directly into gross receivables."}},
+    "allowance_vs_writeoff": {"type":"choice","instructions":"Does an account label combining allowance and write-off require transaction review before final mapping?","criteria":{"yes":"Provision balance and actual write-off are different events and may need separate posting logic.","no":"The combined label proves one treatment."}},
+    "supplier_two": {"type":"choice","instructions":"Can merchandise and non-merchandise supplier payables become one Supplier Payable control GL solely because supplier_id exists?","criteria":{"review":"Purchasing, inventory matching, tax, reporting and settlement differences may justify separate trade classes.","one":"Merge immediately.","always2":"They can never share a control account."}},
+    "supplier_identity": {"type":"choice","instructions":"Should individual supplier names be encoded in natural GL accounts?","criteria":{"subledger":"Use supplier_id and invoice in AP subledger.","gl":"One GL per supplier.","text":"Use free text only."}},
+    "grn_suspense": {"type":"choice","instructions":"Should Merchandise Supplier Payable-Suspend remain separate from confirmed supplier payable while unmatched receipt/invoice timing exists?","criteria":{"separate":"Use a controlled GRNI/suspense account with PO/GRN matching and aging.","merge":"Merge into confirmed AP without matching status.","expense":"Write unmatched receipts to expense."}},
+    "other_payable_14": {"type":"choice","instructions":"Because all sites belong to one PT, can 14 site-named Other Payable families become one Other Payable control GL with site_id and party/liability type?","criteria":{"conditional":"Yes after confirming the name is site attribution rather than distinct legal counterparty.","retain14":"Keep site in GL.","delete":"Delete balances without analysis."}},
+    "other_payable_control": {"type":"choice","instructions":"Should Other Payable become an unrestricted catch-all account?","criteria":{"no":"Require liability_type, party/document, approval, aging and periodic review.","yes":"Use it as the default for all liabilities.","net":"Net it with receivables."}},
+    "sales_advance": {"type":"choice","instructions":"Must Sales Advance remain a liability distinct from revenue until performance/redemption/refund conditions are met?","criteria":{"liability":"Keep contract/customer-advance liability with customer/voucher/order detail.","revenue":"Recognize all immediately as revenue.","receivable":"Treat as customer receivable."}},
+    "principal_site_14": {"type":"choice","instructions":"Can 14 site-named Other Payable Principal families be compressed solely because all sites are one PT?","criteria":{"review":"First identify who Principal is and whether balances are owner loans, financing, historical interunit balances or another liability.","one":"Merge immediately into one liability.","equity":"Treat all as owner equity immediately."}},
+    "principal_owner": {"type":"choice","instructions":"Does the word Principal prove the creditor is the PT Perorangan owner?","criteria":{"no":"Verify legal creditor, agreement, settlement and subordination.","yes":"Classify as owner loan solely from label."}},
+    "party_master": {"type":"choice","instructions":"Should employee, supplier, customer, acquirer and legal creditor share one undifferentiated party role?","criteria":{"roles":"A party master may be shared, but role-specific subledgers and controls remain explicit.","one_role":"Use one unrestricted party type.","gl":"Avoid party master and encode names in GL."}},
+    "migration_gate": {"type":"choice","instructions":"What closes this domain?","criteria":{"full":"Aging, balances, party masters, settlement/chargeback, PO-GRN-invoice matching, contracts, transaction samples and subledger-to-GL reconciliation.","names":"COA names alone.","jev":"Repeated Jev answers alone."}},
+    "next_domain": {"type":"choice","instructions":"After party working-capital accounts, which remaining domain should be reviewed next?","criteria":{"sales_cash":"Cash, tender/acquirer, sales channels, discounts, returns and other income.","equity_close":"Owner equity and closing accounts only.","stop":"Stop before all accounts are reviewed."}}
+  }
+}

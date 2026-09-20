@@ -8,27 +8,36 @@
 
 use chrono::NaiveDate;
 use inventory_backend::cloud::postgres::{self as cloud, RecordTaxItemRequest, SettleTaxRequest};
-use sqlx::{PgPool, Row};
+use sqlx::PgPool;
 use uuid::Uuid;
 
 const ACTOR: &str = "ana";
 const SITE: &str = "dc";
-/// `2012101006 Hutang Pajak PPh Pasal 29` — what is owed at year end.
-const PPH29: &str = "2012101006";
-/// `1011302002 Prepaid - PPh Pasal 25` — instalments already paid.
-const PPH25: &str = "1011302002";
-const BANK: &str = "1011002001";
+/// `2201 Hutang pajak` × `PPH29` — what is owed at year end. Was
+/// `2012101006 Hutang Pajak PPh Pasal 29`; the pasal is the category now, and
+/// `2201` carries all six of them.
+const PPH29: &str = "2201";
+const PPH29_KIND: &str = "PPH29";
+/// `1402 Pajak dibayar dimuka` × `PPH25` — instalments already paid. Was
+/// `1011302002`.
+const PPH25: &str = "1402";
+const PPH25_KIND: &str = "PPH25";
+/// `1102 Bank`, was `1011002001`. Which bank is `bank_account_id`.
+const BANK: &str = "1102";
 
-async fn map(pool: &PgPool, key: &str, qualifier: &str, code: &str) {
+async fn map(pool: &PgPool, key: &str, qualifier: &str, code: &str, category: Option<&str>) {
     sqlx::query(
-        "INSERT INTO account_map (semantic_key, site_id, qualifier, account_code, set_by)
-         VALUES ($1,$2,$3,$4,'test')
-         ON CONFLICT (semantic_key, site_id, qualifier) DO UPDATE SET account_code = $4",
+        "INSERT INTO account_map
+           (semantic_key, site_id, qualifier, account_code, category_code, set_by)
+         VALUES ($1,$2,$3,$4,$5,'test')
+         ON CONFLICT (semantic_key, site_id, qualifier)
+         DO UPDATE SET account_code = $4, category_code = $5",
     )
     .bind(key)
     .bind(SITE)
     .bind(qualifier)
     .bind(code)
+    .bind(category)
     .execute(pool)
     .await
     .unwrap_or_else(|error| panic!("map {key}: {error}"));
@@ -62,9 +71,9 @@ async fn a_registered_bank_account(pool: &PgPool) {
 }
 
 async fn ready(pool: &PgPool) {
-    map(pool, "pph29_payable", "", PPH29).await;
-    map(pool, "pph25_credit", "", PPH25).await;
-    map(pool, "bank_giro", "BCA", BANK).await;
+    map(pool, "pph29_payable", "", PPH29, Some(PPH29_KIND)).await;
+    map(pool, "pph25_credit", "", PPH25, Some(PPH25_KIND)).await;
+    map(pool, "bank_giro", "BCA", BANK, None).await;
     cloud::open_period(pool, 2026, 9)
         .await
         .unwrap_or_else(|error| panic!("open september: {error}"));
@@ -94,20 +103,28 @@ async fn a_posted_document(pool: &PgPool, amount_minor: i64) -> String {
     .execute(&mut *tx)
     .await
     .unwrap_or_else(|error| panic!("entry: {error}"));
-    for (index, (code, debit, credit)) in [(PPH29, 0, amount_minor), (BANK, amount_minor, 0)]
-        .into_iter()
-        .enumerate()
+    // `2201` declares `tax_kind`, `1102` declares nothing. 0288's trigger
+    // refuses a line that gets either one wrong, so the raw rows carry what the
+    // map would have carried.
+    for (index, (code, category, debit, credit)) in [
+        (PPH29, Some(PPH29_KIND), 0, amount_minor),
+        (BANK, None, amount_minor, 0),
+    ]
+    .into_iter()
+    .enumerate()
     {
         sqlx::query(
             "INSERT INTO journal_line
-               (line_id, entry_id, line_number, account_code, site_id, debit_minor, credit_minor)
-             VALUES ($1,$2,$3,$4,$5,$6,$7)",
+               (line_id, entry_id, line_number, account_code, site_id, category_code,
+                debit_minor, credit_minor)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
         )
         .bind(Uuid::new_v4())
         .bind(entry_id)
         .bind(index as i32 + 1)
         .bind(code)
         .bind(SITE)
+        .bind(category)
         .bind(debit)
         .bind(credit)
         .execute(&mut *tx)

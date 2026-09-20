@@ -1,0 +1,1298 @@
+[
+  {
+    "target_key": "ACCRUAL:EMPLOYEE",
+    "target_account_name": "Akrual Pegawai dan Imbalan Kerja",
+    "status": "CORE",
+    "legacy_family_count": "4",
+    "legacy_detail_rows": "56",
+    "dimensions": "accrual_type, facility_id, contract_id",
+    "evidence_required": "Roll-forward, reversal, settlement and reporting reconciliation."
+  },
+  {
+    "target_key": "ACCRUAL:INTEREST",
+    "target_account_name": "Akrual Bunga Pinjaman",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "accrual_type, facility_id, contract_id",
+    "evidence_required": "Roll-forward, reversal, settlement and reporting reconciliation."
+  },
+  {
+    "target_key": "ACCRUAL:RENT",
+    "target_account_name": "Akrual Sewa",
+    "status": "CORE",
+    "legacy_family_count": "2",
+    "legacy_detail_rows": "28",
+    "dimensions": "accrual_type, facility_id, contract_id",
+    "evidence_required": "Roll-forward, reversal, settlement and reporting reconciliation."
+  },
+  {
+    "target_key": "ACCRUAL:UTILITIES",
+    "target_account_name": "Akrual Utilitas",
+    "status": "CORE",
+    "legacy_family_count": "3",
+    "legacy_detail_rows": "42",
+    "dimensions": "accrual_type, facility_id, contract_id",
+    "evidence_required": "Roll-forward, reversal, settlement and reporting reconciliation."
+  },
+  {
+    "target_key": "ADV:EMPLOYEE",
+    "target_account_name": "Uang Muka Karyawan/Perjalanan",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "party_id, advance_purpose, document_id",
+    "evidence_required": "Aging, settlement and tax reconciliation."
+  },
+  {
+    "target_key": "ADV:OTHER",
+    "target_account_name": "Uang Muka Lainnya",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "party_id, advance_purpose, document_id",
+    "evidence_required": "Aging, settlement and tax reconciliation."
+  },
+  {
+    "target_key": "ADV:SUPPLIER",
+    "target_account_name": "Uang Muka Supplier/Kontraktor",
+    "status": "CORE",
+    "legacy_family_count": "2",
+    "legacy_detail_rows": "28",
+    "dimensions": "party_id, advance_purpose, document_id",
+    "evidence_required": "Aging, settlement and tax reconciliation."
+  },
+  {
+    "target_key": "ALLOW:CARD_AR",
+    "target_account_name": "Cadangan Piutang Acquirer Kartu",
+    "status": "CORE",
+    "legacy_family_count": "2",
+    "legacy_detail_rows": "28",
+    "dimensions": "receivable_class",
+    "evidence_required": "Loss method and write-off posting review."
+  },
+  {
+    "target_key": "ALLOW:EMPLOYEE_AR",
+    "target_account_name": "Cadangan Piutang Pegawai",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "receivable_class",
+    "evidence_required": "Loss method and write-off posting review."
+  },
+  {
+    "target_key": "ALLOW:INVENTORY",
+    "target_account_name": "Cadangan Kerusakan/Kehilangan Persediaan",
+    "status": "CORE",
+    "legacy_family_count": "2",
+    "legacy_detail_rows": "28",
+    "dimensions": "inventory_class",
+    "evidence_required": "Measurement method and roll-forward."
+  },
+  {
+    "target_key": "AP:MERCH_SUSPENSE",
+    "target_account_name": "Hutang Supplier Barang Dagang - Suspend",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "supplier_id, po_id, receipt_id, invoice_id",
+    "evidence_required": "PO-GRN-invoice matching and aging."
+  },
+  {
+    "target_key": "AP:MERCH",
+    "target_account_name": "Hutang Suppliers  Barang Dagangan",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "supplier_id, invoice_id",
+    "evidence_required": "AP aging and purchasing/tax reconciliation."
+  },
+  {
+    "target_key": "AP:NONMERCH",
+    "target_account_name": "Hutang Supplier  Non Barang Dagang",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "supplier_id, invoice_id",
+    "evidence_required": "AP aging and purchasing/tax reconciliation."
+  },
+  {
+    "target_key": "AR:ACQUIRER",
+    "target_account_name": "Piutang Acquirer Kartu",
+    "status": "CORE",
+    "legacy_family_count": "2",
+    "legacy_detail_rows": "28",
+    "dimensions": "tender_type, acquirer_id",
+    "evidence_required": "Settlement, fee and chargeback reconciliation."
+  },
+  {
+    "target_key": "AR:EMPLOYEE",
+    "target_account_name": "Piutang Pegawai dan Manajemen",
+    "status": "CORE",
+    "legacy_family_count": "3",
+    "legacy_detail_rows": "42",
+    "dimensions": "person_id, role_type",
+    "evidence_required": "Terms, authorization, aging and tax/disclosure review."
+  },
+  {
+    "target_key": "ASSET:ACCUM:BUILDING",
+    "target_account_name": "Akumulasi Bangunan",
+    "status": "CORE",
+    "legacy_family_count": "4",
+    "legacy_detail_rows": "56",
+    "dimensions": "asset_id, asset_class_id, associated_site_id",
+    "evidence_required": "Asset register, useful-life policy and GL reconciliation."
+  },
+  {
+    "target_key": "ASSET:ACCUM:FFE",
+    "target_account_name": "Akumulasi Furniture, Fixture and Equipment",
+    "status": "CORE",
+    "legacy_family_count": "6",
+    "legacy_detail_rows": "84",
+    "dimensions": "asset_id, asset_class_id, associated_site_id",
+    "evidence_required": "Asset register, useful-life policy and GL reconciliation."
+  },
+  {
+    "target_key": "ASSET:ACCUM:MACHINE",
+    "target_account_name": "Akumulasi Mesin dan Peralatan",
+    "status": "CORE",
+    "legacy_family_count": "3",
+    "legacy_detail_rows": "42",
+    "dimensions": "asset_id, asset_class_id, associated_site_id",
+    "evidence_required": "Asset register, useful-life policy and GL reconciliation."
+  },
+  {
+    "target_key": "ASSET:ACCUM:ME",
+    "target_account_name": "Akumulasi Instalasi Mekanikal dan Elektrikal",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "asset_id, asset_class_id, associated_site_id",
+    "evidence_required": "Asset register, useful-life policy and GL reconciliation."
+  },
+  {
+    "target_key": "ASSET:ACCUM:OTHER",
+    "target_account_name": "Akumulasi Aset Lainnya",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "asset_id, asset_class_id, associated_site_id",
+    "evidence_required": "Asset register, useful-life policy and GL reconciliation."
+  },
+  {
+    "target_key": "ASSET:ACCUM:VEHICLE",
+    "target_account_name": "Akumulasi Kendaraan",
+    "status": "CORE",
+    "legacy_family_count": "2",
+    "legacy_detail_rows": "28",
+    "dimensions": "asset_id, asset_class_id, associated_site_id",
+    "evidence_required": "Asset register, useful-life policy and GL reconciliation."
+  },
+  {
+    "target_key": "ASSET:COST:BUILDING",
+    "target_account_name": "Bangunan",
+    "status": "CORE",
+    "legacy_family_count": "4",
+    "legacy_detail_rows": "56",
+    "dimensions": "asset_id, asset_class_id, associated_site_id",
+    "evidence_required": "Asset register, useful-life policy and GL reconciliation."
+  },
+  {
+    "target_key": "ASSET:COST:FFE",
+    "target_account_name": "Furniture, Fixture and Equipment",
+    "status": "CORE",
+    "legacy_family_count": "6",
+    "legacy_detail_rows": "84",
+    "dimensions": "asset_id, asset_class_id, associated_site_id",
+    "evidence_required": "Asset register, useful-life policy and GL reconciliation."
+  },
+  {
+    "target_key": "ASSET:COST:LAND",
+    "target_account_name": "Tanah Hak Milik",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "asset_id, asset_class_id, associated_site_id",
+    "evidence_required": "Asset register, useful-life policy and GL reconciliation."
+  },
+  {
+    "target_key": "ASSET:COST:MACHINE",
+    "target_account_name": "Mesin dan Peralatan",
+    "status": "CORE",
+    "legacy_family_count": "4",
+    "legacy_detail_rows": "56",
+    "dimensions": "asset_id, asset_class_id, associated_site_id",
+    "evidence_required": "Asset register, useful-life policy and GL reconciliation."
+  },
+  {
+    "target_key": "ASSET:COST:ME",
+    "target_account_name": "Instalasi Mekanikal dan Elektrikal",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "asset_id, asset_class_id, associated_site_id",
+    "evidence_required": "Asset register, useful-life policy and GL reconciliation."
+  },
+  {
+    "target_key": "ASSET:COST:OE",
+    "target_account_name": "Operating Equipment",
+    "status": "CORE",
+    "legacy_family_count": "36",
+    "legacy_detail_rows": "504",
+    "dimensions": "asset_id, asset_class_id, associated_site_id",
+    "evidence_required": "Asset register, useful-life policy and GL reconciliation."
+  },
+  {
+    "target_key": "ASSET:COST:VEHICLE",
+    "target_account_name": "Kendaraan",
+    "status": "CORE",
+    "legacy_family_count": "2",
+    "legacy_detail_rows": "28",
+    "dimensions": "asset_id, asset_class_id, associated_site_id",
+    "evidence_required": "Asset register, useful-life policy and GL reconciliation."
+  },
+  {
+    "target_key": "ASSET:EXP:BUILDING",
+    "target_account_name": "Beban Penyusutan/Amortisasi Bangunan",
+    "status": "CORE",
+    "legacy_family_count": "4",
+    "legacy_detail_rows": "56",
+    "dimensions": "asset_id, asset_class_id, associated_site_id",
+    "evidence_required": "Asset register, useful-life policy and GL reconciliation."
+  },
+  {
+    "target_key": "ASSET:EXP:FFE",
+    "target_account_name": "Beban Penyusutan/Amortisasi Furniture, Fixture and Equipment",
+    "status": "CORE",
+    "legacy_family_count": "6",
+    "legacy_detail_rows": "84",
+    "dimensions": "asset_id, asset_class_id, associated_site_id",
+    "evidence_required": "Asset register, useful-life policy and GL reconciliation."
+  },
+  {
+    "target_key": "ASSET:EXP:MACHINE",
+    "target_account_name": "Beban Penyusutan/Amortisasi Mesin dan Peralatan",
+    "status": "CORE",
+    "legacy_family_count": "4",
+    "legacy_detail_rows": "56",
+    "dimensions": "asset_id, asset_class_id, associated_site_id",
+    "evidence_required": "Asset register, useful-life policy and GL reconciliation."
+  },
+  {
+    "target_key": "ASSET:EXP:ME",
+    "target_account_name": "Beban Penyusutan/Amortisasi Instalasi Mekanikal dan Elektrikal",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "asset_id, asset_class_id, associated_site_id",
+    "evidence_required": "Asset register, useful-life policy and GL reconciliation."
+  },
+  {
+    "target_key": "ASSET:EXP:SOFTWARE",
+    "target_account_name": "Beban Penyusutan/Amortisasi Software",
+    "status": "CORE",
+    "legacy_family_count": "6",
+    "legacy_detail_rows": "84",
+    "dimensions": "asset_id, asset_class_id, associated_site_id",
+    "evidence_required": "Asset register, useful-life policy and GL reconciliation."
+  },
+  {
+    "target_key": "ASSET:EXP:VEHICLE",
+    "target_account_name": "Beban Penyusutan/Amortisasi Kendaraan",
+    "status": "CORE",
+    "legacy_family_count": "2",
+    "legacy_detail_rows": "28",
+    "dimensions": "asset_id, asset_class_id, associated_site_id",
+    "evidence_required": "Asset register, useful-life policy and GL reconciliation."
+  },
+  {
+    "target_key": "BANK:DEPOSIT",
+    "target_account_name": "Deposito Berjangka",
+    "status": "CORE",
+    "legacy_family_count": "4",
+    "legacy_detail_rows": "17",
+    "dimensions": "bank_account_id, associated_site_id",
+    "evidence_required": "Bank master and reconciliation; deposit maturity/restriction schedule."
+  },
+  {
+    "target_key": "BANK:GIRO",
+    "target_account_name": "Bank - Giro",
+    "status": "CORE",
+    "legacy_family_count": "5",
+    "legacy_detail_rows": "70",
+    "dimensions": "bank_account_id, associated_site_id",
+    "evidence_required": "Bank master and reconciliation; deposit maturity/restriction schedule."
+  },
+  {
+    "target_key": "BANK:SAVINGS",
+    "target_account_name": "Bank - Tabungan",
+    "status": "CORE",
+    "legacy_family_count": "5",
+    "legacy_detail_rows": "70",
+    "dimensions": "bank_account_id, associated_site_id",
+    "evidence_required": "Bank master and reconciliation; deposit maturity/restriction schedule."
+  },
+  {
+    "target_key": "CASH:1011001001",
+    "target_account_name": "CASH ON HAND",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "cash_location_id, site_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "CASH:1011001002",
+    "target_account_name": "PETTY CASH",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "cash_location_id, site_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "CASH:1011001003",
+    "target_account_name": "MODAL KASIR",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "cash_location_id, site_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "COGS:INVENTORY_DAMAGE",
+    "target_account_name": "Biaya Kerusakan/Kehilangan Persediaan",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "item_id, reason_code, document_id, cost_center",
+    "evidence_required": "Allowance policy and postings."
+  },
+  {
+    "target_key": "CONTRA:DISCOUNT",
+    "target_account_name": "Discount / Potongan Penjualan",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "adjustment_type, return_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "CONTRA:RETURN",
+    "target_account_name": "Retur Penjualan",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "adjustment_type, return_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "EQUITY:CAPITAL",
+    "target_account_name": "Modal Disetor",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "owner_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "EQUITY:DRAW",
+    "target_account_name": "Prive/Penarikan Pemilik",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "owner_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "EQUITY:RETAINED",
+    "target_account_name": "Saldo Laba",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "period_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "FINEXP:BANK",
+    "target_account_name": "Beban Bunga Pinjaman Bank",
+    "status": "CORE",
+    "legacy_family_count": "6",
+    "legacy_detail_rows": "84",
+    "dimensions": "facility_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "FINEXP:LEASE",
+    "target_account_name": "Beban Bunga Leasing",
+    "status": "CORE",
+    "legacy_family_count": "2",
+    "legacy_detail_rows": "28",
+    "dimensions": "facility_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "INV:BAGS",
+    "target_account_name": "Persediaan Kantong Belanja",
+    "status": "CORE",
+    "legacy_family_count": "10",
+    "legacy_detail_rows": "140",
+    "dimensions": "item_id, material, size, warehouse_id",
+    "evidence_required": "Recognition, valuation, counting and issue policy."
+  },
+  {
+    "target_key": "INV:MERCH",
+    "target_account_name": "Persediaan Barang Dagangan",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "item_id, warehouse_id, site_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "INV_TRANSIT:BAGS",
+    "target_account_name": "Kantong Belanja dalam Perjalanan",
+    "status": "CORE",
+    "legacy_family_count": "14",
+    "legacy_detail_rows": "196",
+    "dimensions": "shipment_id, origin_site_id, destination_site_id",
+    "evidence_required": "Ownership cut-off and shipment reconciliation."
+  },
+  {
+    "target_key": "INV_TRANSIT:MERCH",
+    "target_account_name": "Barang Dagangan dalam Perjalanan",
+    "status": "CORE",
+    "legacy_family_count": "14",
+    "legacy_detail_rows": "196",
+    "dimensions": "shipment_id, origin_site_id, destination_site_id",
+    "evidence_required": "Ownership cut-off and shipment reconciliation."
+  },
+  {
+    "target_key": "LIAB:CUSTOMER_ADVANCE",
+    "target_account_name": "Uang Muka Penjualan",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "1",
+    "dimensions": "customer_id, voucher_id, order_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "LIAB:OTHER",
+    "target_account_name": "Hutang Lain-lain",
+    "status": "CORE",
+    "legacy_family_count": "14",
+    "legacy_detail_rows": "196",
+    "dimensions": "liability_type, party_id, site_id",
+    "evidence_required": "Aging, party, document and balance reconciliation."
+  },
+  {
+    "target_key": "LIAB:OUTSTANDING_GIRO",
+    "target_account_name": "Outstanding Giro",
+    "status": "CORE",
+    "legacy_family_count": "5",
+    "legacy_detail_rows": "70",
+    "dimensions": "bank_account_id, instrument_id",
+    "evidence_required": "Issue, clearing and cancellation lifecycle reconciliation."
+  },
+  {
+    "target_key": "LOAN:BANK",
+    "target_account_name": "Pinjaman Bank",
+    "status": "CORE",
+    "legacy_family_count": "5",
+    "legacy_detail_rows": "70",
+    "dimensions": "bank_account_id, facility_id, maturity_schedule_id, cost_center",
+    "evidence_required": "Maturity schedule reconciliation."
+  },
+  {
+    "target_key": "OPEX:6010110001",
+    "target_account_name": "Biaya Customer Supplies",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "expense_type, party_id, contract_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "OPEX:6010110002",
+    "target_account_name": "Biaya Credit Card",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "expense_type, party_id, contract_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "OPEX:6010110003",
+    "target_account_name": "Biaya Promosi",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "expense_type, party_id, contract_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "OPEX:6010110004",
+    "target_account_name": "Biaya Dekorasi",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "expense_type, party_id, contract_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "OPEX:6010110005",
+    "target_account_name": "Biaya Advertising / Iklan",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "expense_type, party_id, contract_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "OPEX:6010110006",
+    "target_account_name": "Biaya Bongkar Muat Barang",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "expense_type, party_id, contract_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "OPEX:6010110007",
+    "target_account_name": "Biaya Pengiriman Barang/kurir/Ekspedisi",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "expense_type, party_id, contract_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "OPEX:6010310001",
+    "target_account_name": "Biaya Kebersihan (Cleaning)",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "expense_type, party_id, contract_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "OPEX:6010310002",
+    "target_account_name": "Alat Tulis Kantor & Barang Cetakan",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "expense_type, party_id, contract_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "OPEX:6010310003",
+    "target_account_name": "Biaya Rumah Tangga",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "expense_type, party_id, contract_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "OPEX:6010310004",
+    "target_account_name": "Biaya Bank HO",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "expense_type, party_id, contract_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "OPEX:6010310005",
+    "target_account_name": "Biaya Telephone,Facsimile, Modem",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "expense_type, party_id, contract_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "OPEX:6010310006",
+    "target_account_name": "Biaya Pemakaian Listrik",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "expense_type, party_id, contract_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "OPEX:6010310007",
+    "target_account_name": "Biaya Pemakaian Air Bersih (PDAM)",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "expense_type, party_id, contract_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "OPEX:6010310008",
+    "target_account_name": "Biaya Perjalanan Dinas",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "expense_type, party_id, contract_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "OPEX:6010310009",
+    "target_account_name": "Biaya Lokal Transport",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "expense_type, party_id, contract_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "OPEX:6010310010",
+    "target_account_name": "Biaya Perijinan",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "expense_type, party_id, contract_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "OPEX:6010310011",
+    "target_account_name": "Computer Expenses",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "expense_type, party_id, contract_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "OPEX:6010310012",
+    "target_account_name": "Biaya Penyisihan Kerugian Piutang",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "expense_type, party_id, contract_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "OPEX:6010310013",
+    "target_account_name": "Biaya Perlengkapan Toko dan Kantor",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "expense_type, party_id, contract_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "OPEX:6010310014",
+    "target_account_name": "Biaya Stock Opname",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "expense_type, party_id, contract_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "OPEX:6010310015",
+    "target_account_name": "Biaya Peralatan Listrik",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "expense_type, party_id, contract_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "OPEX:6010310016",
+    "target_account_name": "Tire & Tubes  Expences",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "expense_type, party_id, contract_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "OPEX:6010310017",
+    "target_account_name": "F u e l  & O I l  Expences",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "expense_type, party_id, contract_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "OPEX:6010310018",
+    "target_account_name": "T o o l s (Peralatan) Ekspences",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "expense_type, party_id, contract_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "OPEX:6010310019",
+    "target_account_name": "Biaya Lubrication & Grease, Bahan Bakar Genset",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "expense_type, party_id, contract_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "OPEX:6010310020",
+    "target_account_name": "Biaya Telephone Equipment",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "expense_type, party_id, contract_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "OPEX:6010310021",
+    "target_account_name": "Biaya Donasi (CSR, Zakat)",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "expense_type, party_id, contract_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "OPEX:6010310022",
+    "target_account_name": "Biaya Konsultan",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "expense_type, party_id, contract_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "OPEX:6010310023",
+    "target_account_name": "Biaya Lisensi Kendaraan ( STNK, Uji Kir)",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "expense_type, party_id, contract_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "OPEX:6010310024",
+    "target_account_name": "Biaya Perlengkapan Mess atau Rumah Dinas",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "expense_type, party_id, contract_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "OPEX:6010310099",
+    "target_account_name": "Miscellaneous Expences",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "expense_type, party_id, contract_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "OPEX:7010310001",
+    "target_account_name": "Property All Risk & Fire Insurance",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "expense_type, party_id, contract_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "OPEX:7010310002",
+    "target_account_name": "Biaya Pajak Bumi Dan Bangunan  (PBB)",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "expense_type, party_id, contract_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "OPEX:7020310003",
+    "target_account_name": "Biaya Pajak Reklame",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "expense_type, party_id, contract_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "OPEX:7020310004",
+    "target_account_name": "Biaya Management FEE",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "expense_type, party_id, contract_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "OPEX:7020310005",
+    "target_account_name": "Biaya Asuransi Kendaraan",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "expense_type, party_id, contract_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "OPEX:PHYSICAL_MAINT",
+    "target_account_name": "Beban Perbaikan dan Pemeliharaan",
+    "status": "CORE",
+    "legacy_family_count": "9",
+    "legacy_detail_rows": "126",
+    "dimensions": "asset_id, asset_class_id, work_order_id",
+    "evidence_required": "Capitalization control and management-report reconciliation."
+  },
+  {
+    "target_key": "OPEX:SOFTWARE_MAINT",
+    "target_account_name": "Beban Pemeliharaan Software",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "software_id, contract_id",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "PAYROLL:01",
+    "target_account_name": "Beban Gaji",
+    "status": "CORE",
+    "legacy_family_count": "2",
+    "legacy_detail_rows": "28",
+    "dimensions": "payroll_component, employee_id, function_id, cost_center_id",
+    "evidence_required": "Payroll/statutory and old-report reconciliation."
+  },
+  {
+    "target_key": "PAYROLL:02",
+    "target_account_name": "Beban Lembur",
+    "status": "CORE",
+    "legacy_family_count": "2",
+    "legacy_detail_rows": "28",
+    "dimensions": "payroll_component, employee_id, function_id, cost_center_id",
+    "evidence_required": "Payroll/statutory and old-report reconciliation."
+  },
+  {
+    "target_key": "PAYROLL:03",
+    "target_account_name": "Beban Uang Makan",
+    "status": "CORE",
+    "legacy_family_count": "2",
+    "legacy_detail_rows": "28",
+    "dimensions": "payroll_component, employee_id, function_id, cost_center_id",
+    "evidence_required": "Payroll/statutory and old-report reconciliation."
+  },
+  {
+    "target_key": "PAYROLL:04",
+    "target_account_name": "Beban Transport",
+    "status": "CORE",
+    "legacy_family_count": "2",
+    "legacy_detail_rows": "28",
+    "dimensions": "payroll_component, employee_id, function_id, cost_center_id",
+    "evidence_required": "Payroll/statutory and old-report reconciliation."
+  },
+  {
+    "target_key": "PAYROLL:05",
+    "target_account_name": "Beban Kesehatan dan Pengobatan",
+    "status": "CORE",
+    "legacy_family_count": "2",
+    "legacy_detail_rows": "28",
+    "dimensions": "payroll_component, employee_id, function_id, cost_center_id",
+    "evidence_required": "Payroll/statutory and old-report reconciliation."
+  },
+  {
+    "target_key": "PAYROLL:06",
+    "target_account_name": "Beban Asuransi Pegawai / BPJS",
+    "status": "CORE",
+    "legacy_family_count": "2",
+    "legacy_detail_rows": "28",
+    "dimensions": "payroll_component, employee_id, function_id, cost_center_id",
+    "evidence_required": "Payroll/statutory and old-report reconciliation."
+  },
+  {
+    "target_key": "PAYROLL:07",
+    "target_account_name": "Beban THR",
+    "status": "CORE",
+    "legacy_family_count": "2",
+    "legacy_detail_rows": "28",
+    "dimensions": "payroll_component, employee_id, function_id, cost_center_id",
+    "evidence_required": "Payroll/statutory and old-report reconciliation."
+  },
+  {
+    "target_key": "PAYROLL:08",
+    "target_account_name": "Beban Seragam Kerja",
+    "status": "CORE",
+    "legacy_family_count": "2",
+    "legacy_detail_rows": "28",
+    "dimensions": "payroll_component, employee_id, function_id, cost_center_id",
+    "evidence_required": "Payroll/statutory and old-report reconciliation."
+  },
+  {
+    "target_key": "PAYROLL:09",
+    "target_account_name": "Beban Sport dan Rekreasi",
+    "status": "CORE",
+    "legacy_family_count": "2",
+    "legacy_detail_rows": "28",
+    "dimensions": "payroll_component, employee_id, function_id, cost_center_id",
+    "evidence_required": "Payroll/statutory and old-report reconciliation."
+  },
+  {
+    "target_key": "PAYROLL:10",
+    "target_account_name": "Beban Funeral Contribution",
+    "status": "CORE",
+    "legacy_family_count": "2",
+    "legacy_detail_rows": "28",
+    "dimensions": "payroll_component, employee_id, function_id, cost_center_id",
+    "evidence_required": "Payroll/statutory and old-report reconciliation."
+  },
+  {
+    "target_key": "PAYROLL:11",
+    "target_account_name": "Beban Pengembangan SDM",
+    "status": "CORE",
+    "legacy_family_count": "2",
+    "legacy_detail_rows": "28",
+    "dimensions": "payroll_component, employee_id, function_id, cost_center_id",
+    "evidence_required": "Payroll/statutory and old-report reconciliation."
+  },
+  {
+    "target_key": "PAYROLL:12",
+    "target_account_name": "Beban Pesangon",
+    "status": "CORE",
+    "legacy_family_count": "2",
+    "legacy_detail_rows": "28",
+    "dimensions": "payroll_component, employee_id, function_id, cost_center_id",
+    "evidence_required": "Payroll/statutory and old-report reconciliation."
+  },
+  {
+    "target_key": "PAYROLL:13",
+    "target_account_name": "Beban Komisi / Bonus / Insentif",
+    "status": "CORE",
+    "legacy_family_count": "2",
+    "legacy_detail_rows": "28",
+    "dimensions": "payroll_component, employee_id, function_id, cost_center_id",
+    "evidence_required": "Payroll/statutory and old-report reconciliation."
+  },
+  {
+    "target_key": "PREPAID:GENERAL",
+    "target_account_name": "Biaya Dibayar Dimuka",
+    "status": "CORE",
+    "legacy_family_count": "5",
+    "legacy_detail_rows": "70",
+    "dimensions": "prepaid_type, contract_id, schedule_id",
+    "evidence_required": "Contract, recognition and amortization reconciliation."
+  },
+  {
+    "target_key": "PREPAID:RENT",
+    "target_account_name": "Sewa Dibayar Dimuka",
+    "status": "CORE",
+    "legacy_family_count": "4",
+    "legacy_detail_rows": "56",
+    "dimensions": "prepaid_type, contract_id, schedule_id",
+    "evidence_required": "Contract, recognition and amortization reconciliation."
+  },
+  {
+    "target_key": "REV:4020110001",
+    "target_account_name": "Management  Fee",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "income_type",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "REV:600104",
+    "target_account_name": "Pendapatan lain-lain",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "1",
+    "dimensions": "income_type",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "REV:8010110001",
+    "target_account_name": "Pendapatan Bunga Bank",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "income_type",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "REV:MERCH_SALES",
+    "target_account_name": "Penjualan Barang Dagangan",
+    "status": "CORE",
+    "legacy_family_count": "9",
+    "legacy_detail_rows": "126",
+    "dimensions": "channel_id, tender_type, acquirer_id",
+    "evidence_required": "Marketplace gross/net, fees, returns and settlement reconciliation."
+  },
+  {
+    "target_key": "REV:RENTAL",
+    "target_account_name": "Pendapatan Sewa",
+    "status": "CORE",
+    "legacy_family_count": "2",
+    "legacy_detail_rows": "28",
+    "dimensions": "leased_object_type, contract_id",
+    "evidence_required": "Contract, tax and reporting alignment."
+  },
+  {
+    "target_key": "ROUNDING",
+    "target_account_name": "Selisih Pembulatan",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "transaction_type",
+    "evidence_required": ""
+  },
+  {
+    "target_key": "TAX_ASSET:INCOME",
+    "target_account_name": "Kredit/Pajak Penghasilan Dibayar Dimuka",
+    "status": "CORE",
+    "legacy_family_count": "3",
+    "legacy_detail_rows": "42",
+    "dimensions": "tax_code, tax_period",
+    "evidence_required": "Tax return and recoverability reconciliation."
+  },
+  {
+    "target_key": "TAX_ASSET:INPUT_VAT",
+    "target_account_name": "PPN Masukan",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "tax_code, tax_period",
+    "evidence_required": "Tax return and recoverability reconciliation."
+  },
+  {
+    "target_key": "TAX_ASSET:OTHER",
+    "target_account_name": "Pajak Lain Dibayar Dimuka",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "tax_code, tax_period",
+    "evidence_required": "Tax return and recoverability reconciliation."
+  },
+  {
+    "target_key": "TAX_ASSET:PBB",
+    "target_account_name": "PBB Dibayar Dimuka",
+    "status": "CORE",
+    "legacy_family_count": "1",
+    "legacy_detail_rows": "14",
+    "dimensions": "tax_code, tax_period",
+    "evidence_required": "Tax return and recoverability reconciliation."
+  },
+  {
+    "target_key": "TAX_LIAB:PAYABLE",
+    "target_account_name": "Hutang Pajak",
+    "status": "CORE",
+    "legacy_family_count": "5",
+    "legacy_detail_rows": "70",
+    "dimensions": "tax_code, tax_period",
+    "evidence_required": "Statutory return, due-date and payment reconciliation."
+  },
+  {
+    "target_key": "AFFIL:FUNDING",
+    "target_account_name": "Saldo Affiliasi Pembiayaan",
+    "status": "CORE",
+    "legacy_family_count": "",
+    "legacy_detail_rows": "",
+    "dimensions": "cost_center, funding_document_id",
+    "evidence_required": "Piutang/Hutang Affiliasi Pembiayaan"
+  },
+  {
+    "target_key": "AFFIL:GOODS",
+    "target_account_name": "Saldo Affiliasi Atas Barang",
+    "status": "CORE",
+    "legacy_family_count": "",
+    "legacy_detail_rows": "",
+    "dimensions": "cost_center, transfer_document_id",
+    "evidence_required": "Piutang/Hutang Affiliasi Atas Barang"
+  },
+  {
+    "target_key": "AFFIL:OTHER",
+    "target_account_name": "Saldo Affiliasi Lain-lain",
+    "status": "CORE",
+    "legacy_family_count": "",
+    "legacy_detail_rows": "",
+    "dimensions": "cost_center, document_id, reason_code",
+    "evidence_required": "Piutang Affiliasi Lain-lain"
+  },
+  {
+    "target_key": "INTANGIBLE:SOFTWARE_COST",
+    "target_account_name": "Software / Intangible Asset",
+    "status": "CORE",
+    "legacy_family_count": "",
+    "legacy_detail_rows": "",
+    "dimensions": "asset_id, software_id, cost_center",
+    "evidence_required": "Software; Seventh Soft; Opti Tex"
+  },
+  {
+    "target_key": "INTANGIBLE:SOFTWARE_ACCUM",
+    "target_account_name": "Akumulasi Amortisasi Software",
+    "status": "CORE",
+    "legacy_family_count": "",
+    "legacy_detail_rows": "",
+    "dimensions": "asset_id, software_id, cost_center",
+    "evidence_required": "Acc Amort Software"
+  },
+  {
+    "target_key": "COGS:HPP",
+    "target_account_name": "Harga Pokok Pembelian / HPP",
+    "status": "CORE",
+    "legacy_family_count": "",
+    "legacy_detail_rows": "",
+    "dimensions": "item_id, division_id, cost_center",
+    "evidence_required": "Harga Pokok Pembelian 5010110001"
+  },
+  {
+    "target_key": "CONTRA:PURCHASE_DISCOUNT",
+    "target_account_name": "Potongan Pembelian",
+    "status": "CORE",
+    "legacy_family_count": "",
+    "legacy_detail_rows": "",
+    "dimensions": "supplier_id, invoice_id, item_id, cost_center",
+    "evidence_required": "Potongan Pembelian 8010110003"
+  },
+  {
+    "target_key": "ASSET:CIP",
+    "target_account_name": "Contract in Progress (CIP)",
+    "status": "CORE",
+    "legacy_family_count": "",
+    "legacy_detail_rows": "",
+    "dimensions": "project_id, asset_id, cost_center",
+    "evidence_required": "Contract In Progress 1031803001"
+  },
+  {
+    "target_key": "LOAN:PRINCIPAL",
+    "target_account_name": "Pinjaman Principal",
+    "status": "CORE",
+    "legacy_family_count": "",
+    "legacy_detail_rows": "",
+    "dimensions": "principal_id, facility_id, maturity_schedule_id, cost_center",
+    "evidence_required": "PJP Principal; Pinjaman Jangka Panjang Principal"
+  },
+  {
+    "target_key": "LIAB:PRINCIPAL_OTHER",
+    "target_account_name": "Hutang Principal / Pihak Berelasi",
+    "status": "CORE",
+    "legacy_family_count": "",
+    "legacy_detail_rows": "",
+    "dimensions": "principal_id, document_id, cost_center",
+    "evidence_required": "Hutang Lain-lain Principal"
+  },
+  {
+    "target_key": "TAX:INCOME_EXPENSE",
+    "target_account_name": "Pajak Penghasilan / Beban Pajak Kini",
+    "status": "CORE",
+    "legacy_family_count": "",
+    "legacy_detail_rows": "",
+    "dimensions": "tax_code, tax_period, cost_center",
+    "evidence_required": "Current Tax Inc/Exp PPh Pasal 25 8030112001"
+  },
+  {
+    "target_key": "MIXED:OTHER",
+    "target_account_name": "Pendapatan (Biaya) Lain-lain",
+    "status": "CORE",
+    "legacy_family_count": "",
+    "legacy_detail_rows": "",
+    "dimensions": "reason_code, source_document_id, cost_center",
+    "evidence_required": "Pendapatan (Biaya) Lain-Lain 8010110007"
+  },
+  {
+    "target_key": "INV:DISPOSED",
+    "target_account_name": "Disposed Inventory",
+    "status": "CORE",
+    "legacy_family_count": "",
+    "legacy_detail_rows": "",
+    "dimensions": "item_id, disposal_document_id, reason_code, cost_center",
+    "evidence_required": "Disposed Inventory 1031801001"
+  },
+  {
+    "target_key": "OPEX:REPLACEMENT_OE",
+    "target_account_name": "Biaya Replacement OE",
+    "status": "CORE",
+    "legacy_family_count": "",
+    "legacy_detail_rows": "",
+    "dimensions": "asset_id, oe_type, reason_code, cost_center",
+    "evidence_required": "Biaya Replacement OE families"
+  },
+  {
+    "target_key": "LAND:HGB_COST",
+    "target_account_name": "Hak Sewa Tanah / HGB",
+    "status": "CORE",
+    "legacy_family_count": "",
+    "legacy_detail_rows": "",
+    "dimensions": "facility_id, contract_id, cost_center",
+    "evidence_required": "Hak Sewa Tanah/HGB 1021501002"
+  },
+  {
+    "target_key": "LAND:HGB_ACCUM",
+    "target_account_name": "Akumulasi Amortisasi Land Right / HGB",
+    "status": "CORE",
+    "legacy_family_count": "",
+    "legacy_detail_rows": "",
+    "dimensions": "facility_id, contract_id, cost_center",
+    "evidence_required": "Acc Land Right/HGB 1021601002"
+  },
+  {
+    "target_key": "LAND:HGB_EXPENSE",
+    "target_account_name": "Biaya Land Right",
+    "status": "CORE",
+    "legacy_family_count": "",
+    "legacy_detail_rows": "",
+    "dimensions": "facility_id, contract_id, cost_center",
+    "evidence_required": "Biaya Land Right 7010110002"
+  },
+  {
+    "target_key": "OPEX:LAND_RENT",
+    "target_account_name": "Biaya Sewa Tanah",
+    "status": "CORE",
+    "legacy_family_count": "",
+    "legacy_detail_rows": "",
+    "dimensions": "facility_id, contract_id, cost_center",
+    "evidence_required": "Biaya Sewa Tanah 7010110001"
+  },
+  {
+    "target_key": "OPEX:STORE_RENT",
+    "target_account_name": "Biaya Sewa Bangunan Toko dan Gudang",
+    "status": "CORE",
+    "legacy_family_count": "",
+    "legacy_detail_rows": "",
+    "dimensions": "facility_id, contract_id, cost_center",
+    "evidence_required": "Biaya Sewa Bangunan Toko/Gudang 7010110003"
+  },
+  {
+    "target_key": "OPEX:MESS_RENT",
+    "target_account_name": "Biaya Sewa Rumah Dinas / Mess",
+    "status": "CORE",
+    "legacy_family_count": "",
+    "legacy_detail_rows": "",
+    "dimensions": "facility_id, contract_id, cost_center",
+    "evidence_required": "Biaya Sewa Rumah Dinas/Mess 7010110004"
+  },
+  {
+    "target_key": "PREOPEN:COST",
+    "target_account_name": "Pre Opening",
+    "status": "CORE",
+    "legacy_family_count": "",
+    "legacy_detail_rows": "",
+    "dimensions": "project_id, opening_id, cost_center",
+    "evidence_required": "Pre Opening 1031802001"
+  },
+  {
+    "target_key": "PREOPEN:ACCUM",
+    "target_account_name": "Akumulasi Amortisasi Pre Opening",
+    "status": "CORE",
+    "legacy_family_count": "",
+    "legacy_detail_rows": "",
+    "dimensions": "project_id, opening_id, cost_center",
+    "evidence_required": "Acc Amort Pre Opening 1031802002"
+  },
+  {
+    "target_key": "PREOPEN:EXPENSE",
+    "target_account_name": "Biaya Amortisasi Pre Opening",
+    "status": "CORE",
+    "legacy_family_count": "",
+    "legacy_detail_rows": "",
+    "dimensions": "project_id, opening_id, cost_center",
+    "evidence_required": "Biaya Amortisasi Pre Opening 7010216002"
+  }
+]

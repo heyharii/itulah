@@ -153,6 +153,29 @@ private const val Tnum = "tnum"
  */
 object Type {
     /** The one figure a screen is about. Exactly one per screen. */
+    /**
+     * The scanning figure, read at arm's length with a garment in the other
+     * hand. Tabular figures are not a nicety here: without them every digit
+     * that rolls changes the width of the number, and a total that shifts
+     * sideways five times a second reads as a fault rather than as counting.
+     */
+    val display = TextStyle(
+        fontSize = 76.sp, lineHeight = 82.sp, fontWeight = FontWeight.SemiBold,
+        letterSpacing = (-2).sp, fontFeatureSettings = "tnum",
+    )
+
+    /** The same figure where six digits will not fit. */
+    val displayTight = TextStyle(
+        fontSize = 54.sp, lineHeight = 60.sp, fontWeight = FontWeight.SemiBold,
+        letterSpacing = (-1.5f).sp, fontFeatureSettings = "tnum",
+    )
+
+    /** The counters beneath it: smaller, still readable without stopping. */
+    val counter = TextStyle(
+        fontSize = 26.sp, lineHeight = 30.sp, fontWeight = FontWeight.SemiBold,
+        letterSpacing = (-0.4f).sp, fontFeatureSettings = "tnum",
+    )
+
     val total = TextStyle(fontSize = 32.sp, lineHeight = 35.sp, fontWeight = FontWeight.SemiBold,
         letterSpacing = (-0.025).em, fontFeatureSettings = Tnum)
 

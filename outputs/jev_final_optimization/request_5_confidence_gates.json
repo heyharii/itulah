@@ -1,0 +1,58 @@
+{
+  "model": "jev-latest",
+  "state": {
+    "objective": "Resolve two remaining below-0.95 confidence claims using new concrete evidence. Do not claim functionality that has not been tested.",
+    "facts": [
+      "The 225 working design contains 58 target accounts classified RETAIN because they represent distinct natural-account natures under the completed domain reviews.",
+      "Reducing the entire design to 30 would require eliminating or merging at least 28 of those 58 RETAIN accounts before considering any conditional or unresolved accounts.",
+      "No completed review supports merging those 58 retained natures into 30 or fewer accounts.",
+      "The current family register identifies which dimension types are required for each mapping but does not yet contain a tested row-level set of concrete dimension values for every possible new transaction.",
+      "Therefore unique reverse mapping of every future transaction has not been operationally proven.",
+      "A future implementation can enforce a unique key over target_account_id plus the required dimension values and effective date, then test representative and boundary transactions against expected legacy codes."
+    ]
+  },
+  "questions": {
+    "thirty_conflict_with_retain": {
+      "type": "choice",
+      "instructions": "Is a 30-account target currently unsupported when 58 distinct natural-account targets are already classified RETAIN and no evidence supports merging them?",
+      "criteria": {
+        "yes": "Thirty conflicts with the retained-nature decisions and would require unsupported mergers.",
+        "no": "Thirty is supported without changing any retained nature."
+      }
+    },
+    "thirty_go_live": {
+      "type": "choice",
+      "instructions": "Should a 30-account configuration be rejected for go-live under the current evidence?",
+      "criteria": {
+        "yes": "Use the evidence-aware working design instead.",
+        "no": "Deploy 30 despite the 58 retained targets."
+      }
+    },
+    "reverse_mapping_current": {
+      "type": "choice",
+      "instructions": "Has unique reverse mapping for every future transaction been proven by the current register?",
+      "criteria": {
+        "no": "Required dimension types are documented, but concrete keys and transaction tests are not yet complete.",
+        "yes": "Dimension labels alone prove operational uniqueness."
+      }
+    },
+    "reverse_mapping_gate": {
+      "type": "choice",
+      "instructions": "What must happen before unique reverse mapping can be relied upon?",
+      "criteria": {
+        "implement_test": "Define concrete dimension values, enforce uniqueness/effective dates, and pass transaction-level mapping tests without ambiguous or missing matches.",
+        "assume": "Assume uniqueness from the proposed architecture.",
+        "random": "Resolve ambiguous matches randomly."
+      }
+    },
+    "safe_reporting_claim": {
+      "type": "choice",
+      "instructions": "Which claim is safe now?",
+      "criteria": {
+        "historical_yes_future_conditional": "Original historical legacy reports remain available; reverse mapping of new transactions is conditional on implementing and passing the uniqueness gate.",
+        "all_proven": "Both historical and future reverse mapping are already fully proven.",
+        "none": "Historical legacy reporting is impossible."
+      }
+    }
+  }
+}

@@ -1,0 +1,121 @@
+{
+  "model": "jev-latest",
+  "state": {
+    "confirmed_facts": [
+      "Centralized retail finance. Each unit actually has associated bank accounts, but only HO staff can view/access/operate bank accounts; unit staff cannot. HO also has its own accounts.",
+      "Units handle physical sales cash, petty cash and cashier float. No direct unit-to-unit transactions.",
+      "After stripping E1 location suffix, baseline is 499 account families, including six non-E1 leaves.",
+      "We are evaluating ONLY removing bank institution/account identity within the 14 listed bank/deposit families. All other 485 families remain unchanged.",
+      "No transaction balances, actual account numbers, deposit maturities, restrictions, legal entity ownership or bank master provided. COA repetitions do not establish actual bank accounts."
+    ],
+    "actual_bank_families": [
+      {
+        "code": "1011002001",
+        "name": "Cash In Bank Giro Bank BCA",
+        "legacy_rows": 14
+      },
+      {
+        "code": "1011002002",
+        "name": "Cash In Bank Giro Bank MANDIRI",
+        "legacy_rows": 14
+      },
+      {
+        "code": "1011002003",
+        "name": "Cash In Bank Giro Bank BRI",
+        "legacy_rows": 14
+      },
+      {
+        "code": "1011002004",
+        "name": "Cash In Bank Giro Bank BNI",
+        "legacy_rows": 14
+      },
+      {
+        "code": "1011002005",
+        "name": "Cash In Bank Giro Bank DANAMON",
+        "legacy_rows": 14
+      },
+      {
+        "code": "1011003001",
+        "name": "Cash In Bank Tabungan Bank BCA",
+        "legacy_rows": 14
+      },
+      {
+        "code": "1011003002",
+        "name": "Cash In Bank Tabungan Bank Mandiri",
+        "legacy_rows": 14
+      },
+      {
+        "code": "1011003003",
+        "name": "Cash In Bank Tabungan Bank BRI",
+        "legacy_rows": 14
+      },
+      {
+        "code": "1011003004",
+        "name": "Cash In Bank Tabungan Bank BNI",
+        "legacy_rows": 14
+      },
+      {
+        "code": "1011003005",
+        "name": "Cash In Bank Tabungan Bank BTN",
+        "legacy_rows": 14
+      },
+      {
+        "code": "1011004001",
+        "name": "TIME DEPOSIT BANK BCA",
+        "legacy_rows": 14
+      },
+      {
+        "code": "1011004002",
+        "name": "TIME DEPOSIT BANK MANDIRI",
+        "legacy_rows": 1
+      },
+      {
+        "code": "1011004003",
+        "name": "TIME DEPOSIT BANK BRI",
+        "legacy_rows": 1
+      },
+      {
+        "code": "1011004004",
+        "name": "TIME DEPOSIT BANK BNI",
+        "legacy_rows": 1
+      }
+    ],
+    "scope": "Propose bank_account_id master with associated_unit_id and HO-only access. Do not assume centralized access means every bank account belongs to HO. Do not force total chart to 38 or 45."
+  },
+  "questions": {
+    "conservative_boundary": {
+      "type": "choice",
+      "instructions": "Challenge proposal 499->488: only bank names removed, Giro/Tabungan/Time Deposit stay separate. Based on actual supplied information, is this a defensible provisional family count?",
+      "criteria": {
+        "provisional": "Yes provisional; not final GL migration approval; instrument classification may require more groups.",
+        "final": "Yes final with no further checks.",
+        "wrong": "No arithmetic or grouping is wrong."
+      }
+    },
+    "additional_merge": {
+      "type": "choice",
+      "instructions": "Should Giro and Tabungan be merged further now based only on their names?",
+      "criteria": {
+        "defer": "Defer pending reporting/control needs; keep 3 provisional bank families.",
+        "merge": "Merge Giro/Tabungan now into bank balance, keep deposits separate.",
+        "all": "Merge deposits too."
+      }
+    },
+    "bank_records": {
+      "type": "choice",
+      "instructions": "Can all replicated bank COA codes be automatically converted into real bank accounts?",
+      "criteria": {
+        "no": "No, verify actual accounts, active status, account numbers and unit assignment; templates may be unused.",
+        "yes": "Yes each replicated code proves a real account."
+      }
+    },
+    "access": {
+      "type": "choice",
+      "instructions": "Does preserving a unit association on a bank master require granting unit staff access?",
+      "criteria": {
+        "no": "No; association and authorization are independent.",
+        "yes": "Yes."
+      }
+    }
+  }
+}

@@ -45,6 +45,15 @@ const backends = {
     secure: false,
     rewrite: (path: string) => path.replace(/^\/edge/, ""),
   },
+  // The PO import ingest service (services/po-import): the Node process that
+  // parses uploaded documents and asks Jev what is usable. Keys live there,
+  // never here; the prefix is stripped for the same reason /edge's is.
+  "/po-import": {
+    target: process.env.VITE_PO_IMPORT_TARGET ?? "http://127.0.0.1:8094",
+    changeOrigin: true,
+    secure: false,
+    rewrite: (path: string) => path.replace(/^\/po-import/, ""),
+  },
 }
 
 /// Hosts the built surface will answer to.

@@ -7,10 +7,12 @@
  *
  * More in the drawer than the books say is money arriving from nowhere: the
  * drawer is debited and `cash_variance` credited. Less is money gone: the
- * drawer is credited and `cash_variance` debited. Both legs go through
+ * drawer is credited and `cash_shortage` debited. Never a debit to
+ * `cash_variance`: that meaning sits on `4301`, a revenue account, and a
+ * shortage booked there was a cost hiding inside income. Both legs go through
  * `account_map`, so this function names no client account code — and a
- * difference cannot be posted anywhere until somebody has said where
- * `cash_variance` lives at that location.
+ * difference cannot be posted anywhere until somebody has said where the
+ * meaning it needs lives at that location.
  * The decision to post, and the sentence that justifies it.
  */
 export type PostCountRequest = { 

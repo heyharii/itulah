@@ -1,0 +1,159 @@
+{
+  "model": "jev-latest",
+  "state": {
+    "confirmed_facts": [
+      "Centralized retail finance. Each unit actually has associated bank accounts, but only HO staff can view/access/operate bank accounts; unit staff cannot. HO also has its own accounts.",
+      "Units handle physical sales cash, petty cash and cashier float. No direct unit-to-unit transactions.",
+      "After stripping E1 location suffix, baseline is 499 account families, including six non-E1 leaves.",
+      "We are evaluating ONLY removing bank institution/account identity within the 14 listed bank/deposit families. All other 485 families remain unchanged.",
+      "No transaction balances, actual account numbers, deposit maturities, restrictions, legal entity ownership or bank master provided. COA repetitions do not establish actual bank accounts."
+    ],
+    "actual_bank_families": [
+      {
+        "code": "1011002001",
+        "name": "Cash In Bank Giro Bank BCA",
+        "legacy_rows": 14
+      },
+      {
+        "code": "1011002002",
+        "name": "Cash In Bank Giro Bank MANDIRI",
+        "legacy_rows": 14
+      },
+      {
+        "code": "1011002003",
+        "name": "Cash In Bank Giro Bank BRI",
+        "legacy_rows": 14
+      },
+      {
+        "code": "1011002004",
+        "name": "Cash In Bank Giro Bank BNI",
+        "legacy_rows": 14
+      },
+      {
+        "code": "1011002005",
+        "name": "Cash In Bank Giro Bank DANAMON",
+        "legacy_rows": 14
+      },
+      {
+        "code": "1011003001",
+        "name": "Cash In Bank Tabungan Bank BCA",
+        "legacy_rows": 14
+      },
+      {
+        "code": "1011003002",
+        "name": "Cash In Bank Tabungan Bank Mandiri",
+        "legacy_rows": 14
+      },
+      {
+        "code": "1011003003",
+        "name": "Cash In Bank Tabungan Bank BRI",
+        "legacy_rows": 14
+      },
+      {
+        "code": "1011003004",
+        "name": "Cash In Bank Tabungan Bank BNI",
+        "legacy_rows": 14
+      },
+      {
+        "code": "1011003005",
+        "name": "Cash In Bank Tabungan Bank BTN",
+        "legacy_rows": 14
+      },
+      {
+        "code": "1011004001",
+        "name": "TIME DEPOSIT BANK BCA",
+        "legacy_rows": 14
+      },
+      {
+        "code": "1011004002",
+        "name": "TIME DEPOSIT BANK MANDIRI",
+        "legacy_rows": 1
+      },
+      {
+        "code": "1011004003",
+        "name": "TIME DEPOSIT BANK BRI",
+        "legacy_rows": 1
+      },
+      {
+        "code": "1011004004",
+        "name": "TIME DEPOSIT BANK BNI",
+        "legacy_rows": 1
+      }
+    ],
+    "scope": "Propose bank_account_id master with associated_unit_id and HO-only access. Do not assume centralized access means every bank account belongs to HO. Do not force total chart to 38 or 45."
+  },
+  "questions": {
+    "bank_unit_model": {
+      "type": "choice",
+      "instructions": "How should bank association and access be represented given the confirmed facts?",
+      "criteria": {
+        "unit_association_ho_access": "Each bank master retains associated unit; HO-only role permissions govern access separately.",
+        "all_ho": "Associate all bank accounts only with HO because HO controls access.",
+        "unit_access": "Give associated units bank access automatically."
+      }
+    },
+    "merge_institution": {
+      "type": "choice",
+      "instructions": "For the five Giro accounts, is removing bank institution identity reasonable provided each actual bank account retains its own balance and reconciliation?",
+      "criteria": {
+        "merge": "One Giro GL account plus mandatory bank_account_id.",
+        "retain": "Keep separate GL per institution.",
+        "insufficient": "Insufficient evidence even for this conditional design."
+      }
+    },
+    "savings": {
+      "type": "choice",
+      "instructions": "For the five Tabungan families, choose treatment preserving individual bank reconciliation.",
+      "criteria": {
+        "merge": "One Tabungan GL plus bank_account_id.",
+        "retain": "Keep five institution GL accounts.",
+        "review": "Need more evidence."
+      }
+    },
+    "deposits": {
+      "type": "choice",
+      "instructions": "For four Time Deposit institution families, which provisional handling avoids assuming maturity and restriction classifications?",
+      "criteria": {
+        "conditional": "One provisional deposito family with instrument-level records; validate maturity/restriction/reporting before final classification.",
+        "cash": "Merge every deposit into cash equivalents immediately.",
+        "retain": "Keep institution-specific GL solely because banks differ."
+      }
+    },
+    "phase_one_count": {
+      "type": "choice",
+      "instructions": "Which first-stage chart preserves Giro, Tabungan and Time Deposit distinctions while removing only bank institution identity from listed families?",
+      "criteria": {
+        "488": "499 minus 14 plus 3 = 488 families.",
+        "487": "499 minus 14 plus 2 = 487; also merge Giro and Tabungan.",
+        "486": "499 minus 14 plus 1 = 486; also merge deposits.",
+        "499": "No compression."
+      }
+    },
+    "account_master_required": {
+      "type": "choice",
+      "instructions": "What identifies each reconciliation balance?",
+      "criteria": {
+        "real_account": "Actual bank account/instrument identifier, not just bank name or unit.",
+        "bank_name": "Bank institution name alone.",
+        "unit": "Unit alone."
+      }
+    },
+    "payment_attribution": {
+      "type": "choice",
+      "instructions": "HO pays an expense for C002 from a bank account associated with C001. Without asserting this payment is allowed, which design handles the distinction if policy permits it?",
+      "criteria": {
+        "separate": "Bank posting derives cash attribution from bank master; expense unit comes from document/allocation; validate balancing policy.",
+        "same": "Always infer expense unit from paying bank regardless of beneficiary.",
+        "ho": "Always set every journal unit to HO."
+      }
+    },
+    "cost_center": {
+      "type": "choice",
+      "instructions": "Does bank association with a unit automatically establish the cost center for all expenses paid from that account?",
+      "criteria": {
+        "no": "No; funding account association and expense beneficiary can differ.",
+        "yes": "Yes always."
+      }
+    }
+  }
+}

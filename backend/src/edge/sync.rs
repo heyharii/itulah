@@ -2887,6 +2887,23 @@ impl SyncStore for SqliteSyncStore {
 
 // ---- The edge's sync agent ------------------------------------------------
 
+/// The node's base address at head office, stripped of the ingest path.
+///
+/// `SYNC_UPLOAD_URL` is meant to be a BASE — `HttpTransport::new` appends
+/// `/api/v1/sync/ingest` itself — but an operator may have been handed the long
+/// form by a runbook, and a relay that assumed the bare base would post to
+/// `/api/v1/sync/ingest/vouchers/…` and 404 every hold. Accepting both spellings
+/// here keeps that knowledge in one place, shared by the config and the running
+/// handle, instead of two copies that can drift.
+fn cloud_base(upload_url: &str) -> Option<&str> {
+    let trimmed = upload_url.trim().trim_end_matches('/');
+    let base = trimmed
+        .strip_suffix("/api/v1/sync/ingest")
+        .map(|base| base.trim_end_matches('/'))
+        .unwrap_or(trimmed);
+    (!base.is_empty()).then_some(base)
+}
+
 /// Everything an edge needs to talk to its cloud, read from the environment.
 #[derive(Clone, Debug)]
 pub struct EdgeSyncConfig {
@@ -2899,6 +2916,12 @@ pub struct EdgeSyncConfig {
 }
 
 impl EdgeSyncConfig {
+    /// Where a relay reaches head office, and the key it presents. `None` only
+    /// when there is no URL at all.
+    pub fn cloud(&self) -> Option<(String, &str)> {
+        cloud_base(&self.upload_url).map(|base| (base.to_string(), self.upload_key.as_str()))
+    }
+
     /// Read the always-applicable durable stream generation. This is parsed
     /// even when no sender URL is configured because capture never turns off.
     pub fn generation_from_env() -> Result<i64, crate::edge::EdgeError> {
@@ -3031,6 +3054,10 @@ pub struct EdgeSyncHandle {
     wake: Notify,
     connection: Arc<Mutex<Connection>>,
     upload_url: String,
+    /// The machine credential, kept beside the URL it belongs to so a relay can
+    /// speak to head office as THIS shop. Not exposed by `status`: the key a
+    /// node signs with is not something a screen may read.
+    upload_key: String,
     interval_seconds: i64,
 }
 
@@ -3046,6 +3073,14 @@ impl EdgeSyncHandle {
     /// pretending a button could shorten it would only hide the outage.
     pub fn trigger(&self) {
         self.wake.notify_one();
+    }
+
+    /// Where a relay reaches head office, and the key it presents. Shares
+    /// [`cloud_base`] with the config so the two cannot drift; see that helper
+    /// for why both the bare and long spellings of the upload URL are accepted.
+    pub fn cloud(&self) -> Option<(String, &str)> {
+        cloud_base(&self.upload_url)
+            .map(|base| (base.to_string(), self.upload_key.as_str()))
     }
 
     /// Blocking: reads SQLite. Call it from `run_blocking`.
@@ -3156,6 +3191,7 @@ pub fn spawn_agent(
         wake: Notify::new(),
         connection: edge.connection(),
         upload_url: config.upload_url.clone(),
+        upload_key: config.upload_key.clone(),
         interval_seconds: config.interval_seconds as i64,
     });
     let agent = Arc::clone(&handle);
@@ -3303,6 +3339,59 @@ mod tests {
                 commands: Vec::new(),
             })
         }
+    }
+
+    /// The relay posts to a sibling of the ingest route, so the address it
+    /// starts from has to be the node's BASE — and this is the thing that was
+    /// wrong the first time it was written. `SYNC_UPLOAD_URL` is what
+    /// `HttpTransport::new` is handed, and that constructor appends
+    /// `/api/v1/sync/ingest` itself; a relay that assumed the configured value
+    /// already carried the path would have posted to
+    /// `/api/v1/sync/ingest/vouchers/…` and 404ed every hold.
+    #[test]
+    fn the_relay_derives_head_office_from_the_base_url() {
+        let base = EdgeSyncConfig {
+            upload_url: "https://cloud.example".into(),
+            upload_key: "k".repeat(crate::security::MIN_SYNC_KEY_LENGTH),
+            interval_seconds: 5,
+            batch_limit: 100,
+            retention_days: 14,
+            breaker: BreakerPolicy {
+                threshold: 5,
+                base_cooldown_seconds: 30,
+                max_cooldown_seconds: 900,
+            },
+        };
+        assert_eq!(
+            base.cloud().map(|(url, _)| url),
+            Some("https://cloud.example".to_string())
+        );
+
+        // Trailing slashes, which an operator will type, and the long form,
+        // which an operator might equally have been handed by a runbook.
+        let slashed = EdgeSyncConfig {
+            upload_url: "https://cloud.example/".into(),
+            ..base.clone()
+        };
+        assert_eq!(
+            slashed.cloud().map(|(url, _)| url),
+            Some("https://cloud.example".to_string())
+        );
+        let long = EdgeSyncConfig {
+            upload_url: "https://cloud.example/api/v1/sync/ingest".into(),
+            ..base.clone()
+        };
+        assert_eq!(
+            long.cloud().map(|(url, _)| url),
+            Some("https://cloud.example".to_string())
+        );
+
+        // And the key travels with it, because a relay that cannot sign is a
+        // relay that is refused at head office.
+        assert_eq!(
+            base.cloud().map(|(_, key)| key.to_owned()),
+            Some("k".repeat(crate::security::MIN_SYNC_KEY_LENGTH))
+        );
     }
 
     #[test]

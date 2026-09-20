@@ -1,18 +1,19 @@
 import { useQuery } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import type { ColumnDef, SortingState } from "@tanstack/react-table"
+import type { ColumnDef, Row, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { ListChecks, Search } from "lucide-react"
+import { Search } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
+import { Switch } from "@/components/ui/form"
 import {
   ColumnsMenu,
   DockedFilters,
-  QuickFilters,
   SortMenu,
   ViewPicker,
 } from "@/components/ui/list-chrome"
@@ -40,7 +41,6 @@ import {
 } from "@/lib/queries/procurement"
 import { OrderComposer } from "@/screens/procurement/composer"
 import { GRID_CELL, GRID_HEAD } from "@/screens/procurement/shared"
-import { LinkButton } from "@/screens/procurement/controls"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
@@ -60,15 +60,18 @@ import { useDebounced } from "@/lib/use-debounced"
 ///  6. `queryState` renders pending / error / data, so no screen invents its
 ///     own spinner or its own error sentence.
 ///  7. `useFilterState(fields)` reads the clauses out of the URL. The panel at
-///     the right sets them and a plain box searches; The clauses are turned into REQUEST PARAMETERS — see
-///     `orderScopeFromFilters` — and the endpoint answers a narrowed list;
-///     nothing is filtered in the browser. That is why the fields are declared
-///     here rather than as `meta.filter` on the columns: what may be asked is
-///     decided by what the SQL can answer, not by what a column happens to
-///     hold, and an operator the request cannot carry is a chip that silently
-///     narrows nothing. A short list a browser can hold — `destinations.tsx`
-///     next door — still uses `useFilters(columns)` and `<FilterBar>`; the
-///     order book is a year of the company's purchasing and cannot.
+///     the right sets them and a plain box searches; the clauses are turned
+///     into request parameters — see `orderScopeFromFilters` — and the
+///     endpoint answers a narrowed list. The Receiving and Invoicing switches
+///     are intentionally local slices of that loaded page: those operational
+///     tallies are not query parameters yet. That is why the fields are
+///     declared here rather than as `meta.filter` on the columns: what may be
+///     asked is decided by what the SQL can answer, not by what a column
+///     happens to hold, and an operator the request cannot carry is a chip
+///     that silently narrows nothing. A short list a browser can hold —
+///     `destinations.tsx` next door — still uses `useFilters(columns)` and
+///     `<FilterBar>`; the order book is a year of the company's purchasing and
+///     cannot.
 ///  8. `meta.card` and `meta.priority` on the same columns, which is the whole
 ///     of what this screen does to work on an iPad and a phone: what each
 ///     column becomes when the rows are relaid as cards, and what to drop
@@ -100,29 +103,99 @@ const STATUSES = [
   "CLOSED",
 ] as const
 
+function safeUnits(value: unknown): number {
+  if (typeof value === "number")
+    return Number.isFinite(value) ? Math.max(0, value) : 0
+  if (typeof value !== "string" || value.trim() === "") return 0
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? Math.max(0, parsed) : 0
+}
+
+type ReceiptView = "all" | "received"
+type InvoiceView = "all" | "invoiced"
+
+function defaultOrderSorting(): SortingState {
+  return [{ id: "received", desc: false }]
+}
+
+function dateRank(value: string | null): number {
+  if (value === null) return Number.NaN
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) ? parsed : Number.NaN
+}
+
+function compareOldest(a: string | null, b: string | null): number {
+  const left = dateRank(a)
+  const right = dateRank(b)
+  if (Number.isNaN(left)) return Number.isNaN(right) ? 0 : 1
+  if (Number.isNaN(right)) return -1
+  return left - right
+}
+
+function compareNewest(a: string | null, b: string | null): number {
+  const left = dateRank(a)
+  const right = dateRank(b)
+  if (Number.isNaN(left)) return Number.isNaN(right) ? 0 : 1
+  if (Number.isNaN(right)) return -1
+  return right - left
+}
+
+function supplierOf(row: PurchaseOrderRow): string {
+  return row.supplier_name ?? row.supplier_id
+}
+
+/// The default inbox order: unfinished work first, oldest promise first;
+/// completed work after it, newest issued order first.
+function compareReceivingPriority(
+  left: PurchaseOrderRow,
+  right: PurchaseOrderRow
+): number {
+  const leftPending =
+    left.lifecycle === "ACTIVE" || left.lifecycle === "PARTIALLY_RECEIVED"
+  const rightPending =
+    right.lifecycle === "ACTIVE" || right.lifecycle === "PARTIALLY_RECEIVED"
+  if (leftPending !== rightPending) return leftPending ? -1 : 1
+
+  const dateOrder = leftPending
+    ? compareOldest(left.expected_arrival, right.expected_arrival)
+    : compareNewest(left.issued_at, right.issued_at)
+  if (dateOrder !== 0) return dateOrder
+  return left.po_number.localeCompare(right.po_number, undefined, {
+    numeric: true,
+    sensitivity: "base",
+  })
+}
+
+function compareSupplier(
+  left: PurchaseOrderRow,
+  right: PurchaseOrderRow
+): number {
+  const supplierOrder = supplierOf(left).localeCompare(supplierOf(right), undefined, {
+    numeric: true,
+    sensitivity: "base",
+  })
+  return supplierOrder === 0
+    ? compareReceivingPriority(left, right)
+    : supplierOrder
+}
+
 const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
   {
-    id: "supplier",
-    accessorFn: (row) => row.supplier_name ?? row.supplier_id,
-    header: "Supplier",
+    id: "order",
+    accessorFn: (row) => row.po_number,
+    header: "Order",
     size: 240,
     // Who the order is with names the row: the PO number identifies it, the
     // supplier is what somebody is looking for.
     meta: { card: "title" },
     cell: ({ row }) => (
-      <span className="font-medium text-ink">
-        {row.original.supplier_name ?? row.original.supplier_id}
-      </span>
-    ),
-  },
-  {
-    accessorKey: "po_number",
-    header: "Order",
-    size: 150,
-    meta: { card: "id" },
-    cell: ({ row }) => (
-      <span className="font-mono text-id text-body">
-        {row.original.po_number}
+      <span className="flex min-w-0 flex-col gap-1 leading-snug">
+        <span className="font-mono text-id text-body">
+          {row.original.po_number}
+        </span>
+        <span className="truncate text-[0.75rem] text-ink">
+          {row.original.supplier_name ?? row.original.supplier_id}
+        </span>
       </span>
     ),
   },
@@ -194,6 +267,11 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
     // without doing arithmetic on any of them. The exact pair is still there,
     // on the title, for the reader who wants the numbers.
     meta: { card: "metric", priority: 1 },
+    sortFn: (left, right) =>
+      compareReceivingPriority(
+        left.original as unknown as PurchaseOrderRow,
+        right.original as unknown as PurchaseOrderRow
+      ),
     cell: ({ row }) => {
       const got = row.original.received_stock_units
       const due = row.original.expected_stock_units
@@ -208,6 +286,37 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
           <span className="h-2 min-w-14 flex-1 overflow-hidden rounded-full bg-soft-2">
             <span
               className="block h-full rounded-full bg-[color-mix(in_srgb,var(--accent)_62%,white)]"
+              style={{ width: `${pct}%` }}
+            />
+          </span>
+          <span className="w-8 shrink-0 text-right text-[0.6875rem] text-mute tabular-nums">
+            {Math.round(pct)}%
+          </span>
+        </span>
+      )
+    },
+  },
+  {
+    id: "invoicing",
+    accessorFn: (row) => safeUnits(row.invoiced_stock_units),
+    header: "Invoicing",
+    size: 128,
+    meta: { card: "metric", priority: 1 },
+    cell: ({ row }) => {
+      const invoiced = safeUnits(row.original.invoiced_stock_units)
+      const ordered = safeUnits(row.original.expected_stock_units)
+      const pct =
+        ordered > 0
+          ? Math.min(100, Math.max(0, (invoiced / ordered) * 100))
+          : 0
+      return (
+        <span
+          className="flex items-center gap-2"
+          title={`${count(invoiced)} of ${count(ordered)} invoiced`}
+        >
+          <span className="h-2 min-w-14 flex-1 overflow-hidden rounded-full bg-soft-2">
+            <span
+              className="block h-full rounded-full bg-[color-mix(in_srgb,var(--info)_62%,white)]"
               style={{ width: `${pct}%` }}
             />
           </span>
@@ -250,11 +359,13 @@ export function PurchaseOrders() {
   /// thing people send each other.
   const search = useSheet("q")
   const navigate = useNavigate()
-  // Newest first, which is what the server already sorted by — so the first
-  // screenful is the orders somebody raised this week.
-  const [sorting, setSorting] = useState<SortingState>([
-    { id: "issued_at", desc: true },
-  ])
+  // The first screenful is the work that has waited longest. The Receiving
+  // column's comparator puts open orders first, then oldest promises, and
+  // keeps completed orders newest-first below them.
+  const [sorting, setSorting] = useState<SortingState>(defaultOrderSorting)
+  const [groupBySupplier, setGroupBySupplier] = useState(false)
+  const [receiptView, setReceiptView] = useState<ReceiptView>("all")
+  const [invoiceView, setInvoiceView] = useState<InvoiceView>("all")
 
   /// The suppliers, for the filter's own picker. Small, cached by every other
   /// procurement screen, and the reason the chip can offer a NAME where the
@@ -348,7 +459,11 @@ export function PurchaseOrders() {
   /// Whether anything is narrowing the list, which is a different question
   /// from whether the list is empty: "there are none" and "none match what you
   /// asked for" have different fixes.
-  const narrowed = needle !== "" || filters.filters.length > 0
+  const narrowed =
+    needle !== "" ||
+    filters.filters.length > 0 ||
+    receiptView !== "all" ||
+    invoiceView !== "all"
 
   const orders = useQuery({
     queryKey: procurementKeys.orders(scope),
@@ -360,6 +475,44 @@ export function PurchaseOrders() {
   })
 
   const rows = useMemo(() => orders.data?.rows ?? [], [orders.data])
+
+  const viewRows = useMemo(
+    () =>
+      rows.filter((row) => {
+        const received =
+          row.lifecycle === "FULLY_RECEIVED" || row.lifecycle === "CLOSED"
+        const invoiced = safeUnits(row.invoiced_stock_units) > 0
+        return (
+          (receiptView === "all" ||
+            (receiptView === "received" && received)) &&
+          (invoiceView === "all" ||
+            (invoiceView === "invoiced" && invoiced))
+        )
+      }),
+    [invoiceView, receiptView, rows]
+  )
+
+  const tableColumns = useMemo(
+    () =>
+      groupBySupplier
+        ? columns.map((column) =>
+            column.id === "order"
+              ? {
+                  ...column,
+                  sortFn: (
+                    left: Row<TableSetup, PurchaseOrderRow>,
+                    right: Row<TableSetup, PurchaseOrderRow>
+                  ) =>
+                    compareSupplier(
+                      left.original as PurchaseOrderRow,
+                      right.original as PurchaseOrderRow
+                    ),
+                }
+              : column
+          )
+        : columns,
+    [groupBySupplier]
+  )
 
   /// The same fields, carrying the server's tally.
   ///
@@ -389,15 +542,30 @@ export function PurchaseOrders() {
     useMemo(
       () => ({
         features: tableSetup,
-        data: rows,
-        columns,
+        data: viewRows,
+        columns: tableColumns,
         getRowId: (row: PurchaseOrderRow) => row.purchase_order_id,
         state: { sorting },
-        onSortingChange: setSorting,
+        onSortingChange: (
+          next: SortingState | ((prev: SortingState) => SortingState)
+        ) => {
+          setGroupBySupplier(false)
+          setSorting(next)
+        },
       }),
-      [rows, sorting]
+      [sorting, tableColumns, viewRows]
     )
   )
+
+  const chooseSort = (id: string, desc: boolean) => {
+    setGroupBySupplier(false)
+    setSorting([{ id, desc }])
+  }
+
+  const chooseGrouping = (on: boolean) => {
+    setGroupBySupplier(on)
+    setSorting(on ? [{ id: "order", desc: false }] : defaultOrderSorting())
+  }
 
   return (
     <PageContent>
@@ -473,7 +641,7 @@ export function PurchaseOrders() {
             <SortMenu
               table={table}
               sorting={sorting}
-              onSort={(id, desc) => setSorting([{ id, desc }])}
+              onSort={chooseSort}
             />
             <ColumnsMenu table={table} />
             <span aria-hidden className="mx-1 h-5 w-px bg-hairline" />
@@ -491,8 +659,8 @@ export function PurchaseOrders() {
           <Card className="overflow-hidden">
             {queryState(orders, {
               loading: "Loading the orders…",
-              render: (page) =>
-                page.rows.length === 0 ? (
+              render: () =>
+                viewRows.length === 0 ? (
                   narrowed ? (
                     <EmptyState>No order matches these filters.</EmptyState>
                   ) : (
@@ -536,7 +704,16 @@ export function PurchaseOrders() {
           model={{ ...filters, fields: counted }}
           kpis={bookKpis(orders.data)}
           className="hidden min-[1440px]:flex"
-        />
+        >
+          <OrderViewControls
+            groupBySupplier={groupBySupplier}
+            onGroupBySupplier={chooseGrouping}
+            receiptView={receiptView}
+            onReceiptView={setReceiptView}
+            invoiceView={invoiceView}
+            onInvoiceView={setInvoiceView}
+          />
+        </DockedFilters>
       </div>
 
       <OrderSheet id={order.value ?? null} onClose={order.close} />
@@ -548,6 +725,64 @@ export function PurchaseOrders() {
     </PageContent>
   )
 }
+
+function OrderViewControls({
+  groupBySupplier,
+  onGroupBySupplier,
+  receiptView,
+  onReceiptView,
+  invoiceView,
+  onInvoiceView,
+}: {
+  groupBySupplier: boolean
+  onGroupBySupplier: (on: boolean) => void
+  receiptView: ReceiptView
+  onReceiptView: (view: ReceiptView) => void
+  invoiceView: InvoiceView
+  onInvoiceView: (view: InvoiceView) => void
+}) {
+  return (
+    <div className="flex flex-col gap-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[0.75rem] font-medium text-body">
+          Group by supplier
+        </span>
+        <Switch
+          on={groupBySupplier}
+          label="Group by supplier"
+          onToggle={() => onGroupBySupplier(!groupBySupplier)}
+        />
+      </div>
+
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[0.75rem] font-medium text-body">
+          Received only
+        </span>
+        <Switch
+          on={receiptView === "received"}
+          label="Show received orders only"
+          onToggle={() =>
+            onReceiptView(receiptView === "received" ? "all" : "received")
+          }
+        />
+      </div>
+
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[0.75rem] font-medium text-body">
+          Invoiced only
+        </span>
+        <Switch
+          on={invoiceView === "invoiced"}
+          label="Show invoiced orders only"
+          onToggle={() =>
+            onInvoiceView(invoiceView === "invoiced" ? "all" : "invoiced")
+          }
+        />
+      </div>
+    </div>
+  )
+}
+
 /// Four figures about the book as it currently stands.
 ///
 /// `total` is the server's own count over everything the search and the chips
@@ -657,6 +892,23 @@ function OrderSheet({
             {label(detail.data.lifecycle)}
           </Pill>
         )
+      }
+      actions={
+        detail.data ? (
+          <>
+            <AppLink
+              to="/operations/intake"
+              sheet={{ key: "delivery", value: detail.data.po_number }}
+              variant="ghost"
+              size="sm"
+            >
+              Receiving
+            </AppLink>
+            <AppLink to="/finance/bills" variant="ghost" size="sm">
+              Invoicing
+            </AppLink>
+          </>
+        ) : undefined
       }
       // Wider than a rail, because an order is a DOCUMENT rather than a
       // record: six columns of lines — what, when it is due, at what price,

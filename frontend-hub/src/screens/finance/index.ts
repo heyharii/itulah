@@ -4,6 +4,10 @@ import { AccountMap } from "@/screens/finance/account-map"
 import { AssetRegister } from "@/screens/finance/assets"
 import { BankReconciliation } from "@/screens/finance/bank"
 import { ChartOfAccounts } from "@/screens/finance/chart-of-accounts"
+// Written once, in the module the forty-account chart was built for, and
+// shown in both: a category list is read beside the chart, and the chart is
+// here.
+import { LineCategories } from "@/screens/finance-final/categories"
 import { FinanceOverview } from "@/screens/finance/overview"
 import { GeneralLedgerScreen } from "@/screens/finance/general-ledger"
 import { GiroPrinting } from "@/screens/finance/giro-print"
@@ -39,6 +43,7 @@ import { SupplierBills } from "@/screens/finance/supplier-bills"
 /// | Ledger | `GET /trial-balance` (no account chosen), `GET /accounts/{code}/ledger` (one chosen), `GET /accounts` (the search box) |
 /// | Chart of accounts | `GET /accounts`, `GET /accounts/{code}` |
 /// | Account map | `GET,POST /account-map` |
+/// | Line categories | `GET /line-categories`, `GET /asset-classes`, `GET /accounts` |
 /// | Period close | `GET,POST /periods`, `POST /periods/close`, `POST /depreciation/run`, and the checklist's read-only borrowings below |
 ///
 /// `GET /payables-aging` is filed under Supplier bills rather than under
@@ -67,6 +72,7 @@ export const screens: ScreenMap = {
   "/finance/ledger": GeneralLedgerScreen,
   "/finance/accounts": ChartOfAccounts,
   "/finance/account-map": AccountMap,
+  "/finance/categories": LineCategories,
   "/finance/periods": Periods,
   "/finance/giro-print": GiroPrinting,
 }

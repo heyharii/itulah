@@ -1,0 +1,10 @@
+import { Workbook, SpreadsheetFile } from '@oai/artifact-tool';
+const wb=Workbook.create(); const s=wb.worksheets.add('Test');
+s.getRange('A1:A4').format.numberFormat='@';
+s.getRange('A1:A4').values=[['code'],['1011001001'],['00'],['1101']];
+s.tables.add('A1:A4',true,'t');
+s.getRange('A1:A1').format={fill:'#263C55',font:{color:'#fff',bold:true},rowHeight:34,verticalAlignment:'center',wrapText:true};
+s.getRange('A2:A4').format={font:{size:10},rowHeight:36,verticalAlignment:'top',wrapText:true};
+console.log((await wb.inspect({kind:'table',range:'Test!A1:A4',include:'values,formulas',tableMaxRows:4,tableMaxCols:1,maxChars:5000})).ndjson);
+const f=await SpreadsheetFile.exportXlsx(wb); await f.save('/Users/hari/itulah/.coa_dimension_review_20260918/test_text2.xlsx');
+const image=await wb.render({sheetName:'Test',range:'A1:A4',scale:2,format:'png'}); await (await import('node:fs/promises')).writeFile('/Users/hari/itulah/.coa_dimension_review_20260918/test_text2.png',new Uint8Array(await image.arrayBuffer()));

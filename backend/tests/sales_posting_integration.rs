@@ -33,19 +33,16 @@ fn midday() -> DateTime<Utc> {
         .unwrap_or_else(|| panic!("bad instant"))
 }
 
-/// A chart small enough to read, shaped like the client's, and carrying every
-/// leaf a day of takings can touch.
+/// A chart small enough to read and carrying every account a day of takings
+/// can touch.
 ///
-/// The ladder is root → ten-digit rung → twelve-digit location leaf, because
-/// the client's codes ARE the tree and a balance rolls up by prefix. The
-/// suffix `01` is store 01, the same reading `import-coa.py` uses.
+/// The ladder is root → four-digit account. It used to be root → ten-digit
+/// client rung, because the client's codes WERE the tree; 0287–0292 took the
+/// identity out of the code and put it on the line, so a day of takings now
+/// lands on seven accounts instead of thirteen and tells them apart by
+/// `journal_line.category_code`.
 async fn seed_chart(pool: &PgPool) {
-    for (code, name) in [
-        ("1", "ASSET"),
-        ("2", "LIABILITIES"),
-        ("4", "PENDAPATAN"),
-        ("8", "BEBAN NON OPERASIONAL"),
-    ] {
+    for (code, name) in [("1", "ASSET"), ("2", "LIABILITIES"), ("4", "PENDAPATAN")] {
         sqlx::query(
             "INSERT INTO ledger_account (account_code, name, parent_code, is_group)
              VALUES ($1,$2,NULL,true)
@@ -58,51 +55,50 @@ async fn seed_chart(pool: &PgPool) {
         .unwrap_or_else(|error| panic!("{code}: {error}"));
     }
 
-    // (rung, leaf, name). The rung is the client's own ten-digit account; the
-    // leaf is that account at store 01.
-    let accounts: [(&str, &str, &str); 13] = [
-        ("1011001001", "1011001001", "Cash On Hand C001"),
-        ("1011101001", "1011101001", "Piutang kartu Kredit C001"),
-        ("1011101002", "1011101002", "Piutang Debit Card C001"),
-        ("1011101003", "1011101003", "Piutang QRIS C001"),
-        ("2012101003", "2012101003", "Hutang PPN Keluaran C001"),
-        ("2012305001", "2012305001", "Hutang Voucher C001"),
-        ("4010110001", "4010110001", "Penjualan Tunai C001"),
-        ("4010111001", "4010111001", "Penjualan Debit BCA C001"),
+    // (account, name, dimension, category family). The family is what makes
+    // four tenders share `4101` and still be readable apart.
+    let accounts: [(&str, &str, &str, &str); 7] = [
+        ("1101", "Kas", "unit", "pot"),
+        ("1201", "Piutang tender", "unit", "tender"),
+        ("2201", "Hutang pajak", "company", "tax_kind"),
         (
-            "4010112001",
-            "4010112001",
-            "Penjualan Kartu Kredit VISA C001",
+            "2401",
+            "Kewajiban voucher & uang muka penjualan",
+            "company",
+            "deferred_revenue_kind",
         ),
-        ("4010114001", "4010114001", "Penjualan QRIS C001"),
-        ("4010213001", "4010213001", "Potongan Penjualan C001"),
-        ("4010214001", "4010214001", "Retur Penjualan C001"),
-        ("8010110002", "8010110002", "Selisih pembulatan C001"),
+        ("4101", "Penjualan", "unit", "tender"),
+        (
+            "4201",
+            "Potongan & retur penjualan",
+            "unit",
+            "deduction_kind",
+        ),
+        ("4301", "Pendapatan lain-lain", "unit", "income_kind"),
     ];
-    // The client's own ten-digit account IS the postable leaf, and it carries no
-    // unit: 0243/0244 took the two-digit shop suffix off the code and moved the
-    // unit onto `journal_line.site_id`, and 0244 enforces that with
-    // `ledger_account_carries_no_unit`. This fixture predates the collapse — it
-    // inserted `101100100101`, the same account AT STORE 01 — so every test in it
-    // failed on that constraint before it reached anything it was written to
-    // prove. `ON CONFLICT DO NOTHING` because since 0243 the migrations load the
-    // client's chart and these accounts are already there, under their own names.
-    for (leaf, _old_per_unit_code, name) in accounts {
+    // `ON CONFLICT DO NOTHING` because 0289 already loads all forty under these
+    // names; the list is here so the fixture says out loud which accounts a day
+    // of takings is allowed to reach, and fails loudly if one of them goes.
+    for (code, name, dimension, family) in accounts {
         sqlx::query(
-            "INSERT INTO ledger_account (account_code, name, parent_code, is_group, dimension)
-             VALUES ($1,$2,$3,false,'unit')
+            "INSERT INTO ledger_account
+               (account_code, name, parent_code, is_group, dimension, category_family,
+                posting_mode, manual_je_policy, posting_policy_configured)
+             VALUES ($1,$2,$3,false,$4,$5,'AUTO_ONLY','NO',true)
              ON CONFLICT (account_code) DO NOTHING",
         )
-        .bind(leaf)
+        .bind(code)
         .bind(name)
-        .bind(&leaf[..1])
+        .bind(&code[..1])
+        .bind(dimension)
+        .bind(family)
         .execute(pool)
         .await
-        .unwrap_or_else(|error| panic!("{leaf}: {error}"));
+        .unwrap_or_else(|error| panic!("{code}: {error}"));
     }
 }
 
-async fn map(pool: &PgPool, key: &str, qualifier: &str, code: &str) {
+async fn map(pool: &PgPool, key: &str, qualifier: &str, code: &str, category: &str) {
     cloud::set_account_mapping(
         pool,
         &cloud::SetAccountMappingRequest {
@@ -110,6 +106,7 @@ async fn map(pool: &PgPool, key: &str, qualifier: &str, code: &str) {
             site_id: SITE.into(),
             qualifier: qualifier.into(),
             account_code: code.into(),
+            category_code: Some(category.into()),
             note: None,
         },
         ACTOR,
@@ -121,25 +118,45 @@ async fn map(pool: &PgPool, key: &str, qualifier: &str, code: &str) {
 /// Every meaning a mixed day needs, mapped the way `seed-finance.py` maps
 /// them: the receivables and the card income accounts per acquirer, the rest
 /// plain.
+///
+/// Since the collapse the account is nearly always the same and the CATEGORY is
+/// what the meaning chooses — five of these meanings land on `4101` and three
+/// on `1201`.
 async fn map_everything(pool: &PgPool) {
-    for (key, code) in [
-        ("cash", "1011001001"),
-        ("vat_out", "2012101003"),
-        ("voucher_liability", "2012305001"),
-        ("revenue_cash", "4010110001"),
-        ("revenue_qris", "4010114001"),
-        ("sales_discount", "4010213001"),
-        ("sales_return", "4010214001"),
-        ("rounding", "8010110002"),
+    for (key, code, category) in [
+        ("cash", "1101", "DRAWER"),
+        ("vat_out", "2201", "PPN_OUT"),
+        ("voucher_liability", "2401", "VOUCHER_LIABILITY"),
+        ("revenue_cash", "4101", "CASH"),
+        ("revenue_qris", "4101", "QRIS"),
+        ("sales_discount", "4201", "DISCOUNT"),
+        ("sales_return", "4201", "RETURN"),
+        ("rounding", "4301", "ROUNDING"),
+        // The residue's loss side, since 0296: rows over documents is a cost.
+        ("rounding_loss", "8301", "ROUNDING_LOSS"),
     ] {
-        map(pool, key, "", code).await;
+        map(pool, key, "", code, category).await;
     }
-    map(pool, "card_receivable_debit", "BCA", "1011101002").await;
-    map(pool, "card_receivable_debit", "MANDIRI", "1011101002").await;
-    map(pool, "card_receivable_credit", "VISA", "1011101001").await;
-    map(pool, "revenue_debit", "BCA", "4010111001").await;
-    map(pool, "revenue_credit", "VISA", "4010112001").await;
-    map(pool, "qris_receivable", "GOPAY", "1011101003").await;
+    map(pool, "card_receivable_debit", "BCA", "1201", "DEBIT_BCA").await;
+    map(
+        pool,
+        "card_receivable_debit",
+        "MANDIRI",
+        "1201",
+        "DEBIT_MANDIRI",
+    )
+    .await;
+    map(
+        pool,
+        "card_receivable_credit",
+        "VISA",
+        "1201",
+        "CREDIT_VISA",
+    )
+    .await;
+    map(pool, "revenue_debit", "BCA", "4101", "DEBIT_BCA").await;
+    map(pool, "revenue_credit", "VISA", "4101", "CREDIT_VISA").await;
+    map(pool, "qris_receivable", "GOPAY", "1201", "QRIS").await;
 }
 
 async fn open_september(pool: &PgPool) {
@@ -264,14 +281,23 @@ fn ask() -> GenerateSalesPostingRequest {
     }
 }
 
-/// What one account holds, at one location, over everything posted.
-async fn balance(pool: &PgPool, code: &str) -> (i64, i64) {
+/// What one account holds, at one location, over everything posted — and, when
+/// a category is named, only the part of it that answers to that category.
+///
+/// The category argument is not decoration. Five meanings now share `4101` and
+/// three share `1201`, so an assertion on the account alone would pass on the
+/// total while every tender inside it was wrong. `None` asks the older
+/// question: what does this account hold in total.
+async fn balance(pool: &PgPool, code: &str, category: Option<&str>) -> (i64, i64) {
     let row = sqlx::query(
         "SELECT COALESCE(SUM(debit_minor),0)::bigint AS d,
                 COALESCE(SUM(credit_minor),0)::bigint AS c
-           FROM journal_line WHERE account_code = $1",
+           FROM journal_line
+          WHERE account_code = $1
+            AND ($2::text IS NULL OR category_code = $2)",
     )
     .bind(code)
+    .bind(category)
     .fetch_one(pool)
     .await
     .unwrap_or_else(|error| panic!("balance {code}: {error}"));
@@ -349,24 +375,31 @@ async fn a_mixed_day_becomes_one_balanced_entry(pool: PgPool) {
 
     // The drawer holds the cash tender less the change handed back, which is
     // the figure a shop counts at close.
-    assert_eq!(balance(&pool, "1011001001").await.0, 1_110_000);
-    // The acquirers, each under their own qualifier.
-    assert_eq!(balance(&pool, "1011101002").await.0, 2_220_000);
-    assert_eq!(balance(&pool, "1011101001").await.0, 3_330_000);
-    assert_eq!(balance(&pool, "1011101003").await.0, 555_000);
+    assert_eq!(balance(&pool, "1101", Some("DRAWER")).await.0, 1_110_000);
+    // The acquirers. One receivable account now, told apart by tender.
+    assert_eq!(balance(&pool, "1201", Some("DEBIT_BCA")).await.0, 2_220_000);
+    assert_eq!(
+        balance(&pool, "1201", Some("CREDIT_VISA")).await.0,
+        3_330_000
+    );
+    assert_eq!(balance(&pool, "1201", Some("QRIS")).await.0, 555_000);
     // A voucher settles a liability the shop has been carrying; it brings no
     // money in today.
-    assert_eq!(balance(&pool, "2012305001").await.0, 200_000);
+    assert_eq!(
+        balance(&pool, "2401", Some("VOUCHER_LIABILITY")).await.0,
+        200_000
+    );
     // PPN inside each bucket, summed. 11% of the tax-exclusive part.
-    assert_eq!(balance(&pool, "2012101003").await.1, 734_819);
+    assert_eq!(balance(&pool, "2201", Some("PPN_OUT")).await.1, 734_819);
     // Contra revenue: what the promotion cost, visible rather than netted
     // silently off the sale.
-    assert_eq!(balance(&pool, "4010213001").await.0, 111_000);
-    // And income in four places, because that is how the client reads it.
-    for code in ["4010110001", "4010111001", "4010112001", "4010114001"] {
+    assert_eq!(balance(&pool, "4201", Some("DISCOUNT")).await.0, 111_000);
+    // And income under four tenders, because that is how the client reads it —
+    // one account, four categories, where the client had four accounts.
+    for category in ["CASH", "DEBIT_BCA", "CREDIT_VISA", "QRIS"] {
         assert!(
-            balance(&pool, code).await.1 > 0,
-            "{code} should carry this day's income"
+            balance(&pool, "4101", Some(category)).await.1 > 0,
+            "4101/{category} should carry this day's income"
         );
     }
 }
@@ -539,8 +572,11 @@ async fn reversing_a_day_lets_it_be_generated_again(pool: PgPool) {
     assert_eq!(entries, 2, "the original and its replacement");
 
     // The books carry the day exactly once, not twice and not not at all.
-    assert_eq!(balance(&pool, "1011001001").await.0, 1_110_000 * 2);
-    assert_eq!(balance(&pool, "1011001001").await.1, 1_110_000);
+    assert_eq!(
+        balance(&pool, "1101", Some("DRAWER")).await.0,
+        1_110_000 * 2
+    );
+    assert_eq!(balance(&pool, "1101", Some("DRAWER")).await.1, 1_110_000);
 }
 
 #[sqlx::test(migrations = "./migrations/postgres")]
@@ -576,15 +612,17 @@ async fn a_return_reduces_the_income_and_unwinds_its_tax(pool: PgPool) {
         .unwrap_or_else(|error| panic!("post: {error}"));
 
     // The drawer is the takings less the refund paid out of it.
-    assert_eq!(balance(&pool, "1011001001").await.0, 999_000);
+    assert_eq!(balance(&pool, "1101", Some("DRAWER")).await.0, 999_000);
     // Contra revenue carries the refund, net of the tax it unwound.
-    assert_eq!(balance(&pool, "4010214001").await.0, 100_000);
+    assert_eq!(balance(&pool, "4201", Some("RETURN")).await.0, 100_000);
     // The income account is untouched by the refund: a return is a return, not
     // a smaller sale.
-    assert_eq!(balance(&pool, "4010110001").await.1, 1_000_000);
-    assert_eq!(balance(&pool, "2012101003").await.1, 99_000);
-    // Nothing reached rounding: the return document and its refund row agree.
-    assert_eq!(balance(&pool, "8010110002").await, (0, 0));
+    assert_eq!(balance(&pool, "4101", Some("CASH")).await.1, 1_000_000);
+    assert_eq!(balance(&pool, "2201", Some("PPN_OUT")).await.1, 99_000);
+    // Nothing reached rounding, on either side: the return document and its
+    // refund row agree.
+    assert_eq!(balance(&pool, "4301", Some("ROUNDING")).await, (0, 0));
+    assert_eq!(balance(&pool, "8301", Some("ROUNDING_LOSS")).await, (0, 0));
 
     let trial = cloud::trial_balance(
         &pool,
@@ -1233,8 +1271,8 @@ async fn a_day_posts_the_tax_its_tills_recorded(pool: PgPool) {
     cloud::sales_posting_post(&pool, document.posting.posting_id, ACTOR)
         .await
         .unwrap_or_else(|error| panic!("post: {error}"));
-    assert_eq!(balance(&pool, "2012101003").await.1, 110_000);
-    assert_eq!(balance(&pool, "4010110001").await.1, 1_000_000);
+    assert_eq!(balance(&pool, "2201", Some("PPN_OUT")).await.1, 110_000);
+    assert_eq!(balance(&pool, "4101", Some("CASH")).await.1, 1_000_000);
 }
 
 #[sqlx::test(migrations = "./migrations/postgres")]
@@ -1270,8 +1308,8 @@ async fn per_sale_rounding_is_posted_rather_than_rounded_again_per_bucket(pool: 
         .await
         .unwrap_or_else(|error| panic!("post: {error}"));
     // Posted, not merely recorded on the document.
-    assert_eq!(balance(&pool, "2012101003").await.1, 27);
-    assert_eq!(balance(&pool, "4010110001").await.1, 273);
+    assert_eq!(balance(&pool, "2201", Some("PPN_OUT")).await.1, 27);
+    assert_eq!(balance(&pool, "4101", Some("CASH")).await.1, 273);
     let trial = cloud::trial_balance(
         &pool,
         cloud::TrialBalanceScope {
@@ -1316,8 +1354,11 @@ async fn a_refund_unwinds_the_tax_the_line_was_sold_with(pool: PgPool) {
     cloud::sales_posting_post(&pool, document.posting.posting_id, ACTOR)
         .await
         .unwrap_or_else(|error| panic!("post: {error}"));
-    assert_eq!(balance(&pool, "2012101003").await.1, 110_000 - 100);
-    assert_eq!(balance(&pool, "4010214001").await.0, 1_000);
+    assert_eq!(
+        balance(&pool, "2201", Some("PPN_OUT")).await.1,
+        110_000 - 100
+    );
+    assert_eq!(balance(&pool, "4201", Some("RETURN")).await.0, 1_000);
 }
 
 #[sqlx::test(migrations = "./migrations/postgres")]
@@ -1599,7 +1640,7 @@ async fn a_declared_card_and_a_guessed_one_are_the_same_bucket(pool: PgPool) {
     cloud::sales_posting_post(&pool, document.posting.posting_id, ACTOR)
         .await
         .unwrap_or_else(|error| panic!("post: {error}"));
-    assert_eq!(balance(&pool, "1011101002").await.0, 800_000);
+    assert_eq!(balance(&pool, "1201", Some("DEBIT_BCA")).await.0, 800_000);
 }
 
 /// A completed central sale paid by card, with the acquirer named and the kind

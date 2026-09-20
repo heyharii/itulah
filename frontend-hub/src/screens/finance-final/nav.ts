@@ -16,6 +16,7 @@ import {
   Scale,
   Send,
   ShoppingBag,
+  Tags,
   TrendingUp,
   Waves,
 } from "lucide-react"
@@ -160,6 +161,16 @@ export const financeFinalNav: AppModule = {
           path: "/finance-final/period-close",
           label: "Period close",
           icon: Lock,
+        },
+        // Under Accounting rather than in a Setup group of its own, because
+        // it is not a setting: it is the list an accountant reads WHILE
+        // writing an entry, to find the line they used to have an account
+        // code for. The nearest thing to it in the old chart was the chart
+        // itself.
+        {
+          path: "/finance-final/categories",
+          label: "Line categories",
+          icon: Tags,
         },
       ],
     },

@@ -1,0 +1,64 @@
+{
+  "model": "jev-1.13.0",
+  "answers": {
+    "outstanding_challenge": {
+      "type": "choice",
+      "choice": "no",
+      "confidence": 0.99,
+      "probabilities": {
+        "no": 1.0,
+        "yes": 0.0
+      }
+    },
+    "savings_challenge": {
+      "type": "choice",
+      "choice": "treatment",
+      "confidence": 0.99,
+      "probabilities": {
+        "name": 0.0,
+        "votes": 0.0,
+        "treatment": 1.0
+      }
+    },
+    "deposit_challenge": {
+      "type": "choice",
+      "choice": "no",
+      "confidence": 1.0,
+      "probabilities": {
+        "no": 1.0,
+        "yes": 0.0
+      }
+    },
+    "unit_challenge": {
+      "type": "choice",
+      "choice": "no",
+      "confidence": 1.0,
+      "probabilities": {
+        "no": 1.0,
+        "yes": 0.0
+      }
+    },
+    "finality": {
+      "type": "choice",
+      "choice": "no",
+      "confidence": 1.0,
+      "probabilities": {
+        "no": 1.0,
+        "yes": 0.0
+      }
+    },
+    "count_scope": {
+      "type": "choice",
+      "choice": "candidate",
+      "confidence": 0.98,
+      "probabilities": {
+        "candidate": 0.99,
+        "approved": 0.01
+      }
+    }
+  },
+  "usage": {
+    "input_tokens": 2578,
+    "output_tokens": 200
+  }
+}

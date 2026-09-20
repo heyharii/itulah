@@ -1,0 +1,1010 @@
+[
+ {
+  "no": 1,
+  "key": "ACCRUAL:EMPLOYEE",
+  "name": "Akrual Pegawai dan Imbalan Kerja",
+  "group": "Akrual",
+  "status": "CORE"
+ },
+ {
+  "no": 2,
+  "key": "ACCRUAL:INTEREST",
+  "name": "Akrual Bunga Pinjaman",
+  "group": "Akrual",
+  "status": "CORE"
+ },
+ {
+  "no": 3,
+  "key": "ACCRUAL:RENT",
+  "name": "Akrual Sewa",
+  "group": "Akrual",
+  "status": "CORE"
+ },
+ {
+  "no": 4,
+  "key": "ACCRUAL:UTILITIES",
+  "name": "Akrual Utilitas",
+  "group": "Akrual",
+  "status": "CORE"
+ },
+ {
+  "no": 5,
+  "key": "ADV:EMPLOYEE",
+  "name": "Uang Muka Karyawan/Perjalanan",
+  "group": "Uang muka",
+  "status": "CORE"
+ },
+ {
+  "no": 6,
+  "key": "ADV:OTHER",
+  "name": "Uang Muka Lainnya",
+  "group": "Uang muka",
+  "status": "CORE"
+ },
+ {
+  "no": 7,
+  "key": "ADV:SUPPLIER",
+  "name": "Uang Muka Supplier/Kontraktor",
+  "group": "Uang muka",
+  "status": "CORE"
+ },
+ {
+  "no": 8,
+  "key": "AFFIL:FUNDING",
+  "name": "Saldo Affiliasi Pembiayaan",
+  "group": "Afiliasi",
+  "status": "CORE"
+ },
+ {
+  "no": 9,
+  "key": "AFFIL:GOODS",
+  "name": "Saldo Affiliasi Atas Barang",
+  "group": "Afiliasi",
+  "status": "CORE"
+ },
+ {
+  "no": 10,
+  "key": "AFFIL:OTHER",
+  "name": "Saldo Affiliasi Lain-lain",
+  "group": "Afiliasi",
+  "status": "CORE"
+ },
+ {
+  "no": 11,
+  "key": "ALLOW:CARD_AR",
+  "name": "Cadangan Piutang Acquirer Kartu",
+  "group": "Cadangan",
+  "status": "CORE"
+ },
+ {
+  "no": 12,
+  "key": "ALLOW:EMPLOYEE_AR",
+  "name": "Cadangan Piutang Pegawai",
+  "group": "Cadangan",
+  "status": "CORE"
+ },
+ {
+  "no": 13,
+  "key": "ALLOW:INVENTORY",
+  "name": "Cadangan Kerusakan/Kehilangan Persediaan",
+  "group": "Cadangan",
+  "status": "CORE"
+ },
+ {
+  "no": 14,
+  "key": "AP:MERCH",
+  "name": "Hutang Suppliers  Barang Dagangan",
+  "group": "Hutang usaha",
+  "status": "CORE"
+ },
+ {
+  "no": 15,
+  "key": "AP:MERCH_SUSPENSE",
+  "name": "Hutang Supplier Barang Dagang - Suspend",
+  "group": "Hutang usaha",
+  "status": "CORE"
+ },
+ {
+  "no": 16,
+  "key": "AP:NONMERCH",
+  "name": "Hutang Supplier  Non Barang Dagang",
+  "group": "Hutang usaha",
+  "status": "CORE"
+ },
+ {
+  "no": 17,
+  "key": "AR:ACQUIRER",
+  "name": "Piutang Acquirer Kartu",
+  "group": "Piutang",
+  "status": "CORE"
+ },
+ {
+  "no": 18,
+  "key": "AR:EMPLOYEE",
+  "name": "Piutang Pegawai dan Manajemen",
+  "group": "Piutang",
+  "status": "CORE"
+ },
+ {
+  "no": 19,
+  "key": "ASSET:ACCUM:BUILDING",
+  "name": "Akumulasi Bangunan",
+  "group": "Aset tetap",
+  "status": "CORE"
+ },
+ {
+  "no": 20,
+  "key": "ASSET:ACCUM:FFE",
+  "name": "Akumulasi Furniture, Fixture and Equipment",
+  "group": "Aset tetap",
+  "status": "CORE"
+ },
+ {
+  "no": 21,
+  "key": "ASSET:ACCUM:MACHINE",
+  "name": "Akumulasi Mesin dan Peralatan",
+  "group": "Aset tetap",
+  "status": "CORE"
+ },
+ {
+  "no": 22,
+  "key": "ASSET:ACCUM:ME",
+  "name": "Akumulasi Instalasi Mekanikal dan Elektrikal",
+  "group": "Aset tetap",
+  "status": "CORE"
+ },
+ {
+  "no": 23,
+  "key": "ASSET:ACCUM:OTHER",
+  "name": "Akumulasi Aset Lainnya",
+  "group": "Aset tetap",
+  "status": "CORE"
+ },
+ {
+  "no": 24,
+  "key": "ASSET:ACCUM:VEHICLE",
+  "name": "Akumulasi Kendaraan",
+  "group": "Aset tetap",
+  "status": "CORE"
+ },
+ {
+  "no": 25,
+  "key": "ASSET:CIP",
+  "name": "Contract in Progress (CIP)",
+  "group": "Aset tetap",
+  "status": "CORE"
+ },
+ {
+  "no": 26,
+  "key": "ASSET:COST:BUILDING",
+  "name": "Bangunan",
+  "group": "Aset tetap",
+  "status": "CORE"
+ },
+ {
+  "no": 27,
+  "key": "ASSET:COST:FFE",
+  "name": "Furniture, Fixture and Equipment",
+  "group": "Aset tetap",
+  "status": "CORE"
+ },
+ {
+  "no": 28,
+  "key": "ASSET:COST:LAND",
+  "name": "Tanah Hak Milik",
+  "group": "Aset tetap",
+  "status": "CORE"
+ },
+ {
+  "no": 29,
+  "key": "ASSET:COST:MACHINE",
+  "name": "Mesin dan Peralatan",
+  "group": "Aset tetap",
+  "status": "CORE"
+ },
+ {
+  "no": 30,
+  "key": "ASSET:COST:ME",
+  "name": "Instalasi Mekanikal dan Elektrikal",
+  "group": "Aset tetap",
+  "status": "CORE"
+ },
+ {
+  "no": 31,
+  "key": "ASSET:COST:OE",
+  "name": "Operating Equipment",
+  "group": "Aset tetap",
+  "status": "CORE"
+ },
+ {
+  "no": 32,
+  "key": "ASSET:COST:VEHICLE",
+  "name": "Kendaraan",
+  "group": "Aset tetap",
+  "status": "CORE"
+ },
+ {
+  "no": 33,
+  "key": "ASSET:EXP:BUILDING",
+  "name": "Beban Penyusutan/Amortisasi Bangunan",
+  "group": "Aset tetap",
+  "status": "CORE"
+ },
+ {
+  "no": 34,
+  "key": "ASSET:EXP:FFE",
+  "name": "Beban Penyusutan/Amortisasi Furniture, Fixture and Equipment",
+  "group": "Aset tetap",
+  "status": "CORE"
+ },
+ {
+  "no": 35,
+  "key": "ASSET:EXP:MACHINE",
+  "name": "Beban Penyusutan/Amortisasi Mesin dan Peralatan",
+  "group": "Aset tetap",
+  "status": "CORE"
+ },
+ {
+  "no": 36,
+  "key": "ASSET:EXP:ME",
+  "name": "Beban Penyusutan/Amortisasi Instalasi Mekanikal dan Elektrikal",
+  "group": "Aset tetap",
+  "status": "CORE"
+ },
+ {
+  "no": 37,
+  "key": "ASSET:EXP:SOFTWARE",
+  "name": "Beban Penyusutan/Amortisasi Software",
+  "group": "Aset tetap",
+  "status": "CORE"
+ },
+ {
+  "no": 38,
+  "key": "ASSET:EXP:VEHICLE",
+  "name": "Beban Penyusutan/Amortisasi Kendaraan",
+  "group": "Aset tetap",
+  "status": "CORE"
+ },
+ {
+  "no": 39,
+  "key": "BANK:DEPOSIT",
+  "name": "Deposito Berjangka",
+  "group": "Kas & bank",
+  "status": "CORE"
+ },
+ {
+  "no": 40,
+  "key": "BANK:GIRO",
+  "name": "Bank - Giro",
+  "group": "Kas & bank",
+  "status": "CORE"
+ },
+ {
+  "no": 41,
+  "key": "BANK:SAVINGS",
+  "name": "Bank - Tabungan",
+  "group": "Kas & bank",
+  "status": "CORE"
+ },
+ {
+  "no": 42,
+  "key": "CASH:1011001001",
+  "name": "CASH ON HAND",
+  "group": "Kas & bank",
+  "status": "CORE"
+ },
+ {
+  "no": 43,
+  "key": "CASH:1011001002",
+  "name": "PETTY CASH",
+  "group": "Kas & bank",
+  "status": "CORE"
+ },
+ {
+  "no": 44,
+  "key": "CASH:1011001003",
+  "name": "MODAL KASIR",
+  "group": "Kas & bank",
+  "status": "CORE"
+ },
+ {
+  "no": 45,
+  "key": "COGS:HPP",
+  "name": "Harga Pokok Pembelian / HPP",
+  "group": "HPP",
+  "status": "CORE"
+ },
+ {
+  "no": 46,
+  "key": "COGS:INVENTORY_DAMAGE",
+  "name": "Biaya Kerusakan/Kehilangan Persediaan",
+  "group": "HPP",
+  "status": "CORE"
+ },
+ {
+  "no": 47,
+  "key": "CONTRA:DISCOUNT",
+  "name": "Discount / Potongan Penjualan",
+  "group": "Kontra pendapatan/pembelian",
+  "status": "CORE"
+ },
+ {
+  "no": 48,
+  "key": "CONTRA:PURCHASE_DISCOUNT",
+  "name": "Potongan Pembelian",
+  "group": "Kontra pendapatan/pembelian",
+  "status": "CORE"
+ },
+ {
+  "no": 49,
+  "key": "CONTRA:RETURN",
+  "name": "Retur Penjualan",
+  "group": "Kontra pendapatan/pembelian",
+  "status": "CORE"
+ },
+ {
+  "no": 50,
+  "key": "EQUITY:CAPITAL",
+  "name": "Modal Disetor",
+  "group": "Ekuitas",
+  "status": "CORE"
+ },
+ {
+  "no": 51,
+  "key": "EQUITY:DRAW",
+  "name": "Prive/Penarikan Pemilik",
+  "group": "Ekuitas",
+  "status": "CORE"
+ },
+ {
+  "no": 52,
+  "key": "EQUITY:RETAINED",
+  "name": "Saldo Laba",
+  "group": "Ekuitas",
+  "status": "CORE"
+ },
+ {
+  "no": 53,
+  "key": "FINEXP:BANK",
+  "name": "Beban Bunga Pinjaman Bank",
+  "group": "Beban keuangan",
+  "status": "CORE"
+ },
+ {
+  "no": 54,
+  "key": "FINEXP:LEASE",
+  "name": "Beban Bunga Leasing",
+  "group": "Beban keuangan",
+  "status": "CORE"
+ },
+ {
+  "no": 55,
+  "key": "INTANGIBLE:SOFTWARE_ACCUM",
+  "name": "Akumulasi Amortisasi Software",
+  "group": "Aset takberwujud",
+  "status": "CORE"
+ },
+ {
+  "no": 56,
+  "key": "INTANGIBLE:SOFTWARE_COST",
+  "name": "Software / Intangible Asset",
+  "group": "Aset takberwujud",
+  "status": "CORE"
+ },
+ {
+  "no": 57,
+  "key": "INV_TRANSIT:BAGS",
+  "name": "Kantong Belanja dalam Perjalanan",
+  "group": "Persediaan",
+  "status": "CORE"
+ },
+ {
+  "no": 58,
+  "key": "INV_TRANSIT:MERCH",
+  "name": "Barang Dagangan dalam Perjalanan",
+  "group": "Persediaan",
+  "status": "CORE"
+ },
+ {
+  "no": 59,
+  "key": "INV:BAGS",
+  "name": "Persediaan Kantong Belanja",
+  "group": "Persediaan",
+  "status": "CORE"
+ },
+ {
+  "no": 60,
+  "key": "INV:DISPOSED",
+  "name": "Disposed Inventory",
+  "group": "Persediaan",
+  "status": "CORE"
+ },
+ {
+  "no": 61,
+  "key": "INV:MERCH",
+  "name": "Persediaan Barang Dagangan",
+  "group": "Persediaan",
+  "status": "CORE"
+ },
+ {
+  "no": 62,
+  "key": "LAND:HGB_ACCUM",
+  "name": "Akumulasi Amortisasi Land Right / HGB",
+  "group": "Tanah/HGB",
+  "status": "CORE"
+ },
+ {
+  "no": 63,
+  "key": "LAND:HGB_COST",
+  "name": "Hak Sewa Tanah / HGB",
+  "group": "Tanah/HGB",
+  "status": "CORE"
+ },
+ {
+  "no": 64,
+  "key": "LAND:HGB_EXPENSE",
+  "name": "Biaya Land Right",
+  "group": "Tanah/HGB",
+  "status": "CORE"
+ },
+ {
+  "no": 65,
+  "key": "LIAB:CUSTOMER_ADVANCE",
+  "name": "Uang Muka Penjualan",
+  "group": "Liabilitas",
+  "status": "CORE"
+ },
+ {
+  "no": 66,
+  "key": "LIAB:OTHER",
+  "name": "Hutang Lain-lain",
+  "group": "Liabilitas",
+  "status": "CORE"
+ },
+ {
+  "no": 67,
+  "key": "LIAB:OUTSTANDING_GIRO",
+  "name": "Outstanding Giro",
+  "group": "Liabilitas",
+  "status": "CORE"
+ },
+ {
+  "no": 68,
+  "key": "LIAB:PRINCIPAL_OTHER",
+  "name": "Hutang Principal / Pihak Berelasi",
+  "group": "Liabilitas",
+  "status": "CORE"
+ },
+ {
+  "no": 69,
+  "key": "LOAN:BANK",
+  "name": "Pinjaman Bank",
+  "group": "Pinjaman",
+  "status": "CORE"
+ },
+ {
+  "no": 70,
+  "key": "LOAN:PRINCIPAL",
+  "name": "Pinjaman Principal",
+  "group": "Pinjaman",
+  "status": "CORE"
+ },
+ {
+  "no": 71,
+  "key": "MIXED:OTHER",
+  "name": "Pendapatan (Biaya) Lain-lain",
+  "group": "Pendapatan/beban lain",
+  "status": "CORE"
+ },
+ {
+  "no": 72,
+  "key": "OPEX:6010110001",
+  "name": "Biaya Customer Supplies",
+  "group": "Beban operasi",
+  "status": "CORE"
+ },
+ {
+  "no": 73,
+  "key": "OPEX:6010110002",
+  "name": "Biaya Credit Card",
+  "group": "Beban operasi",
+  "status": "CORE"
+ },
+ {
+  "no": 74,
+  "key": "OPEX:6010110003",
+  "name": "Biaya Promosi",
+  "group": "Beban operasi",
+  "status": "CORE"
+ },
+ {
+  "no": 75,
+  "key": "OPEX:6010110004",
+  "name": "Biaya Dekorasi",
+  "group": "Beban operasi",
+  "status": "CORE"
+ },
+ {
+  "no": 76,
+  "key": "OPEX:6010110005",
+  "name": "Biaya Advertising / Iklan",
+  "group": "Beban operasi",
+  "status": "CORE"
+ },
+ {
+  "no": 77,
+  "key": "OPEX:6010110006",
+  "name": "Biaya Bongkar Muat Barang",
+  "group": "Beban operasi",
+  "status": "CORE"
+ },
+ {
+  "no": 78,
+  "key": "OPEX:6010110007",
+  "name": "Biaya Pengiriman Barang/kurir/Ekspedisi",
+  "group": "Beban operasi",
+  "status": "CORE"
+ },
+ {
+  "no": 79,
+  "key": "OPEX:6010310001",
+  "name": "Biaya Kebersihan (Cleaning)",
+  "group": "Beban operasi",
+  "status": "CORE"
+ },
+ {
+  "no": 80,
+  "key": "OPEX:6010310002",
+  "name": "Alat Tulis Kantor & Barang Cetakan",
+  "group": "Beban operasi",
+  "status": "CORE"
+ },
+ {
+  "no": 81,
+  "key": "OPEX:6010310003",
+  "name": "Biaya Rumah Tangga",
+  "group": "Beban operasi",
+  "status": "CORE"
+ },
+ {
+  "no": 82,
+  "key": "OPEX:6010310004",
+  "name": "Biaya Bank HO",
+  "group": "Beban operasi",
+  "status": "CORE"
+ },
+ {
+  "no": 83,
+  "key": "OPEX:6010310005",
+  "name": "Biaya Telephone,Facsimile, Modem",
+  "group": "Beban operasi",
+  "status": "CORE"
+ },
+ {
+  "no": 84,
+  "key": "OPEX:6010310006",
+  "name": "Biaya Pemakaian Listrik",
+  "group": "Beban operasi",
+  "status": "CORE"
+ },
+ {
+  "no": 85,
+  "key": "OPEX:6010310007",
+  "name": "Biaya Pemakaian Air Bersih (PDAM)",
+  "group": "Beban operasi",
+  "status": "CORE"
+ },
+ {
+  "no": 86,
+  "key": "OPEX:6010310008",
+  "name": "Biaya Perjalanan Dinas",
+  "group": "Beban operasi",
+  "status": "CORE"
+ },
+ {
+  "no": 87,
+  "key": "OPEX:6010310009",
+  "name": "Biaya Lokal Transport",
+  "group": "Beban operasi",
+  "status": "CORE"
+ },
+ {
+  "no": 88,
+  "key": "OPEX:6010310010",
+  "name": "Biaya Perijinan",
+  "group": "Beban operasi",
+  "status": "CORE"
+ },
+ {
+  "no": 89,
+  "key": "OPEX:6010310011",
+  "name": "Computer Expenses",
+  "group": "Beban operasi",
+  "status": "CORE"
+ },
+ {
+  "no": 90,
+  "key": "OPEX:6010310012",
+  "name": "Biaya Penyisihan Kerugian Piutang",
+  "group": "Beban operasi",
+  "status": "CORE"
+ },
+ {
+  "no": 91,
+  "key": "OPEX:6010310013",
+  "name": "Biaya Perlengkapan Toko dan Kantor",
+  "group": "Beban operasi",
+  "status": "CORE"
+ },
+ {
+  "no": 92,
+  "key": "OPEX:6010310014",
+  "name": "Biaya Stock Opname",
+  "group": "Beban operasi",
+  "status": "CORE"
+ },
+ {
+  "no": 93,
+  "key": "OPEX:6010310015",
+  "name": "Biaya Peralatan Listrik",
+  "group": "Beban operasi",
+  "status": "CORE"
+ },
+ {
+  "no": 94,
+  "key": "OPEX:6010310016",
+  "name": "Tire & Tubes  Expences",
+  "group": "Beban operasi",
+  "status": "CORE"
+ },
+ {
+  "no": 95,
+  "key": "OPEX:6010310017",
+  "name": "F u e l  & O I l  Expences",
+  "group": "Beban operasi",
+  "status": "CORE"
+ },
+ {
+  "no": 96,
+  "key": "OPEX:6010310018",
+  "name": "T o o l s (Peralatan) Ekspences",
+  "group": "Beban operasi",
+  "status": "CORE"
+ },
+ {
+  "no": 97,
+  "key": "OPEX:6010310019",
+  "name": "Biaya Lubrication & Grease, Bahan Bakar Genset",
+  "group": "Beban operasi",
+  "status": "CORE"
+ },
+ {
+  "no": 98,
+  "key": "OPEX:6010310020",
+  "name": "Biaya Telephone Equipment",
+  "group": "Beban operasi",
+  "status": "CORE"
+ },
+ {
+  "no": 99,
+  "key": "OPEX:6010310021",
+  "name": "Biaya Donasi (CSR, Zakat)",
+  "group": "Beban operasi",
+  "status": "CORE"
+ },
+ {
+  "no": 100,
+  "key": "OPEX:6010310022",
+  "name": "Biaya Konsultan",
+  "group": "Beban operasi",
+  "status": "CORE"
+ },
+ {
+  "no": 101,
+  "key": "OPEX:6010310023",
+  "name": "Biaya Lisensi Kendaraan ( STNK, Uji Kir)",
+  "group": "Beban operasi",
+  "status": "CORE"
+ },
+ {
+  "no": 102,
+  "key": "OPEX:6010310024",
+  "name": "Biaya Perlengkapan Mess atau Rumah Dinas",
+  "group": "Beban operasi",
+  "status": "CORE"
+ },
+ {
+  "no": 103,
+  "key": "OPEX:6010310099",
+  "name": "Miscellaneous Expences",
+  "group": "Beban operasi",
+  "status": "CORE"
+ },
+ {
+  "no": 104,
+  "key": "OPEX:7010310001",
+  "name": "Property All Risk & Fire Insurance",
+  "group": "Beban operasi",
+  "status": "CORE"
+ },
+ {
+  "no": 105,
+  "key": "OPEX:7010310002",
+  "name": "Biaya Pajak Bumi Dan Bangunan  (PBB)",
+  "group": "Beban operasi",
+  "status": "CORE"
+ },
+ {
+  "no": 106,
+  "key": "OPEX:7020310003",
+  "name": "Biaya Pajak Reklame",
+  "group": "Beban operasi",
+  "status": "CORE"
+ },
+ {
+  "no": 107,
+  "key": "OPEX:7020310004",
+  "name": "Biaya Management FEE",
+  "group": "Beban operasi",
+  "status": "CORE"
+ },
+ {
+  "no": 108,
+  "key": "OPEX:7020310005",
+  "name": "Biaya Asuransi Kendaraan",
+  "group": "Beban operasi",
+  "status": "CORE"
+ },
+ {
+  "no": 109,
+  "key": "OPEX:LAND_RENT",
+  "name": "Biaya Sewa Tanah",
+  "group": "Beban operasi",
+  "status": "CORE"
+ },
+ {
+  "no": 110,
+  "key": "OPEX:MESS_RENT",
+  "name": "Biaya Sewa Rumah Dinas / Mess",
+  "group": "Beban operasi",
+  "status": "CORE"
+ },
+ {
+  "no": 111,
+  "key": "OPEX:PHYSICAL_MAINT",
+  "name": "Beban Perbaikan dan Pemeliharaan",
+  "group": "Beban operasi",
+  "status": "CORE"
+ },
+ {
+  "no": 112,
+  "key": "OPEX:REPLACEMENT_OE",
+  "name": "Biaya Replacement OE",
+  "group": "Beban operasi",
+  "status": "CORE"
+ },
+ {
+  "no": 113,
+  "key": "OPEX:SOFTWARE_MAINT",
+  "name": "Beban Pemeliharaan Software",
+  "group": "Beban operasi",
+  "status": "CORE"
+ },
+ {
+  "no": 114,
+  "key": "OPEX:STORE_RENT",
+  "name": "Biaya Sewa Bangunan Toko dan Gudang",
+  "group": "Beban operasi",
+  "status": "CORE"
+ },
+ {
+  "no": 115,
+  "key": "PAYROLL:01",
+  "name": "Beban Gaji",
+  "group": "Payroll",
+  "status": "CORE"
+ },
+ {
+  "no": 116,
+  "key": "PAYROLL:02",
+  "name": "Beban Lembur",
+  "group": "Payroll",
+  "status": "CORE"
+ },
+ {
+  "no": 117,
+  "key": "PAYROLL:03",
+  "name": "Beban Uang Makan",
+  "group": "Payroll",
+  "status": "CORE"
+ },
+ {
+  "no": 118,
+  "key": "PAYROLL:04",
+  "name": "Beban Transport",
+  "group": "Payroll",
+  "status": "CORE"
+ },
+ {
+  "no": 119,
+  "key": "PAYROLL:05",
+  "name": "Beban Kesehatan dan Pengobatan",
+  "group": "Payroll",
+  "status": "CORE"
+ },
+ {
+  "no": 120,
+  "key": "PAYROLL:06",
+  "name": "Beban Asuransi Pegawai / BPJS",
+  "group": "Payroll",
+  "status": "CORE"
+ },
+ {
+  "no": 121,
+  "key": "PAYROLL:07",
+  "name": "Beban THR",
+  "group": "Payroll",
+  "status": "CORE"
+ },
+ {
+  "no": 122,
+  "key": "PAYROLL:08",
+  "name": "Beban Seragam Kerja",
+  "group": "Payroll",
+  "status": "CORE"
+ },
+ {
+  "no": 123,
+  "key": "PAYROLL:09",
+  "name": "Beban Sport dan Rekreasi",
+  "group": "Payroll",
+  "status": "CORE"
+ },
+ {
+  "no": 124,
+  "key": "PAYROLL:10",
+  "name": "Beban Funeral Contribution",
+  "group": "Payroll",
+  "status": "CORE"
+ },
+ {
+  "no": 125,
+  "key": "PAYROLL:11",
+  "name": "Beban Pengembangan SDM",
+  "group": "Payroll",
+  "status": "CORE"
+ },
+ {
+  "no": 126,
+  "key": "PAYROLL:12",
+  "name": "Beban Pesangon",
+  "group": "Payroll",
+  "status": "CORE"
+ },
+ {
+  "no": 127,
+  "key": "PAYROLL:13",
+  "name": "Beban Komisi / Bonus / Insentif",
+  "group": "Payroll",
+  "status": "CORE"
+ },
+ {
+  "no": 128,
+  "key": "PREOPEN:ACCUM",
+  "name": "Akumulasi Amortisasi Pre Opening",
+  "group": "Pre-opening",
+  "status": "CORE"
+ },
+ {
+  "no": 129,
+  "key": "PREOPEN:COST",
+  "name": "Pre Opening",
+  "group": "Pre-opening",
+  "status": "CORE"
+ },
+ {
+  "no": 130,
+  "key": "PREOPEN:EXPENSE",
+  "name": "Biaya Amortisasi Pre Opening",
+  "group": "Pre-opening",
+  "status": "CORE"
+ },
+ {
+  "no": 131,
+  "key": "PREPAID:GENERAL",
+  "name": "Biaya Dibayar Dimuka",
+  "group": "Prepaid",
+  "status": "CORE"
+ },
+ {
+  "no": 132,
+  "key": "PREPAID:RENT",
+  "name": "Sewa Dibayar Dimuka",
+  "group": "Prepaid",
+  "status": "CORE"
+ },
+ {
+  "no": 133,
+  "key": "REV:4020110001",
+  "name": "Management  Fee",
+  "group": "Pendapatan",
+  "status": "CORE"
+ },
+ {
+  "no": 134,
+  "key": "REV:600104",
+  "name": "Pendapatan lain-lain",
+  "group": "Pendapatan",
+  "status": "CORE"
+ },
+ {
+  "no": 135,
+  "key": "REV:8010110001",
+  "name": "Pendapatan Bunga Bank",
+  "group": "Pendapatan",
+  "status": "CORE"
+ },
+ {
+  "no": 136,
+  "key": "REV:MERCH_SALES",
+  "name": "Penjualan Barang Dagangan",
+  "group": "Pendapatan",
+  "status": "CORE"
+ },
+ {
+  "no": 137,
+  "key": "REV:RENTAL",
+  "name": "Pendapatan Sewa",
+  "group": "Pendapatan",
+  "status": "CORE"
+ },
+ {
+  "no": 138,
+  "key": "ROUNDING",
+  "name": "Selisih Pembulatan",
+  "group": "Pembulatan",
+  "status": "CORE"
+ },
+ {
+  "no": 139,
+  "key": "TAX_ASSET:INCOME",
+  "name": "Kredit/Pajak Penghasilan Dibayar Dimuka",
+  "group": "Pajak",
+  "status": "CORE"
+ },
+ {
+  "no": 140,
+  "key": "TAX_ASSET:INPUT_VAT",
+  "name": "PPN Masukan",
+  "group": "Pajak",
+  "status": "CORE"
+ },
+ {
+  "no": 141,
+  "key": "TAX_ASSET:OTHER",
+  "name": "Pajak Lain Dibayar Dimuka",
+  "group": "Pajak",
+  "status": "CORE"
+ },
+ {
+  "no": 142,
+  "key": "TAX_ASSET:PBB",
+  "name": "PBB Dibayar Dimuka",
+  "group": "Pajak",
+  "status": "CORE"
+ },
+ {
+  "no": 143,
+  "key": "TAX_LIAB:PAYABLE",
+  "name": "Hutang Pajak",
+  "group": "Pajak",
+  "status": "CORE"
+ },
+ {
+  "no": 144,
+  "key": "TAX:INCOME_EXPENSE",
+  "name": "Pajak Penghasilan / Beban Pajak Kini",
+  "group": "Pajak",
+  "status": "CORE"
+ }
+]

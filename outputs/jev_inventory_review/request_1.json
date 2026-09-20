@@ -1,0 +1,158 @@
+{
+  "model": "jev-latest",
+  "state": {
+    "objective": "Reduce only the client's inventory-related COA families through dimensions while preserving accounting nature, valuation, ownership, cut-off and reconciliation.",
+    "confirmed_context": [
+      "Centralized retail finance. HO controls finance. Units handle physical goods and cash. Direct unit-to-unit activity is not allowed; operational movement is governed centrally.",
+      "Unit suffix E1 has already been removed from natural accounts and stored as site_id.",
+      "No general counter_site_id or related_site_id will be added to journal lines.",
+      "A shipment/transfer document may carry origin_site_id and destination_site_id when operationally required; those fields need not become natural accounts or general journal dimensions.",
+      "Current working COA is 488 after the bank proposal, with asset scenarios considered separately. Do not calculate total COA counts.",
+      "No inventory policy, valuation method, posting examples, balances, item master, transfer documents or cut-off procedure has been provided."
+    ],
+    "actual_client_accounts": {
+      "on_hand_11": [
+        "Persediaan Barang Dagangan",
+        "Kantong Belanja Plastik Ukuran KECIL",
+        "Kantong Belanja Plastik Ukuran SEDANG",
+        "Kantong Belanja Plastik Ukuran BESAR",
+        "Kantong Belanja Plastik Ukuran JUMBO",
+        "Kantong Belanja Plastik SEPATU",
+        "Kantong Belanja Kertas Ukuran KECIL",
+        "Kantong Belanja Kertas Ukuran SEDANG",
+        "Kantong Belanja Kertas Ukuran BESAR",
+        "Kantong Belanja Kertas Ukuran JUMBO",
+        "Kantong Belanja Kertas SEPATU"
+      ],
+      "in_transit_28": "BDP Barang Dagangan for each of 14 named HO/unit locations, and BDP Kantong Belanja for the same 14 locations.",
+      "allowance_2": [
+        "Cadangan Kerusakan atau kehilangan Barang - Barang Dagangan",
+        "Cadangan Kerusakan atau kehilangan Barang - Kantong Belanja"
+      ],
+      "related_unresolved": [
+        "Disposed Inventory",
+        "Biaya Kerusakan Persediaan Barang Dagangan",
+        "Kehilangan Barang atau Selisih Stock Opname"
+      ]
+    }
+  },
+  "questions": {
+    "item_identity": {
+      "type": "choice",
+      "instructions": "Should bag material, size and individual merchandise identity normally live in item_id/item_class rather than separate natural GL accounts when a perpetual inventory subledger reconciles to GL?",
+      "criteria": {
+        "dimension": "Use item_id/item_class for identity; retain GL distinctions only for accounting nature or required reporting.",
+        "gl": "Every item/material/size must remain a natural GL.",
+        "insufficient": "The conditional architecture itself is unsupported."
+      }
+    },
+    "goods_vs_bags": {
+      "type": "choice",
+      "instructions": "Can merchandise held for sale and shopping bags be merged into one on-hand inventory natural account solely because both are inventory-like?",
+      "criteria": {
+        "review": "First verify whether bags are inventory, consumable supplies, packaging expense, or separately reported stock and how they are relieved.",
+        "one": "Merge immediately into one inventory GL.",
+        "always_two": "They must always remain two GLs regardless of policy."
+      }
+    },
+    "ten_bag_accounts": {
+      "type": "choice",
+      "instructions": "If all ten shopping-bag accounts share recognition, valuation and consumption policy, can plastic/paper and size detail move to item attributes beneath one shopping-bag inventory GL?",
+      "criteria": {
+        "conditional_merge": "Yes, subject to item-subledger reconciliation and common policy.",
+        "retain_ten": "Keep ten natural GLs even under common policy.",
+        "immediate": "Merge solely from similar names without evidence."
+      }
+    },
+    "transit_nature": {
+      "type": "choice",
+      "instructions": "Must inventory in transit remain a separate natural-account nature from on-hand inventory when cut-off and control-transfer timing differ?",
+      "criteria": {
+        "separate": "Keep in-transit separate from on-hand until receipt/recognition event.",
+        "combine": "Use the same natural GL without regard to transit state.",
+        "review": "Transit never needs distinct accounting treatment."
+      }
+    },
+    "transit_locations": {
+      "type": "choice",
+      "instructions": "Can the 14 location names within BDP Barang Dagangan be removed from natural GLs when shipment records identify the relevant location and reconcile to the transit control account?",
+      "criteria": {
+        "conditional_merge": "One merchandise-in-transit GL plus shipment/location detail.",
+        "retain_14": "Keep one GL for every location.",
+        "immediate": "Merge without confirming what the named location means."
+      }
+    },
+    "transit_two_classes": {
+      "type": "choice",
+      "instructions": "Should BDP Barang Dagangan and BDP Kantong Belanja be merged into one transit GL from names alone?",
+      "criteria": {
+        "review": "Keep two provisional transit classes until ownership, valuation and expense/receipt treatment are confirmed; item class may later support one.",
+        "one": "Merge all 28 into one immediately.",
+        "always_two": "They can never share a transit GL."
+      }
+    },
+    "named_location_meaning": {
+      "type": "choice",
+      "instructions": "Before mapping 28 BDP accounts, must the client confirm whether each named location is origin, destination, custodian, or merely reporting label?",
+      "criteria": {
+        "yes": "Meaning affects shipment mapping, cut-off and reconciliation.",
+        "no": "The name can be discarded without understanding it."
+      }
+    },
+    "counter_site": {
+      "type": "choice",
+      "instructions": "Does compressing BDP location accounts require a general counter_site_id on every journal line?",
+      "criteria": {
+        "no": "Use shipment/transfer document origin and destination where needed; journal keeps relevant site and shipment reference.",
+        "yes": "Add counter_site_id to all journal lines.",
+        "account": "Encode both sites in natural account numbers."
+      }
+    },
+    "allowance_nature": {
+      "type": "choice",
+      "instructions": "Must damage/loss allowance remain separate from gross inventory natural accounts?",
+      "criteria": {
+        "separate": "Keep allowance/contra inventory as a separate accounting nature.",
+        "net": "Post directly into gross inventory without separate allowance.",
+        "expense": "Treat the allowance balance as expense."
+      }
+    },
+    "two_allowances": {
+      "type": "choice",
+      "instructions": "Can the two allowance accounts become one allowance GL with inventory_class detail if methodology, measurement and reporting are the same?",
+      "criteria": {
+        "conditional_merge": "Yes, with inventory-class subledger reconciliation.",
+        "retain_two": "Always retain two natural accounts.",
+        "immediate": "Merge now without verifying method."
+      }
+    },
+    "disposed_inventory": {
+      "type": "choice",
+      "instructions": "Can Disposed Inventory be classified conclusively as inventory asset, contra inventory, disposal clearing, or expense from the account name alone?",
+      "criteria": {
+        "no": "Inspect journal entries, normal balance and counterpart accounts.",
+        "asset": "Treat immediately as inventory asset.",
+        "expense": "Treat immediately as loss expense.",
+        "contra": "Treat immediately as contra inventory."
+      }
+    },
+    "loss_expenses": {
+      "type": "choice",
+      "instructions": "Can Biaya Kerusakan Persediaan and Kehilangan Barang atau Selisih Stock Opname be merged merely because both reduce inventory value?",
+      "criteria": {
+        "review": "Check cause, approval workflow, allowance usage and management reporting before merging.",
+        "merge": "Merge immediately into one loss GL.",
+        "retain": "They must always be separate regardless of process."
+      }
+    },
+    "migration_gate": {
+      "type": "choice",
+      "instructions": "What is the minimum safe gate before compressing the inventory accounts?",
+      "criteria": {
+        "records": "Item master, valuation/recognition policy, sample postings, shipment cut-off, opening mapping and subledger-to-GL reconciliation.",
+        "names": "Account-name similarity alone.",
+        "jev": "Repeated Jev judgments without client records."
+      }
+    }
+  }
+}

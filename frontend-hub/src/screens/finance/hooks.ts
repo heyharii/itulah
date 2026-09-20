@@ -5,12 +5,21 @@ import { day, label } from "@/lib/format"
 import {
   accountMap,
   financeKeys,
+  listAssetClasses,
   listBills,
+  listLineCategories,
   listPeriods,
   type AccountMapView,
+  type AssetClass,
+  type LineCategory,
 } from "@/lib/queries/finance"
 import { listSuppliers, procurementKeys } from "@/lib/queries/procurement"
-import { isoDay, todayIso } from "@/screens/finance/chart"
+import {
+  categoryFamilyLabel,
+  categoryFamilyOrder,
+  isoDay,
+  todayIso,
+} from "@/screens/finance/chart"
 
 /// The module's shared reads, and the two shapes of date question it asks.
 ///
@@ -126,6 +135,125 @@ export function useSupplierName(): (
     supplierId === null || supplierId === undefined || supplierId === ""
       ? "—"
       : (byId.get(supplierId) ?? supplierId)
+}
+
+// ---------------------------------------------------------------------------
+// Line categories
+// ---------------------------------------------------------------------------
+
+/// The categories one family offers, in the order the client reads them.
+///
+/// 138 categories across 16 families, and the spread is wide: `item_class`
+/// has two, `expense_category` has 51. One request per family and not one per
+/// picker — a journal with six expense lines opens six category boxes, all of
+/// them `expense_category`, and they share a key. Held for five minutes: the
+/// families are seeded with the chart and change about as often.
+///
+/// `family` of `null` asks for every family at once, which is what the
+/// reference screen reads; the picker never passes it, because a picker with
+/// no account chosen has no box to fill.
+export function useLineCategories(family: string | null) {
+  const query = useQuery({
+    queryKey: financeKeys.lineCategories(family),
+    queryFn: ({ signal }) => listLineCategories(family, signal),
+    // A picker with no account chosen yet has no family, and asking for every
+    // category to fill a box nobody opened is a request for nothing.
+    enabled: family !== null,
+    staleTime: 5 * 60 * 1000,
+  })
+  const rows = useMemo(() => {
+    const all = [...(query.data?.categories ?? [])]
+    // The client's own order first, then their own name — never the code,
+    // which is ours and is not what anybody is scanning for.
+    all.sort(
+      (a, b) =>
+        a.sort_order - b.sort_order || a.name.localeCompare(b.name, "id-ID")
+    )
+    return all as readonly LineCategory[]
+  }, [query.data])
+  return { ...query, rows }
+}
+
+/// Every category, every family, for the reference screen.
+///
+/// Its own hook rather than `useLineCategories(null)` with the guard lifted,
+/// because the two have different keys and different shapes of answer: this
+/// one groups, and grouping in the screen would put the same `reduce` in
+/// front of every reader of this list.
+export function useCategoriesByFamily() {
+  const query = useQuery({
+    queryKey: financeKeys.lineCategories(null),
+    queryFn: ({ signal }) => listLineCategories(null, signal),
+    staleTime: 5 * 60 * 1000,
+  })
+  const families = useMemo(() => {
+    const table = new Map<string, LineCategory[]>()
+    for (const row of query.data?.categories ?? []) {
+      const held = table.get(row.family)
+      if (held === undefined) table.set(row.family, [row])
+      else held.push(row)
+    }
+    for (const rows of table.values()) {
+      rows.sort(
+        (a, b) =>
+          a.sort_order - b.sort_order || a.name.localeCompare(b.name, "id-ID")
+      )
+    }
+    return (
+      [...table.entries()]
+        .map(([family, rows]) => ({
+          family,
+          label: categoryFamilyLabel(family),
+          rows: rows as readonly LineCategory[],
+        }))
+        // The accounts' own order, not the alphabet. See `CATEGORY_FAMILIES`.
+        .sort(
+          (a, b) =>
+            categoryFamilyOrder(a.family) - categoryFamilyOrder(b.family) ||
+            a.family.localeCompare(b.family)
+        )
+    )
+  }, [query.data])
+  return { ...query, families }
+}
+
+/// A `category_code` as the client's chart says it.
+///
+/// Falls back to the code, which is the only honest thing to draw for a
+/// category this browser has not read — the same bargain `useSiteName` makes,
+/// and for the same reason.
+export function useCategoryName(): (code: string | null | undefined) => string {
+  const all = useCategoriesByFamily()
+  const byCode = useMemo(() => {
+    const table = new Map<string, string>()
+    for (const group of all.families)
+      for (const row of group.rows) table.set(row.category_code, row.name)
+    return table
+  }, [all.families])
+
+  return (code) =>
+    code === null || code === undefined || code === ""
+      ? "—"
+      : (byCode.get(code) ?? code)
+}
+
+/// The client's asset classes.
+///
+/// Here rather than in a module of its own because it is the sibling of the
+/// list above: the accounts that take no category — 1601, 1609, 7101 — are
+/// the ones whose identity is an asset, and its class is what a reader of the
+/// categories screen will look for next.
+export function useAssetClasses() {
+  const query = useQuery({
+    queryKey: financeKeys.assetClasses(),
+    queryFn: ({ signal }) => listAssetClasses(signal),
+    staleTime: 5 * 60 * 1000,
+  })
+  const rows = useMemo(
+    () => (query.data?.classes ?? []) as readonly AssetClass[],
+    [query.data]
+  )
+  return { ...query, rows }
 }
 
 // ---------------------------------------------------------------------------

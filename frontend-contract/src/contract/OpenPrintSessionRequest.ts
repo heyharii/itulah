@@ -14,4 +14,18 @@ label_offset_mm: number, chunk_size: number | null,
  * node's own default, which is ZPL unless the node says otherwise: a
  * bench that has not chosen must not be guessed into TSPL.
  */
-language: PrinterLanguage | null, actor_id: string, };
+language: PrinterLanguage | null, 
+/**
+ * How hard the head burns, 0-30. Absent leaves the printer on whatever it
+ * was last told, which is the honest default: this node cannot read the
+ * machine's stored value back over a one-way queue, so saying nothing is
+ * truer than guessing a number and overwriting a bench's own calibration.
+ */
+darkness: number | null, 
+/**
+ * Inches per second. Absent for the same reason as [`Self::darkness`].
+ *
+ * The printer clamps to its own maximum without saying so, so a figure
+ * accepted here is a figure asked for, never one confirmed.
+ */
+speed_ips: number | null, actor_id: string, };

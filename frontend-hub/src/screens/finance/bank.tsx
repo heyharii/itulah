@@ -49,7 +49,10 @@ import {
 } from "@/screens/finance/chart"
 import { useAsOf, useMeaningLabel } from "@/screens/finance/hooks"
 import {
+  AccountAndCategory,
   AccountPicker,
+  accountChoiceReady,
+  type AccountChoice,
   Amount,
   AsOfControl,
   LocationSelect,
@@ -838,12 +841,19 @@ function Reconcile({ statement }: { statement: BankStatementRow }) {
   const book = useMutation({
     mutationFn: (input: {
       lineId: string
-      accountCode: string
+      picked: AccountChoice
       memo: string
     }) =>
       bookBankLine(input.lineId, {
-        account_code: input.accountCode,
+        account_code: input.picked.account_code,
         memo: input.memo.trim(),
+        // What the charge WAS, which the account no longer says on its own:
+        // every bank charge on this screen lands on 6301, and the forty-
+        // account chart leaves "administrasi" and "provisi kredit" to the
+        // category. `null` when the account declares no family — the other
+        // side of a transfer is 1102, whose identity is the bank account it
+        // already names.
+        category_code: input.picked.category_code,
         // The bank itself, which is what null means here and what these lines
         // almost always are.
         party_name: null,
@@ -922,8 +932,8 @@ function Reconcile({ statement }: { statement: BankStatementRow }) {
                       onAccept={(suggestion) =>
                         confirm.mutate({ lineId: line.line_id, suggestion })
                       }
-                      onBook={(accountCode, memo) =>
-                        book.mutate({ lineId: line.line_id, accountCode, memo })
+                      onBook={(picked, memo) =>
+                        book.mutate({ lineId: line.line_id, picked, memo })
                       }
                     />
                   ))}
@@ -1023,7 +1033,7 @@ function UnmatchedLine({
   scoring: boolean
   busy: boolean
   onAccept: (suggestion: Suggestion) => void
-  onBook: (accountCode: string, memo: string) => void
+  onBook: (picked: AccountChoice, memo: string) => void
 }) {
   // Three candidates. Past that the list stops being a decision and starts
   // being a search, and a search wants the ledger, not this panel.
@@ -1153,45 +1163,29 @@ function BookLine({
 }: {
   busy: boolean
   onCancel: () => void
-  onBook: (accountCode: string, memo: string) => void
+  onBook: (picked: AccountChoice, memo: string) => void
 }) {
-  const [code, setCode] = useState("")
-  const [name, setName] = useState("")
+  // The account AND what the charge was. One field, because since the chart
+  // collapsed to forty accounts the code alone no longer names the thing: a
+  // bank charge and a credit provision are both 6301 and are told apart by
+  // the category.
+  const [picked, setPicked] = useState<AccountChoice | null>(null)
   const [memo, setMemo] = useState("")
-  const ready = code !== "" && memo.trim() !== ""
+  const ready = accountChoiceReady(picked) && memo.trim() !== ""
 
   return (
     <div className="mt-2 flex flex-col gap-2 border-t border-hairline pt-2.5">
-      {code === "" ? (
-        <AccountPicker
-          placeholder="Which account is the other side of this"
-          // Headings and retired accounts are shown and refused rather than
-          // hidden: somebody who cannot find the account they are looking at
-          // assumes the search is broken. The server refuses the same two.
-          accept={(account) => (account.is_active ? null : "retired")}
-          onPick={(account) => {
-            setCode(account.account_code)
-            setName(account.name)
-          }}
-        />
-      ) : (
-        <span className="flex min-w-0 items-center gap-2">
-          <Tag>{code}</Tag>
-          <span className="min-w-0 flex-1 truncate text-[0.78125rem] text-ink">
-            {name}
-          </span>
-          <Button
-            size="sm"
-            variant="quiet"
-            onClick={() => {
-              setCode("")
-              setName("")
-            }}
-          >
-            Change
-          </Button>
-        </span>
-      )}
+      <AccountAndCategory
+        placeholder="Which account is the other side of this"
+        // Headings and retired accounts are shown and refused rather than
+        // hidden: somebody who cannot find the account they are looking at
+        // assumes the search is broken. The server refuses the same two.
+        accept={(account) => (account.is_active ? null : "retired")}
+        value={picked}
+        onChange={setPicked}
+        categoryLabel="What this charge was"
+        explain
+      />
 
       <Field
         label="Why this account"
@@ -1212,7 +1206,7 @@ function BookLine({
           size="sm"
           variant="primary"
           disabled={!ready || busy}
-          onClick={() => onBook(code, memo)}
+          onClick={() => picked !== null && onBook(picked, memo)}
         >
           {busy ? "Booking…" : "Book it"}
         </Button>
@@ -1375,6 +1369,12 @@ function ImportSheet({
           <span className="mb-1.5 block text-[0.78125rem] font-medium text-text">
             Bank account
           </span>
+          {/* Deliberately the bare picker and not `<AccountAndCategory>`:
+              this names the account the statement IS, and nothing on this
+              form posts a line. 1102 Bank declares no family in any case, so
+              the second box would never draw — but the reason it does not
+              draw should be "this is not a posting", not an accident of that
+              account's declaration. */}
           <form.Subscribe
             selector={(state) => ({
               code: state.values.accountCode,

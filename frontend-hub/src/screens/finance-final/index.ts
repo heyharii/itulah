@@ -1,6 +1,7 @@
 import type { ScreenMap } from "@/screens/registry"
 
 import { Cash } from "@/screens/finance-final/cash"
+import { LineCategories } from "@/screens/finance-final/categories"
 import { Deposits } from "@/screens/finance-final/deposits"
 import { Expenses } from "@/screens/finance-final/expenses"
 import { Journals } from "@/screens/finance-final/journals"
@@ -52,6 +53,7 @@ import { Transactions } from "@/screens/finance-final/transactions"
 /// | Accounts receivable | nothing yet — no ageing endpoint on the other side |
 /// | Prepaids & Accruals | nothing yet — no schedule is kept |
 /// | Period close | `GET /finance/periods`, `GET /finance/attention`, `POST /finance/periods/close` |
+/// | Line categories | `GET /finance/line-categories`, `GET /finance/asset-classes`, `GET /finance/accounts` |
 /// | Reports | `GET /finance/trial-balance`, `GET /finance/statement`, `GET /finance/accounts/{code}/ledger`, `GET /finance/payables-aging` |
 export const screens: ScreenMap = {
   // Store — the money a place handles with its hands.
@@ -79,6 +81,11 @@ export const screens: ScreenMap = {
   "/finance-final/advances": Advances,
   "/finance-final/financing": Financing,
   "/finance-final/controls": FinanceControls,
+  // Not a subledger and not a report: the vocabulary the other twenty screens
+  // are written in. Registered in the `finance` module too, at
+  // `/finance/categories`, because the chart and its categories are read
+  // together and the chart lives over there.
+  "/finance-final/categories": LineCategories,
 
   // Reports — reads the book, belongs to neither.
   "/finance-final/reports/general-ledger": GeneralLedger,

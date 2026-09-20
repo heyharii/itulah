@@ -1,0 +1,103 @@
+{
+  "model": "jev-latest",
+  "state": {
+    "objective": "Evaluate dimensional compression of the client's prepaid, tax, accrued-expense and advance accounts while preserving asset/liability/expense nature, statutory tax reporting, cut-off and reconciliation.",
+    "confirmed_context": [
+      "Finance is centralized at HO; site_id and cost_center are available dimensions.",
+      "No contracts, prepaid schedules, tax returns, tax ledger, accrual roll-forward, advance aging, postings or balances have been supplied.",
+      "Account-name similarity is not sufficient for final migration.",
+      "Asset and liability accounts must not be netted automatically.",
+      "A schedule/subledger can store document, counterparty/employee, start/end date, amortization, due date, tax code, tax period, settlement and site/cost center."
+    ],
+    "actual_client_accounts": {
+      "prepaid_expense_9": ["Insurance", "Land Rent", "Store Rent", "House Rent", "Maintenance Contract", "Vehicle Rent", "Promotion", "Business Permit", "Other"],
+      "prepaid_tax_6": ["PPh 21", "PPh 25", "PPh 29", "Input VAT", "PBB", "Other Tax"],
+      "tax_payable_5": ["PPh 21", "PPh 23 withholding", "Output VAT", "PBB", "PPh 25"],
+      "unresolved_tax_1": "Current Tax Inc/Exp PPh 25",
+      "accrued_expense_10": ["Salary/Wages", "THR/Incentive/Bonus/Severance", "Loan Interest", "Medical", "Insurance/BPJS", "Telephone", "Electricity", "Water", "Store Rent", "House Rent"],
+      "advances_4": ["Travel", "Purchase", "Contractors", "Others"]
+    }
+  },
+  "questions": {
+    "prepaid_nature": {
+      "type": "choice",
+      "instructions": "Must prepaid expenses remain separate from current-period expenses even when expense_type is available?",
+      "criteria": {"separate":"Keep prepaid asset/control account and release through a schedule.","combine":"Post all immediately to expense.","net":"Net against payables."}
+    },
+    "nine_prepaids": {
+      "type": "choice",
+      "instructions": "Can nine prepaid-expense accounts become fewer prepaid control GLs with prepaid_type, contract_id and amortization schedule?",
+      "criteria": {"conditional":"Yes, if classification, lease/capitalization treatment, reporting and reconciliation align.","retain9":"Every prepaid type must remain a GL.","one_now":"Merge all immediately from names."}
+    },
+    "rent_prepaids": {
+      "type": "choice",
+      "instructions": "Can land/store/house/vehicle prepaid rent be merged before reviewing lease contracts and right-of-use treatment?",
+      "criteria": {"no":"Review contracts and accounting policy first.","yes":"All are ordinary prepaid rent automatically.","expense":"Expense all immediately."}
+    },
+    "permit_promotion": {
+      "type": "choice",
+      "instructions": "Do business permits and prepaid promotion automatically have the same recognition/amortization pattern as insurance or maintenance contracts?",
+      "criteria": {"no":"Validate benefit period and recognition separately.","yes":"All prepaid types have identical treatment."}
+    },
+    "tax_dimension": {
+      "type": "choice",
+      "instructions": "May tax code and tax period move to a tax subledger rather than one GL per tax type?",
+      "criteria": {"conditional":"Yes, while retaining natural accounts needed for asset/liability and statutory presentation.","never":"Every tax code must always be a GL.","one_net":"Use one net tax account for every asset and liability."}
+    },
+    "prepaid_tax_six_to_one": {
+      "type": "choice",
+      "instructions": "Can six prepaid-tax families become one Tax Credits/Prepaid Tax GL from names alone?",
+      "criteria": {"review":"Input VAT, income-tax installments/credits, PBB and other taxes may require separate recognition and presentation; verify returns and reconciliation.","yes":"Merge immediately.","expense":"Treat all as tax expense."}
+    },
+    "tax_payable_five_to_one": {
+      "type": "choice",
+      "instructions": "Can five tax-payable families become one Tax Payable GL with tax_code detail?",
+      "criteria": {"conditional":"Possible if statutory returns, due dates, presentation and reconciliation are reliably separated in the tax ledger.","retain5":"Always retain five GLs.","net":"Net with prepaid taxes."}
+    },
+    "input_output_vat": {
+      "type": "choice",
+      "instructions": "Can Input VAT asset and Output VAT liability be automatically posted to one net natural account?",
+      "criteria": {"no":"Track separately and net only according to enforceable tax rules and return settlement.","yes":"Always net at transaction posting.","expense":"Expense both."}
+    },
+    "current_tax_pph25": {
+      "type": "choice",
+      "instructions": "Can Current Tax Inc/Exp PPh 25 be classified conclusively from its name?",
+      "criteria": {"no":"Inspect whether it contains tax expense, installment/credit, true-up, payable or clearing postings.","expense":"Treat entirely as current tax expense.","asset":"Treat entirely as prepaid tax."}
+    },
+    "accrual_nature": {
+      "type": "choice",
+      "instructions": "Must accrued expenses remain separate from the underlying expense accounts?",
+      "criteria": {"separate":"Accrued liability remains separate; link accrual_type to expense nature and reversal/settlement.","combine":"Use expense GL as liability.","cash":"Recognize only when paid."}
+    },
+    "ten_accruals": {
+      "type": "choice",
+      "instructions": "Can ten accrued-expense liability accounts become fewer control GLs with accrual_type and schedule detail?",
+      "criteria": {"conditional":"Yes, if payroll, interest, utilities, rent and benefit obligations remain reportable and reconciled.","retain10":"Every accrual type must remain a GL.","one_now":"Merge all immediately from names."}
+    },
+    "payroll_accrual": {
+      "type": "choice",
+      "instructions": "Should salary, bonus/severance, medical and BPJS accruals automatically merge with utilities and rent accruals?",
+      "criteria": {"review":"Payroll/employee-benefit obligations may require distinct settlement, statutory and disclosure controls.","yes":"All accrued expenses are identical.","expense":"Move liabilities to payroll expense."}
+    },
+    "interest_accrual": {
+      "type": "choice",
+      "instructions": "Should accrued loan interest automatically merge with operating accruals?",
+      "criteria": {"review":"Facility linkage, effective-interest reconciliation and financing presentation may justify separation.","yes":"Merge immediately.","loan":"Add it to loan principal automatically."}
+    },
+    "advances_four": {
+      "type": "choice",
+      "instructions": "Can four advance accounts become fewer Advance control GLs using advance_purpose, employee/vendor/contractor party and aging?",
+      "criteria": {"conditional":"Yes, provided employee and supplier/contractor advances remain distinguishable for settlement, tax and presentation.","retain4":"Purpose must remain in GL.","one_now":"Merge all immediately without workflow evidence."}
+    },
+    "other_accounts": {
+      "type": "choice",
+      "instructions": "Should Other Prepaid, Other Tax and Other Advance become unrestricted catch-all posting accounts?",
+      "criteria": {"no":"Use controlled reason codes, approval, thresholds and aging review.","yes":"Use them as default accounts for compression.","delete":"Delete all such balances."}
+    },
+    "minimum_evidence": {
+      "type": "choice",
+      "instructions": "What evidence closes this domain?",
+      "criteria": {"full":"Contracts/schedules, tax returns and ledger, statutory mapping, accrual roll-forwards, advance aging, postings, opening balances and subledger-to-GL reconciliation.","names":"COA names alone.","jev":"Repeated Jev answers alone."}
+    }
+  }
+}

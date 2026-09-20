@@ -429,6 +429,35 @@ const movementColumns: ColumnDef<TableSetup, GeneralLedgerRow>[] = [
     ),
   },
   {
+    accessorKey: "category_name",
+    header: "Category",
+    size: 200,
+    enableSorting: false,
+    // The narrowing this list is actually read with, now that the chart is
+    // forty accounts: "show me the electricity" used to be a different
+    // account code and is now a value on this column. An option filter, like
+    // Source above, because the set is closed and small — one family's worth.
+    meta: { filter: { kind: "option" } },
+    cell: ({ row }) =>
+      row.original.category_name === null ? (
+        // An account that takes no category is not a gap. Its detail is the
+        // bank account, the asset or the supplier the line already names.
+        <span
+          className="text-faint"
+          title="This account takes no category — its detail is the bank account, asset, supplier or facility the line names."
+        >
+          —
+        </span>
+      ) : (
+        <span
+          className="text-body"
+          title={row.original.category_code ?? undefined}
+        >
+          {row.original.category_name}
+        </span>
+      ),
+  },
+  {
     accessorKey: "site_id",
     header: "Location",
     size: 120,

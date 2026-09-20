@@ -1,6 +1,21 @@
 #!/usr/bin/env python3
 """Import CENTRAL FASHION STORE's fixed-asset register from their own export.
 
+# SUPERSEDED — 18 September 2026
+
+`scripts/import_client_assets.py` is the importer that is run and the one the
+migrations and `docs/erpnext-assets.md` name. This one reads the same register
+and writes ten-digit account codes into `fixed_asset.category_code`, which
+since 0287 references `asset_class(class_code)` and not `ledger_account` — so
+every row it writes is refused by a foreign key. The account_map triples it
+derives (cost, contra, expense per sub-family) are the job
+`scripts/map_asset_accounts.py` did, and that is retired for the same reason.
+
+Kept for its audit report, which is the part of it nothing else reproduces: it
+names every row skipped, every figure interpreted, and every place the client's
+own register disagrees with the client's own chart. Run it with `--dry-run`,
+read the report, and load through `import_client_assets.py`.
+
     python3 scripts/import-assets.py \
         --master ~/Downloads/"MASTER ASSET.xls" \
         --coa ~/Downloads/Laporan_Master_Account1.csv \

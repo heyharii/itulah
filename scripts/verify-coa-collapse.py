@@ -27,6 +27,21 @@ moves and no balance does, so only the two shape checks here go stale. Run this
 script the way it is meant to be run, on a scratch database that stops at 0244.
 
 Run it against a scratch database. It writes.
+
+# This proves the FIRST collapse, not the second (18 September 2026)
+
+Migrations 0287-0292 collapse those 175/190 postable accounts again, onto
+forty, by moving the identity still baked into their codes — which bank, which
+rack, which PPh article — onto `journal_line.category_code` and onto columns
+and sub-ledgers that already existed. The seven properties above hold of that
+collapse too, word for word, and property 5 is again the one that matters: for
+every one of the forty, its balance must equal the sum of the balances of the
+retired accounts `ledger_account_remap` folded into it.
+
+Nothing here has been re-pointed at 0292, and the counts would need to be. Run
+this as written against a scratch database that stops at 0244; the equivalent
+proof for the forty is 0290's own `DO $$` block plus the control panel, and a
+long form of it is still owed.
 """
 
 from __future__ import annotations

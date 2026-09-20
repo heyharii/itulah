@@ -27,80 +27,22 @@ const ACTOR: &str = "ana";
 // Seed
 // ---------------------------------------------------------------------------
 
-/// A chart shaped like the client's, because it IS the client's.
+/// The chart is the migrations' own, so only the bank account is registered.
 ///
-/// Every code and every name below is verified against their master account
-/// list. That matters more than it looks: the client's chart carries the
-/// location in the code itself, so `…00100` is head office and `…00101` is
-/// store C001. A fixture that invented a store account would pass while the
-/// real chart failed, and the failure would surface as a balance in the wrong
-/// place months later.
-///
-/// Two locations, because half of what this engine notices is value that moved
-/// between two of them and was only recorded at one.
+/// This used to mint fifteen rows of the client's ladder, down to the
+/// twelve-digit per-location leaves that made `…00100` head office and
+/// `…00101` store C001 — "a fixture that invented a store account would pass
+/// while the real chart failed". That reading held until 0244 took the unit out
+/// of the code and 0289 took the identity out too: there is ONE inventory
+/// account for all fourteen places now, and which place is `journal_line.site_id`.
+/// Half of what this engine notices is still value that moved between two
+/// locations and was recorded at one, and that is now a difference of site on
+/// the same account.
 async fn seed_chart(pool: &PgPool) {
-    let accounts: [(&str, &str, Option<&str>, Option<&str>); 15] = [
-        ("1", "ASSET", None, None),
-        ("101", "CURRENT ASSET", Some("1"), None),
-        ("10110", "KAS & SETARA KAS", Some("101"), None),
-        ("1011002", "CASH IN BANK GIRO", Some("10110"), None),
-        (
-            "101100200100",
-            "Cash In Bank Giro Bank BCA HO",
-            Some("1011002"),
-            Some("dc"),
-        ),
-        ("10112", "INVENTORY", Some("101"), None),
-        ("1011201", "Persediaan Barang Dagang", Some("10112"), None),
-        (
-            "101120100100",
-            "Persediaan Barang Dagangan HO",
-            Some("1011201"),
-            Some("dc"),
-        ),
-        (
-            "101120100101",
-            "Persediaan Barang Dagangan  C001",
-            Some("1011201"),
-            Some("store-01"),
-        ),
-        ("2", "LIABILITIES", None, None),
-        ("201", "HUTANG JANGKA PENDEK", Some("2"), None),
-        ("20120", "HUTANG DAGANG", Some("201"), None),
-        ("2012001", "HUTANG SUPPLIER", Some("20120"), None),
-        (
-            "201200100100",
-            "Hutang Suppliers HO",
-            Some("2012001"),
-            Some("dc"),
-        ),
-        (
-            "201200100101",
-            "Hutang Suppliers  Barang Dagangan C001",
-            Some("2012001"),
-            Some("store-01"),
-        ),
-    ];
-    for (code, name, parent, site) in accounts {
-        let is_group = code.len() < 12;
-        sqlx::query(
-            "INSERT INTO ledger_account (account_code, name, parent_code, is_group, site_id)
-             VALUES ($1,$2,$3,$4,$5)
-             ON CONFLICT (account_code) DO NOTHING",
-        )
-        .bind(code)
-        .bind(name)
-        .bind(parent)
-        .bind(is_group)
-        .bind(site)
-        .execute(pool)
-        .await
-        .unwrap_or_else(|error| panic!("{code}: {error}"));
-    }
-    register_bank_account(pool, "101100200100", "dc").await;
+    register_bank_account(pool, "1102", "dc").await;
 }
 
-async fn map_at(pool: &PgPool, key: &str, site: &str, code: &str) {
+async fn map_at(pool: &PgPool, key: &str, site: &str, code: &str, category: Option<&str>) {
     cloud::set_account_mapping(
         pool,
         &SetAccountMappingRequest {
@@ -108,6 +50,7 @@ async fn map_at(pool: &PgPool, key: &str, site: &str, code: &str) {
             site_id: site.into(),
             qualifier: String::new(),
             account_code: code.into(),
+            category_code: category.map(str::to_string),
             note: None,
         },
         ACTOR,
@@ -123,11 +66,14 @@ async fn seed(pool: &PgPool) {
     cloud::open_period(pool, 2026, 9)
         .await
         .unwrap_or_else(|error| panic!("open period: {error}"));
-    map_at(pool, "inventory", "dc", "101120100100").await;
-    map_at(pool, "trade_payable", "dc", "201200100100").await;
-    map_at(pool, "bank_giro", "dc", "101100200100").await;
-    map_at(pool, "inventory", "store-01", "101120100101").await;
-    map_at(pool, "trade_payable", "store-01", "201200100101").await;
+    map_at(pool, "inventory", "dc", "1301", Some("MERCHANDISE")).await;
+    map_at(pool, "trade_payable", "dc", "2101", None).await;
+    map_at(pool, "bank_giro", "dc", "1102", None).await;
+    // The same two accounts at the shop. One account, two places — which is
+    // what makes the run's "recorded at one end only" checks a comparison of
+    // `site_id` rather than of codes.
+    map_at(pool, "inventory", "store-01", "1301", Some("MERCHANDISE")).await;
+    map_at(pool, "trade_payable", "store-01", "2101", None).await;
 }
 
 fn september(day: u32) -> NaiveDate {
@@ -209,13 +155,14 @@ async fn an_entry_wrong_at_both_ends(pool: &PgPool, amount: i64) {
     .await
     .expect("header");
     for (line, site, code, debit, credit) in [
-        (1, "store-01", "101120100101", amount, 0),
-        (2, "dc", "101120100100", 0, amount),
+        (1, "store-01", "1301", amount, 0),
+        (2, "dc", "1301", 0, amount),
     ] {
         sqlx::query(
             "INSERT INTO journal_line
-               (line_id, entry_id, line_number, account_code, site_id, debit_minor, credit_minor)
-             VALUES ($1,$2,$3,$4,$5,$6,$7)",
+               (line_id, entry_id, line_number, account_code, site_id, category_code,
+                debit_minor, credit_minor)
+             VALUES ($1,$2,$3,$4,$5,'MERCHANDISE',$6,$7)",
         )
         .bind(Uuid::new_v4())
         .bind(entry_id)
@@ -417,9 +364,9 @@ async fn import_statement(pool: &PgPool, lines: &[(u32, i64, &str)]) -> Uuid {
         "INSERT INTO bank_statement
            (statement_id, account_code, site_id, period_start, period_end,
             opening_minor, closing_minor, imported_by, bank_account_id)
-         SELECT $1,'101100200100','dc',$2,$3,0,$4,$5, c.account_id
+         SELECT $1,'1102','dc',$2,$3,0,$4,$5, c.account_id
            FROM company_bank_account c
-          WHERE c.ledger_account_code = '101100200100' AND c.site_id = 'dc'",
+          WHERE c.ledger_account_code = '1102' AND c.site_id = 'dc'",
     )
     .bind(statement_id)
     .bind(september(1))
@@ -434,7 +381,7 @@ async fn import_statement(pool: &PgPool, lines: &[(u32, i64, &str)]) -> Uuid {
             "INSERT INTO bank_statement_line
                (line_id, statement_id, line_number, value_date, description,
                 debit_minor, credit_minor, fingerprint, account_code)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'101100200100')",
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'1102')",
         )
         .bind(Uuid::new_v4())
         .bind(statement_id)

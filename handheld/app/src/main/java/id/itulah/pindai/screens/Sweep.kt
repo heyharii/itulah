@@ -5,13 +5,29 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import id.itulah.pindai.core.Epc
 import id.itulah.pindai.core.Reader
-import id.itulah.pindai.core.TagRead
+import id.itulah.pindai.core.ScanCounts
+import id.itulah.pindai.core.ScanEngine
+import id.itulah.pindai.core.Sounder
+import id.itulah.pindai.core.Barcode
+import id.itulah.pindai.core.Label
+import id.itulah.pindai.core.Gen2State
+import id.itulah.pindai.core.Lab
+import id.itulah.pindai.core.ScanMetrics
+import id.itulah.pindai.core.Tid
+import id.itulah.pindai.BuildConfig
 import id.itulah.pindai.data.Api
+import id.itulah.pindai.data.ApiError
+import id.itulah.pindai.data.CatalogMeta
+import id.itulah.pindai.data.CatalogStore
+import id.itulah.pindai.data.CatalogSync
 import id.itulah.pindai.data.ConfigStore
+import id.itulah.pindai.data.ScanIdentity
+import id.itulah.pindai.data.SweepRecord
+import id.itulah.pindai.data.RadioProfile
 import id.itulah.pindai.data.Settings
+import id.itulah.pindai.data.SyncOutcome
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -21,7 +37,6 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.security.MessageDigest
 import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
 
 enum class Mode(val title: String, val verb: String) {
     SCAN("Scan", "Finish"),
@@ -30,19 +45,23 @@ enum class Mode(val title: String, val verb: String) {
     COUNT("Stock count", "Finish · submit"),
 }
 
-data class Seen(val epc: String, val rssi: Float?, val sku: String?, val serial: Long?)
-
-/** What a SKU is, as the node knows it. Absent until the lookup answers. */
-data class Identity(
-    val sku: String,
-    val name: String,
-    val articleCode: String?,
-    val imageUrl: String?,
-    val basePriceMinor: Long?,
+/** One product line of a finished sweep: what it is, how many, and which units. */
+data class ResultLine(
+    val skuCode: String,
+    val qty: Int,
+    val identity: ScanIdentity?,
+    val epcs: List<String>,
 )
 
-/** One product line of a sweep: what it is, and how many of it are here. */
-data class Grouped(val sku: String, val qty: Int, val identity: Identity?)
+/** What the local product master is, and whether it is moving. */
+data class CatalogueStatus(
+    val generation: Long = 0,
+    val items: Long = 0,
+    val syncing: Boolean = false,
+    val note: String? = null,
+) {
+    val isReady: Boolean get() = items > 0
+}
 
 /** One session as it appears in the list of work in progress. */
 data class SessionBrief(
@@ -59,8 +78,7 @@ data class Helper(val deviceId: String, val tagCount: Int)
  * The combined state of a session several handhelds are working together.
  *
  * [tagCount] counts DISTINCT tags, not sightings: two readers sweeping the same
- * shelf see the same garment, and that is one unit. Counting sightings would
- * inflate the total by exactly the amount of help offered.
+ * shelf see the same garment, and that is one unit.
  */
 data class SharedSession(
     val code: String,
@@ -71,128 +89,378 @@ data class SharedSession(
     val truncated: Boolean,
 )
 
+/** Four things out of one database trip. */
+private data class Quad<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
+
 data class SweepState(
     val mode: Mode = Mode.SCAN,
     val sweeping: Boolean = false,
     val busy: Boolean = false,
     /**
-     * How many DISTINCT tags this sweep holds — the number, not the tags.
+     * The four numbers, and nothing else, while the radio is live.
      *
-     * The tags themselves stay in the view model. Copying a five-thousand
-     * element list into UI state five times a second is work no pixel needed:
-     * the screen shows a total, a row per product and a foreign count, and all
-     * three are already counted by the time this is read.
+     * Everything the scanning screen draws is in here and it is immutable: the
+     * UI never walks a collection, never groups, never sorts. The tags
+     * themselves stay in the engine, where one thread owns them.
      */
-    val tagCount: Int = 0,
+    val counts: ScanCounts = ScanCounts(),
+    /**
+     * The trigger has been pulled and the radio is not open yet.
+     *
+     * A separate flag from [sweeping] because the screen must change on the
+     * PULL, not on the radio. Opening the UART takes a second or more on this
+     * module, and a handheld that keeps showing the resting screen for that
+     * second reads as a handheld that ignored the trigger — so the operator
+     * pulls again, which stops the sweep that was just starting.
+     */
+    val starting: Boolean = false,
+    /** Empty until the sweep stops. Product rows do not exist during a scan. */
+    val lines: List<ResultLine> = emptyList(),
+    val resultReady: Boolean = false,
+    val building: Boolean = false,
     val message: String? = null,
     val failed: Boolean = false,
     val readerInfo: String? = null,
-    /** dBm as the module last reported it, or 0 while nothing has asked it. */
     val readerPower: Int = 0,
     val powerNote: String? = null,
     val destination: String = "",
     val countId: String = "",
     val lastReceipt: String? = null,
-    val counts: List<Pair<String, String>> = emptyList(),
+    val counts_: List<Pair<String, String>> = emptyList(),
     val countsLoaded: Boolean = false,
-    val lines: List<Grouped> = emptyList(),
-    val foreignCount: Int = 0,
-    val identities: Map<String, Identity> = emptyMap(),
-    val resolving: Boolean = false,
-    val resolveNote: String? = null,
+    val catalogue: CatalogueStatus = CatalogueStatus(),
+    val outboxPending: Int = 0,
     val filedCount: Int = 0,
     val filingNote: String? = null,
-    /** Bearer token for node-served images; the proxy needs inventory read. */
-    val imageAuth: String? = null,
+    /** The device's own clock went backwards; filing cannot succeed until fixed. */
+    val clockSuspect: Boolean = false,
     val sessionCode: String = "",
     val shared: SharedSession? = null,
     val sharedNote: String? = null,
     val sessions: List<SessionBrief> = emptyList(),
     val sessionsLoaded: Boolean = false,
+    val metrics: ScanMetrics = ScanMetrics(),
+    /** Finished sweeps, newest first. The screen an operator comes back to. */
+    val history: List<SweepRecord> = emptyList(),
+    /** Which recorded sweep is being looked at, if any. */
+    val openSweep: Long? = null,
+    /**
+     * The trigger points the imager at a label instead of the antenna at a tag.
+     *
+     * One finger, two pieces of hardware, so it has to be one or the other.
+     */
+    val labelMode: Boolean = false,
+    /**
+     * What the imager says about the last pull, verbatim.
+     *
+     * Separate from [labelNote] because they answer different questions. The
+     * note is for the operator — "that is not one of our labels". This is for
+     * whoever is working out why a trigger pull did nothing at all, and the two
+     * failures it separates look identical on a screen without it: a key that
+     * never reached the app, and a scan that started and saw nothing. See
+     * [Barcode.diagnostics].
+     */
+    val labelDiag: String = "",
+    val labelNote: String? = null,
+    /** What the module says about Impinj's Gen2X extensions right now. */
+    val gen2: Gen2State = Gen2State(false, false),
+    /** Whose silicon the last sweep found, when FastID told us. */
+    val chip: Tid.Chip? = null,
+    /** The SKU the radio has been told to report, if any. */
+    val skuFilter: String = "",
+    /** What the module answered when asked for that filter. */
+    val filterNote: String? = null,
+    /** The radio has been told to ignore every tag that is not ours. */
+    val oursOnly: Boolean = false,
+    /** The module's own Gen2 parameter block, verbatim. Diagnostic only. */
+    val gen2Dump: String = "",
+    /** Bench mode: every tag becomes a line, whatever its EPC says. */
+    val countEveryTag: Boolean = false,
+    /** How many tags have been married to a product on this bench. */
+    val aliasCount: Int = 0,
+    val aliasNote: String? = null,
+    /** What the scan engine itself believes. Diagnostic. */
+    val engineBeliefs: String = "",
+    /**
+     * A handful of EPCs the last sweep could not name, verbatim.
+     *
+     * Diagnostic, and it exists because a count alone cannot tell a reader that
+     * is correctly ignoring foreign tags from one that is returning corrupted
+     * bytes. Both look like "not ours". The strings themselves say which.
+     */
+    val foreignSample: List<String> = emptyList(),
+    /** Every distinct EPC of the last sweep, summarised by shape. */
+    val epcShapes: String = "",
+    /** What the vendor SDK was asked and what it answered, newest last. */
+    val sdkCalls: List<String> = emptyList(),
+    /**
+     * How long tags stayed quiet between reads of themselves.
+     *
+     * The only instrument that can answer whether Tag Focus is working, and it
+     * used to be written to a log file and nowhere else — so anybody judging
+     * from the screen saw a duplicate ratio, which this project has already
+     * proved cannot answer the question.
+     */
+    val gaps: id.itulah.pindai.core.ReadGaps = id.itulah.pindai.core.ReadGaps(),
 )
 
 /**
  * One sweep, four uses.
  *
- * Scanning, packing, receiving and counting differ in what they MEAN, not in how
- * a tag reaches the antenna — so they share the collector and diverge only at
- * the moment of commit. Every one of them files the same RFID observation batch
- * first: the observation is the evidence that these tags were in this place at
- * this time, and it stands whether or not the session that follows succeeds.
+ * Scanning, packing, receiving and counting differ in what they MEAN, not in
+ * how a tag reaches the antenna — so they share one engine and diverge only at
+ * the moment of commit. Every one of them files the same RFID observation
+ * batch first: the observation is the evidence that these tags were in this
+ * place at this time, and it stands whether or not the session that follows
+ * succeeds.
+ *
+ * # What changed, and why
+ *
+ * The product list used to be maintained while the reader ran, and every
+ * product's name came off the network mid-sweep. Neither happens now. A tag's
+ * SKU is arithmetic out of its EPC, its article is the SKU's first eight
+ * characters, and whether we can name it is a probe against a set held in RAM
+ * — so a sweep is four integers until somebody stops it, and it behaves
+ * identically with the wifi off.
  */
 class SweepViewModel(
     private val reader: Reader,
     private val config: ConfigStore,
+    private val catalog: CatalogStore,
 ) : ViewModel() {
+
+    private val engine = ScanEngine()
+
+    /** What the sweep sounds like. See [Sounder]. */
+    private val sounder = Sounder().also { s ->
+        engine.onHeard = { isNew -> s.heard(isNew) }
+        // Two signals, two questions. `onHeard` is every read the radio did and
+        // feeds the bench's density instrument; `onCounted` is a unit that
+        // reached the total, and it is what the operator hears.
+        engine.onCounted = { s.counted() }
+    }
+
+    /**
+     * The bench's order book: a file this app reads from its own directory.
+     *
+     * See [Lab]. It exists because every experiment on this device was losing
+     * to the settings screen rather than to the radio.
+     */
+    private val lab = Lab(appContext?.getExternalFilesDir(null)) { runLabCommand(it) }
+    private var labJob: Job? = null
+    private val imager = Barcode()
+    private val sync = CatalogSync(catalog)
 
     val state = MutableStateFlow(
         config.load().let { SweepState(sessionCode = it.sessionCode, readerPower = it.readerPower) },
     )
-    private val collector = ConcurrentHashMap<String, Seen>()
 
-    /**
-     * The sweep as products, kept up to date as tags arrive rather than
-     * recomputed from scratch on a timer.
-     *
-     * Measured on a C5: regrouping five thousand tags cost 90 ms per publish on
-     * the main thread, every 200 ms — 68% of frames janked and the median frame
-     * took 42 ms. Counting a garment is O(1) work; doing it again for every
-     * garment already counted, five times a second, is what made a stock count
-     * of a real shop unreadable.
-     */
-    private val qtyBySku = ConcurrentHashMap<String, Int>()
-
-    /** First-seen rank per SKU, so rows never reshuffle under a moving finger. */
-    private val skuRank = ConcurrentHashMap<String, Int>()
-    private val ranks = java.util.concurrent.atomic.AtomicInteger(0)
-    private val foreign = java.util.concurrent.atomic.AtomicInteger(0)
-
-    /** Tags whose evidence is already on the Edge; never filed twice. */
-    private val filed = java.util.Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
-    private var autoJob: kotlinx.coroutines.Job? = null
-    private var resolveJob: Job? = null
-    private var resolveRequested = false
-    private var resolvingSkus: Set<String> = emptySet()
+    private var tickJob: Job? = null
+    private var uploadJob: Job? = null
+    private var uploadRequested = false
+    private var uploadRetryAt = 0L
+    private var uploadBackoffMs = UPLOAD_RETRY_BASE_MS
     private var sharedJob: Job? = null
     private var sharedGeneration = 0L
-    private var dataGeneration = 0L
+    private var syncJob: Job? = null
     private var sweepOpen = false
+    private var pendingCatalogue: Set<String>? = null
     private val operationMutex = Mutex()
-    private val publishMutex = Mutex()
-    private val filingMutex = Mutex()
-    private var filingJob: Job? = null
-    private var filingRequested = false
-    private var filingRetryAt = 0L
-    private var filingBackoffMs = FILING_RETRY_BASE_MS
-    private var warmJob: Job? = null
-    private val filingClaims = java.util.Collections.newSetFromMap(
-        ConcurrentHashMap<String, Boolean>(),
-    )
-    private val dirty = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val spoolMutex = Mutex()
     private var sessionId = UUID.randomUUID().toString()
 
-    /** The id every batch of this sweep is filed under — shared when joined. */
-    private fun currentSessionId(): String =
-        state.value.sessionCode.ifBlank { sessionId }
+    private fun currentSessionId(): String = state.value.sessionCode.ifBlank { sessionId }
 
     private fun settings(): Settings = config.load()
 
+    // ------------------------------------------------------------- catalogue
+
+    /**
+     * Open the local catalogue and make scanning available, in that order.
+     *
+     * The network is not on this path. A device that has any local copy can
+     * sweep before it has said a word to the node; the generation check that
+     * follows is independent work, and its result changes a line of text.
+     */
+    fun openCatalogue() {
+        viewModelScope.launch {
+            val loaded = withContext(Dispatchers.IO) {
+                runCatching {
+                    val codes = catalog.knownSkuCodes()
+                    engine.useCatalogue(codes)
+                    // Bench marriages stay on the bench.
+                    //
+                    // These are rows that say "treat this foreign EPC as that
+                    // product" — written during testing so a desk of anonymous
+                    // tags could stand in for stock. Loaded on a shop floor they
+                    // turn somebody else's pallet label into a garment on a
+                    // count sheet, silently and permanently.
+                    if (BuildConfig.BENCH) engine.useAliases(catalog.epcAliases())
+                    catalog.prune(Api.iso8601Days(-OUTBOX_KEEP_DAYS))
+                    val meta = sync.localMeta(settings())
+                    Quad(codes.size.toLong(), meta, catalog.pendingCount(), catalog.aliasCount())
+                }
+            }
+            loaded.onSuccess { (items, meta, pending, aliases) ->
+                update {
+                    it.copy(
+                        catalogue = CatalogueStatus(
+                            generation = meta?.generation ?: 0,
+                            items = items,
+                            note = if (items == 0L) "no catalogue yet" else null,
+                        ),
+                        outboxPending = pending,
+                        aliasCount = aliases,
+                    )
+                }
+            }
+            warmReader()
+            startLab()
+            loadHistory()
+            refreshCatalogue()
+            drainOutbox()
+        }
+    }
+
+    /**
+     * Open the UART before anybody asks for it.
+     *
+     * Measured on a C5: the vendor's `init()` costs about a second, and it is
+     * paid once per open module — a second pull of the trigger reaches a live
+     * antenna in twenty milliseconds. Doing that second while the operator is
+     * still walking to the rack means the FIRST pull is fast too, which is the
+     * one that decides whether this feels like a scanner or like an app.
+     *
+     * Deliberately opens and does not read. Radiating because an app started is
+     * how a handheld on a charging shelf quietly inventories the office.
+     */
+    private fun warmReader() {
+        viewModelScope.launch {
+            operationMutex.withLock {
+                if (state.value.sweeping || state.value.starting || reader.isReady) return@withLock
+                withContext(Dispatchers.IO) {
+                    runCatching {
+                        val saved = settings()
+                        // Load the clip while the operator is still walking to
+                        // the rack, not on the first read.
+                        appContext?.let { sounder.prepare(it) }
+                        saved.readerPower.takeIf { it > 0 }?.let { reader.setPower(it) }
+                        val version = reader.init(appContext!!)
+                        // Pin the link mode before anything is measured or
+                        // counted. The module keeps this setting across a
+                        // restart, so not setting it is not a default — it is
+                        // inheriting whatever the last session left behind.
+                        //
+                        // Applied unconditionally, including on a handheld
+                        // nobody has ever configured. A missing preference is
+                        // not "leave it alone" here — it is "inherit a stranger's
+                        // radio", and the defaults ARE the measured profile.
+                        if (saved.rfLink >= 0) reader.setRfLink(saved.rfLink)
+                        reader.setTarget(RadioProfile.TARGET)
+                        reader.setGen2Extensions(
+                            saved.tagFocus,
+                            RadioProfile.FAST_ID,
+                            saved.gen2Session.takeIf { it >= 0 },
+                        )
+                        version
+                    }
+                }.onSuccess { version ->
+                    val gen2 = withContext(Dispatchers.IO) { reader.gen2State() }
+                    val dump = withContext(Dispatchers.IO) { reader.gen2Dump() }
+                    update {
+                        it.copy(
+                            readerInfo = "fw " + version.ifBlank { "?" } + " · ready",
+                            gen2 = gen2, gen2Dump = dump,
+                        )
+                    }
+                }
+                // A failure here is not reported. Nobody asked for the reader
+                // yet, and an error about a radio the operator has not touched
+                // is noise; the pull that does ask will say so properly.
+            }
+        }
+    }
+
+    /**
+     * Ask the node which generation it holds, and pull only if it differs.
+     *
+     * A refresh that lands mid-sweep is held until the sweep ends. A count
+     * whose UNKNOWN number moved halfway because a catalogue arrived is a count
+     * nobody can explain afterwards, and the operator did nothing to cause it.
+     */
+    fun refreshCatalogue() {
+        if (syncJob?.isActive == true) return
+        val settings = settings()
+        if (!settings.isConfigured) return
+        syncJob = viewModelScope.launch {
+            update { it.copy(catalogue = it.catalogue.copy(syncing = true)) }
+            val outcome = withContext(Dispatchers.IO) { sync.refresh(settings) }
+            when (outcome) {
+                is SyncOutcome.UpToDate -> update {
+                    it.copy(catalogue = it.catalogue.copy(
+                        generation = outcome.generation, items = outcome.items,
+                        syncing = false, note = null,
+                    ))
+                }
+                is SyncOutcome.Updated -> {
+                    val codes = withContext(Dispatchers.IO) { catalog.knownSkuCodes() }
+                    if (state.value.sweeping) {
+                        // Held, not applied. It goes in when the radio stops.
+                        pendingCatalogue = codes
+                        update {
+                            it.copy(catalogue = it.catalogue.copy(
+                                syncing = false,
+                                note = "gen ${outcome.generation} ready · applies after this sweep",
+                            ))
+                        }
+                    } else {
+                        engine.useCatalogue(codes)
+                        update {
+                            it.copy(catalogue = CatalogueStatus(
+                                generation = outcome.generation,
+                                items = outcome.items.toLong(),
+                                note = "gen ${outcome.generation} · ${outcome.items} SKUs · ${outcome.millis} ms",
+                            ))
+                        }
+                    }
+                }
+                SyncOutcome.NodeHasNone -> update {
+                    it.copy(catalogue = it.catalogue.copy(
+                        syncing = false, note = "the node has no catalogue yet",
+                    ))
+                }
+                SyncOutcome.Torn -> update {
+                    it.copy(catalogue = it.catalogue.copy(
+                        syncing = false, note = "catalogue moved while reading · will retry",
+                    ))
+                }
+                is SyncOutcome.Failed -> update {
+                    it.copy(catalogue = it.catalogue.copy(
+                        syncing = false,
+                        // Stale and usable beats fresh and absent. Say which.
+                        note = if (it.catalogue.isReady) "offline · using gen ${it.catalogue.generation}"
+                            else "no catalogue: ${outcome.reason}",
+                    ))
+                }
+            }
+            syncJob = null
+        }
+    }
+
+    // ------------------------------------------------------------------ modes
+
     fun setMode(mode: Mode) {
-        if (state.value.busy || (sweepOpen && collector.isNotEmpty())) {
+        if (state.value.busy || (sweepOpen && state.value.counts.units > 0)) {
             update { it.copy(message = "finish the current sweep before changing jobs") }
             return
         }
         update { it.copy(mode = mode, message = null, failed = false) }
     }
+
     fun setDestination(v: String) = update { it.copy(destination = v.trim()) }
     fun setCountId(v: String) = update { it.copy(countId = v.trim()) }
 
-    /**
-     * What Official Count work this DC actually holds.
-     *
-     * Typing a count id from memory is how somebody files a hundred entries
-     * against last month's count. The list is the centre's, read fresh.
-     */
+    /** What Official Count work this DC actually holds. */
     fun loadCounts() {
         val settings = settings()
         if (!settings.isConfigured) return
@@ -204,143 +472,1271 @@ class SweepViewModel(
                     (0 until items.length()).map { i ->
                         val row = items.getJSONObject(i)
                         val id = row.optString("count_id").ifBlank { row.optString("id") }
-                        val label = row.optString("kind", "COUNT") + " · " +
-                            row.optString("status", "?")
-                        id to label
+                        id to (row.optString("kind", "COUNT") + " · " + row.optString("status", "?"))
                     }
                 }
             }
             result.onSuccess { list ->
                 update {
-                    it.copy(counts = list, countsLoaded = true,
+                    it.copy(counts_ = list, countsLoaded = true,
                         countId = if (it.countId.isBlank() && list.isNotEmpty())
                             list.first().first else it.countId)
                 }
-            }.onFailure { update { it.copy(countsLoaded = true, counts = emptyList()) } }
+            }.onFailure { update { it.copy(countsLoaded = true, counts_ = emptyList()) } }
+        }
+    }
+
+    // ------------------------------------------------------------- the sweep
+
+    fun toggleSweep() {
+        if (state.value.busy) return
+        if (state.value.labelMode) { scanLabel(); return }
+        if (state.value.sweeping) stopSweep() else startSweep()
+    }
+
+    /**
+     * Point the trigger at the imager instead of the antenna.
+     *
+     * Not available mid-sweep. The two are different hardware but one finger,
+     * and a handheld that silently stopped reading tags because somebody
+     * flipped a switch is the failure this app keeps refusing to ship.
+     */
+    fun setLabelMode(on: Boolean) {
+        if (state.value.sweeping || state.value.starting) {
+            update { it.copy(labelNote = "stop the sweep first") }
+            return
+        }
+        update { it.copy(labelMode = on, labelNote = null) }
+        if (on) {
+            viewModelScope.launch(Dispatchers.IO) {
+                val opened = imager.init(appContext!!)
+                update {
+                    if (opened) it.copy(labelDiag = imager.diagnostics())
+                    else it.copy(
+                        labelMode = false,
+                        labelNote = "the imager did not open",
+                        labelDiag = imager.diagnostics(),
+                    )
+                }
+            }
+        } else {
+            viewModelScope.launch(Dispatchers.IO) { imager.close() }
         }
     }
 
     /**
-     * Name the distinct SKUs of this sweep in ONE request.
+     * Read one label and add the product it names.
      *
-     * Fifty tags on a rack are a dozen products, and the products repeat across
-     * sweeps, so the work is bounded twice: by DISTINCT before the call, and by
-     * a cache that already holds most of the answer after the first rack. What
-     * a tag IS never waits on this — that came out of the EPC locally. This
-     * only fills in the human-readable name and the picture.
+     * A sweep is opened if there is not one already, so scanning labels alone
+     * is a way to count a rack whose tags are all dead — which is a real rack,
+     * and the reason this exists.
      */
-    fun resolveIdentities() {
-        val settings = settings()
-        if (!settings.isConfigured) return
-        val wanted = qtyBySku.keys.toSet() - state.value.identities.keys
-        if (wanted.isEmpty()) return
-        // A slow Edge must not turn the two-second refresh cadence into a stack
-        // of identical catalogue queries. The job is deliberately kept separate
-        // from auto-filing so a names request can never pause the reader loop.
-        if (resolveJob?.isActive == true) {
-            // A new tag can arrive while the current request is in flight. Keep
-            // one follow-up request queued so stopping immediately after that
-            // arrival does not leave its identity permanently unresolved.
-            if (wanted.any { it !in resolvingSkus }) resolveRequested = true
-            return
+    private fun scanLabel() {
+        viewModelScope.launch {
+            if (!sweepOpen) { beginSweep(); engine.start() }
+            val ok = withContext(Dispatchers.IO) {
+                imager.scanOnce { raw ->
+                    val sku = Label.toSku(raw)
+                    if (sku == null) {
+                        update { it.copy(labelNote = "not one of our labels: " + raw.take(24)) }
+                    } else {
+                        engine.offerLabel(sku)
+                        update {
+                            it.copy(counts = engine.snapshot(), labelNote = sku)
+                        }
+                        viewModelScope.launch { buildResult() }
+                    }
+                }
+            }
+            // Written on EVERY pull, not only on refusal. A pull that reaches
+            // the imager and decodes nothing used to leave the screen exactly
+            // as a pull that never arrived did — and that is the difference
+            // somebody debugging a dead trigger needs to see.
+            update { it.copy(labelDiag = imager.diagnostics()) }
+            if (!ok) update { it.copy(labelNote = "the imager refused to scan") }
         }
-        // Ask in batches. Every distinct SKU used to ride in one query string,
-        // which is fine for a rack and a URL nobody measured: 255 products
-        // already makes it 3 KB, and a DC counting a thousand styles would hand
-        // the node a 12 KB GET line and get a 414 back — losing every name at
-        // once, at exactly the scale where names matter most.
-        val batches = wanted.chunked(200)
-        val generation = dataGeneration
-        resolvingSkus = wanted
-        resolveRequested = false
-        resolveJob = viewModelScope.launch {
-            try {
-                update { it.copy(resolving = true, resolveNote = null) }
-                val started = System.currentTimeMillis()
+    }
+
+    private fun beginSweep() {
+        engine.reset()
+        update { it.copy(openSweep = null) }
+        uploadRetryAt = 0L
+        uploadBackoffMs = UPLOAD_RETRY_BASE_MS
+        sessionId = UUID.randomUUID().toString()
+        sweepOpen = true
+        update {
+            it.copy(
+                counts = ScanCounts(), lines = emptyList(), resultReady = false,
+                building = false, message = null, failed = false,
+                filedCount = 0, filingNote = null, metrics = ScanMetrics(),
+            )
+        }
+    }
+
+    private fun startSweep() {
+        viewModelScope.launch {
+            operationMutex.withLock {
+                if (state.value.busy || state.value.sweeping) return@withLock
+                if (!sweepOpen) beginSweep()
+                update { it.copy(busy = true, starting = true, failed = false, message = null) }
                 val result = withContext(Dispatchers.IO) {
                     runCatching {
-                        val api = Api(settings)
-                        val items = org.json.JSONArray()
-                        batches.forEach { batch ->
-                            val json = api.get(
-                                "/api/v1/catalog/identities?skus=" + batch.joinToString(","),
-                            )
-                            val page = json.optJSONArray("items") ?: org.json.JSONArray()
-                            for (k in 0 until page.length()) items.put(page.getJSONObject(k))
+                        // Choose the power BEFORE the module opens, so init
+                        // applies it once: a setPower issued to an already-open
+                        // module reports success while the antenna goes silent.
+                        settings().readerPower.takeIf { it > 0 }?.let { reader.setPower(it) }
+                        // Timed and shown, because "the reader is slow to wake"
+                        // is a complaint nobody can act on and "1 400 ms" is.
+                        // The cost is the vendor UART opening, not this app.
+                        val openedAt = System.currentTimeMillis()
+                        val version = reader.init(appContext!!)
+                        val opened = System.currentTimeMillis() - openedAt
+                        engine.start()
+                        // TID rides along when FastID is on, which is how the
+                        // chip identifies itself without a second read.
+                        val started = reader.start(withTid = state.value.gen2.fastId) { epc, rssi, tid ->
+                            engine.offer(epc, rssi, tid)
                         }
-                        (0 until items.length()).associate { i ->
-                            val row = items.getJSONObject(i)
-                            val sku = row.optString("sku_code")
-                            sku to Identity(
-                                sku = sku,
-                                name = row.optString("name", sku),
-                                articleCode = row.optString("article_code").ifBlank { null },
-                                // Point at the node, not at the object store. The
-                                // store's own domain is redirected to a block page
-                                // by Indonesian ISPs, so a handheld on shop wifi
-                                // gets a notice where a JPEG should be; the node is
-                                // not on that network and is already trusted here.
-                                imageUrl = if (row.optString("image_url").isNotBlank()) {
-                                    settings.baseUrl + "/api/v1/catalog/image?sku=" + sku
-                                } else null,
-                                basePriceMinor = if (row.isNull("base_price_minor")) null
-                                    else row.optLong("base_price_minor"),
-                            )
+                        if (!started) {
+                            engine.stop()
+                            error("the reader refused to start inventory")
                         }
+                        version to (System.currentTimeMillis() - openedAt) to opened
                     }
                 }
-                val elapsed = System.currentTimeMillis() - started
-                val token = settings.operatorToken.ifBlank { null }
-                if (generation == dataGeneration) {
-                    result.onSuccess { found ->
-                        update {
-                            val merged = it.identities + found
-                            it.copy(
-                                identities = merged,
-                                lines = it.lines.map { row -> row.copy(identity = merged[row.sku]) },
-                                imageAuth = token,
-                                resolving = false,
-                                resolveNote = "${found.size}/${wanted.size} named · ${elapsed} ms",
-                            )
-                        }
-                    }.onFailure { e ->
-                        // Not fatal and not hidden: the sweep is still complete and
-                        // still sendable, it just has no names on it yet.
-                        update {
-                            it.copy(resolving = false,
-                                resolveNote = "names unavailable here (${e.message})")
-                        }
+                result.onSuccess { (versionAndTotal, opened) ->
+                    val (version, total) = versionAndTotal
+                    update {
+                        it.copy(sweeping = true, busy = false, starting = false,
+                            resultReady = false, lines = emptyList(),
+                            readerInfo = "fw " + version.ifBlank { "?" } +
+                                " · woke in ${opened} ms, live in ${total} ms",
+                            readerPower = reader.power().coerceAtLeast(0),
+                            message = null)
                     }
+                    startTicker()
+                }.onFailure { e ->
+                    update { it.copy(busy = false, starting = false, failed = true,
+                        message = e.message ?: "reader unavailable") }
                 }
-            } finally {
-                val again = resolveRequested
-                resolveRequested = false
-                resolvingSkus = emptySet()
-                resolveJob = null
-                if (generation == dataGeneration && again) resolveIdentities()
             }
         }
     }
 
     /**
-     * Join a session by name, or leave it.
+     * Stop, drain, count, then say what was found.
      *
-     * A shared session needs no coordinator and no lock — only agreement on a
-     * name. Each reader keeps signing its own batches under its own key; what
-     * makes them one count is that they all file under this string.
-     *
-     * The code is short and typable on purpose: it is read aloud across a
-     * warehouse floor, not copied between machines.
+     * The order is the whole point. `engine.stop()` does not return until the
+     * ring is empty, so the number on screen when the trigger is released is
+     * the number that gets filed — tags read in the last few milliseconds are
+     * still in flight, and stopping without draining loses exactly the ones
+     * somebody was reaching for.
      */
+    private fun stopSweep() {
+        viewModelScope.launch {
+            operationMutex.withLock {
+                if (!state.value.sweeping) {
+                    withContext(Dispatchers.IO) { runCatching { reader.stop() } }
+                    return@withLock
+                }
+                stopTicker()
+                withContext(Dispatchers.IO) { reader.stop() }
+                withContext(Dispatchers.Default) { engine.stop() }
+
+                // One trip to the database, and one state change out of it.
+                //
+                // Naming the products, writing the sweep down and re-reading the
+                // history are three queries that used to be three separate
+                // dispatches, each ending in its own `update` — so letting go of
+                // the trigger produced four or five recompositions of the whole
+                // shell, on a device where a frame costs eighteen milliseconds
+                // at best. They are one hop now, and the screen changes once:
+                // from the counting figure to the result.
+                val counts = engine.snapshot()
+                val finished = withContext(Dispatchers.IO) {
+                    val lines = engine.lines()
+                    val identities = catalog.lookup(lines.map { it.skuCode })
+                    val rows = lines
+                        .map { ResultLine(it.skuCode, it.qty, identities[it.skuCode], it.epcs) }
+                        .sortedByDescending { it.qty }
+                    val id = runCatching {
+                        catalog.recordSweep(
+                            endedAt = Api.iso8601(),
+                            mode = if (state.value.countEveryTag) "BENCH"
+                                else state.value.mode.name,
+                            units = counts.units,
+                            skus = counts.skus,
+                            articles = counts.articles,
+                            unknown = counts.unknown,
+                            foreign = counts.foreign,
+                            lines = rows.map { it.skuCode to it.qty },
+                        )
+                    }.getOrNull()
+                    Triple(rows, id, catalog.sweeps())
+                }
+                val (rows, sweepId, history) = finished
+                // The sweep is OVER, and the next pull starts a new one.
+                //
+                // This flag used to be cleared by Finish, and Finish is gone —
+                // the trigger records the sweep by itself now. Without this the
+                // engine never resets, so every sweep after the first added to
+                // the last: sightings climbed all session, the tag set only
+                // ever grew, and four configurations measured in a row produced
+                // four readings of the same accumulating total. Every Gen2X
+                // comparison taken before this was invalid for that reason
+                // alone.
+                sweepOpen = false
+
+                update {
+                    it.copy(
+                        sweeping = false, busy = false, building = false,
+                        counts = counts, metrics = engine.metrics(),
+                        chip = engine.chip() ?: it.chip,
+                        engineBeliefs = engine.beliefs(),
+                        sdkCalls = reader.calls(),
+                        gaps = engine.gaps(),
+                        foreignSample = engine.foreignTags().take(FOREIGN_SAMPLE),
+                        epcShapes = engine.epcShapes(),
+                        lines = rows, resultReady = true,
+                        history = history,
+                        // Straight into what was just counted. The question in
+                        // the operator's head is "what did I just get", not
+                        // "show me every sweep I have ever done".
+                        openSweep = sweepId ?: it.openSweep,
+                    )
+                }
+
+                // Written down every time, not on a button.
+                //
+                // A bench needs the raw list of what the radio returned, and a
+                // button for it is a button that has to be reachable — which is
+                // exactly what failed all evening. The file costs a few
+                // kilobytes and is always the last sweep.
+                exportEpcs("last")
+
+                // Everything below is somebody else's problem, not the
+                // operator's: they have their answer on screen already.
+                spoolEvidence()
+                drainOutbox()
+                // A catalogue that arrived mid-sweep goes in now that the sweep
+                // it would have disturbed is over.
+                pendingCatalogue?.let { codes ->
+                    engine.useCatalogue(codes)
+                    pendingCatalogue = null
+                    update { it.copy(catalogue = it.catalogue.copy(note = null)) }
+                }
+            }
+        }
+    }
+
+    /**
+     * Turn the sweep into products, once, when it is over.
+     *
+     * One batched query, not one per tag: twenty thousand units are eight
+     * hundred products, and eight hundred products are two `IN` queries against
+     * a primary key.
+     */
+    private suspend fun buildResult() {
+        val built = withContext(Dispatchers.Default) {
+            Trace.beginSection("pindai.result.build")
+            try {
+                val lines = engine.lines()
+                val identities = catalog.lookup(lines.map { it.skuCode })
+                lines.map { ResultLine(it.skuCode, it.qty, identities[it.skuCode], it.epcs) }
+                    .sortedByDescending { it.qty }
+            } finally {
+                Trace.endSection()
+            }
+        }
+        update { it.copy(lines = built, resultReady = true, building = false) }
+    }
+
+    /**
+     * Watch for a command file, once a second.
+     *
+     * A second is far slower than anything it drives and costs nothing: the
+     * file usually is not there, and `exists()` on a path the app owns is a
+     * stat call.
+     */
+    private fun startLab() {
+        if (!lab.enabled || labJob?.isActive == true) return
+        lab.log("--- bench ready ---")
+        labJob = viewModelScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(1_000)
+                withContext(Dispatchers.IO) { lab.poll() }
+            }
+        }
+    }
+
+    /**
+     * One bench command.
+     *
+     * Every one of them writes down what the MODULE answered, not what was
+     * asked — the whole reason this exists is that a setter's return value was
+     * being thrown away while experiments were run against a radio that had
+     * refused its orders.
+     */
+    private fun runLabCommand(raw: String) {
+        val parts = raw.trim().split(" ")
+        val verb = parts.firstOrNull()?.lowercase().orEmpty()
+        val arg = parts.getOrNull(1).orEmpty()
+        viewModelScope.launch {
+            when (verb) {
+                "session" -> {
+                    val got = withContext(Dispatchers.IO) { reader.setSession(arg.toIntOrNull() ?: 0) }
+                    lab.log("  session now S$got")
+                }
+                "tagfocus", "fastid" -> {
+                    val on = arg.equals("on", true)
+                    val st = withContext(Dispatchers.IO) {
+                        if (verb == "tagfocus") {
+                            // Deliberately does NOT force S1 here. The floor
+                            // gets that default; the bench must be able to run
+                            // `session 2` then `tagfocus on` and find out what
+                            // S2 does with the flag. Forcing it would rewrite
+                            // the experiment into the answer we already have —
+                            // silently, which is how the first Tag Focus claim
+                            // in this project came to be wrong. The session is
+                            // printed back on the line below, every time.
+                            reader.setGen2Extensions(on, reader.gen2State().fastId)
+                        } else {
+                            reader.setGen2Extensions(reader.gen2State().tagFocus, on)
+                        }
+                    }
+                    lab.log("  tagFocus=${st.tagFocus} fastId=${st.fastId} session=S${st.session}")
+                }
+                "filter" -> {
+                    val ok = withContext(Dispatchers.IO) {
+                        when {
+                            arg == "clear" -> reader.setOursOnlyFilter(false)
+                            arg == "a0" -> reader.setOursOnlyFilter(true)
+                            arg.contains("/") -> {
+                                val f = arg.split("/")
+                                reader.setRawFilter(
+                                    f[0].toIntOrNull() ?: 0,
+                                    f.getOrNull(1)?.toIntOrNull() ?: 0,
+                                    f.getOrNull(2).orEmpty(),
+                                )
+                            }
+                            arg.startsWith("first") -> {
+                                val ptr = arg.removePrefix("first").toIntOrNull() ?: 32
+                                val t = engine.allEpcs().firstOrNull { it.startsWith("A1") }
+                                if (t == null) false else reader.setRawFilter(ptr, 96, t)
+                            }
+                            else -> false
+                        }
+                    }
+                    lab.log("  setFilter accepted=$ok")
+                }
+                "power" -> {
+                    // Note this CLOSES and REOPENS the module — see
+                    // [Reader.setPower]. Everything restored on the way back up
+                    // is restored by [Reader.restoreGen2], which is why the link
+                    // mode had to become a tracked setting before this command
+                    // could exist: a power curve that silently reset the link
+                    // mode halfway would measure two things at once.
+                    val got = withContext(Dispatchers.IO) {
+                        operationMutex.withLock {
+                            if (state.value.sweeping) reader.stop()
+                            reader.setPower(arg.toIntOrNull() ?: 0)
+                        }
+                    }
+                    if (got > 0) config.saveReaderPower(got)
+                    lab.log("  power now ${got} dBm (asked $arg), rfLink=${reader.rfLink()}")
+                }
+                "freq" -> {
+                    lab.log("  frequencyMode=${withContext(Dispatchers.IO) { reader.frequencyMode() }} (vendor number, unmapped)")
+                }
+                "epcs" -> {
+                    // The EPC list itself, so two sweeps can be intersected by
+                    // NAME rather than compared by count. Chip is appended when
+                    // this sweep knew it.
+                    val chips = engine.chipByEpc()
+                    val all = engine.allEpcs()
+                    lab.log("  ${all.size} epcs")
+                    all.sorted().forEach { epc ->
+                        lab.log("  E $epc ${chips[epc] ?: "-"}")
+                    }
+                }
+                "sound" -> {
+                    val mode = when (arg.lowercase()) {
+                        "off" -> Sounder.Mode.OFF
+                        "read", "reads", "every" -> Sounder.Mode.EVERY_READ
+                        else -> Sounder.Mode.NEW_TAG
+                    }
+                    sounder.mode = mode
+                    lab.log("  sound=$mode")
+                }
+                "chips" -> {
+                    val chips = engine.chips()
+                    if (chips.isEmpty()) {
+                        lab.log("  no TIDs — FastID was off for that sweep")
+                    } else {
+                        chips.forEach { (name, n) -> lab.log("  $n x $name") }
+                    }
+                }
+                "rflink" -> {
+                    val got = withContext(Dispatchers.IO) {
+                        operationMutex.withLock {
+                            if (state.value.sweeping) reader.stop()
+                            reader.setRfLink(arg.toIntOrNull() ?: 0)
+                        }
+                    }
+                    if (got >= 0) config.saveRfLink(got)
+                    lab.log("  rfLink now $got — " + reader.rfLinkName(got))
+                }
+                "target" -> {
+                    val got = withContext(Dispatchers.IO) {
+                        operationMutex.withLock {
+                            if (state.value.sweeping) reader.stop()
+                            reader.setTarget(arg.toIntOrNull() ?: 0)
+                        }
+                    }
+                    lab.log("  target now " + if (got == 0) "A" else if (got == 1) "B" else "?")
+                }
+                "decay" -> {
+                    // Sweep, rest, sweep — and compare the SECOND against the
+                    // FIRST, because what is being asked is how much a rack
+                    // still answers after the radio has stopped for a while.
+                    //
+                    // This is the measurement the earlier one only appeared to
+                    // make: back then the tag set was never cleared between
+                    // sweeps, so the second always contained the first and
+                    // "100 % recovery" was arithmetic rather than evidence.
+                    val rest = (arg.toLongOrNull() ?: 5L).coerceIn(1, 120)
+                    startSweep(); kotlinx.coroutines.delay(11_500); stopSweep()
+                    kotlinx.coroutines.delay(3_000)
+                    val first = state.value.counts.distinctTags
+                    kotlinx.coroutines.delay(rest * 1_000)
+                    startSweep(); kotlinx.coroutines.delay(11_500); stopSweep()
+                    kotlinx.coroutines.delay(3_000)
+                    val second = state.value.counts.distinctTags
+                    val pct = if (first == 0) 0 else second * 100 / first
+                    lab.log("  rest=${rest}s ceiling=$first after=$second recovery=$pct%")
+                }
+                "reset" -> lab.log("  " + withContext(Dispatchers.IO) { reader.resetRadioDefaults() })
+                "sweep" -> {
+                    val seconds = (arg.toLongOrNull() ?: 10L).coerceIn(1, 120)
+                    startSweep()
+                    kotlinx.coroutines.delay(1_500 + seconds * 1_000)
+                    stopSweep()
+                    kotlinx.coroutines.delay(3_000)
+                    val c = state.value.counts
+                    val m = state.value.metrics
+                    lab.log(
+                        "  tags=${c.distinctTags} products=${c.units} malformed=${c.malformed}" +
+                            " sightings=${m.sightings} dup=${m.duplicates}" +
+                            " (%.1f%%)".format(m.dedupRatio * 100),
+                    )
+                    val g = engine.gaps()
+                    lab.log(
+                        "  gaps n=${g.samples} mean=%.0fms max=${g.maxMs}ms over500=${g.over500ms}"
+                            .format(g.meanMs),
+                    )
+                    lab.log("  shapes " + engine.epcShapes())
+                }
+                "state" -> {
+                    val st = withContext(Dispatchers.IO) { reader.gen2State() }
+                    lab.log("  tagFocus=${st.tagFocus} fastId=${st.fastId} session=S${st.session}")
+                    val link = withContext(Dispatchers.IO) { reader.rfLink() }
+                    lab.log("  rfLink=$link — " + reader.rfLinkName(link))
+                    lab.log("  target=" + state.value.gen2.session.let { "" } +
+                        withContext(Dispatchers.IO) { reader.gen2Dump() }
+                            .substringAfter("queryTarget=").substringBefore(","))
+                    lab.log("  " + withContext(Dispatchers.IO) { reader.gen2Dump() })
+                }
+                "calls" -> reader.calls().takeLast(10).forEach { lab.log("  $it") }
+                "marry" -> { marryDetectedTags(); lab.log("  marrying") }
+                "forget" -> { divorceTags(); lab.log("  forgetting") }
+                else -> lab.log("  unknown command")
+            }
+        }
+    }
+
+    /** The history list, read fresh. */
+    fun loadHistory() {
+        viewModelScope.launch {
+            val rows = withContext(Dispatchers.IO) {
+                runCatching { catalog.sweeps() }.getOrDefault(emptyList())
+            }
+            update { it.copy(history = rows) }
+        }
+    }
+
+    /** Open one recorded sweep, naming its products from the local catalogue. */
+    fun openSweep(id: Long) {
+        viewModelScope.launch {
+            val built = withContext(Dispatchers.IO) {
+                val stored = catalog.sweepLines(id)
+                val identities = catalog.lookup(stored.map { it.first })
+                stored.map { (sku, qty) -> ResultLine(sku, qty, identities[sku], emptyList()) }
+            }
+            update { it.copy(openSweep = id, lines = built, resultReady = true) }
+        }
+    }
+
+    fun closeSweep() = update { it.copy(openSweep = null) }
+
+    /**
+     * Ask the module for Impinj's Gen2X extensions.
+     *
+     * Tag Focus quiets a tag that has already been inventoried, so the reader
+     * stops re-reading the rack it has already counted and spends its air time
+     * on the one it has not. FastID brings the TID back with the EPC, which is
+     * what lets the app say whose silicon this is.
+     *
+     * Not while sweeping: both change what the radio is doing mid-round.
+     */
+    fun setGen2Extensions(
+        tagFocus: Boolean,
+        fastId: Boolean,
+        /**
+         * Which session to run the round in, and it is NOT optional in practice.
+         *
+         * Tag Focus extends the S1 inventoried flag. In S0 there is no flag to
+         * extend — measured at 93.1 % duplicates against 92.6 %, inside the
+         * noise — so switching it on without the session is switching on a
+         * feature that cannot work, and then reporting it as on.
+         *
+         * Every call site used to omit this, so the one line that set the
+         * session never ran and the Settings button handed people a silent
+         * feature that was not silent. Turning Tag Focus ON now brings S1 with
+         * it, because they were never two settings.
+         */
+        session: Int? = if (tagFocus) SESSION_FOR_TAG_FOCUS else null,
+    ) {
+        viewModelScope.launch {
+            // Under the SAME lock as starting and stopping.
+            //
+            // These used to check `sweeping` and then act, which is a race: the
+            // check passes, a trigger pull starts inventory, and the setting
+            // lands on a running radio. The Lab path skipped even that check.
+            // A configuration applied mid-round is a configuration nobody can
+            // reason about afterwards — and reasoning about exactly that is
+            // what this app spent a night failing to do.
+            val applied = operationMutex.withLock {
+                if (state.value.sweeping) withContext(Dispatchers.IO) { reader.stop() }
+                withContext(Dispatchers.IO) { reader.setGen2Extensions(tagFocus, fastId, session) }
+            }
+            val dump = withContext(Dispatchers.IO) { reader.gen2Dump() }
+            // Written down, so a restart or a night on the charger does not
+            // quietly hand the floor a reader nobody told anything.
+            config.saveRadio(applied.tagFocus, applied.session)
+            update { it.copy(gen2 = applied, gen2Dump = dump, sdkCalls = reader.calls()) }
+        }
+    }
+
+    /**
+     * Tell the radio to report one SKU and ignore the rest.
+     *
+     * The point of asking the READER rather than filtering what it sends is that
+     * a tag which never answers costs nothing — no air time, no sighting, no
+     * work on this device. That is the difference between finding one garment
+     * among twenty thousand and finding twenty thousand and then looking.
+     */
+    fun setSkuFilter(sku: String) {
+        if (state.value.sweeping || state.value.starting) return
+        val cleaned = sku.trim()
+        viewModelScope.launch {
+            val accepted = withContext(Dispatchers.IO) {
+                reader.setSkuFilter(cleaned.ifBlank { null })
+            }
+            update {
+                it.copy(
+                    skuFilter = cleaned,
+                    filterNote = when {
+                        cleaned.isBlank() -> if (accepted) "cleared" else "the module refused to clear it"
+                        accepted -> "module accepted · sweep to see whether it HONOURS it"
+                        else -> "the module refused the filter"
+                    },
+                )
+            }
+        }
+    }
+
+    /**
+     * Count transponders rather than stock.
+     *
+     * For a bench whose tags are not ours in writing. See
+     * [ScanEngine.countEveryTag] for why this must not leave one.
+     */
+    fun setCountEveryTag(on: Boolean) {
+        if (state.value.sweeping || state.value.starting) return
+        engine.countEveryTag = on && BuildConfig.BENCH
+        update { it.copy(countEveryTag = on, engineBeliefs = engine.beliefs()) }
+    }
+
+    /**
+     * Marry every tag the last sweep could not name to a product that exists.
+     *
+     * A bench fixture. The tags stay exactly as they are — nothing is written to
+     * any transponder — and the evidence filed to the Edge still carries the
+     * real EPC. What changes is only what THIS handheld calls them, so a rig
+     * full of other people's tags can exercise grouping, naming, search and the
+     * result screen.
+     */
+    fun marryDetectedTags() {
+        if (state.value.sweeping || state.value.starting) return
+        val orphans = engine.foreignTags() + engine.unknownEpcs()
+        if (orphans.isEmpty()) {
+            update { it.copy(aliasNote = "nothing unnamed in the last sweep") }
+            return
+        }
+        viewModelScope.launch {
+            val count = withContext(Dispatchers.IO) {
+                val skus = catalog.someSkuCodes(MARRY_SPREAD)
+                if (skus.isEmpty()) return@withContext -1
+                val n = catalog.marryEpcs(orphans, skus)
+                engine.useAliases(catalog.epcAliases())
+                n
+            }
+            update {
+                it.copy(
+                    aliasCount = withContext(Dispatchers.IO) { catalog.aliasCount() },
+                    aliasNote = if (count < 0) "no catalogue to marry them to"
+                        else "$count tags married · sweep again",
+                    engineBeliefs = engine.beliefs(),
+                )
+            }
+        }
+    }
+
+    /**
+     * Write the last sweep's EPCs to a file a laptop can read.
+     *
+     * # Why this exists
+     *
+     * A histogram tells you the shape of what came back; it cannot tell you
+     * WHICH tags a filter removed, or whether the ones it kept are the ones it
+     * should have. That needs the list, and a list of two thousand strings does
+     * not fit on a screen or through a UI dump.
+     *
+     * It lands in the app's own external files directory, which `adb pull`
+     * reads without any permission and no other app can touch.
+     */
+    fun exportEpcs(label: String) {
+        viewModelScope.launch {
+            val epcs = engine.allEpcs()
+            val path = withContext(Dispatchers.IO) {
+                runCatching {
+                    val dir = appContext!!.getExternalFilesDir(null)
+                    val file = java.io.File(dir, "epcs-$label.txt")
+                    file.writeText(
+                        buildString {
+                            append("# vendor calls, newest last\n")
+                            reader.calls().forEach { append("# ").append(it).append('\n') }
+                            append("# ").append(epcs.size).append(" distinct EPCs\n")
+                            append(epcs.joinToString("\n"))
+                        },
+                    )
+                    file.absolutePath
+                }.getOrNull()
+            }
+            update {
+                it.copy(
+                    aliasNote = if (path == null) "export failed"
+                        else "${epcs.size} EPCs written to $path",
+                )
+            }
+        }
+    }
+
+    /** Forget every marriage; tags go back to being what their EPC says. */
+    fun divorceTags() {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                catalog.clearAliases()
+                engine.useAliases(emptyMap())
+            }
+            update { it.copy(aliasCount = 0, aliasNote = "all marriages forgotten") }
+        }
+    }
+
+    /** Put the radio back to a block that is known to sweep a rack. */
+    fun resetRadio() {
+        if (state.value.sweeping || state.value.starting) return
+        viewModelScope.launch {
+            val dump = withContext(Dispatchers.IO) { reader.resetRadioDefaults() }
+            val st = withContext(Dispatchers.IO) { reader.gen2State() }
+            update { it.copy(gen2 = st, gen2Dump = dump, skuFilter = "", filterNote = null) }
+        }
+    }
+
+    /** Set the inventory slot count to 2^[exponent]. See [Reader.setStartQ]. */
+    fun setStartQ(exponent: Int) {
+        if (state.value.sweeping || state.value.starting) return
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { reader.setStartQ(exponent) }
+            val st = withContext(Dispatchers.IO) { reader.gen2State() }
+            val dump = withContext(Dispatchers.IO) { reader.gen2Dump() }
+            config.saveRadio(st.tagFocus, st.session)
+            update { it.copy(gen2 = st, gen2Dump = dump, sdkCalls = reader.calls()) }
+        }
+    }
+
+    /**
+     * Make the radio deaf to everything that is not ours.
+     *
+     * Eight bits of Select on the EPC header. See [Reader.setOursOnlyFilter] —
+     * unlike the SKU filter this is safe to leave on while counting, because it
+     * narrows to the whole estate rather than to one product.
+     */
+    fun setOursOnly(on: Boolean) {
+        if (state.value.sweeping || state.value.starting) return
+        viewModelScope.launch {
+            val accepted = withContext(Dispatchers.IO) { reader.setOursOnlyFilter(on) }
+            update {
+                it.copy(
+                    oursOnly = on,
+                    sdkCalls = reader.calls(),
+                    skuFilter = "",
+                    filterNote = when {
+                        !accepted -> "the module refused it"
+                        on -> "accepted · sweep to see whether it HONOURS it"
+                        else -> "cleared"
+                    },
+                )
+            }
+        }
+    }
+
+    /**
+     * Try one Select and say whether the module took it.
+     *
+     * `spec` is "pointer/lengthBits/hex" — a probe, not a feature. See
+     * [Reader.setRawFilter] for why this has to be discovered by experiment.
+     */
+    fun tryRawFilter(spec: String) {
+        if (state.value.sweeping || state.value.starting) return
+        val parts = spec.trim().split("/")
+        if (parts.size != 3) {
+            update { it.copy(filterNote = "use pointer/bits/hex") }
+            return
+        }
+        val ptr = parts[0].toIntOrNull()
+        val bits = parts[1].toIntOrNull()
+        val hex = parts[2].uppercase()
+        if (ptr == null || bits == null) {
+            update { it.copy(filterNote = "pointer and bits must be numbers") }
+            return
+        }
+        viewModelScope.launch {
+            val ok = withContext(Dispatchers.IO) { reader.setRawFilter(ptr, bits, hex) }
+            update {
+                it.copy(
+                    skuFilter = spec,
+                    filterNote = if (ok) "accepted ptr=$ptr bits=$bits · sweep to see"
+                        else "the module refused it",
+                    sdkCalls = reader.calls(),
+                )
+            }
+        }
+    }
+
+    /**
+     * Filter to ONE tag the last sweep actually saw, and see what comes back.
+     *
+     * The decisive experiment, and it needs no typing: a Select on a whole EPC
+     * that is definitely on the desk can only have one correct answer. One tag
+     * back means the filter works and we have learnt what the vendor means by
+     * pointer and length. Sixty-four means it is ignored. Zero means the mask
+     * lands somewhere else in the bank. Thousands means it corrupts the stream,
+     * which is what an 8-bit mask at pointer 32 already did.
+     */
+    fun probeFilterOnFirstTag(pointer: Int) {
+        if (state.value.sweeping || state.value.starting) return
+        val target = engine.allEpcs().firstOrNull { it.startsWith("A1") }
+            ?: engine.allEpcs().firstOrNull()
+        if (target == null) {
+            update { it.copy(filterNote = "sweep first — there is no tag to aim at") }
+            return
+        }
+        viewModelScope.launch {
+            val ok = withContext(Dispatchers.IO) { reader.setRawFilter(pointer, 96, target) }
+            update {
+                it.copy(
+                    skuFilter = "$pointer/96/$target",
+                    filterNote = if (ok) "aimed at ${target.take(12)}… (ptr $pointer)"
+                        else "REFUSED by the module",
+                    sdkCalls = reader.calls(),
+                )
+            }
+        }
+    }
+
+    /** Move the inventory round between Gen2 sessions. See [Reader.setSession]. */
+    fun setSession(session: Int) {
+        viewModelScope.launch {
+            operationMutex.withLock {
+                if (state.value.sweeping) withContext(Dispatchers.IO) { reader.stop() }
+                withContext(Dispatchers.IO) { reader.setSession(session) }
+            }
+            // Tag Focus does not survive the move, so neither does the flag.
+            //
+            // Tag Focus extends how long an inventoried tag holds its flag, and
+            // only S1 has a flag that persists at all. Left alone, tapping S0
+            // under a lit "Tag Focus: on" used to leave the module holding a
+            // setting with nothing to act on — harmless until it was written
+            // down, and now it would be restored on every launch. So the
+            // combination is not saved, it is not allowed: the radio is told to
+            // drop the flag, and the screen says so because it reads back from
+            // the module.
+            //
+            // The bench keeps its raw path — Lab's `session` command drives
+            // [Reader.setSession] directly and never comes through here.
+            var st = withContext(Dispatchers.IO) { reader.gen2State() }
+            if (st.tagFocus && st.session != SESSION_FOR_TAG_FOCUS) {
+                st = withContext(Dispatchers.IO) {
+                    reader.setGen2Extensions(false, st.fastId)
+                }
+            }
+            val dump = withContext(Dispatchers.IO) { reader.gen2Dump() }
+            config.saveRadio(st.tagFocus, st.session)
+            update { it.copy(gen2 = st, gen2Dump = dump, sdkCalls = reader.calls()) }
+        }
+    }
+
+    /** Keep a sweep at the top of the history, or let it go. */
+    fun togglePin(id: Long) {
+        viewModelScope.launch {
+            val current = state.value.history.firstOrNull { it.id == id }?.pinned ?: false
+            withContext(Dispatchers.IO) { runCatching { catalog.setPinned(id, !current) } }
+            loadHistory()
+        }
+    }
+
+    /** Publish counts at a pace an eye can follow; file evidence far slower. */
+    private fun startTicker() {
+        tickJob?.cancel()
+        tickJob = viewModelScope.launch {
+            var tick = 0
+            while (state.value.sweeping) {
+                kotlinx.coroutines.delay(PUBLISH_MS)
+                if (!state.value.sweeping) break
+                // Publish the COUNT, and only the count.
+                //
+                // This used to carry `metrics` too, and metrics climb with every
+                // sighting — so a rack being read at a thousand sightings a
+                // second made the state differ on every single tick even when
+                // the number on screen had not moved. StateFlow conflates equal
+                // values; it was never given the chance. The whole shell
+                // recomposed five times a second to redraw a figure that was
+                // already right, and on this hardware every one of those frames
+                // costs eighteen milliseconds or more.
+                //
+                // Now an unchanged sweep emits nothing and renders nothing.
+                update { it.copy(counts = engine.snapshot()) }
+                // Evidence every ten ticks — two seconds — so the radio is quiet
+                // between them and the publish cadence never waits on a disk or
+                // a network.
+                if (++tick % EVIDENCE_EVERY == 0) {
+                    // Instrumentation rides the two-second lane, not the
+                    // 200 ms one. Nothing on the scanning screen draws it.
+                    update { it.copy(metrics = engine.metrics()) }
+                    spoolEvidence()
+                    drainOutbox()
+                    if (state.value.sessionCode.isNotBlank()) refreshShared()
+                }
+            }
+        }
+    }
+
+    private suspend fun stopTicker() {
+        val job = tickJob
+        tickJob = null
+        job?.cancelAndJoin()
+    }
+
+    // ---------------------------------------------------------------- evidence
+
+    /**
+     * Freeze what the worker has found into durable batches.
+     *
+     * This is deliberately NOT inside the upload path and holds no lock that an
+     * upload can hold. The uploader can sit on a socket for forty seconds; if
+     * spooling waited behind it, forty seconds of a stock count would have no
+     * home but RAM — in exactly the network conditions the spool exists for.
+     */
+    private suspend fun spoolEvidence() {
+        val settings = settings()
+        if (!settings.isConfigured) return
+        spoolMutex.withLock {
+            withContext(Dispatchers.IO) {
+                val api = Api(settings)
+                while (true) {
+                    val batch = engine.takeEvidence(MAX_OBSERVATIONS_PER_BATCH)
+                    if (batch.isEmpty()) break
+                    val session = currentSessionId()
+                    // One timestamp, used for BOTH the key and the body.
+                    //
+                    // The key used to hash the session and the EPC set alone,
+                    // while the body also carried `observed_at` and each RSSI.
+                    // In a shared session the code stays the same all day, so
+                    // sweeping one rack twice produced an identical key over a
+                    // different body — which the Edge refuses, correctly, as a
+                    // key already used for another request. The key now covers
+                    // what the body covers.
+                    val observedAt = Api.iso8601()
+                    val key = idempotencyKey(session, observedAt, batch)
+                    val ok = runCatching {
+                        val body = api.buildObservationBody(batch, session, key, observedAt)
+                        catalog.spool(session, key, body, batch.size, observedAt)
+                    }
+                    if (ok.isFailure) {
+                        // Hand it back rather than lose it; the next tick tries
+                        // again against a disk that may have stopped complaining.
+                        engine.returnEvidence(batch)
+                        break
+                    }
+                }
+            }
+            update { it.copy(outboxPending = withContext(Dispatchers.IO) { catalog.pendingCount() }) }
+        }
+    }
+
+    /**
+     * Stable across a lost response, and different whenever the body differs.
+     *
+     * Both halves matter. Stable, so a retry of the SAME bytes is recognised
+     * and counted once. Different, so two sweeps that happen to find the same
+     * rack under the same session code do not collide — which they did, because
+     * the key covered the session and the tags while the body also carried the
+     * time and the signal strengths.
+     */
+    private fun idempotencyKey(
+        session: String,
+        observedAt: String,
+        batch: List<Pair<String, Float?>>,
+    ): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        digest.update(session.toByteArray(Charsets.UTF_8))
+        digest.update('\n'.code.toByte())
+        digest.update(observedAt.toByteArray(Charsets.UTF_8))
+        digest.update('\n'.code.toByte())
+        batch.asSequence()
+            .map { (epc, rssi) -> epc + ':' + (rssi?.toString() ?: "") }
+            .sorted()
+            .forEach {
+                digest.update(it.toByteArray(Charsets.UTF_8))
+                digest.update('\n'.code.toByte())
+            }
+        return "hh-rfid-" + digest.digest().joinToString("") { "%02x".format(it) }.take(56)
+    }
+
+    /**
+     * Hand the spool to the Edge, oldest first.
+     *
+     * Each attempt signs the stored bytes FRESH. The signature's timestamp is
+     * checked against a five-minute window in both directions, so a batch that
+     * waited out an offline spell cannot be replayed with the proof it was born
+     * with. That is also why a conflict is an acknowledgement here: under a key
+     * derived from the batch's own contents, "this key is taken" can only mean
+     * this reader already filed these tags.
+     */
+    fun drainOutbox() {
+        val settings = settings()
+        if (!settings.isConfigured) return
+        if (System.currentTimeMillis() < uploadRetryAt) return
+        if (uploadJob?.isActive == true) { uploadRequested = true; return }
+        uploadRequested = false
+        uploadJob = viewModelScope.launch {
+            try {
+                val report = withContext(Dispatchers.IO) { uploadPending(settings) }
+                update {
+                    it.copy(
+                        outboxPending = report.pending,
+                        filedCount = report.filed,
+                        filingNote = report.note,
+                        clockSuspect = report.clockSuspect,
+                    )
+                }
+            } finally {
+                uploadJob = null
+                val again = uploadRequested
+                uploadRequested = false
+                if (again) drainOutbox()
+            }
+        }
+    }
+
+    private class UploadReport(
+        val pending: Int, val filed: Int, val note: String?, val clockSuspect: Boolean,
+    )
+
+    private fun uploadPending(settings: Settings): UploadReport {
+        val api = signingApi(settings)
+        var sent = 0
+        var note: String? = null
+        var clockSuspect = false
+        while (true) {
+            val batches = catalog.pendingBatches(UPLOAD_BATCHES)
+            if (batches.isEmpty()) break
+            var progressed = false
+            for (batch in batches) {
+                val outcome = runCatching { api.postObservationBody(batch.body) }
+                // A conflict is NOT an acknowledgement. Not any more.
+                //
+                // It was, and the reasoning was sound at the time: the Edge
+                // compared the sequence a batch was signed with, so a
+                // legitimate retry — which must be re-signed, because the
+                // signature's window is five minutes — came back 409, and
+                // treating that as "already filed" was the only way to make
+                // progress.
+                //
+                // That comparison has since been removed at the Edge. A retry
+                // of the same frozen body from the same reader now matches on
+                // device and digest and is handed the stored response. So the
+                // only thing 409 can mean today is that this key carries
+                // DIFFERENT content — a batch that was never accepted. Keeping
+                // the old branch would delete exactly those and mark their tags
+                // as filed: evidence lost, with nothing left to show it.
+                val accepted = outcome.isSuccess
+                if (accepted) {
+                    catalog.acknowledge(batch.id, batch.sessionId, epcsOf(batch.body))
+                    sent += batch.epcCount
+                    progressed = true
+                    config.saveClockWatermark(System.currentTimeMillis() / 1000)
+                } else {
+                    val error = outcome.exceptionOrNull()
+                    note = "not filed yet (${error?.message ?: "network unavailable"})"
+                    // A device whose clock went backwards fails TWO independent
+                    // checks at the Edge — the signature's skew window and the
+                    // sequence that may only climb — and no bookkeeping here can
+                    // get around either. Say so, instead of retrying behind a
+                    // spinner forever. The evidence stays spooled.
+                    if (clockWentBackwards()) {
+                        clockSuspect = true
+                        note = "device clock is wrong — evidence is saved, filing is paused"
+                    }
+                    catalog.noteFailure(batch.id, error?.message ?: "unknown")
+                    uploadRetryAt = System.currentTimeMillis() + uploadBackoffMs
+                    uploadBackoffMs = (uploadBackoffMs * 2).coerceAtMost(UPLOAD_RETRY_MAX_MS)
+                    return UploadReport(catalog.pendingCount(), sent, note, clockSuspect)
+                }
+            }
+            if (!progressed) break
+        }
+        uploadRetryAt = 0L
+        uploadBackoffMs = UPLOAD_RETRY_BASE_MS
+        return UploadReport(
+            catalog.pendingCount(), sent,
+            if (sent > 0) "$sent filed" else null, false,
+        )
+    }
+
+    /** An [Api] whose device sequence carries on from where this device left off. */
+    private fun signingApi(settings: Settings, connectTimeoutMs: Int = 15_000) =
+        Api(
+            settings,
+            connectTimeoutMs = connectTimeoutMs,
+            sequenceFloor = { config.sequenceWatermark() },
+            onSequence = { config.saveSequenceWatermark(it) },
+        )
+
+    private fun clockWentBackwards(): Boolean {
+        val watermark = config.load().clockWatermark
+        return watermark > 0 && System.currentTimeMillis() / 1000 < watermark - CLOCK_SLACK_SECONDS
+    }
+
+    /** Read the EPCs back out of a frozen batch, to record them as filed. */
+    private fun epcsOf(body: ByteArray): List<String> = runCatching {
+        val json = JSONObject(String(body, Charsets.UTF_8))
+        val array = json.optJSONArray("observations") ?: return emptyList()
+        (0 until array.length()).map { array.getJSONObject(it).optString("epc") }
+            .filter { it.isNotBlank() }
+    }.getOrDefault(emptyList())
+
+    // ------------------------------------------------------------- the commit
+
+    /** File the evidence, then do whatever this mode means on top of it. */
+    fun commit() {
+        viewModelScope.launch {
+            operationMutex.withLock {
+                val settings = settings()
+                if (!settings.isConfigured) {
+                    update { it.copy(failed = true, message = "Settings are incomplete") }
+                    return@withLock
+                }
+                if (state.value.sweeping) {
+                    // A read can arrive between the last tick and this tap.
+                    stopTicker()
+                    withContext(Dispatchers.IO) { reader.stop() }
+                    withContext(Dispatchers.Default) { engine.stop() }
+                    update { it.copy(sweeping = false, counts = engine.snapshot()) }
+                    buildResult()
+                }
+                val current = state.value
+                if (current.counts.units == 0) {
+                    update { it.copy(failed = true, message = "Nothing swept yet") }
+                    return@withLock
+                }
+
+                update { it.copy(busy = true, message = "Saving…", failed = false) }
+
+                // Durable, not delivered.
+                //
+                // Finish used to wait for the Edge to acknowledge every batch,
+                // and with a node that was not there that meant fifteen seconds
+                // of connect timeout before the operator got their screen back
+                // — for work that was already safe on disk. That is precisely
+                // what the outbox exists to stop being necessary. The evidence
+                // is written down here; handing it over is the uploader's job
+                // and nobody stands still for it.
+                spoolEvidence()
+                drainOutbox()
+
+                // Evidence is a fact; a carton, a receipt or a count entry is a
+                // decision, and a decision genuinely needs the node. Those fail
+                // when it is absent — but they fail in four seconds and say why,
+                // and they never make the facts look unfiled.
+                val outcome: Result<String?> = withContext(Dispatchers.IO) {
+                    runCatching {
+                        val api = Api(settings, connectTimeoutMs = COMMIT_CONNECT_MS)
+                        when (current.mode) {
+                            Mode.SCAN -> null
+                            Mode.PACKING -> packing(api, current)
+                            Mode.RECEIVING -> receiving(api, current)
+                            Mode.COUNT -> counting(api, current)
+                        }
+                    }
+                }
+
+                val units = current.counts.units
+                when {
+                    outcome.isFailure -> update {
+                        it.copy(busy = false, failed = true,
+                            message = "$units observations SAVED · " +
+                                (outcome.exceptionOrNull()?.message ?: "next step failed"))
+                    }
+                    else -> {
+                        val queued = withContext(Dispatchers.IO) { catalog.pendingCount() }
+                        val text = "$units observations saved" +
+                            (outcome.getOrNull()?.let { " · $it" } ?: "") +
+                            (if (queued > 0) " · $queued batches waiting for the node" else "")
+                        engine.reset()
+                        sweepOpen = false
+                        update {
+                            it.copy(busy = false, failed = false, counts = ScanCounts(),
+                                lines = emptyList(), resultReady = false,
+                                message = text, lastReceipt = text)
+                        }
+                        refreshShared()
+                    }
+                }
+            }
+        }
+    }
+
+    /** A carton for one shop, targeted by what the sweep actually found. */
+    private fun packing(api: Api, s: SweepState): String {
+        if (s.destination.isBlank()) throw IllegalStateException("name the destination shop first")
+        val targets = s.lines.associate { it.skuCode to it.qty }
+        if (targets.isEmpty()) throw IllegalStateException("no tags of ours in this sweep")
+        val payload = JSONObject().apply {
+            put("destination_store_id", s.destination)
+            put("target", org.json.JSONArray().apply {
+                targets.forEach { (sku, qty) ->
+                    put(JSONObject().put("sku_code", sku).put("target_qty", qty))
+                }
+            })
+            put("actor_id", "handheld")
+            put("note", "opened from a handheld sweep")
+        }
+        val response = api.post("/api/v1/dc/packing-boxes", payload)
+        val id = response.optJSONObject("session")?.optString("session_id").orEmpty()
+        return "carton ${id.take(8).ifBlank { "?" }} · ${targets.size} SKUs"
+    }
+
+    /** Each tag arrives at the shop as its own unit. */
+    private fun receiving(api: Api, s: SweepState): String {
+        // One delivery, as few requests as the node will take. A POST per tag
+        // turned an arrival into fifty transactions over shop wifi, and was
+        // wrong in the ledger besides, because the goods came off one lorry.
+        val units = s.lines.flatMap { line -> line.epcs.map { it to line.skuCode } }
+        if (units.isEmpty()) throw IllegalStateException("no tags of ours in this sweep")
+
+        // The node refuses more than a thousand lines in one body, and a sweep
+        // of a real delivery passes that easily. Chunking here is the
+        // difference between a long arrival being received and being refused
+        // whole.
+        var sent = 0
+        units.chunked(RECEIVE_CHUNK).forEachIndexed { index, chunk ->
+            val lines = org.json.JSONArray()
+            chunk.forEach { (epc, sku) ->
+                lines.put(
+                    JSONObject().put("epc", epc).put("sku_code", sku)
+                        .put("unit_price_minor", 0),
+                )
+            }
+            val payload = JSONObject().apply {
+                put("lines", lines)
+                put("actor_id", "handheld")
+                // Keyed by what is IN the chunk, not by the session.
+                //
+                // A shared session keeps one code all day, so a key built from
+                // it made every delivery of that session collide with the
+                // first — the node refused them as the same key over a
+                // different payload, and a second lorry could not be received.
+                put("idempotency_key", receiveKey(chunk, index))
+            }
+            api.post("/api/v1/store/receive-batch", payload)
+            sent += chunk.size
+        }
+        val foreign = s.counts.foreign
+        return "$sent received" + if (foreign > 0) ", $foreign not ours" else ""
+    }
+
+    /** A key that names this exact set of units, and only it. */
+    private fun receiveKey(chunk: List<Pair<String, String>>, index: Int): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        digest.update(index.toString().toByteArray(Charsets.UTF_8))
+        chunk.map { it.first }.sorted().forEach {
+            digest.update(it.toByteArray(Charsets.UTF_8))
+            digest.update('\n'.code.toByte())
+        }
+        return "hh-recv-" + digest.digest().joinToString("") { "%02x".format(it) }.take(40)
+    }
+
+    /** Entries against an Official Count the centre already opened. */
+    private fun counting(api: Api, s: SweepState): String {
+        if (s.countId.isBlank()) throw IllegalStateException("choose a count first")
+        // The SKU rides with every entry.
+        //
+        // `OfficialCountEntryInput` requires it and has no serde default, so a
+        // body without it is refused whole — serde rejects the request before a
+        // single entry is read, and the node answers 400. This mode has never
+        // filed a count entry in its life, and the observation batch going out
+        // first is what hid it: the sweep reported itself as filed, because it
+        // was, and the count that was supposed to follow never happened.
+        val entries = org.json.JSONArray()
+        s.lines.forEach { line ->
+            line.epcs.forEach { epc ->
+                entries.put(
+                    JSONObject()
+                        .put("epc", epc)
+                        .put("sku_code", line.skuCode)
+                        .put("found_quantity", 1),
+                )
+            }
+        }
+        val payload = JSONObject().apply {
+            put("entries", entries)
+            put("actor_id", "handheld")
+            put("idempotency_key", "hh-count-" + sessionId.take(12))
+        }
+        api.post("/api/v1/dc/official-counts/${s.countId}/entries", payload)
+        return "${entries.length()} count entries"
+    }
+
+    // ------------------------------------------------------------- sessions
+
     fun setSessionCode(code: String) {
-        if (state.value.busy || (sweepOpen && collector.isNotEmpty())) {
+        if (state.value.busy || (sweepOpen && state.value.counts.units > 0)) {
             update { it.copy(sharedNote = "finish the current sweep before changing session") }
             return
         }
         val cleaned = code.trim().uppercase().filter { it.isLetterOrDigit() || it == '-' }.take(24)
-        // A response for the previous name must never paint the newly selected
-        // session. The in-flight request is allowed to finish, but its generation
-        // check below drops the stale result and starts the current one after it.
         sharedGeneration++
         config.save(config.load().copy(sessionCode = cleaned))
         update { it.copy(sessionCode = cleaned, shared = null, sharedNote = null) }
@@ -350,18 +1746,15 @@ class SweepViewModel(
     /**
      * Begin a session by naming one.
      *
-     * Nothing is reserved: the name starts existing when the first batch is
-     * filed under it. The alphabet drops O/0 and I/1 because these codes are
-     * read aloud across a floor, and "S-I0K" is an argument waiting to happen.
+     * The alphabet drops O/0 and I/1 because these codes are read aloud across
+     * a floor, and "S-I0K" is an argument waiting to happen.
      */
     fun newSessionCode() {
         val alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-        val code = (1..6).map { alphabet.random() }.joinToString("")
-        setSessionCode("S-$code")
+        setSessionCode("S-" + (1..6).map { alphabet.random() }.joinToString(""))
         loadSessions()
     }
 
-    /** Work in progress on this node, so somebody arriving can choose. */
     fun loadSessions() {
         val settings = settings()
         if (!settings.isConfigured) {
@@ -384,23 +1777,15 @@ class SweepViewModel(
                     }
                 }
             }
-            result.onSuccess { list ->
-                update { it.copy(sessions = list, sessionsLoaded = true) }
-            }.onFailure {
-                update { it.copy(sessions = emptyList(), sessionsLoaded = true) }
-            }
+            result.onSuccess { list -> update { it.copy(sessions = list, sessionsLoaded = true) } }
+                .onFailure { update { it.copy(sessions = emptyList(), sessionsLoaded = true) } }
         }
     }
 
-    /** What everyone in this session has found so far. */
     fun refreshShared() {
         val settings = settings()
         val code = state.value.sessionCode
         if (!settings.isConfigured || code.isBlank()) return
-        // Refreshes happen every two seconds during a shared sweep. Keep at most
-        // one database/JSON request in flight; if the code changes while it is
-        // running, the generation check and completion handoff below fetch the
-        // new code once the old request has drained.
         if (sharedJob?.isActive == true) return
         val generation = sharedGeneration
         sharedJob = viewModelScope.launch {
@@ -431,9 +1816,6 @@ class SweepViewModel(
                     }
                 }
             } finally {
-                // `setSessionCode` can happen while HttpURLConnection is draining
-                // on IO. Once this request is done, hand off exactly one refresh
-                // for the current code without ever overlapping requests.
                 sharedJob = null
                 if (generation != sharedGeneration && state.value.sessionCode.isNotBlank()) {
                     refreshShared()
@@ -442,50 +1824,40 @@ class SweepViewModel(
         }
     }
 
+    // ---------------------------------------------------------------- power
+
     /**
      * Turn the antenna up or down, mid-sweep if that is when it is needed.
      *
-     * A sweep quietly reading the next aisle has to be corrected NOW, not after
-     * somebody finishes and starts again. But moving the power costs the whole
-     * module: on this firmware a setPower to an open module goes silently
-     * unradiated, so [Reader.setPower] closes and re-opens it — and that
-     * measured **seven seconds** on a C5, not the fraction of a second this
-     * comment used to claim.
-     *
-     * Seven seconds of dead antenna is a rack walked past. So the screen says
-     * `busy` and stops offering Finish for the duration: this app's whole
-     * position is that a screen reading "reading" over a quiet radio is how
-     * somebody sweeps an aisle and collects nothing, and a gap we caused
-     * ourselves is no different. Nothing is lost — the collector is not the
+     * Moving the power costs the whole module: on this firmware a setPower to
+     * an open module goes silently unradiated, so [Reader.setPower] closes and
+     * re-opens it — and that measured **seven seconds** on a C5. Seven seconds
+     * of dead antenna is a rack walked past, so the screen says busy and stops
+     * offering Finish for the duration. Nothing is lost — the engine is not the
      * radio — but the person holding it has to know to stand still.
      */
     fun setPower(dbm: Int) {
         if (state.value.busy) return
         val target = dbm.coerceIn(Reader.MIN_POWER, Reader.MAX_POWER)
-        // Releasing the finger where the antenna already is must cost nothing.
-        // Committing anyway would stop and restart inventory for no change —
-        // a hiccup in the middle of an aisle, paid for a tap that meant "yes,
-        // that one".
         if (target == state.value.readerPower) return
         viewModelScope.launch {
             operationMutex.withLock {
                 if (state.value.busy) return@withLock
                 val sweeping = state.value.sweeping
-                // Said before the antenna goes down, not after it comes back.
                 update {
                     it.copy(busy = true,
                         powerNote = if (sweeping) "moving the antenna · about 7 seconds"
                             else "moving the antenna…")
                 }
-                // Do not let a power change compete with Finish, lifecycle stop,
-                // or another slider release. The vendor UART is single-owner.
-                stopAutoFiling()
+                stopTicker()
                 val outcome = withContext(Dispatchers.IO) {
                     runCatching {
                         if (sweeping) reader.stop()
                         val applied = reader.setPower(target)
                         val resumed = !sweeping ||
-                            reader.start(withTid = false) { read -> absorb(read) }
+                            reader.start(withTid = state.value.gen2.fastId) { epc, rssi, tid ->
+                                engine.offer(epc, rssi, tid)
+                            }
                         applied to resumed
                     }
                 }
@@ -500,23 +1872,21 @@ class SweepViewModel(
                                 applied > 0 -> "module reports $applied dBm"
                                 else -> "kept · applies when the reader wakes"
                             },
-                            // A sweep whose inventory never came back is over, and
-                            // must say so. Leaving the flag up is how somebody
-                            // walks an aisle collecting nothing.
                             sweeping = it.sweeping && resumed,
                             failed = it.failed || !resumed,
                             message = if (resumed) it.message
                                 else "the reader stopped — start reading again",
                         )
                     }
-                    // A sweep that ended by accident still files what it found.
-                    // Auto-filing stops with the flag, so without this the last
-                    // tick's tags sit in memory until somebody sweeps again — and
-                    // the whole point of filing as we go is that nothing waits on
-                    // somebody remembering.
-                    if (!resumed) fileNewTags()
+                    if (!resumed) {
+                        withContext(Dispatchers.Default) { engine.stop() }
+                        spoolEvidence()
+                        drainOutbox()
+                        buildResult()
+                    } else if (sweeping) {
+                        startTicker()
+                    }
                     update { it.copy(busy = false) }
-                    if (resumed && sweeping) startAutoFiling()
                 }.onFailure { e ->
                     update { it.copy(busy = false, powerNote = e.message ?: "the reader refused") }
                 }
@@ -524,534 +1894,29 @@ class SweepViewModel(
         }
     }
 
-    fun toggleSweep() {
-        if (state.value.busy) return
-        if (state.value.sweeping) stopSweep() else startSweep()
-    }
-
-    /** Start a new logical sweep without carrying a completed rack forward. */
-    private fun beginSweep() {
-        clearCollectedData()
-        filingRetryAt = 0L
-        filingBackoffMs = FILING_RETRY_BASE_MS
-        sessionId = UUID.randomUUID().toString()
-        sweepOpen = true
-        update {
-            it.copy(
-                tagCount = 0,
-                lines = emptyList(),
-                foreignCount = 0,
-                identities = emptyMap(),
-                resolving = false,
-                resolveNote = null,
-                filedCount = 0,
-                filingNote = null,
-                message = null,
-                failed = false,
-            )
-        }
-    }
-
-    /** Drop only data that belongs to the finished logical sweep. */
-    private fun clearCollectedData() {
-        dataGeneration++
-        resolveJob?.cancel()
-        resolveJob = null
-        resolveRequested = false
-        resolvingSkus = emptySet()
-        collector.clear()
-        qtyBySku.clear()
-        skuRank.clear()
-        ranks.set(0)
-        foreign.set(0)
-        filed.clear()
-        filingClaims.clear()
-        filingRequested = false
-        dirty.set(false)
-    }
-
-    private fun hasPendingEvidence(): Boolean =
-        collector.values.any { it.epc !in filed }
-
-    /** Stable across a lost response, but unique for the exact session and batch. */
-    private fun observationIdempotencyKey(session: String, batch: List<Seen>): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-        digest.update(session.toByteArray(Charsets.UTF_8))
-        digest.update('\n'.code.toByte())
-        batch.asSequence().map { it.epc }.sorted().forEach { epc ->
-            digest.update(epc.toByteArray(Charsets.UTF_8))
-            digest.update('\n'.code.toByte())
-        }
-        val hex = digest.digest().joinToString("") { "%02x".format(it) }
-        return "hh-rfid-" + hex.take(56)
-    }
-
-    private fun startSweep() {
-        viewModelScope.launch {
-            operationMutex.withLock {
-                if (state.value.busy || state.value.sweeping) return@withLock
-                if (!sweepOpen) beginSweep()
-                update { it.copy(busy = true, message = "Waking the reader…", failed = false) }
-                val result = withContext(Dispatchers.IO) {
-                    runCatching {
-                        // Choose the power BEFORE the module opens, so init applies
-                        // it once. Measured on a C5 (E710_V7.10.1): a setPower
-                        // issued to an ALREADY-OPEN module reports success and the
-                        // getter echoes the new figure, but the antenna goes silent
-                        // — 40 reads at 30 dBm became zero at 29, which is not a
-                        // thing one decibel can do.
-                        settings().readerPower.takeIf { it > 0 }?.let { reader.setPower(it) }
-                        val version = reader.init(appContext!!)
-                        val started = reader.start(withTid = false) { read -> absorb(read) }
-                        if (!started) error("the reader refused to start inventory")
-                        version
-                    }
-                }
-                result.onSuccess { version ->
-                    update {
-                        it.copy(sweeping = true, busy = false,
-                            readerInfo = "fw " + version.ifBlank { "?" },
-                            readerPower = reader.power().coerceAtLeast(0),
-                            message = "Reading…")
-                    }
-                    startAutoFiling()
-                }.onFailure { e ->
-                    update { it.copy(busy = false, failed = true, message = e.message ?: "reader unavailable") }
-                }
-            }
-        }
-    }
-
-    private fun stopSweep() {
-        viewModelScope.launch {
-            operationMutex.withLock {
-                if (!state.value.sweeping) {
-                    withContext(Dispatchers.IO) { runCatching { reader.stop() } }
-                    return@withLock
-                }
-                // Stop the timer first so no more publishes or filing requests are
-                // scheduled while the reader is winding down. The collector and its
-                // unsent evidence remain untouched.
-                update { it.copy(busy = true) }
-                stopAutoFiling()
-                withContext(Dispatchers.IO) { reader.stop() }
-                dirty.set(true)
-                publish()
-                update { it.copy(sweeping = false, message = "${collector.size} tags read") }
-                // Anything the last tick missed goes now, so stopping is a complete
-                // act rather than a promise.
-                fileNewTags()
-                resolveIdentities()
-                update { it.copy(busy = false) }
-            }
-        }
-    }
-
-    /**
-     * File evidence as it is found, rather than at the end.
-     *
-     * A sweep can end in ways nobody chose: a flat battery on the top step of a
-     * ladder, an app killed behind a locked screen, a walk out of wifi range.
-     * Holding an hour of counting in memory until somebody remembers a button
-     * means all of it is one accident away from never having happened. Filing
-     * as we go also means the people sharing this session see the aisle fill in
-     * while it is being walked, not twenty minutes later.
-     *
-     * Only NEW tags travel each tick, so the cost is proportional to what was
-     * just found and not to how long the sweep has run.
-     */
-    private fun startAutoFiling() {
-        autoJob?.cancel()
-        // Warm-up is useful, but a slow or offline node must never hold the
-        // 200 ms publish loop hostage. It is deliberately independent work.
-        warmJob?.cancel()
-        val settings = settings()
-        warmJob = if (settings.isConfigured) {
-            viewModelScope.launch(Dispatchers.IO) { runCatching { Api(settings).warm() } }
-        } else null
-
-        autoJob = viewModelScope.launch {
-            var tick = 0
-            while (state.value.sweeping) {
-                kotlinx.coroutines.delay(200)
-                if (!state.value.sweeping) break
-                // UI snapshots keep their 200 ms cadence even when an upload or
-                // catalogue request is stuck on a slow network.
-                publish()
-                // Evidence and names travel every ten ticks — two seconds — so
-                // the radio is quiet between them.
-                if (++tick % 10 == 0) {
-                    scheduleFiling()
-                    resolveIdentities()
-                    // The point of a shared session is watching the aisle fill
-                    // in while it is walked. Refreshing only on join and on
-                    // finish meant the card sat at "shared session" for the
-                    // whole sweep — the number arrived when it was no longer
-                    // any use to the person deciding which rack to take next.
-                    if (state.value.sessionCode.isNotBlank()) refreshShared()
-                }
-            }
-        }
-    }
-
-    /** Stop the scheduler but let an in-flight upload drain under its own lock. */
-    private suspend fun stopAutoFiling() {
-        val job = autoJob
-        autoJob = null
-        job?.cancelAndJoin()
-        warmJob?.cancel()
-        warmJob = null
-    }
-
-    /** Queue at most one upload and back off when the node is unavailable. */
-    private fun scheduleFiling() {
-        val settings = settings()
-        if (!settings.isConfigured || !hasPendingEvidence()) return
-        if (System.currentTimeMillis() < filingRetryAt) return
-        if (filingJob?.isActive == true) {
-            filingRequested = true
-            return
-        }
-        filingRequested = false
-        filingJob = viewModelScope.launch {
-            try {
-                fileNewTags()
-            } finally {
-                filingJob = null
-                val again = filingRequested
-                filingRequested = false
-                if (again && state.value.sweeping) scheduleFiling()
-            }
-        }
-    }
-
-    /**
-     * File only the evidence not already acknowledged by the Edge.
-     *
-     * The mutex is intentionally held across the network call. Finish, the
-     * lifecycle stop, and the two-second scheduler must see one ordered stream:
-     * otherwise Finish can decide that a claimed-but-not-yet-acknowledged tag
-     * is already filed. Batches stay within the Edge's 2,000-EPC limit and each
-     * one gets a stable key, so a lost response can be retried without a
-     * duplicate observation.
-     */
-    private suspend fun fileNewTags(): Boolean {
-        val settings = settings()
-        if (!settings.isConfigured) return false
-        return filingMutex.withLock {
-            var sent = 0
-            var failure: Throwable? = null
-            while (true) {
-                // Batch selection and hashing scale with the collected EPCs.
-                // Keep both off the main thread: the reader can have thousands
-                // of entries even when the visible list has only a few rows.
-                val selection = withContext(Dispatchers.Default) {
-                    val fresh = collector.values
-                        .asSequence()
-                        .filter { it.epc !in filed && it.epc !in filingClaims }
-                        .sortedBy { it.epc }
-                        .take(MAX_OBSERVATIONS_PER_BATCH)
-                        .filter { filingClaims.add(it.epc) }
-                        .toList()
-                    if (fresh.isEmpty()) null else {
-                        val session = currentSessionId()
-                        Triple(fresh, session, observationIdempotencyKey(session, fresh))
-                    }
-                }
-                if (selection == null) break
-                val (fresh, session, key) = selection
-                try {
-                    withContext(Dispatchers.IO) {
-                        Api(settings).postObservations(
-                            fresh.map { it.epc to it.rssi }, session, key,
-                        )
-                    }
-                    fresh.forEach {
-                        filingClaims.remove(it.epc)
-                        filed.add(it.epc)
-                    }
-                    sent += fresh.size
-                } catch (cancelled: CancellationException) {
-                    fresh.forEach { filingClaims.remove(it.epc) }
-                    throw cancelled
-                } catch (error: Throwable) {
-                    fresh.forEach { filingClaims.remove(it.epc) }
-                    failure = error
-                    update {
-                        it.copy(
-                            filedCount = filed.size,
-                            filingNote = "not filed yet (${error.message ?: "network unavailable"})",
-                        )
-                    }
-                    break
-                }
-            }
-
-            if (failure != null) {
-                filingRetryAt = System.currentTimeMillis() + filingBackoffMs
-                filingBackoffMs = (filingBackoffMs * 2).coerceAtMost(FILING_RETRY_MAX_MS)
-                false
-            } else {
-                filingRetryAt = 0L
-                filingBackoffMs = FILING_RETRY_BASE_MS
-                if (sent > 0) {
-                    update {
-                        it.copy(filedCount = filed.size,
-                            filingNote = "${filed.size} filed")
-                    }
-                }
-                true
-            }
-        }
-    }
-
-    /**
-     * Called from the reader's own thread, many times a second.
-     *
-     * It does the least possible: keep the strongest sighting of each tag and
-     * return. Publishing to the UI is somebody else's job on a timer, because a
-     * continuous sweep re-reads the same tags constantly and pushing state on
-     * every read asks Compose to redraw hundreds of times a second for a number
-     * that changed once.
-     */
-    private fun absorb(read: TagRead) {
-        val existing = collector[read.epc]
-        if (existing != null) {
-            // A tag already counted, seen again. Keep the strongest sighting,
-            // but do NOT mark the screen dirty: nothing on it shows RSSI, so a
-            // redraw here is a frame spent to change no pixel — and during a
-            // sweep this is the overwhelming majority of reads.
-            if ((read.rssi ?: -999f) > (existing.rssi ?: -999f)) {
-                collector[read.epc] = existing.copy(rssi = read.rssi)
-            }
-            return
-        }
-        val parts = Epc.decode(read.epc)
-        val fresh = Seen(read.epc, read.rssi, parts?.skuCode, parts?.serial)
-        if (collector.putIfAbsent(read.epc, fresh) != null) return
-        val sku = parts?.skuCode
-        if (sku == null) {
-            foreign.incrementAndGet()
-        } else {
-            qtyBySku.merge(sku, 1) { a, b -> a + b }
-            skuRank.putIfAbsent(sku, ranks.getAndIncrement())
-        }
-        dirty.set(true)
-    }
-
-    /** Push what the reader has found, at a pace an eye can follow. */
-    private suspend fun publish() {
-        // `stopSweep` and the auto-filing timer can reach this at the same time:
-        // serialize their dirty check and UI snapshot so an older snapshot cannot
-        // overwrite the one taken after the reader stopped.
-        publishMutex.withLock {
-            if (!dirty.getAndSet(false)) return@withLock
-            try {
-                val identities = state.value.identities
-                // Rows in the order the shop floor met them. Sorting by quantity made
-                // two hundred rows change places under the finger every time a number
-                // moved, which is both work and a list nobody can read while counting.
-                val lines = withContext(Dispatchers.Default) {
-                    Trace.beginSection("pindai.publish.snapshot")
-                    try {
-                        qtyBySku.entries
-                            .map { (sku, qty) -> Grouped(sku, qty, identities[sku]) }
-                            .sortedBy { skuRank[it.sku] ?: Int.MAX_VALUE }
-                    } finally {
-                        Trace.endSection()
-                    }
-                }
-                val tags = collector.size
-                update { it.copy(tagCount = tags, lines = lines, foreignCount = foreign.get()) }
-            } catch (error: Throwable) {
-                // The flag is cleared before the Default-dispatch snapshot so a
-                // successful publish cannot race a new read. If that snapshot is
-                // cancelled (for example while the ViewModel is being stopped),
-                // retain the work for the next publish instead of silently losing
-                // the final tags from the screen.
-                dirty.set(true)
-                throw error
-            }
-        }
-    }
-
-    /** File the evidence, then do whatever this mode means on top of it. */
-    fun commit() {
-        viewModelScope.launch {
-            operationMutex.withLock {
-                val settings = settings()
-                if (!settings.isConfigured) {
-                    update { it.copy(failed = true, message = "Settings are incomplete") }
-                    return@withLock
-                }
-                // A read can arrive between the last 200 ms tick and this tap.
-                // Take the final UI snapshot before deciding whether there is
-                // anything to commit.
-                dirty.set(true)
-                publish()
-                val current = state.value
-                if (collector.isEmpty()) {
-                    update { it.copy(failed = true, message = "Nothing swept yet") }
-                    return@withLock
-                }
-
-                update { it.copy(busy = true, message = "Sending…", failed = false) }
-                stopAutoFiling()
-                if (current.sweeping) withContext(Dispatchers.IO) { reader.stop() }
-                // Evidence is already on the Edge — it went as the sweep ran.
-                // All that is left is anything the last tick missed, and then
-                // the act this mode actually means. Keeping the two apart
-                // matters: an observation is a fact, a carton or a receipt is a
-                // decision, and a decision that fails must never make the facts
-                // look unfiled.
-                update { it.copy(sweeping = false) }
-                val flushed = fileNewTags()
-                val outcome: Result<String?> = if (!flushed) {
-                    Result.failure(IllegalStateException("some observations are not filed yet"))
-                } else {
-                    withContext(Dispatchers.IO) {
-                        runCatching {
-                            val api = Api(settings)
-                            // One snapshot, taken here. The collector is the
-                            // tags; UI state carries only their count.
-                            val tags = collector.values.toList()
-                            when (current.mode) {
-                                Mode.SCAN -> null
-                                Mode.PACKING -> packing(api, current, tags)
-                                Mode.RECEIVING -> receiving(api, tags)
-                                Mode.COUNT -> counting(api, current, tags)
-                            }
-                        }
-                    }
-                }
-
-                val filedNow = filed.size
-                when {
-                    !flushed -> update {
-                        it.copy(busy = false, sweeping = false, failed = true,
-                            message = "some tags are not filed yet: " +
-                                (it.filingNote ?: "network unavailable"))
-                    }
-                    outcome.isFailure -> update {
-                        it.copy(busy = false, sweeping = false, failed = true,
-                            message = "$filedNow observations FILED · " +
-                                (outcome.exceptionOrNull()?.message ?: "next step failed"))
-                    }
-                    else -> {
-                        val text = "$filedNow observations filed" +
-                            (outcome.getOrNull()?.let { " · $it" } ?: "")
-                        clearCollectedData()
-                        sweepOpen = false
-                        update { it.copy(busy = false, sweeping = false, failed = false,
-                            tagCount = 0, lines = emptyList(), foreignCount = 0,
-                            identities = emptyMap(), resolving = false, resolveNote = null,
-                            filedCount = 0, filingNote = null,
-                            message = text, lastReceipt = text) }
-                        refreshShared()
-                    }
-                }
-            }
-        }
-    }
-
-    /** A carton for one shop, targeted by what the sweep actually found. */
-    private fun packing(api: Api, s: SweepState, tags: List<Seen>): String {
-        if (s.destination.isBlank()) throw IllegalStateException("name the destination shop first")
-        val targets = tags.mapNotNull { it.sku }.groupingBy { it }.eachCount()
-        if (targets.isEmpty()) throw IllegalStateException("no tags of ours in this sweep")
-        val payload = JSONObject().apply {
-            put("destination_store_id", s.destination)
-            put("target", org.json.JSONArray().apply {
-                targets.forEach { (sku, qty) ->
-                    put(JSONObject().put("sku_code", sku).put("target_qty", qty))
-                }
-            })
-            put("actor_id", "handheld")
-            put("note", "opened from a handheld sweep")
-        }
-        val response = api.post("/api/v1/dc/packing-boxes", payload)
-        // The id lives on the nested session; a box only becomes a koli when it
-        // is sealed, so `koli_id` is legitimately null at this point.
-        val id = response.optJSONObject("session")?.optString("session_id").orEmpty()
-        return "carton ${id.take(8).ifBlank { "?" }} · ${targets.size} SKUs"
-    }
-
-    /** Each tag arrives at the shop as its own unit. */
-    private fun receiving(api: Api, tags: List<Seen>): String {
-        // One delivery, one request, one movement group. Sending a POST per tag
-        // turned an arrival into fifty transactions over shop wifi — slow
-        // enough that operators stopped waiting for it, and wrong in the ledger
-        // besides, because the goods came off one lorry.
-        val lines = org.json.JSONArray()
-        var foreign = 0
-        tags.forEach { seen ->
-            val sku = seen.sku
-            if (sku == null) {
-                foreign++
-                return@forEach
-            }
-            lines.put(
-                JSONObject()
-                    .put("epc", seen.epc)
-                    .put("sku_code", sku)
-                    .put("unit_price_minor", 0),
-            )
-        }
-        if (lines.length() == 0) {
-            throw IllegalStateException("no tags of ours in this sweep")
-        }
-        val payload = JSONObject().apply {
-            put("lines", lines)
-            put("actor_id", "handheld")
-            // Keyed by the sweep, so a retry after a lost response receives the
-            // same delivery once rather than twice.
-            put("idempotency_key", "hh-recv-" + currentSessionId().take(40))
-        }
-        api.post("/api/v1/store/receive-batch", payload)
-        // A tag that is not ours is reported, never silently dropped: the
-        // difference between "not our merchandise" and "the server said no"
-        // is the difference between a shrug and an investigation.
-        return "${lines.length()} received" +
-            if (foreign > 0) ", $foreign not ours" else ""
-    }
-
-    /** Entries against an Official Count the centre already opened. */
-    private fun counting(api: Api, s: SweepState, tags: List<Seen>): String {
-        if (s.countId.isBlank()) throw IllegalStateException("choose a count first")
-        val entries = org.json.JSONArray()
-        tags.forEach { seen ->
-            entries.put(JSONObject().put("epc", seen.epc).put("found_quantity", 1))
-        }
-        val payload = JSONObject().apply {
-            put("entries", entries)
-            put("actor_id", "handheld")
-            put("idempotency_key", "hh-count-" + sessionId.take(12))
-        }
-        api.post("/api/v1/dc/official-counts/${s.countId}/entries", payload)
-        return "${tags.size} count entries"
-    }
-
     /**
      * Put the radio down when the operator walks off to Setelan.
      *
      * Everything found stays found — this is a pause, not an abandonment. What
-     * must not survive is the CLAIM that the reader is still reading: the screen
-     * said "reading" over a stopped antenna, the trigger did nothing, and the
-     * only way back was Finish. Stopping properly also files whatever the last
-     * tick missed, so the walk away is a complete act.
+     * must not survive is the CLAIM that the reader is still reading.
      */
     fun releaseReader() {
         if (state.value.sweeping) {
             stopSweep()
             return
         }
-        // Off the main thread even when idle: stop() joins the poll thread and
-        // talks to the UART, and neither belongs in a tab change.
         viewModelScope.launch {
             operationMutex.withLock {
                 withContext(Dispatchers.IO) { runCatching { reader.stop() } }
             }
         }
+    }
+
+    override fun onCleared() {
+        engine.stop()
+        imager.close()
+        sounder.release()
+        super.onCleared()
     }
 
     private inline fun update(block: (SweepState) -> SweepState) {
@@ -1061,8 +1926,36 @@ class SweepViewModel(
     companion object {
         /** Edge sync accepts at most this many consolidated EPCs per batch. */
         private const val MAX_OBSERVATIONS_PER_BATCH = 2_000
-        private const val FILING_RETRY_BASE_MS = 5_000L
-        private const val FILING_RETRY_MAX_MS = 60_000L
+        private const val UPLOAD_RETRY_BASE_MS = 5_000L
+        private const val UPLOAD_RETRY_MAX_MS = 60_000L
+        private const val UPLOAD_BATCHES = 8
+        private const val PUBLISH_MS = 200L
+        private const val EVIDENCE_EVERY = 10
+        private const val OUTBOX_KEEP_DAYS = 7
+        /** A minute of ordinary clock drift is not a reset RTC. */
+        private const val CLOCK_SLACK_SECONDS = 60L
+
+        /**
+         * Finish is a person waiting. Four seconds to learn the node is not
+         * there, not fifteen — the evidence is already on disk by the time this
+         * call is made, so the only thing at stake is the mode's own action.
+         */
+        private const val COMMIT_CONNECT_MS = 4_000
+
+        /**
+         * How many different products a bench spreads its tags across. Enough
+         * that the result list has rows to group, sort and scroll.
+         */
+        private const val MARRY_SPREAD = 60
+
+        /** What `/store/receive-batch` accepts in one body. */
+        private const val RECEIVE_CHUNK = 1_000
+
+        /** The only session Tag Focus can work in. See [setGen2Extensions]. */
+        private const val SESSION_FOR_TAG_FOCUS = 1
+
+        /** Enough unnamed EPCs to see a pattern, few enough to read. */
+        private const val FOREIGN_SAMPLE = 4
 
         /** Set once by the activity; the reader needs a Context to open the UART. */
         @Volatile var appContext: android.content.Context? = null

@@ -1,6 +1,22 @@
 # Bagan akun sebagai kubus — 6.902 daun, 376 pilihan
 
-**Tanggal:** 13 September 2026 · **Status:** usulan, diturunkan dari data klien
+**Tanggal:** 13 September 2026 · **Status:** ~~usulan~~ **DIGANTIKAN 18 September
+2026** oleh [`coa-thirty.md`](./coa-thirty.md), yang diputuskan dan dibekukan
+bentuknya di [`coa-40-contract.md`](./coa-40-contract.md).
+
+> **Apa yang digantikan.** Dokumen ini menyederhanakan *permukaan pilih* atas
+> bagan klien apa adanya: 376 arti yang dipilih orang, unit sebagai sumbu, bagan
+> tidak disentuh. Putusannya sekarang lebih jauh — bagan yang **diposting**
+> adalah 40 akun, dan identitas yang tersisa di kode pindah ke
+> `journal_line.category_code` dan ke kolom yang sudah ada.
+>
+> **Apa yang tetap berlaku, dan masih dipakai.** Analisis kubusnya sendiri:
+> struktur 493 template × 14 akhiran, rekonstruksi 6.902/6.902, arah pemilik vs
+> lawan pada akun antar-unit, dan **§8 butir 1** — asumsi offset ordinal dari
+> nama 14 unit ke akhiran `00`–`13`, yang masih belum dikonfirmasi pemilik dan
+> yang menjadi satu-satunya bagian dari cetakan kode lama yang belum pasti
+> (lihat [`finance-legacy-codes.md`](./finance-legacy-codes.md)).
+
 **Sumber:** `/Users/hari/Downloads/Laporan_Master_Account1.csv` (7.528 baris), diuraikan
 ulang di sesi ini; rekonstruksinya cocok 6.902/6.902.
 

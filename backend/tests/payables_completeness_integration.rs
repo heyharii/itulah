@@ -54,102 +54,17 @@ fn september(day: u32) -> NaiveDate {
 /// The ladder matters and not only the leaves: the client's codes ARE the tree
 /// and a balance rolls up by prefix, so a seed of leaves hanging off the roots
 /// would pass tests a real chart fails.
-async fn seed_chart(pool: &PgPool) {
-    let headings: [(&str, &str, Option<&str>); 21] = [
-        ("1", "ASSET", None),
-        ("101", "CURRENT ASSET", Some("1")),
-        ("10112", "INVENTORY", Some("101")),
-        ("1011201", "Persediaan Barang Dagang", Some("10112")),
-        ("10113", "PREPAID", Some("101")),
-        ("1011302", "PAJAK BAYAR DIMUKA", Some("10113")),
-        ("1011303", "UANG MUKA / ADVANCED", Some("10113")),
-        ("10110", "KAS & SETARA KAS", Some("101")),
-        ("1011003", "CASH IN BANK TABUNGAN", Some("10110")),
-        ("2", "LIABILITIES", None),
-        ("201", "HUTANG JANGKA PENDEK", Some("2")),
-        ("20120", "HUTANG DAGANG", Some("201")),
-        ("2012001", "HUTANG SUPPLIER", Some("20120")),
-        ("20121", "HUTANG PAJAK", Some("201")),
-        ("2012101", "HUTANG PAJAK", Some("20121")),
-        ("6", "BIAYA OPERASIONAL", None),
-        ("601", "BIAYA UMUM DAN ADMINISTRASI", Some("6")),
-        ("60103", "BIAYA ADMINISTRASI DAN UMUM", Some("601")),
-        ("6010310", "BIAYA ADMINISTRASI DAN UMUM", Some("60103")),
-        ("8", "BEBAN NON OPERASIONAL", None),
-        ("801", "PENDAPATAN DAN (BIAYA) LAIN - LAIN", Some("8")),
-    ];
-    for (code, name, parent) in headings {
-        insert_account(pool, code, name, parent, None).await;
-    }
-    insert_account(
-        pool,
-        "80101",
-        "PENDAPATAN DAN (BIAYA) LAIN - LAIN",
-        Some("801"),
-        None,
-    )
-    .await;
-    insert_account(
-        pool,
-        "8010110",
-        "Pendapatan (Biaya) Lain-lain",
-        Some("80101"),
-        None,
-    )
-    .await;
-
-    // The postable leaves, at head office. Every code is the client's own,
-    // read out of `Laporan_Master_Account1.csv`, with their `00` HO suffix.
-    for (code, name, parent) in [
-        ("101120100100", "Persediaan Barang Dagangan HO", "1011201"),
-        ("101130200400", "Prepaid - VAT (PPN Masukan) HO", "1011302"),
-        ("101130300200", "Advanced - Purchase HO", "1011303"),
-        ("101100300100", "Cash In Bank Tabungan BCA HO", "1011003"),
-        (
-            "201200100100",
-            "Hutang Suppliers Barang Dagangan HO",
-            "2012001",
-        ),
-        (
-            "201200100200",
-            "Hutang Supplier Barang Dagang - Suspend HO",
-            "2012001",
-        ),
-        ("201210100200", "PPH Pasal 23 (withold) HO", "2012101"),
-        ("601031000400", "Biaya Bank HO", "6010310"),
-        ("801011000300", "Potongan Pembelian HO", "8010110"),
-    ] {
-        insert_account(pool, code, name, Some(parent), Some("dc")).await;
-    }
+async fn map(pool: &PgPool, key: &str, code: &str, category: Option<&str>) {
+    map_qualified(pool, key, "", code, category).await;
 }
 
-async fn insert_account(
+async fn map_qualified(
     pool: &PgPool,
+    key: &str,
+    qualifier: &str,
     code: &str,
-    name: &str,
-    parent: Option<&str>,
-    site: Option<&str>,
+    category: Option<&str>,
 ) {
-    sqlx::query(
-        "INSERT INTO ledger_account (account_code, name, parent_code, is_group, site_id)
-         VALUES ($1,$2,$3,$4,$5)
-         ON CONFLICT (account_code) DO NOTHING",
-    )
-    .bind(code)
-    .bind(name)
-    .bind(parent)
-    .bind(code.len() < 12)
-    .bind(site)
-    .execute(pool)
-    .await
-    .unwrap_or_else(|error| panic!("{code}: {error}"));
-}
-
-async fn map(pool: &PgPool, key: &str, code: &str) {
-    map_qualified(pool, key, "", code).await;
-}
-
-async fn map_qualified(pool: &PgPool, key: &str, qualifier: &str, code: &str) {
     cloud::set_account_mapping(
         pool,
         &cloud::SetAccountMappingRequest {
@@ -157,6 +72,7 @@ async fn map_qualified(pool: &PgPool, key: &str, qualifier: &str, code: &str) {
             site_id: "dc".into(),
             qualifier: qualifier.into(),
             account_code: code.into(),
+            category_code: category.map(str::to_string),
             note: None,
         },
         ACTOR,
@@ -166,21 +82,35 @@ async fn map_qualified(pool: &PgPool, key: &str, qualifier: &str, code: &str) {
 }
 
 /// Everything this lane can post, mapped.
+///
+/// The chart itself is the migrations' own: this used to mint the client's
+/// ladder down to twelve-digit per-unit leaves, which 0244 forbade and 0289
+/// replaced with forty accounts.
+///
+/// Read the pairs rather than the codes: `trade_payable` and
+/// `non_merchandise_payable` are one account told apart by supplier, and
+/// `purchase_discount` moved from other income to contra-COGS — the one entry
+/// in the whole remap that moves a figure rather than relabelling it.
 async fn seed_books(pool: &PgPool) {
-    seed_chart(pool).await;
     cloud::open_period(pool, 2026, 9)
         .await
         .unwrap_or_else(|error| panic!("open period: {error}"));
-    map(pool, "inventory", "101120100100").await;
-    map(pool, "trade_payable", "201200100100").await;
-    map(pool, "supplier_suspend", "201200100200").await;
-    map(pool, "vat_in", "101130200400").await;
-    map(pool, "purchase_discount", "801011000300").await;
-    map(pool, "purchase_price_variance", "801011000300").await;
-    map(pool, "advance_purchase", "101130300200").await;
-    map(pool, "pph23_payable", "201210100200").await;
-    map(pool, "bank_admin_fee", "601031000400").await;
-    map_qualified(pool, "bank_savings", "BCA", "101100300100").await;
+    map(pool, "inventory", "1301", Some("MERCHANDISE")).await;
+    map(pool, "trade_payable", "2101", None).await;
+    map(pool, "supplier_suspend", "2102", None).await;
+    map(pool, "vat_in", "1402", Some("PPN_IN")).await;
+    map(pool, "purchase_discount", "5101", Some("PURCHASE_DISCOUNT")).await;
+    map(
+        pool,
+        "purchase_price_variance",
+        "5101",
+        Some("PURCHASE_DISCOUNT"),
+    )
+    .await;
+    map(pool, "advance_purchase", "1403", Some("ADVANCED_PURCHASE")).await;
+    map(pool, "pph23_payable", "2201", Some("PPH23")).await;
+    map(pool, "bank_admin_fee", "6301", Some("BIAYA_BANK_HO")).await;
+    map_qualified(pool, "bank_savings", "BCA", "1102", None).await;
 }
 
 // ---------------------------------------------------------------------------
@@ -344,7 +274,7 @@ async fn a_delivery_debits_inventory_and_credits_the_suspend_account(pool: PgPoo
 
     // Before: the delivery is in the warehouse and nowhere in the books. This
     // is exactly the hole 0052 documented and refused to close.
-    assert_eq!(balance(&pool, "101120100100").await, 0);
+    assert_eq!(balance(&pool, "1301").await, 0);
 
     let posted = cloud::receipt_post(&pool, receipt, None, ACTOR)
         .await
@@ -361,12 +291,12 @@ async fn a_delivery_debits_inventory_and_credits_the_suspend_account(pool: PgPoo
         "a delivery posts on the day it arrived, not the day finance found it"
     );
     assert_eq!(
-        balance(&pool, "101120100100").await,
+        balance(&pool, "1301").await,
         10_200_000,
         "stock that has arrived is now on the balance sheet"
     );
     assert_eq!(
-        balance(&pool, "201200100200").await,
+        balance(&pool, "2102").await,
         -10_200_000,
         "and what the warehouse owes for it is a figure somebody can point at"
     );
@@ -374,7 +304,7 @@ async fn a_delivery_debits_inventory_and_credits_the_suspend_account(pool: PgPoo
     // first question anybody asks of a suspense balance.
     let party: Option<String> = sqlx::query_scalar(
         "SELECT supplier_id FROM journal_line
-          WHERE account_code = '201200100200' AND credit_minor > 0",
+          WHERE account_code = '2102' AND credit_minor > 0",
     )
     .fetch_one(&pool)
     .await
@@ -403,7 +333,7 @@ async fn a_delivery_valued_twice_is_refused_by_the_database(pool: PgPool) {
         "the refusal should name the delivery, said: {message}"
     );
     assert_eq!(
-        balance(&pool, "101120100100").await,
+        balance(&pool, "1301").await,
         10_200_000,
         "and nothing was posted the second time"
     );
@@ -424,8 +354,8 @@ async fn reversing_a_valuation_empties_both_accounts_and_keeps_both_facts(pool: 
         .unwrap_or_else(|error| panic!("reverse: {error}"));
 
     assert!(reversed.reversal_entry_id.is_some());
-    assert_eq!(balance(&pool, "101120100100").await, 0);
-    assert_eq!(balance(&pool, "201200100200").await, 0);
+    assert_eq!(balance(&pool, "1301").await, 0);
+    assert_eq!(balance(&pool, "2102").await, 0);
     // Two entries, not none: the delivery was valued and then un-valued, and
     // both are evidence.
     let entries: i64 = sqlx::query_scalar(
@@ -487,17 +417,17 @@ async fn a_matched_bill_clears_the_suspend_account_and_raises_the_payable(pool: 
         .unwrap_or_else(|error| panic!("post: {error}"));
 
     assert_eq!(
-        balance(&pool, "201200100200").await,
+        balance(&pool, "2102").await,
         0,
         "the suspend account empties exactly as it filled"
     );
     assert_eq!(
-        balance(&pool, "101120100100").await,
+        balance(&pool, "1301").await,
         10_200_000,
         "and inventory was debited once, by the delivery, not twice"
     );
-    assert_eq!(balance(&pool, "201200100100").await, -11_322_000);
-    assert_eq!(balance(&pool, "101130200400").await, 1_122_000, "input VAT");
+    assert_eq!(balance(&pool, "2101").await, -11_322_000);
+    assert_eq!(balance(&pool, "1402").await, 1_122_000, "input VAT");
 
     // The link is written, which is what makes the three-way report possible.
     let linked: i64 = sqlx::query_scalar(
@@ -612,17 +542,17 @@ async fn a_price_rise_somebody_accepts_lands_on_the_variance_account(pool: PgPoo
         .unwrap_or_else(|error| panic!("post: {error}"));
 
     assert_eq!(
-        balance(&pool, "201200100200").await,
+        balance(&pool, "2102").await,
         0,
         "the suspend account still empties to exactly what the delivery put in it"
     );
     assert_eq!(
-        balance(&pool, "801011000300").await,
+        balance(&pool, "5101").await,
         1_020_000,
         "and the difference is on its own account rather than buried in the stock"
     );
     assert_eq!(
-        balance(&pool, "101120100100").await,
+        balance(&pool, "1301").await,
         10_200_000,
         "inventory carries what was ordered, not what was invoiced"
     );
@@ -649,11 +579,11 @@ async fn the_three_way_report_shows_what_nobody_has_billed(pool: PgPool) {
     );
     assert_eq!(
         report.suspense_expected_minor, 10_200_000,
-        "what 2012001002 should be carrying, to check the account against"
+        "what 2102 (the client's 2012001002) should be carrying, to check it against"
     );
     assert_eq!(
         report.suspense_expected_minor,
-        -balance(&pool, "201200100200").await,
+        -balance(&pool, "2102").await,
         "and the report and the ledger agree, which is the whole point of it"
     );
 }
@@ -706,6 +636,9 @@ async fn a_credit_note_reduces_what_is_outstanding_on_the_bill(pool: PgPool) {
             tax_minor: 93_500,
             their_number: Some("CN-77".into()),
             credit_account_code: None,
+            // No account named, so no category either: the pair is resolved
+            // through the map, which carries both.
+            credit_category_code: None,
             note: None,
         },
         ACTOR,
@@ -713,23 +646,23 @@ async fn a_credit_note_reduces_what_is_outstanding_on_the_bill(pool: PgPool) {
     .await
     .unwrap_or_else(|error| panic!("credit note: {error}"));
 
-    let payable_before = balance(&pool, "201200100100").await;
+    let payable_before = balance(&pool, "2101").await;
     cloud::credit_note_post(&pool, note.credit_note_id, None, ACTOR)
         .await
         .unwrap_or_else(|error| panic!("post note: {error}"));
 
     assert_eq!(
-        balance(&pool, "201200100100").await - payable_before,
+        balance(&pool, "2101").await - payable_before,
         943_500,
         "the payable falls by the whole note"
     );
     assert_eq!(
-        balance(&pool, "101120100100").await,
+        balance(&pool, "1301").await,
         10_200_000 - 850_000,
         "and the goods come out of inventory"
     );
     assert_eq!(
-        balance(&pool, "101130200400").await,
+        balance(&pool, "1402").await,
         1_122_000 - 93_500,
         "the input VAT claim goes back with them"
     );
@@ -798,11 +731,11 @@ async fn an_advance_applied_to_a_bill_reduces_what_the_payment_has_to_cover(pool
         .unwrap_or_else(|error| panic!("post advance: {error}"));
 
     assert_eq!(
-        balance(&pool, "101130300200").await,
+        balance(&pool, "1403").await,
         4_000_000,
         "the company is owed goods, and that is an asset"
     );
-    assert_eq!(balance(&pool, "101100300100").await, -4_000_000);
+    assert_eq!(balance(&pool, "1102").await, -4_000_000);
 
     // The goods arrive and the bill follows.
     cloud::receipt_post(&pool, receipt, None, ACTOR)
@@ -847,12 +780,12 @@ async fn an_advance_applied_to_a_bill_reduces_what_the_payment_has_to_cover(pool
 
     assert_eq!(applied.outstanding_minor, 0, "the advance is spent");
     assert_eq!(
-        balance(&pool, "101130300200").await,
+        balance(&pool, "1403").await,
         0,
         "and the asset is emptied by the debt it answered"
     );
     assert_eq!(
-        balance(&pool, "201200100100").await,
+        balance(&pool, "2101").await,
         -(10_200_000 - 4_000_000),
         "the supplier is owed the balance and not the whole bill"
     );
@@ -911,12 +844,12 @@ async fn an_advance_applied_to_a_bill_reduces_what_the_payment_has_to_cover(pool
         .unwrap_or_else(|error| panic!("post payment: {error}"));
 
     assert_eq!(
-        balance(&pool, "201200100100").await,
+        balance(&pool, "2101").await,
         0,
         "the debt is answered by an advance and a transfer, and closes"
     );
     assert_eq!(
-        balance(&pool, "101100300100").await,
+        balance(&pool, "1102").await,
         -10_200_000,
         "and the bank paid the bill exactly once, across two dates"
     );
@@ -930,19 +863,11 @@ async fn an_advance_applied_to_a_bill_reduces_what_the_payment_has_to_cover(pool
 async fn pph_is_withheld_at_payment_and_the_supplier_is_credited_in_full(pool: PgPool) {
     seed_books(&pool).await;
     // A security contract: an expense bill, and PPh 23 at two per cent.
-    insert_account(&pool, "7", "BIAYA OPERASIONAL LAIN", None, None).await;
-    insert_account(&pool, "701", "BIAYA JASA", Some("7"), None).await;
-    insert_account(&pool, "70103", "BIAYA JASA", Some("701"), None).await;
-    insert_account(&pool, "7010310", "BIAYA JASA", Some("70103"), None).await;
-    insert_account(
-        &pool,
-        "701031000100",
-        "Biaya Keamanan HO",
-        Some("7010310"),
-        Some("dc"),
-    )
-    .await;
-    map(&pool, "non_merchandise_payable", "201200100100").await;
+    //
+    // The four rungs and the leaf this used to mint for `701031000100 Biaya
+    // Keamanan` are gone: security is one of the fifty-one categories `6301`
+    // carries, and the bill line says which.
+    map(&pool, "non_merchandise_payable", "2101", None).await;
 
     let bill = cloud::record_bill(
         &pool,
@@ -959,12 +884,16 @@ async fn pph_is_withheld_at_payment_and_the_supplier_is_credited_in_full(pool: P
             note: None,
             kind: Some("EXPENSE".into()),
             lines: Some(vec![cloud::RecordBillLine {
-                account_code: "701031000100".into(),
+                account_code: "6301".into(),
                 site_id: "dc".into(),
                 amount_minor: 10_000_000,
                 memo: Some("Keamanan September".into()),
                 asset_class_code: None,
                 draws_reserve: false,
+                // `6301` is every general and administrative expense, so the
+                // line has to say which. Security is not one of the client's
+                // own fifty-one names, and the catch-all is theirs too.
+                category_code: Some("MISCELLANEOUS_EXPENCES".into()),
             }]),
             matching: None,
             withholding_code: Some("PPH23_SERVICE".into()),
@@ -1029,22 +958,18 @@ async fn pph_is_withheld_at_payment_and_the_supplier_is_credited_in_full(pool: P
         .unwrap_or_else(|error| panic!("post payment: {error}"));
 
     assert_eq!(
-        balance(&pool, "201200100100").await,
+        balance(&pool, "2101").await,
         0,
         "the vendor is credited with the whole debt and is not left in arrears by the tax"
     );
     assert_eq!(
-        balance(&pool, "201210100200").await,
+        balance(&pool, "2201").await,
         -200_000,
         "and the tax office is owed what was kept back, in the vendor's name"
     );
+    assert_eq!(balance(&pool, "6301").await, 6_500, "the bank's fee");
     assert_eq!(
-        balance(&pool, "601031000400").await,
-        6_500,
-        "the bank's fee"
-    );
-    assert_eq!(
-        balance(&pool, "101100300100").await,
+        balance(&pool, "1102").await,
         -(11_100_000 - 200_000 + 6_500)
     );
 }
@@ -1203,7 +1128,7 @@ async fn every_way_a_bill_can_be_answered_leaves_the_ledger_agreeing_with_the_bo
     // A posted bill is a debt somebody has to follow, and it is the same debt
     // read two ways.
     let opened = payable_control(&pool).await;
-    assert_eq!(opened.account_code.as_deref(), Some("201200100100"));
+    assert_eq!(opened.account_code.as_deref(), Some("2101"));
     assert_eq!(opened.ledger_outstanding_minor, 10_200_000);
     assert_eq!(opened.gl_balance_minor, 10_200_000);
     assert_eq!(opened.open_items, 1);
@@ -1219,6 +1144,9 @@ async fn every_way_a_bill_can_be_answered_leaves_the_ledger_agreeing_with_the_bo
             tax_minor: 0,
             their_number: Some("CN-77".into()),
             credit_account_code: None,
+            // No account named, so no category either: the pair is resolved
+            // through the map, which carries both.
+            credit_category_code: None,
             note: None,
         },
         ACTOR,
@@ -1344,6 +1272,9 @@ async fn a_refunded_credit_note_puts_the_debt_back_on_both_sides(pool: PgPool) {
             tax_minor: 0,
             their_number: Some("CN-77".into()),
             credit_account_code: None,
+            // No account named, so no category either: the pair is resolved
+            // through the map, which carries both.
+            credit_category_code: None,
             note: None,
         },
         ACTOR,

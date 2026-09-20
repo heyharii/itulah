@@ -1,0 +1,89 @@
+{
+  "model": "jev-1.13.0",
+  "answers": {
+    "bank_unit_model": {
+      "type": "choice",
+      "choice": "unit_association_ho_access",
+      "confidence": 1.0,
+      "probabilities": {
+        "unit_access": 0.0,
+        "all_ho": 0.0,
+        "unit_association_ho_access": 1.0
+      }
+    },
+    "merge_institution": {
+      "type": "choice",
+      "choice": "merge",
+      "confidence": 0.57,
+      "probabilities": {
+        "merge": 0.72,
+        "retain": 0.09,
+        "insufficient": 0.19
+      }
+    },
+    "savings": {
+      "type": "choice",
+      "choice": "retain",
+      "confidence": 0.84,
+      "probabilities": {
+        "merge": 0.09,
+        "retain": 0.9,
+        "review": 0.01
+      }
+    },
+    "deposits": {
+      "type": "choice",
+      "choice": "conditional",
+      "confidence": 0.98,
+      "probabilities": {
+        "retain": 0.01,
+        "cash": 0.0,
+        "conditional": 0.99
+      }
+    },
+    "phase_one_count": {
+      "type": "choice",
+      "choice": "488",
+      "confidence": 0.98,
+      "probabilities": {
+        "488": 0.98,
+        "486": 0.01,
+        "499": 0.01,
+        "487": 0.0
+      }
+    },
+    "account_master_required": {
+      "type": "choice",
+      "choice": "real_account",
+      "confidence": 0.99,
+      "probabilities": {
+        "unit": 0.01,
+        "real_account": 0.99,
+        "bank_name": 0.0
+      }
+    },
+    "payment_attribution": {
+      "type": "choice",
+      "choice": "separate",
+      "confidence": 1.0,
+      "probabilities": {
+        "same": 0.0,
+        "ho": 0.0,
+        "separate": 1.0
+      }
+    },
+    "cost_center": {
+      "type": "choice",
+      "choice": "no",
+      "confidence": 1.0,
+      "probabilities": {
+        "yes": 0.0,
+        "no": 1.0
+      }
+    }
+  },
+  "usage": {
+    "input_tokens": 1900,
+    "output_tokens": 334
+  }
+}

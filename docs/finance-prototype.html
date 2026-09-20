@@ -1,0 +1,1717 @@
+<!DOCTYPE html>
+<html lang="id"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Finance — Prototipe</title>
+<style>
+:root{
+  --paper:#f7f6f4; --panel:#fff; --panel2:#fbfaf9; --ink:#14171b; --ink2:#5a636e; --ink3:#8a939f;
+  --line:#e4e1db; --line2:#efedea; --accent:#0f766e; --accent2:#d7efeb; --accentInk:#0b5c55;
+  --dr:#8a5a00; --drbg:#fdf3e1; --cr:#0e6b5e; --crbg:#ddf2ee;
+  --ok:#0e7c66; --okbg:#ddf2ec; --warn:#9a6a00; --warnbg:#fbf0dc;
+  --bad:#b0384a; --badbg:#fbe6e9; --info:#2f6bb0; --infobg:#e4eefa;
+  --mute:#6b7683; --mutebg:#eef0f2; --new:#6d4bb6; --newbg:#eee9fa;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --shadow:0 1px 2px rgba(20,23,27,.05),0 8px 24px rgba(20,23,27,.06);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --paper:#0e1116; --panel:#161a20; --panel2:#12161b; --ink:#e9ebee; --ink2:#a3acb7; --ink3:#6f7986;
+  --line:#242a32; --line2:#1c2128; --accent:#5eead4; --accent2:#0f312d; --accentInk:#5eead4;
+  --dr:#e0a94a; --drbg:#2a2116; --cr:#5eead4; --crbg:#11302c;
+  --ok:#4ade9f; --okbg:#0f2f26; --warn:#e0b64a; --warnbg:#2b2416;
+  --bad:#f0899a; --badbg:#331920; --info:#7db4ea; --infobg:#152537;
+  --mute:#98a2ae; --mutebg:#1d232a; --new:#b195f0; --newbg:#241d38;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35);
+}}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--paper);color:var(--ink);
+ font:14px/1.5 ui-sans-serif,-apple-system,"Segoe UI",Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+button,input,select,textarea{font:inherit;color:inherit}
+a{color:inherit}
+.app{display:grid;grid-template-columns:248px 1fr;height:100vh;overflow:hidden}
+
+/* ───────── sidebar ───────── */
+aside{background:var(--panel2);border-right:1px solid var(--line);overflow-y:auto;padding:0 0 28px}
+.brand{padding:16px 16px 12px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--panel2);z-index:3}
+.brand h1{margin:0;font-size:14.5px;letter-spacing:-.01em}
+.brand p{margin:2px 0 0;font-size:11px;color:var(--ink3)}
+.roleSel{margin-top:9px;width:100%;padding:5px 8px;border:1px solid var(--line);border-radius:7px;
+ background:var(--panel);font-size:11.5px}
+.navgrp{margin-top:14px}
+.navgrp h2{margin:0 0 4px;padding:0 16px;font-size:10px;text-transform:uppercase;letter-spacing:.1em;
+ color:var(--ink3);font-weight:650}
+.navlink{display:flex;align-items:center;gap:8px;padding:5px 16px;font-size:13px;color:var(--ink2);
+ cursor:pointer;border-left:2px solid transparent;text-decoration:none}
+.navlink:hover{background:var(--panel);color:var(--ink)}
+.navlink.on{background:var(--accent2);color:var(--accentInk);border-left-color:var(--accent);font-weight:550}
+.navlink .n{margin-left:auto;font:11px var(--mono);color:var(--ink3);background:var(--mutebg);
+ padding:1px 6px;border-radius:99px}
+.navlink.on .n{background:transparent}
+.navlink.soon{opacity:.45}
+
+/* ───────── main ───────── */
+main{overflow-y:auto;display:flex;flex-direction:column}
+.topbar{position:sticky;top:0;z-index:4;background:color-mix(in srgb,var(--paper) 94%,transparent);
+ backdrop-filter:blur(10px);border-bottom:1px solid var(--line);padding:11px 22px;
+ display:flex;align-items:center;gap:12px}
+.crumb{font-size:12px;color:var(--ink3)}
+.crumb b{color:var(--ink);font-weight:550}
+.crumb span{margin:0 6px;opacity:.5}
+.spacer{flex:1}
+.btn{padding:5px 12px;border:1px solid var(--line);border-radius:7px;background:var(--panel);
+ cursor:pointer;font-size:12.5px;white-space:nowrap}
+.btn:hover{border-color:var(--ink3)}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:550}
+:root[data-theme="dark"] .btn.pri,.dark .btn.pri{color:#07110f}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .btn.pri{color:#07110f}}
+.btn.danger{color:var(--bad);border-color:var(--badbg)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.page{padding:20px 22px 60px;flex:1}
+.ph{display:flex;align-items:flex-start;gap:14px;margin-bottom:16px;flex-wrap:wrap}
+.ph h2{margin:0;font-size:20px;letter-spacing:-.02em}
+.ph p{margin:3px 0 0;font-size:12.5px;color:var(--ink2);max-width:66ch}
+
+/* ───────── filters ───────── */
+.filters{display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.filters input,.filters select{padding:5px 10px;border:1px solid var(--line);border-radius:7px;
+ background:var(--panel);font-size:12.5px}
+.filters input[type=search]{min-width:200px}
+.chipf{padding:4px 11px;border:1px solid var(--line);border-radius:99px;background:var(--panel);
+ font-size:12px;cursor:pointer;color:var(--ink2)}
+.chipf[aria-pressed="true"]{border-color:var(--accent);color:var(--accentInk);background:var(--accent2)}
+
+/* ───────── table ───────── */
+.tw{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+table{width:100%;border-collapse:collapse}
+th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink3);
+ font-weight:650;padding:9px 12px;border-bottom:1px solid var(--line);background:var(--panel2);white-space:nowrap}
+td{padding:9px 12px;border-bottom:1px solid var(--line2);font-size:13px;vertical-align:top}
+tbody tr:last-child td{border-bottom:none}
+tbody tr.clickable{cursor:pointer}
+tbody tr.clickable:hover{background:var(--panel2)}
+.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.id{font:600 12px var(--mono);white-space:nowrap}
+.sub{font-size:11.5px;color:var(--ink3)}
+.empty{padding:36px 14px;text-align:center;color:var(--ink3);font-size:13px}
+
+/* ───────── badges ───────── */
+.b{display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:99px;white-space:nowrap}
+.b.ok{background:var(--okbg);color:var(--ok)} .b.warn{background:var(--warnbg);color:var(--warn)}
+.b.bad{background:var(--badbg);color:var(--bad)} .b.info{background:var(--infobg);color:var(--info)}
+.b.mute{background:var(--mutebg);color:var(--mute)} .b.new{background:var(--newbg);color:var(--new)}
+
+/* ───────── cards & detail ───────── */
+.grid{display:grid;gap:12px}
+.g3{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+.g2{grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.card h3{margin:0 0 10px;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink3);font-weight:650}
+.kpi .v{font-size:22px;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.kpi .l{font-size:11.5px;color:var(--ink3);margin-top:2px}
+.dl{display:grid;grid-template-columns:minmax(120px,auto) 1fr;gap:5px 14px;font-size:13px}
+.dl dt{color:var(--ink3);font-size:12px}
+.dl dd{margin:0}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:16px 0 14px;overflow-x:auto}
+.tab{padding:7px 13px;font-size:12.5px;color:var(--ink2);cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap}
+.tab.on{color:var(--ink);border-bottom-color:var(--accent);font-weight:550}
+.hero{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap;
+ background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 18px}
+.hero .amt{margin-left:auto;text-align:right}
+.hero .amt .v{font-size:24px;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.hero .amt .l{font-size:11px;color:var(--ink3)}
+
+/* ───────── truth trace ───────── */
+.truth{display:grid;gap:8px}
+.tr{display:grid;grid-template-columns:150px 1fr auto;gap:12px;align-items:center;
+ padding:10px 12px;border:1px solid var(--line);border-radius:9px;background:var(--panel2)}
+.tr.na{opacity:.45}
+.tr .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink3);font-weight:650}
+.tr .val{font-size:13px}
+.tr .q{font-size:11px;color:var(--ink3);display:block;margin-top:1px}
+.chain{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12.5px}
+.node{padding:5px 11px;border:1px solid var(--line);border-radius:7px;background:var(--panel);
+ cursor:pointer;font:12px var(--mono)}
+.node:hover{border-color:var(--accent);color:var(--accentInk)}
+.node.now{background:var(--accent2);border-color:var(--accent);color:var(--accentInk)}
+.arrow{color:var(--ink3)}
+
+/* ───────── journal ───────── */
+.je{border:1px solid var(--line);border-radius:9px;overflow:hidden;margin-bottom:10px}
+.je header{padding:8px 12px;background:var(--panel2);border-bottom:1px solid var(--line);
+ display:flex;gap:10px;align-items:center;font-size:12px}
+.je .u{font:11px var(--mono);color:var(--ink3)}
+.jl{display:grid;grid-template-columns:30px 1fr 130px 130px;gap:10px;padding:6px 12px;
+ border-bottom:1px solid var(--line2);font-size:12.5px;align-items:baseline}
+.jl:last-child{border-bottom:none}
+.jl .s{font:700 10px/16px var(--mono);text-align:center;border-radius:4px}
+.jl .s.dr{background:var(--drbg);color:var(--dr)} .jl .s.cr{background:var(--crbg);color:var(--cr)}
+
+/* ───────── timeline ───────── */
+.tl{position:relative;padding-left:18px}
+.tl::before{content:"";position:absolute;left:5px;top:6px;bottom:6px;width:1px;background:var(--line)}
+.tl li{list-style:none;position:relative;padding:5px 0;font-size:12.5px}
+.tl li::before{content:"";position:absolute;left:-16px;top:11px;width:7px;height:7px;border-radius:99px;
+ background:var(--accent);box-shadow:0 0 0 3px var(--paper)}
+.tl .w{color:var(--ink3);font-size:11.5px}
+
+/* ───────── modal & toast ───────── */
+.ov{position:fixed;inset:0;background:rgba(10,13,17,.45);display:flex;align-items:center;
+ justify-content:center;padding:20px;z-index:50}
+.modal{background:var(--panel);border-radius:12px;box-shadow:var(--shadow);width:min(640px,100%);
+ max-height:88vh;overflow:auto;border:1px solid var(--line)}
+.modal header{padding:15px 18px;border-bottom:1px solid var(--line);font-weight:600}
+.modal .body{padding:16px 18px}
+.modal footer{padding:13px 18px;border-top:1px solid var(--line);display:flex;gap:8px;justify-content:flex-end}
+.f{margin-bottom:12px}
+.f label{display:block;font-size:11.5px;color:var(--ink3);margin-bottom:4px}
+.f input,.f select,.f textarea{width:100%;padding:7px 10px;border:1px solid var(--line);
+ border-radius:7px;background:var(--panel2);font-size:13px}
+.f .hint{font-size:11px;color:var(--ink3);margin-top:3px}
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--ink);
+ color:var(--paper);padding:10px 18px;border-radius:9px;font-size:13px;z-index:60;box-shadow:var(--shadow)}
+.toast.err{background:var(--bad);color:#fff}
+.note{background:var(--warnbg);border:1px solid color-mix(in srgb,var(--warn) 30%,transparent);
+ border-radius:9px;padding:11px 13px;font-size:12.5px;color:var(--ink2);margin-bottom:12px}
+.matcher{display:grid;grid-template-columns:1fr 200px 1fr;gap:12px;align-items:start}
+@media (max-width:1100px){.matcher{grid-template-columns:1fr}}
+@media (max-width:900px){.app{grid-template-columns:1fr}aside{display:none}}
+</style></head>
+<body><div class="app">
+<aside id="side"></aside>
+<main><div class="topbar" id="top"></div><div class="page" id="page"></div></main>
+</div>
+<div id="layer"></div>
+<script>
+/* ═══════════════ 1. UTIL ═══════════════ */
+const $=(s,r=document)=>r.querySelector(s), h=(s)=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const rp=n=>(n<0?"−":"")+"Rp "+Math.abs(Math.round(n)).toLocaleString("id-ID");
+const rp0=n=>Math.abs(Math.round(n)).toLocaleString("id-ID");
+const D=(s)=>new Date(s+"T00:00:00");
+const fdate=s=>{const d=D(s);return d.toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"})};
+const today="2026-09-20";
+const daysBetween=(a,b)=>Math.round((D(b)-D(a))/864e5);
+let SEQ={};
+const nextId=(p,n=4)=>{SEQ[p]=(SEQ[p]||0)+1;return p+"-"+String(SEQ[p]).padStart(n,"0")};
+function toast(m,err){const t=document.createElement("div");t.className="toast"+(err?" err":"");t.textContent=m;
+ document.body.appendChild(t);setTimeout(()=>t.remove(),2600)}
+
+/* ═══════════════ 2. SEED ═══════════════ */
+const UNITS=[{id:"HO",name:"Head Office",kind:"HO"},{id:"DC",name:"Distribution Center",kind:"DC"},
+ ...["Senayan","Kelapa Gading","Bandung Dago","Surabaya Tunjungan","Medan Focal","Semarang Simpang Lima",
+  "Yogyakarta Malioboro","Bekasi Summarecon","Tangerang Alam Sutera","Denpasar Sunset","Makassar Panakkukang",
+  "Palembang ICon","Malang Dinoyo"].map((n,i)=>({id:"C"+String(i+1).padStart(3,"0"),name:"Toko "+n,kind:"STORE"}))];
+const STORES=UNITS.filter(u=>u.kind==="STORE");
+
+const ACC=[
+ ["1101","CASH ON HAND",1,"UNIT"],["1102","PETTY CASH",1,"UNIT"],["1103","MODAL KASIR",1,"UNIT"],
+ ["1104","Bank - Giro",1,"HO"],["1105","Bank - Tabungan",1,"HO"],
+ ["1201","Piutang Acquirer Kartu",1,""],["1202","Piutang Pegawai dan Manajemen",1,""],
+ ["1301","Persediaan Barang Dagangan",1,""],["1303","Barang Dagangan dalam Perjalanan",1,""],
+ ["1404","PPN Masukan",1,""],["1408","Uang Muka Supplier/Kontraktor",1,""],
+ ["1501","Saldo Affiliasi Pembiayaan",1,""],["1502","Saldo Affiliasi Atas Barang",1,""],
+ ["1605","Mesin dan Peralatan",1,""],["1704","Akumulasi Mesin dan Peralatan",1,""],
+ ["2101","Hutang Suppliers Barang Dagangan",2,""],["2102","Hutang Supplier Non Barang Dagang",2,""],
+ ["2201","Hutang Pajak",2,""],["2301","Akrual Pegawai dan Imbalan Kerja",2,""],
+ ["2402","Hutang Voucher",2,""],["2502","Pinjaman Bank",2,""],
+ ["4101","Penjualan Barang Dagangan",4,""],["4201","Discount / Potongan Penjualan",4,""],
+ ["4202","Retur Penjualan",4,""],["5101","Harga Pokok Pembelian / HPP",5,""],
+ ["6202","Biaya Credit Card",6,""],["6209","Beban Gaji",6,""],["6214","Beban Asuransi Pegawai / BPJS",6,""],
+ ["6301","Biaya Kebersihan (Cleaning)",6,""],["6302","Alat Tulis Kantor & Barang Cetakan",6,""],
+ ["6306","Biaya Pemakaian Listrik",6,""],["6309","Biaya Lokal Transport",6,""],
+ ["7103","Biaya Sewa Bangunan Toko dan Gudang",7,""],["7203","Beban Penyusutan/Amortisasi Mesin dan Peralatan",7,""],
+ ["8106","Biaya Lain-lain",8,""],["8105","Pendapatan (Biaya) Lain-lain",8,""],
+ ["8201","Beban Bunga Pinjaman Bank",8,""],
+].map(([code,name,root,custody])=>({code,name,root,custody}));
+const accName=c=>(ACC.find(a=>a.code===c)||{name:c}).name;
+
+const PARTIES=[
+ {id:"P-001",name:"PT Busana Prima Indonesia",roles:["Supplier"],terms:30,bank:"BCA 0182233445"},
+ {id:"P-002",name:"CV Tekstil Nusantara",roles:["Supplier"],terms:45,bank:"Mandiri 1220009988"},
+ {id:"P-003",name:"PT Garmen Sejahtera",roles:["Supplier"],terms:30,bank:"BCA 0187766554"},
+ {id:"P-004",name:"PT Logistik Andalan",roles:["Supplier"],terms:14,bank:"BNI 0099887766"},
+ {id:"P-005",name:"PT Cahaya Kemasan",roles:["Supplier"],terms:30,bank:"BCA 0181122334"},
+ {id:"P-006",name:"PT Sinar Properti Mall",roles:["Supplier"],terms:7,bank:"Mandiri 1233344556"},
+ {id:"P-007",name:"CV Bersih Gemilang",roles:["Supplier"],terms:14,bank:"BCA 0184455667"},
+ {id:"P-008",name:"PT Energi Terang",roles:["Supplier"],terms:20,bank:"BNI 0091234567"},
+ {id:"P-101",name:"Bank Central Asia",roles:["Bank / Financial Institution","Acquirer","Lender"]},
+ {id:"P-102",name:"Bank Mandiri",roles:["Bank / Financial Institution","Acquirer"]},
+ {id:"P-103",name:"Bank Negara Indonesia",roles:["Bank / Financial Institution"]},
+ {id:"P-104",name:"QRIS — Penyelenggara",roles:["Acquirer"]},
+ {id:"P-201",name:"Direktorat Jenderal Pajak",roles:["Government"]},
+ {id:"P-202",name:"BPJS Ketenagakerjaan",roles:["Government"]},
+ {id:"P-301",name:"Rina Agustina",roles:["Employee"]},{id:"P-302",name:"Bayu Prakoso",roles:["Employee"]},
+ {id:"P-303",name:"Sari Melati",roles:["Employee"]},{id:"P-304",name:"Dimas Oktavian",roles:["Employee"]},
+ {id:"P-305",name:"Nurul Hidayah",roles:["Employee"]},
+ {id:"P-401",name:"Tn. Wijaya Kusuma",roles:["Owner / Shareholder"]},
+ ...UNITS.map(u=>({id:"P-A"+u.id,name:u.name,roles:["Affiliate"],unit:u.id})),
+];
+const party=id=>PARTIES.find(p=>p.id===id)||{name:id,roles:[]};
+const suppliers=()=>PARTIES.filter(p=>p.roles.includes("Supplier"));
+
+const ROLES=["Finance Staff","Finance Manager","Store Manager","Accounting","Auditor / Read Only"];
+
+function seed(){
+  SEQ={};
+  const db={v:3,role:"Finance Manager",store:"C001",period:"2026-09",
+   bankAccounts:[
+    {id:"BA-01",bank:"P-101",name:"BCA Giro Operasional",no:"•••• 3341",unit:"HO",kind:"Giro",balance:1_842_500_000},
+    {id:"BA-02",bank:"P-102",name:"Mandiri Giro Pembayaran",no:"•••• 8890",unit:"HO",kind:"Giro",balance:640_000_000},
+    {id:"BA-03",bank:"P-103",name:"BNI Tabungan Payroll",no:"•••• 1276",unit:"HO",kind:"Tabungan",balance:310_000_000},
+    {id:"BA-04",bank:"P-101",name:"BCA Giro Setoran Toko",no:"•••• 7702",unit:"HO",kind:"Giro",balance:988_300_000}],
+   cashAccounts:[], bills:[],payments:[],receipts:[],transfers:[],bankTxns:[],cashCounts:[],
+   salesDays:[],iuts:[],runs:[],expenses:[],settlements:[],journals:[],audit:[],
+   payroll:null,assets:[],loans:[],taxes:[],budgets:[]};
+
+  STORES.forEach((s,i)=>{
+    db.cashAccounts.push({id:"CA-"+s.id+"-H",unit:s.id,kind:"CASH ON HAND",acc:"1101",
+      balance:14_000_000+i*1_350_000,custodian:"Kepala Toko",lastCount:"2026-09-14"});
+    db.cashAccounts.push({id:"CA-"+s.id+"-P",unit:s.id,kind:"PETTY CASH",acc:"1102",
+      balance:3_500_000-((i*217_000)%1_400_000),custodian:"Admin Toko",lastCount:"2026-09-14"});
+    db.cashAccounts.push({id:"CA-"+s.id+"-M",unit:s.id,kind:"MODAL KASIR",acc:"1103",
+      balance:2_000_000,custodian:"Brankas",lastCount:"2026-09-14"});
+  });
+  db.cashAccounts.push({id:"CA-HO-P",unit:"HO",kind:"PETTY CASH",acc:"1102",balance:12_000_000,custodian:"Admin HO",lastCount:"2026-09-10"});
+
+  /* ─ sales days: 7 hari terakhir × 13 toko ─ */
+  for(let d=6;d>=0;d--){
+    const date="2026-09-"+String(20-d).padStart(2,"0");
+    STORES.forEach((s,i)=>{
+      const base=18_000_000+((i*7+d*3)%11)*1_450_000;
+      const gross=base, disc=Math.round(gross*0.041), ret=d===2&&i<3?Math.round(gross*0.018):0;
+      const net=gross-disc-ret;
+      const cash=Math.round(net*0.22), debit=Math.round(net*0.34), credit=Math.round(net*0.29),
+            qris=net-cash-debit-credit;
+      db.salesDays.push({id:nextId("SD"),date,unit:s.id,gross,disc,ret,net,cash,debit,credit,qris,
+        txns:120+((i*13+d*7)%90),status:d===0?"Open":"Closed",recon:d>=2?"Reconciled":(d===1?"Exception":"Belum")});
+    });
+  }
+  /* ─ acquirer settlements ─ */
+  [["P-101","BCA",0.007],["P-102","Mandiri",0.0065],["P-104","QRIS",0.007]].forEach(([pid,nm,mdr])=>{
+    for(let d=4;d>=2;d--){
+      const date="2026-09-"+String(20-d).padStart(2,"0");
+      const gross=Math.round(180_000_000+((d*37)%9)*4_200_000);
+      const fee=Math.round(gross*mdr);
+      db.settlements.push({id:nextId("STL"),date,acquirer:pid,batch:nm+"-"+date.replace(/-/g,""),
+        gross,mdr:fee,net:gross-fee,status:d>2?"Settled":"Awaiting Settlement",unit:"HO"});
+    }
+  });
+  /* ─ bills ─ */
+  const billSeed=[
+   ["P-001","INV/BPI/26/0912","2026-08-28",420_000_000,"Inventory","Open"],
+   ["P-001","INV/BPI/26/0955","2026-09-05",318_500_000,"Inventory","Open"],
+   ["P-002","TN-2026-0771","2026-08-12",156_000_000,"Inventory","Overdue"],
+   ["P-002","TN-2026-0804","2026-09-10",212_400_000,"Inventory","Open"],
+   ["P-003","GS/2026/VIII/221","2026-08-30",97_800_000,"Inventory","Partially Paid"],
+   ["P-003","GS/2026/IX/244","2026-09-14",143_200_000,"Draft"],
+   ["P-004","LA-0099821","2026-09-02",28_600_000,"Expense","Paid"],
+   ["P-004","LA-0100233","2026-09-16",31_950_000,"Expense","Open"],
+   ["P-005","CK/26/1188","2026-09-08",44_300_000,"Inventory","In Payment"],
+   ["P-006","SPM-SEWA-0926","2026-09-01",385_000_000,"Expense","Open"],
+   ["P-006","SPM-SEWA-0826","2026-08-01",385_000_000,"Expense","Paid"],
+   ["P-007","BG-2026-0455","2026-09-11",16_800_000,"Expense","Open"],
+   ["P-007","BG-2026-0402","2026-08-11",16_800_000,"Expense","Paid"],
+   ["P-008","ET/26/09/771","2026-09-09",92_400_000,"Expense","Open"],
+   ["P-008","ET/26/08/702","2026-08-09",88_100_000,"Expense","Paid"],
+   ["P-001","INV/BPI/26/0870","2026-07-30",510_000_000,"Inventory","Paid"],
+   ["P-002","TN-2026-0698","2026-07-22",178_000_000,"Inventory","Paid"],
+   ["P-005","CK/26/1042","2026-08-18",39_700_000,"Inventory","Disputed"],
+   ["P-003","GS/2026/VII/198","2026-07-19",122_500_000,"Inventory","Paid"],
+   ["P-004","LA-0098110","2026-08-06",26_400_000,"Expense","Paid"],
+   ["P-006","SPM-DEPO-0926","2026-09-03",120_000_000,"Prepaid","Open"],
+   ["P-008","ET/26/09/812","2026-09-18",11_250_000,"Expense","Draft"]];
+  billSeed.forEach(([sup,no,date,amt,cls,st])=>{
+    const terms=party(sup).terms||30, due=new Date(D(date).getTime()+terms*864e5).toISOString().slice(0,10);
+    const status=st||cls, klass=st?cls:"Expense";
+    const tax=Math.round(amt*11/111), net=amt-tax;
+    const paid=status==="Paid"?amt:status==="Partially Paid"?Math.round(amt*0.4):0;
+    const inPay=status==="In Payment"?amt:0;
+    const unit=klass==="Inventory"?"HO":(["P-006","P-007","P-008"].includes(sup)?STORES[(no.length*3)%13].id:"HO");
+    db.bills.push({id:nextId("BILL"),supplier:sup,no,date,due,terms,amount:amt,tax,net,klass,unit,
+      status,paid,inPay,disputed:status==="Disputed"?"Selisih harga 2 karton":null,
+      grFrom:klass==="Inventory"?"GR-"+no.slice(-4):null});
+  });
+  return db;
+}
+
+/* ═══════════════ 3. STORE ═══════════════ */
+const KEY="fin-proto-v3";
+let db=null;
+function load(){try{const r=localStorage.getItem(KEY);if(r){const p=JSON.parse(r);if(p.v===3){db=p;SEQ=p._seq||{};return}}}catch(e){}
+  db=seed();afterSeed();save()}
+function save(){try{db._seq=SEQ;localStorage.setItem(KEY,JSON.stringify(db))}catch(e){}}
+function reset(){localStorage.removeItem(KEY);load();go(location.hash||"#/store/sales");toast("Data contoh dimuat ulang")}
+</script>
+<script>
+/* ═══════════════ 4. ENGINE ═══════════════ */
+function post(kind,srcId,unit,lines,memo,date){
+  const dr=lines.filter(l=>l[0]==="Dr").reduce((s,l)=>s+l[2],0);
+  const cr=lines.filter(l=>l[0]==="Cr").reduce((s,l)=>s+l[2],0);
+  if(Math.abs(dr-cr)>1) console.warn("unbalanced",kind,srcId,dr,cr);
+  const je={id:nextId("JE",5),date:date||today,kind,srcId,unit,memo:memo||"",
+    lines:lines.map(([side,acc,amt,note,u])=>({side,acc,amt,note:note||"",unit:u||unit})),
+    total:dr,reversalOf:null};
+  db.journals.push(je);return je.id;
+}
+function reverseJE(jeId,why){
+  const o=db.journals.find(j=>j.id===jeId);if(!o)return null;
+  const je={id:nextId("JE",5),date:today,kind:"REVERSAL",srcId:o.srcId,unit:o.unit,
+    memo:"Pembalikan "+o.id+(why?" — "+why:""),
+    lines:o.lines.map(l=>({...l,side:l.side==="Dr"?"Cr":"Dr"})),total:o.total,reversalOf:o.id};
+  db.journals.push(je);return je.id;
+}
+function aud(type,id,action,note){
+  db.audit.push({id:nextId("AUD",5),at:new Date().toISOString(),type,obj:id,action,
+    who:db.role,note:note||""});
+}
+const jesFor=(kind,id)=>db.journals.filter(j=>j.kind===kind&&j.srcId===id);
+const auditFor=id=>db.audit.filter(a=>a.obj===id);
+const unitName=id=>(UNITS.find(u=>u.id===id)||{name:id}).name;
+const bankName=id=>(db.bankAccounts.find(b=>b.id===id)||{name:id}).name;
+
+function afterSeed(){
+  /* payments + bank transactions for settled bills */
+  const mkPayment=(bill,amt,st,acct)=>{
+    const p={id:nextId("PAY"),bkk:nextId("BKK"),party:bill.supplier,role:"Supplier",amount:amt,
+      date:bill.due,account:acct||"BA-01",method:"Transfer",ref:"TRF"+Math.floor(Math.random()*9e5+1e5),
+      status:st,source:"Bill",sourceId:bill.id,alloc:[{bill:bill.id,amt}],bankTxn:null,unit:"HO"};
+    db.payments.push(p);
+    aud("payment",p.id,"Dibuat");
+    if(st!=="Draft"){p.je=post("PAYMENT",p.id,"HO",
+      [["Dr","2101",amt,"pelunasan "+bill.no],["Cr",p.account==="BA-03"?"1105":"1104",amt]],
+      "Pembayaran "+party(bill.supplier).name,p.date);aud("payment",p.id,"Dicatat eksekusi")}
+    return p;
+  };
+  db.bills.forEach(b=>{
+    if(b.status==="Paid"){const p=mkPayment(b,b.amount,"Settled");
+      const bt={id:nextId("BTX"),account:p.account,date:p.date,desc:"TRANSFER "+party(b.supplier).name.slice(0,22).toUpperCase(),
+        ref:p.ref,debit:b.amount,credit:0,status:"Matched",match:p.id,src:"import"};
+      db.bankTxns.push(bt);p.bankTxn=bt.id;}
+    else if(b.status==="Partially Paid"){mkPayment(b,b.paid,"Settled")}
+    else if(b.status==="In Payment"){mkPayment(b,b.amount,"Awaiting Settlement")}
+    /* bill journal */
+    if(b.status!=="Draft"){
+      const debit=b.klass==="Inventory"?"1301":b.klass==="Prepaid"?"1408":
+        (b.supplier==="P-006"?"7103":b.supplier==="P-007"?"6301":b.supplier==="P-008"?"6306":"6309");
+      b.je=post("GOODS_RECEIPT",b.id,b.unit,
+        [["Dr",debit,b.net,b.klass==="Inventory"?"barang diterima":"beban "+accName(debit)],
+         ["Dr","1404",b.tax,"PPN masukan"],["Cr","2101",b.amount,"utang "+party(b.supplier).name]],
+        "Tagihan "+b.no,b.date);
+      aud("bill",b.id,"Diposting");
+    }
+  });
+  /* unmatched bank transactions — for bank-first scenario */
+  [["BA-01","2026-09-17","TRANSFER KE PT GARMEN SEJAHTERA","TRF772110",97_800_000,0],
+   ["BA-01","2026-09-18","BIAYA ADM BANK","ADM0926",250_000,0],
+   ["BA-04","2026-09-18","SETORAN TUNAI TOKO SENAYAN","STR9921",0,21_400_000],
+   ["BA-02","2026-09-19","TRANSFER MASUK — TIDAK DIKENALI","IN88231",0,15_000_000],
+   ["BA-01","2026-09-19","PEMBAYARAN LISTRIK SEPTEMBER","PLN0926",92_400_000,0],
+   ["BA-04","2026-09-19","SETORAN TUNAI TOKO BANDUNG","STR9945",0,18_900_000],
+   ["BA-03","2026-09-19","PEMBAYARAN GAJI SEPTEMBER","PAYROLL09",0,0]
+  ].forEach(([a,d,desc,ref,dr,cr])=>{
+    if(dr===0&&cr===0)return;
+    db.bankTxns.push({id:nextId("BTX"),account:a,date:d,desc,ref,debit:dr,credit:cr,
+      status:"Unmatched",match:null,src:"import"})});
+  /* acquirer settlement bank credits */
+  db.settlements.filter(s=>s.status==="Settled").forEach(s=>{
+    const bt={id:nextId("BTX"),account:"BA-01",date:s.date,desc:"SETTLEMENT "+s.batch,ref:s.batch,
+      debit:0,credit:s.net,status:"Unmatched",match:null,src:"import"};
+    db.bankTxns.push(bt);s.bankTxn=bt.id;
+  });
+  /* inter-unit funding */
+  const iutSeed=[["C001","Petty Cash",5_000_000,"Acknowledged","2026-09-12"],
+   ["C003","Petty Cash",4_500_000,"Acknowledged","2026-09-13"],
+   ["C002","Modal Kasir",2_000_000,"Unmatched","2026-09-18"],
+   ["C005","Petty Cash",6_000_000,"Unmatched","2026-09-19"],
+   ["C004","Petty Cash",5_000_000,"Discrepancy","2026-09-16"]];
+  iutSeed.forEach(([unit,purpose,amt,st,date])=>{
+    const i={id:nextId("IUT"),from:"HO",to:unit,nature:"FINANCING",purpose,amount:amt,date,
+      status:st,custodian:"Kepala Toko",received:st==="Discrepancy"?amt-1_000_000:(st==="Acknowledged"?amt:null),
+      bkk:nextId("BKK"),bkm:st==="Acknowledged"?nextId("BKM"):null};
+    db.iuts.push(i);
+    i.jeHO=post("INTERUNIT_SETTLE",i.id,"HO",[["Dr","1501",amt,"kirim ke "+unitName(unit)],["Cr","1104",amt]],
+      "Pendanaan "+purpose+" "+unitName(unit),date);
+    db.bankTxns.push({id:nextId("BTX"),account:"BA-01",date,desc:"TRANSFER "+unitName(unit).toUpperCase(),
+      ref:i.bkk,debit:amt,credit:0,status:"Matched",match:i.id,src:"import"});
+    if(st==="Acknowledged"){
+      const acc=purpose==="Modal Kasir"?"1103":"1102";
+      i.jeUnit=post("INTERUNIT_SETTLE",i.id,unit,[["Dr",acc,amt],["Cr","1501",amt]],
+        "Terima "+purpose,date);
+      const ca=db.cashAccounts.find(c=>c.unit===unit&&c.acc===acc);if(ca)ca.balance+=amt;
+    }
+    aud("iut",i.id,"Diterbitkan");
+  });
+  /* cash counts */
+  [["C001","CASH ON HAND",-100_000,"Variance"],["C002","PETTY CASH",0,"Confirmed"],
+   ["C003","MODAL KASIR",0,"Confirmed"],["C004","CASH ON HAND",-250_000,"Variance"],
+   ["C005","PETTY CASH",75_000,"Counted"]].forEach(([u,kind,varr,st])=>{
+    const ca=db.cashAccounts.find(c=>c.unit===u&&c.kind===kind);
+    db.cashCounts.push({id:nextId("CC"),unit:u,kind,acc:ca.acc,date:"2026-09-19",counter:"Admin Toko",
+      witness:"Kepala Toko",expected:ca.balance,actual:ca.balance+varr,variance:varr,status:st,
+      adjusted:false,note:varr?"Selisih belum diputuskan":""});
+  });
+  /* payroll */
+  const comps=[["6209","Beban Gaji",486_000_000],["6214","Beban Asuransi Pegawai / BPJS",42_500_000]];
+  const gross=comps.reduce((s,c)=>s+c[2],0), pph=38_900_000, netPay=gross-pph;
+  db.payroll={id:"PR-2026-09",period:"September 2026",gross,pph,net:netPay,status:"Approved",
+    paid:0,employees:214,source:"HR — batch tersegel 2026-09-18"};
+  db.payroll.je=post("PAYROLL_RUN","PR-2026-09","HO",
+    [...comps.map(c=>["Dr",c[0],c[2]]),["Cr","2201",pph,"PPh 21"],["Cr","2301",netPay,"utang ke pegawai"]],
+    "Akrual payroll September 2026","2026-09-18");
+  /* assets */
+  [["Rak display gondola 40 unit","1605",180_000_000,"2024-03-11",8],
+   ["Mesin kasir & POS terminal","1605",96_000_000,"2024-07-02",5],
+   ["AC split 3 PK × 26","1605",143_000_000,"2023-11-20",8],
+   ["Kendaraan operasional L300","1605",240_000_000,"2022-05-14",8],
+   ["Genset 25 kVA","1605",165_000_000,"2025-01-09",10]].forEach((a,i)=>{
+    const [name,acc,cost,date,life]=a;
+    const months=Math.min(daysBetween(date,today)/30.4,life*12);
+    const accum=Math.round(cost/(life*12)*months);
+    db.assets.push({id:nextId("AST"),name,acc,cost,date,life,accum,nbv:cost-accum,
+      unit:i<3?STORES[i].id:"HO",custodian:["Kepala Toko","Admin Toko","GA HO"][i%3],status:"Submitted"});
+  });
+  db.loans.push({id:"LN-001",lender:"P-101",principal:2_500_000_000,outstanding:1_640_000_000,
+    rate:9.75,start:"2024-02-01",maturity:"2029-02-01",next:"2026-10-01",installment:52_083_333});
+  db.taxes=[{id:"TX-PPN-0926",type:"PPN",period:"2026-09",payable:186_400_000,credit:141_200_000,
+    net:45_200_000,due:"2026-10-15",status:"Open"},
+   {id:"TX-PPH21-0926",type:"PPh 21",period:"2026-09",payable:38_900_000,credit:0,net:38_900_000,
+    due:"2026-10-10",status:"Open"},
+   {id:"TX-PPH25-0926",type:"PPh 25",period:"2026-09",payable:64_000_000,credit:0,net:64_000_000,
+    due:"2026-10-15",status:"Paid"}];
+  /* sales journals (ringkas: hari terakhir yang closed) */
+  db.salesDays.filter(s=>s.status==="Closed").forEach(s=>{
+    s.je=post("SALE_DAY",s.id,s.unit,
+      [["Dr","1101",s.cash,"tunai"],["Dr","1201",s.debit+s.credit+s.qris,"kartu & QRIS"],
+       ["Dr","4201",s.disc,"diskon"],...(s.ret?[["Dr","4202",s.ret,"retur"]]:[]),
+       ["Cr","4101",s.gross,"penjualan kotor"],
+       ["Cr","2201",0,"PPN"]].filter(l=>l[2]>0),
+      "Hari dagang "+s.date,s.date);
+    s.jeCogs=post("COGS_DAY",s.id,s.unit,
+      [["Dr","5101",Math.round(s.net*0.58)],["Cr","1301",Math.round(s.net*0.58)]],"HPP "+s.date,s.date);
+  });
+  db.budgets=[{id:"BDG-2026",year:2026,status:"Approved",owner:"Finance Manager"}];
+}
+</script>
+<script>
+/* ═══════════════ 5. NAV ═══════════════ */
+const NAV=[
+ ["STORE",[["store/sales","Sales days",()=>db.salesDays.filter(s=>s.unit===db.store).length],
+   ["store/recon","Sales reconciliation",()=>db.salesDays.filter(s=>s.unit===db.store&&s.recon!=="Reconciled").length],
+   ["store/cash","Cash & counts"],["store/petty","Petty cash"],
+   ["store/incoming","Incoming funds",()=>db.iuts.filter(i=>i.to===db.store&&i.status!=="Acknowledged").length],
+   ["store/expenses","Store expenses"],["store/txns","Store transactions"]]],
+ ["CASH & BANK",[["cash/position","Cash position"],["cash/accounts","Bank accounts"],
+   ["cash/txns","Bank transactions",()=>db.bankTxns.filter(b=>b.status==="Unmatched").length],
+   ["cash/transfers","Transfers"],["cash/recon","Bank reconciliation",()=>db.bankTxns.filter(b=>b.status==="Unmatched").length]]],
+ ["PAYABLES",[["ap/bills","Supplier bills",()=>db.bills.filter(b=>["Open","Overdue","Partially Paid"].includes(b.status)).length],
+   ["ap/expenses","Expenses & claims"],["ap/advances","Advances"],["ap/giro","Giro register"],
+   ["ap/payments","Payments"],["ap/runs","Payment runs"]]],
+ ["RECEIVABLES",[["ar/open","Receivables"],["ar/settlements","Acquirer settlements",
+   ()=>db.settlements.filter(s=>s.status!=="Settled").length],["ar/receipts","Receipts"]]],
+ ["INTER-UNIT",[["iu/transfers","Inter-unit transfers",()=>db.iuts.filter(i=>i.status!=="Acknowledged").length],
+   ["iu/matrix","Due from / Due to"]]],
+ ["ACCOUNTING",[["acc/journals","Journal entries"],["acc/prepaid","Prepaids & accruals"],
+   ["acc/adjust","Adjustments"],["acc/ledger","Ledger"],["acc/close","Period close"],
+   ["acc/opening","Opening balances"],["acc/audit","Audit trail"]]],
+ ["DOMAINS",[["dom/payroll","Payroll postings"],["dom/assets","Assets"],["dom/depr","Depreciation"],
+   ["dom/stock","Stock value"],["dom/tax","Tax"],["dom/financing","Financing"]]],
+ ["SETUP",[["set/coa","Chart of accounts"],["set/map","Account map"],["set/rules","Posting rules"],
+   ["set/terms","Payment terms"],["set/settings","Finance settings"]]],
+ ["REPORTS",[["rep/statements","Financial statements"]]],
+];
+const TITLES={};NAV.forEach(([g,it])=>it.forEach(([p,l])=>TITLES[p]=[g,l]));
+
+/* ═══════════════ 6. UI HELPERS ═══════════════ */
+const BADGE={Draft:"mute","Pending Approval":"warn",Open:"info",Overdue:"bad","Partially Paid":"warn",
+ "In Payment":"new",Paid:"ok",Disputed:"bad",Cancelled:"mute",Approved:"ok",Executed:"new",
+ "Executed / Recorded":"new","Awaiting Settlement":"warn","Partially Settled":"warn",Settled:"ok",
+ Failed:"bad",Recorded:"info",Unmatched:"warn",Suggested:"info","Partially Matched":"warn",
+ Matched:"ok",Ignored:"mute",Reconciled:"ok",Exception:"bad",Belum:"warn",Closed:"mute",
+ Acknowledged:"ok",Discrepancy:"bad",Counted:"info",Variance:"bad",Confirmed:"ok",Adjusted:"ok",
+ Prepared:"info",Submitted:"ok",Issued:"info"};
+const bg=s=>`<span class="b ${BADGE[s]||"mute"}">${h(s)}</span>`;
+function T(cols,rows,opt={}){
+  if(!rows.length)return `<div class="tw"><div class="empty">${h(opt.empty||"Belum ada data di sini.")}</div></div>`;
+  const th=cols.map(c=>`<th class="${c.num?"num":""}" style="${c.w?`width:${c.w}`:""}">${h(c.t)}</th>`).join("");
+  const tb=rows.map((r,i)=>`<tr class="${opt.link?"clickable":""}" data-i="${i}">`+
+    cols.map(c=>`<td class="${c.num?"num":""}${c.cls?" "+c.cls:""}">${c.r(r)}</td>`).join("")+"</tr>").join("");
+  return `<div class="tw"><table><thead><tr>${th}</tr></thead><tbody data-tbl="1">${tb}</tbody></table></div>`;
+}
+function bindRows(rows,fn){
+  const tb=$("[data-tbl]");if(!tb)return;
+  tb.querySelectorAll("tr").forEach(tr=>tr.onclick=()=>fn(rows[+tr.dataset.i]));
+}
+function kpi(list){return `<div class="grid g3">`+list.map(([v,l,cls])=>
+  `<div class="card kpi"><div class="v" ${cls?`style="color:var(--${cls})"`:""}>${v}</div><div class="l">${h(l)}</div></div>`).join("")+`</div>`}
+function dl(pairs){return `<dl class="dl">`+pairs.filter(Boolean).map(([k,v])=>`<dt>${h(k)}</dt><dd>${v}</dd>`).join("")+`</dl>`}
+
+function modal({title,body,actions}){
+  const l=$("#layer");
+  l.innerHTML=`<div class="ov"><div class="modal"><header>${h(title)}</header>
+   <div class="body">${body}</div><footer>${actions.map((a,i)=>
+   `<button class="btn ${a.pri?"pri":""} ${a.danger?"danger":""}" data-a="${i}">${h(a.label)}</button>`).join("")}</footer></div></div>`;
+  l.querySelectorAll("[data-a]").forEach(b=>b.onclick=()=>{
+    const a=actions[+b.dataset.a];if(a.run&&a.run($(".modal"))===false)return;closeModal()});
+  l.querySelector(".ov").onclick=e=>{if(e.target===l.querySelector(".ov"))closeModal()};
+}
+const closeModal=()=>$("#layer").innerHTML="";
+const fld=(id,label,input,hint)=>`<div class="f"><label for="${id}">${h(label)}</label>${input}
+  ${hint?`<div class="hint">${h(hint)}</div>`:""}</div>`;
+const selOf=(id,arr,val)=>`<select id="${id}">`+arr.map(([v,t])=>
+  `<option value="${h(v)}" ${v===val?"selected":""}>${h(t)}</option>`).join("")+`</select>`;
+
+/* ═══════════════ 7. TRUTH TRACE ═══════════════ */
+const TQ={Source:"Bukti apa yang mengatakan kejadian ini terjadi?",
+ Business:"Apa yang benar secara ekonomi bagi perusahaan?",
+ Process:"Tindakan apa yang sudah kita ambil?",
+ Receiving:"Apakah penerima benar-benar mengakui menerimanya?",
+ Physical:"Apa yang secara fisik ada?",
+ Bank:"Apa yang benar-benar terjadi pada uang di bank?",
+ Ledger:"Bagaimana semuanya dicatat di akuntansi?"};
+function truth(rows){
+  return `<div class="truth">`+["Source","Business","Process","Receiving","Physical","Bank","Ledger"].map(k=>{
+    const r=rows[k];
+    if(!r)return `<div class="tr na"><div class="lbl">${k} truth</div>
+      <div class="val">Tidak berlaku<span class="q">${h(TQ[k])}</span></div><div></div></div>`;
+    return `<div class="tr"><div class="lbl">${k} truth</div>
+      <div class="val">${r.v}<span class="q">${h(TQ[k])}</span></div>
+      <div>${r.b?bg(r.b):""}</div></div>`;
+  }).join("")+`</div>`;
+}
+function chain(nodes){
+  return `<div class="chain">`+nodes.map((n,i)=>
+    (i?`<span class="arrow">→</span>`:"")+
+    `<span class="node ${n.now?"now":""}" ${n.go?`data-go="${h(n.go)}"`:""}>${h(n.t)}</span>`).join("")+`</div>`;
+}
+function bindChain(){document.querySelectorAll("[data-go]").forEach(n=>n.onclick=()=>go(n.dataset.go))}
+
+function jeBlock(ids){
+  const list=ids.filter(Boolean).map(id=>db.journals.find(j=>j.id===id)).filter(Boolean);
+  if(!list.length)return `<div class="empty" style="border:1px solid var(--line);border-radius:10px">Belum ada jurnal — dokumen ini belum menghasilkan akibat akuntansi.</div>`;
+  return list.map(j=>`<div class="je"><header><b>${h(j.id)}</b>
+    <span class="u">${h(j.kind)} · ${h(fdate(j.date))} · unit ${h(j.unit)}</span>
+    <span style="margin-left:auto" class="u">${h(j.memo)}</span></header>
+    ${j.lines.map(l=>`<div class="jl"><span class="s ${l.side.toLowerCase()}">${l.side}</span>
+      <span>${h(l.acc)} · ${h(accName(l.acc))}${l.note?` <span class="sub">— ${h(l.note)}</span>`:""}</span>
+      <span class="num">${l.side==="Dr"?rp0(l.amt):""}</span>
+      <span class="num">${l.side==="Cr"?rp0(l.amt):""}</span></div>`).join("")}</div>`).join("");
+}
+function auditBlock(id){
+  const a=auditFor(id);
+  if(!a.length)return `<div class="sub">Belum ada aktivitas tercatat.</div>`;
+  return `<ul class="tl">`+a.slice().reverse().map(x=>`<li><b>${h(x.action)}</b>
+    <span class="w">— ${h(x.who)} · ${new Date(x.at).toLocaleString("id-ID")}</span>
+    ${x.note?`<div class="w">${h(x.note)}</div>`:""}</li>`).join("")+`</ul>`;
+}
+</script>
+<script>
+/* ═══════════════ 8. SCREENS ═══════════════ */
+const S={};
+const storeSel=()=>`<select id="storeSel">`+STORES.map(s=>
+ `<option value="${s.id}" ${s.id===db.store?"selected":""}>${h(s.id)} — ${h(s.name)}</option>`).join("")+`</select>`;
+const bindStore=()=>{const e=$("#storeSel");if(e)e.onchange=()=>{db.store=e.value;save();render()}};
+const canWrite=()=>db.role!=="Auditor / Read Only";
+const guard=()=>{if(!canWrite()){toast("Peran Auditor hanya bisa membaca",1);return false}return true};
+
+/* ── STORE ───────────────────────────── */
+S["store/sales"]=()=>{
+ const rows=db.salesDays.filter(s=>s.unit===db.store).sort((a,b)=>b.date.localeCompare(a.date));
+ const t=rows.reduce((a,s)=>({g:a.g+s.gross,n:a.n+s.net,c:a.c+s.cash}),{g:0,n:0,c:0});
+ return{filters:storeSel(),
+  body:kpi([[rp(t.g),"Penjualan kotor 7 hari"],[rp(t.n),"Penjualan bersih"],[rp(t.c),"Bagian tunai"]])+
+  `<div style="height:14px"></div>`+
+  T([{t:"Hari dagang",r:s=>`<span class="id">${h(s.id)}</span><div class="sub">${h(fdate(s.date))}</div>`},
+     {t:"Kotor",num:1,r:s=>rp0(s.gross)},{t:"Diskon",num:1,r:s=>rp0(s.disc)},
+     {t:"Retur",num:1,r:s=>s.ret?rp0(s.ret):"—"},{t:"Bersih",num:1,r:s=>`<b>${rp0(s.net)}</b>`},
+     {t:"Tunai",num:1,r:s=>rp0(s.cash)},{t:"Kartu & QRIS",num:1,r:s=>rp0(s.debit+s.credit+s.qris)},
+     {t:"Struk",num:1,r:s=>s.txns},{t:"Hari",r:s=>bg(s.status)},{t:"Rekonsiliasi",r:s=>bg(s.recon)}],rows,{link:1}),
+  after:()=>{bindStore();bindRows(rows,s=>go("#/d/sales/"+s.id))}}};
+
+S["store/recon"]=()=>{
+ const rows=db.salesDays.filter(s=>s.unit===db.store).sort((a,b)=>b.date.localeCompare(a.date));
+ return{filters:storeSel(),
+  body:`<div class="note">Rekonsiliasi membandingkan penjualan tercatat dengan hitungan kas fisik,
+   settlement acquirer, dan mutasi bank. Selisih kas <b>tidak</b> otomatis dijurnal — ia jadi temuan
+   sampai ada keputusan yang disetujui.</div>`+
+  T([{t:"Hari",r:s=>`<span class="id">${h(s.id)}</span><div class="sub">${h(fdate(s.date))}</div>`},
+     {t:"Tunai menurut POS",num:1,r:s=>rp0(s.cash)},
+     {t:"Kas dihitung",num:1,r:s=>{const c=db.cashCounts.find(c=>c.unit===s.unit&&c.kind==="CASH ON HAND");
+       return c?rp0(c.actual):`<span class="sub">belum dihitung</span>`}},
+     {t:"Kartu & QRIS",num:1,r:s=>rp0(s.debit+s.credit+s.qris)},
+     {t:"Status",r:s=>bg(s.recon)},
+     {t:"",r:s=>s.recon==="Reconciled"?"":`<button class="btn" data-rec="${s.id}">Rekonsiliasi</button>`}],rows,{link:0}),
+  after:()=>{bindStore();document.querySelectorAll("[data-rec]").forEach(b=>b.onclick=()=>{
+    if(!guard())return;const s=db.salesDays.find(x=>x.id===b.dataset.rec);
+    s.recon="Reconciled";aud("sales",s.id,"Direkonsiliasi","cocok dengan hitungan kas & settlement");
+    save();render();toast("Hari dagang "+s.id+" direkonsiliasi")})}}};
+
+S["store/cash"]=()=>{
+ const pots=db.cashAccounts.filter(c=>c.unit===db.store);
+ const counts=db.cashCounts.filter(c=>c.unit===db.store);
+ return{filters:storeSel()+`<button class="btn pri" id="doCount">Hitung kas</button>`,
+  body:`<div class="note"><b>Tiga pot, tiga tujuan.</b> Cash on hand = hasil penjualan.
+   Petty cash = dana operasional. Modal kasir = uang kembalian. Tidak ada pemindahan di antara
+   ketiganya — kalau petty cash kurang, jalurnya pendanaan dari HO.</div>`+
+  `<div class="grid g3">`+pots.map(p=>`<div class="card"><h3>${h(p.kind)}</h3>
+    <div class="kpi"><div class="v">${rp(p.balance)}</div>
+    <div class="l">custody: ${h(p.custodian)} · hitung terakhir ${h(fdate(p.lastCount))}</div></div></div>`).join("")+`</div>
+   <h3 style="margin:20px 0 10px;font-size:12px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink3)">Hitungan kas</h3>`+
+  T([{t:"No",r:c=>`<span class="id">${h(c.id)}</span>`},{t:"Pot",r:c=>h(c.kind)},
+     {t:"Tanggal",r:c=>h(fdate(c.date))},{t:"Menurut buku",num:1,r:c=>rp0(c.expected)},
+     {t:"Fisik",num:1,r:c=>rp0(c.actual)},
+     {t:"Selisih",num:1,r:c=>c.variance?`<b style="color:var(--${c.variance<0?"bad":"ok"})">${rp(c.variance)}</b>`:"—"},
+     {t:"Status",r:c=>bg(c.status)},{t:"Jurnal",r:()=>`<span class="sub">nol — bukti saja</span>`}],counts,{link:1}),
+  after:()=>{bindStore();bindRows(counts,c=>go("#/d/count/"+c.id));
+   $("#doCount").onclick=()=>{if(!guard())return;newCount()}}}};
+
+function newCount(){
+ const pots=db.cashAccounts.filter(c=>c.unit===db.store);
+ modal({title:"Hitung kas — "+unitName(db.store),
+  body:fld("ccPot","Pot kas",selOf("ccPot",pots.map(p=>[p.id,p.kind+" — buku "+rp(p.balance)])))+
+   fld("ccAct","Jumlah fisik yang dihitung",`<input id="ccAct" type="number" step="1000" placeholder="0">`,
+     "Ketik apa adanya. Selisihnya dihitung sistem, dan tidak dijurnal.")+
+   fld("ccWit","Saksi",`<input id="ccWit" value="Kepala Toko">`),
+  actions:[{label:"Batal"},{label:"Simpan hitungan",pri:1,run:m=>{
+    const pot=db.cashAccounts.find(c=>c.id=$("#ccPot",m).value)&&db.cashAccounts.find(c=>c.id===$("#ccPot",m).value);
+    const act=+$("#ccAct",m).value;
+    if(!act){toast("Jumlah fisik belum diisi",1);return false}
+    const c={id:nextId("CC"),unit:pot.unit,kind:pot.kind,acc:pot.acc,date:today,counter:db.role,
+      witness:$("#ccWit",m).value,expected:pot.balance,actual:act,variance:act-pot.balance,
+      status:act===pot.balance?"Confirmed":"Variance",adjusted:false,
+      note:act===pot.balance?"":"Selisih belum diputuskan"};
+    db.cashCounts.push(c);pot.lastCount=today;aud("count",c.id,"Dicatat","fisik "+rp(act));
+    save();render();toast(c.variance?"Tercatat — selisih "+rp(c.variance)+" jadi temuan":"Tercatat — cocok")}}]})}
+
+S["store/incoming"]=()=>{
+ const rows=db.iuts.filter(i=>i.to===db.store).sort((a,b)=>b.date.localeCompare(a.date));
+ return{filters:storeSel(),
+  body:`<div class="note">Dana dari HO. Anda hanya mengetik <b>berapa uang fisik yang benar-benar
+   diterima</b> dan menekan Terima — sistem yang menulis jurnalnya. Total BKM selalu sama dengan BKK;
+   kalau fisiknya kurang, selisihnya jadi Piutang Pegawai setelah dikonfirmasi HO.</div>`+
+  T([{t:"Referensi",r:i=>`<span class="id">${h(i.id)}</span><div class="sub">BKK ${h(i.bkk)}</div>`},
+     {t:"Dari",r:i=>h(unitName(i.from))},{t:"Tujuan",r:i=>h(i.purpose)},
+     {t:"Tanggal",r:i=>h(fdate(i.date))},{t:"Diharapkan",num:1,r:i=>`<b>${rp0(i.amount)}</b>`},
+     {t:"Diterima",num:1,r:i=>i.received==null?`<span class="sub">—</span>`:rp0(i.received)},
+     {t:"Status",r:i=>bg(i.status)},
+     {t:"",r:i=>i.status==="Unmatched"?`<button class="btn pri" data-rcv="${i.id}">Terima</button>`:""}],rows,{link:1}),
+  after:()=>{bindStore();bindRows(rows,i=>go("#/d/iut/"+i.id));
+   document.querySelectorAll("[data-rcv]").forEach(b=>b.onclick=e=>{e.stopPropagation();
+     if(!guard())return;receiveIut(db.iuts.find(i=>i.id===b.dataset.rcv))})}}};
+
+function receiveIut(i){
+ modal({title:"Terima dana — "+i.id,
+  body:dl([["Dari",h(unitName(i.from))],["Tujuan",h(i.purpose)],["Diharapkan",`<b>${rp(i.amount)}</b>`],
+    ["Dibawa oleh",h(i.custodian)]])+`<div style="height:12px"></div>`+
+   fld("rcAmt","Uang fisik yang diterima",`<input id="rcAmt" type="number" value="${i.amount}" step="1000">`,
+     "Kalau kurang, sebutkan penanggung jawabnya di bawah.")+
+   fld("rcWho","Penanggung jawab kalau ada selisih",`<input id="rcWho" placeholder="nama pegawai">`),
+  actions:[{label:"Batal"},{label:"Terima",pri:1,run:m=>{
+    const got=+$("#rcAmt",m).value;
+    if(got>i.amount){toast("Tidak boleh lebih besar dari BKK",1);return false}
+    i.received=got;
+    if(got===i.amount){
+      const acc=i.purpose==="Modal Kasir"?"1103":"1102";
+      i.status="Acknowledged";i.bkm=nextId("BKM");
+      i.jeUnit=post("INTERUNIT_SETTLE",i.id,i.to,[["Dr",acc,got],["Cr","1501",got]],"Terima "+i.purpose);
+      const ca=db.cashAccounts.find(c=>c.unit===i.to&&c.acc===acc);if(ca)ca.balance+=got;
+      aud("iut",i.id,"Diterima penuh","BKM "+i.bkm);toast("Diterima — BKM "+i.bkm+" terbit");
+    }else{
+      i.status="Discrepancy";i.who=$("#rcWho",m).value||"belum disebut";
+      aud("iut",i.id,"Selisih dilaporkan","fisik "+rp(got)+" dari "+rp(i.amount));
+      toast("Selisih "+rp(i.amount-got)+" — menunggu konfirmasi HO",1);
+    }
+    save();render()}}]})}
+
+S["store/petty"]=()=>{
+ const pot=db.cashAccounts.find(c=>c.unit===db.store&&c.kind==="PETTY CASH");
+ const rows=db.expenses.filter(e=>e.unit===db.store);
+ return{filters:storeSel()+`<button class="btn pri" id="newExp">Catat pengeluaran</button>`,
+  body:kpi([[rp(pot.balance),"Saldo petty cash"],[rp(500_000),"Batas tanpa izin HO"],
+    [rows.filter(e=>e.status==="Draft").length,"Menunggu persetujuan HO"]])+`<div style="height:14px"></div>`+
+   T([{t:"No",r:e=>`<span class="id">${h(e.id)}</span>`},{t:"Tanggal",r:e=>h(fdate(e.date))},
+      {t:"Kategori",r:e=>h(e.cat)},{t:"Keterangan",r:e=>h(e.memo)},
+      {t:"Jumlah",num:1,r:e=>rp0(e.amount)},{t:"Status",r:e=>bg(e.status)}],rows,{link:1,
+      empty:"Belum ada pengeluaran petty cash di toko ini."}),
+  after:()=>{bindStore();bindRows(rows,e=>go("#/d/exp/"+e.id));
+   $("#newExp").onclick=()=>{if(!guard())return;newExpense()}}}};
+
+const EXPCAT=[["6301","Kebersihan"],["6302","ATK & cetakan"],["6309","Transport lokal"],["6306","Listrik"]];
+function newExpense(){
+ modal({title:"Pengeluaran petty cash — "+unitName(db.store),
+  body:fld("exCat","Kategori pengeluaran",selOf("exCat",EXPCAT.map(([c,n])=>[c,n])),
+    "Anda memilih kategori. Akunnya ditentukan sistem.")+
+   fld("exAmt","Jumlah",`<input id="exAmt" type="number" step="1000" placeholder="0">`)+
+   fld("exMemo","Keterangan",`<input id="exMemo" placeholder="mis. jasa kebersihan minggu ke-3">`),
+  actions:[{label:"Batal"},{label:"Simpan",pri:1,run:m=>{
+    const amt=+$("#exAmt",m).value;if(!amt){toast("Jumlah belum diisi",1);return false}
+    const code=$("#exCat",m).value;
+    const e={id:nextId("EXP"),unit:db.store,date:today,cat:(EXPCAT.find(c=>c[0]===code)||[])[1],
+      acc:code,amount:amt,memo:$("#exMemo",m).value,status:amt>500_000?"Draft":"Approved",by:db.role};
+    db.expenses.push(e);aud("expense",e.id,"Dibuat");
+    if(e.status==="Approved"){payExpense(e)}
+    else toast("Di atas Rp 500.000 — menunggu persetujuan HO");
+    save();render()}}]})}
+function payExpense(e){
+ const pot=db.cashAccounts.find(c=>c.unit===e.unit&&c.kind==="PETTY CASH");
+ e.status="Paid";pot.balance-=e.amount;
+ e.je=post("STORE_EXPENSE",e.id,e.unit,[["Dr",e.acc,e.amount,e.memo],["Cr","1102",e.amount]],
+   "Pengeluaran petty cash",e.date);
+ aud("expense",e.id,"Diposting");toast("Tercatat — "+rp(e.amount)+" keluar dari petty cash")}
+
+S["store/expenses"]=()=>{
+ const rows=db.expenses.filter(e=>e.unit===db.store);
+ return{filters:storeSel(),body:`<div class="note">Semua pengeluaran toko ditinjau HO, berapa pun nilainya.
+  Di atas Rp 500.000 pembayarannya juga butuh persetujuan HO lebih dulu.</div>`+
+  T([{t:"No",r:e=>`<span class="id">${h(e.id)}</span>`},{t:"Tanggal",r:e=>h(fdate(e.date))},
+     {t:"Kategori",r:e=>h(e.cat)},{t:"Jumlah",num:1,r:e=>rp0(e.amount)},{t:"Status",r:e=>bg(e.status)},
+     {t:"",r:e=>e.status==="Draft"?`<button class="btn" data-ap="${e.id}">Setujui (HO)</button>`:""}],rows,
+     {link:1,empty:"Belum ada pengeluaran."}),
+  after:()=>{bindStore();bindRows(rows,e=>go("#/d/exp/"+e.id));
+   document.querySelectorAll("[data-ap]").forEach(b=>b.onclick=ev=>{ev.stopPropagation();
+     if(db.role!=="Finance Manager"&&db.role!=="Finance Staff"){toast("Hanya Finance HO",1);return}
+     payExpense(db.expenses.find(x=>x.id===b.dataset.ap));save();render()})}}};
+
+S["store/txns"]=()=>{
+ const u=db.store,list=[];
+ db.salesDays.filter(s=>s.unit===u).forEach(s=>list.push({d:s.date,t:"Hari dagang",id:s.id,amt:s.net,st:s.recon,go:"#/d/sales/"+s.id}));
+ db.iuts.filter(i=>i.to===u).forEach(i=>list.push({d:i.date,t:"Dana masuk",id:i.id,amt:i.amount,st:i.status,go:"#/d/iut/"+i.id}));
+ db.expenses.filter(e=>e.unit===u).forEach(e=>list.push({d:e.date,t:"Pengeluaran",id:e.id,amt:-e.amount,st:e.status,go:"#/d/exp/"+e.id}));
+ db.cashCounts.filter(c=>c.unit===u).forEach(c=>list.push({d:c.date,t:"Hitung kas",id:c.id,amt:c.variance,st:c.status,go:"#/d/count/"+c.id}));
+ list.sort((a,b)=>b.d.localeCompare(a.d));
+ return{filters:storeSel(),
+  body:`<div class="note">Riwayat operasional satu toko. Tidak ada catatan yang diduplikasi di sini —
+   setiap baris menunjuk dokumen aslinya.</div>`+
+   T([{t:"Tanggal",r:x=>h(fdate(x.d))},{t:"Jenis",r:x=>h(x.t)},{t:"Dokumen",r:x=>`<span class="id">${h(x.id)}</span>`},
+      {t:"Nilai",num:1,r:x=>x.amt?rp(x.amt):"—"},{t:"Status",r:x=>bg(x.st)}],list,{link:1}),
+  after:()=>{bindStore();bindRows(list,x=>go(x.go))}}};
+</script>
+<script>
+/* ── CASH & BANK ───────────────────────── */
+S["cash/position"]=()=>{
+ const bank=db.bankAccounts.reduce((s,b)=>s+b.balance,0);
+ const cash=db.cashAccounts.reduce((s,c)=>s+c.balance,0);
+ const byKind=["CASH ON HAND","PETTY CASH","MODAL KASIR"].map(k=>
+   [k,db.cashAccounts.filter(c=>c.kind===k).reduce((s,c)=>s+c.balance,0)]);
+ return{body:kpi([[rp(bank),"Saldo bank (HO)"],[rp(cash),"Kas di unit"],[rp(bank+cash),"Total likuiditas"]])+
+  `<div style="height:14px"></div><div class="grid g2">
+   <div class="card"><h3>Kas per jenis pot</h3>`+
+   byKind.map(([k,v])=>`<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--line2)">
+     <span>${h(k)}</span><b class="num">${rp0(v)}</b></div>`).join("")+`</div>
+   <div class="card"><h3>Rekening bank</h3>`+
+   db.bankAccounts.map(b=>`<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--line2)">
+     <span>${h(b.name)} <span class="sub">${h(b.no)}</span></span><b class="num">${rp0(b.balance)}</b></div>`).join("")+`</div></div>
+   <div style="height:14px"></div>`+
+  T([{t:"Unit",r:c=>h(unitName(c.unit))},{t:"Pot",r:c=>h(c.kind)},{t:"Custody",r:c=>h(c.custodian)},
+     {t:"Hitung terakhir",r:c=>h(fdate(c.lastCount))},{t:"Saldo",num:1,r:c=>rp0(c.balance)}],
+     db.cashAccounts.slice().sort((a,b)=>a.unit.localeCompare(b.unit)))};
+};
+S["cash/accounts"]=()=>({body:
+ T([{t:"Rekening",r:b=>`<b>${h(b.name)}</b><div class="sub">${h(party(b.bank).name)} · ${h(b.no)}</div>`},
+    {t:"Jenis",r:b=>h(b.kind)},{t:"Pemilik",r:b=>h(unitName(b.unit))},
+    {t:"Saldo buku",num:1,r:b=>rp0(b.balance)},
+    {t:"Belum cocok",num:1,r:b=>db.bankTxns.filter(t=>t.account===b.id&&t.status==="Unmatched").length||"—"},
+    {t:"Kendali",r:()=>bg("Matched")&&`<span class="b info">HO</span>`}],db.bankAccounts)});
+
+S["cash/txns"]=()=>{
+ const rows=db.bankTxns.slice().sort((a,b)=>b.date.localeCompare(a.date));
+ return{filters:`<button class="btn" id="impBtx">Impor mutasi (simulasi)</button>
+   <span class="sub">Tidak ada API bank. Mutasi masuk lewat impor atau entri manual.</span>`,
+  body:T([{t:"No",r:b=>`<span class="id">${h(b.id)}</span>`},{t:"Rekening",r:b=>h(bankName(b.account))},
+     {t:"Tanggal",r:b=>h(fdate(b.date))},{t:"Keterangan",r:b=>h(b.desc)+`<div class="sub">${h(b.ref)}</div>`},
+     {t:"Debit",num:1,r:b=>b.debit?rp0(b.debit):"—"},{t:"Kredit",num:1,r:b=>b.credit?rp0(b.credit):"—"},
+     {t:"Status",r:b=>bg(b.status)},{t:"Cocok dengan",r:b=>b.match?`<span class="id">${h(b.match)}</span>`:"—"}],rows),
+  after:()=>{$("#impBtx").onclick=()=>{if(!guard())return;
+    db.bankTxns.push({id:nextId("BTX"),account:"BA-01",date:today,
+      desc:"TRANSFER KELUAR — BELUM DIKENALI",ref:"IMP"+Math.floor(Math.random()*9e5+1e5),
+      debit:24_500_000,credit:0,status:"Unmatched",match:null,src:"import"});
+    save();render();toast("1 baris mutasi diimpor")}}}};
+
+S["cash/recon"]=()=>{
+ const un=db.bankTxns.filter(b=>b.status==="Unmatched");
+ const open=db.payments.filter(p=>p.status==="Awaiting Settlement");
+ return{body:`<div class="note"><b>Ini rekonsiliasi bank</b> — mencocokkan kebenaran proses kita dengan
+   kebenaran bank. Jangan dikacaukan dengan rekonsiliasi pembayaran, yang menentukan pembayaran mana
+   melunasi tagihan mana. Mutasi tak dikenal bisa langsung jadi Payment dari sini.</div>
+  <div class="matcher">
+   <div><h3 style="font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink3);margin:0 0 8px">Transaksi sistem menunggu settlement</h3>`+
+   T([{t:"No",r:p=>`<span class="id">${h(p.id)}</span>`},{t:"Pihak",r:p=>h(party(p.party).name)},
+      {t:"Jumlah",num:1,r:p=>rp0(p.amount)}],open,{empty:"Semua pembayaran sudah settled."})+`</div>
+   <div class="card" style="text-align:center"><h3>Cara kerja</h3>
+     <p class="sub" style="margin:0">Pilih mutasi bank di kanan, lalu cocokkan dengan transaksi sistem —
+     atau buat Payment/Receipt baru langsung dari mutasi itu.</p></div>
+   <div><h3 style="font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink3);margin:0 0 8px">Mutasi bank belum cocok</h3>`+
+   T([{t:"Tanggal",r:b=>h(fdate(b.date))},{t:"Keterangan",r:b=>h(b.desc)},
+      {t:"Nilai",num:1,r:b=>b.debit?`<span style="color:var(--bad)">−${rp0(b.debit)}</span>`:`<span style="color:var(--ok)">+${rp0(b.credit)}</span>`},
+      {t:"",r:b=>`<button class="btn" data-mt="${b.id}">Tangani</button>`}],un,{empty:"Tidak ada mutasi menggantung."})+
+   `</div></div>`,
+  after:()=>{document.querySelectorAll("[data-mt]").forEach(x=>x.onclick=()=>{
+    if(!guard())return;handleBtx(db.bankTxns.find(b=>b.id===x.dataset.mt))})}}};
+
+function handleBtx(b){
+ const out=b.debit>0, amt=out?b.debit:b.credit;
+ const cands=out?db.payments.filter(p=>p.status==="Awaiting Settlement"):[];
+ const openBills=db.bills.filter(x=>["Open","Overdue","Partially Paid"].includes(x.status));
+ modal({title:"Tangani mutasi — "+b.id,
+  body:dl([["Rekening",h(bankName(b.account))],["Tanggal",h(fdate(b.date))],["Keterangan",h(b.desc)],
+    ["Nilai",`<b style="color:var(--${out?"bad":"ok"})">${out?"−":"+"}${rp0(amt)}</b>`]])+
+   `<div style="height:14px"></div>`+
+   (cands.length?fld("mtPay","Cocokkan dengan pembayaran yang ada",
+     selOf("mtPay",[["","— tidak ada —"],...cands.map(p=>[p.id,p.id+" · "+party(p.party).name+" · "+rp(p.amount)])])):"")+
+   (out?fld("mtBill","Atau buat Payment baru terhadap tagihan",
+     selOf("mtBill",[["","— tidak —"],...openBills.map(x=>[x.id,x.id+" · "+party(x.supplier).name+" · "+rp(x.amount-x.paid)])]),
+     "Ini alur bank-first: pembayaran lahir dari mutasi yang sudah terjadi.")
+    :fld("mtRcp","Atau buat Receipt baru",selOf("mtRcp",[["","— tidak —"],
+      ...db.settlements.filter(s=>s.status!=="Settled").map(s=>[s.id,s.id+" · "+party(s.acquirer).name+" · neto "+rp(s.net)])]))),
+  actions:[{label:"Abaikan dengan alasan",run:()=>{b.status="Ignored";aud("btx",b.id,"Diabaikan");save();render()}},
+   {label:"Batal"},
+   {label:"Terapkan",pri:1,run:m=>{
+    const pv=$("#mtPay",m)&&$("#mtPay",m).value;
+    if(pv){const p=db.payments.find(x=>x.id===pv);p.status="Settled";p.bankTxn=b.id;
+      b.status="Matched";b.match=p.id;settleBillsOf(p);
+      aud("payment",p.id,"Cocok dengan mutasi bank "+b.id);toast("Cocok — "+p.id+" settled");save();render();return}
+    const bv=$("#mtBill",m)&&$("#mtBill",m).value;
+    if(bv){const bill=db.bills.find(x=>x.id===bv);
+      const p=createPayment(bill,amt,b.account);p.status="Settled";p.bankTxn=b.id;p.date=b.date;
+      b.status="Matched";b.match=p.id;settleBillsOf(p);
+      aud("payment",p.id,"Dibuat dari rekonsiliasi bank");toast("Payment "+p.id+" dibuat & dicocokkan");save();render();return}
+    const rv=$("#mtRcp",m)&&$("#mtRcp",m).value;
+    if(rv){const s=db.settlements.find(x=>x.id===rv);recordSettlement(s,b);toast("Receipt dibuat & dicocokkan");save();render();return}
+    toast("Pilih salah satu tindakan",1);return false}}]})}
+
+function createPayment(bill,amt,acct){
+ const p={id:nextId("PAY"),bkk:nextId("BKK"),party:bill.supplier,role:"Supplier",amount:amt,date:today,
+  account:acct||"BA-01",method:"Transfer",ref:"",status:"Executed / Recorded",source:"Bill",
+  sourceId:bill.id,alloc:[{bill:bill.id,amt}],bankTxn:null,unit:"HO"};
+ db.payments.push(p);
+ p.je=post("PAYMENT",p.id,"HO",[["Dr","2101",amt,"pelunasan "+bill.no],
+   ["Cr",p.account==="BA-03"?"1105":"1104",amt]],"Pembayaran "+party(bill.supplier).name);
+ bill.inPay=amt;bill.status="In Payment";aud("bill",bill.id,"Masuk pembayaran",p.id);
+ aud("payment",p.id,"Dibuat");
+ const ba=db.bankAccounts.find(x=>x.id===p.account);if(ba)ba.balance-=amt;
+ return p}
+function settleBillsOf(p){
+ p.alloc.forEach(a=>{const b=db.bills.find(x=>x.id===a.bill);if(!b)return;
+  b.paid+=a.amt;b.inPay=0;b.status=b.paid>=b.amount?"Paid":"Partially Paid";
+  aud("bill",b.id,b.status==="Paid"?"Lunas — settlement bank dikonfirmasi":"Sebagian dibayar")})}
+function recordSettlement(s,b){
+ const r={id:nextId("RCP"),bkm:nextId("BKM"),party:s.acquirer,role:"Acquirer",amount:s.net,date:b?b.date:today,
+  into:b?b.account:"BA-01",source:"Settlement",sourceId:s.id,status:"Settled",bankTxn:b?b.id:null,unit:"HO"};
+ db.receipts.push(r);
+ r.je=post("ACQ_SETTLEMENT",r.id,"HO",[["Dr","1104",s.net,"uang bersih masuk"],
+   ["Dr","6202",s.mdr,"MDR acquirer"],["Cr","1201",s.gross,"piutang kartu lunas"]],
+   "Settlement "+s.batch,r.date);
+ s.status="Settled";s.receipt=r.id;if(b){b.status="Matched";b.match=r.id}
+ aud("settlement",s.id,"Receipt dicatat",r.id);return r}
+
+S["cash/transfers"]=()=>{
+ const rows=db.transfers;
+ return{filters:`<button class="btn pri" id="newTf">Transfer internal</button>`,
+  body:`<div class="note">Transfer internal antar rekening/kas milik perusahaan sendiri.
+   <b>Tidak butuh Party</b> — tidak ada lawan transaksi, dan di tingkat perusahaan tidak ada
+   pendapatan atau beban.</div>`+
+  T([{t:"No",r:t=>`<span class="id">${h(t.id)}</span>`},{t:"Tanggal",r:t=>h(fdate(t.date))},
+     {t:"Dari",r:t=>h(bankName(t.from))},{t:"Ke",r:t=>h(bankName(t.to))},
+     {t:"Jumlah",num:1,r:t=>rp0(t.amount)},{t:"Party",r:()=>`<span class="sub">tidak berlaku</span>`},
+     {t:"Status",r:t=>bg(t.status)}],rows,{link:1,empty:"Belum ada transfer internal."}),
+  after:()=>{bindRows(rows,t=>go("#/d/transfer/"+t.id));
+   $("#newTf").onclick=()=>{if(!guard())return;newTransfer()}}}};
+function newTransfer(){
+ const opts=db.bankAccounts.map(b=>[b.id,b.name+" — "+rp(b.balance)]);
+ modal({title:"Transfer internal",
+  body:`<div class="note" style="margin-bottom:14px">Tidak ada isian Party. Ini uang perusahaan berpindah
+   tempat, bukan transaksi dengan pihak lain.</div>`+
+   fld("tfFrom","Dari",selOf("tfFrom",opts))+fld("tfTo","Ke",selOf("tfTo",opts,"BA-02"))+
+   fld("tfAmt","Jumlah",`<input id="tfAmt" type="number" step="1000000" placeholder="0">`),
+  actions:[{label:"Batal"},{label:"Buat & eksekusi",pri:1,run:m=>{
+    const f=$("#tfFrom",m).value,t=$("#tfTo",m).value,a=+$("#tfAmt",m).value;
+    if(f===t){toast("Rekening asal dan tujuan sama",1);return false}
+    if(!a){toast("Jumlah belum diisi",1);return false}
+    const accOf=id=>db.bankAccounts.find(x=>x.id===id).kind==="Tabungan"?"1105":"1104";
+    const tf={id:nextId("TRF"),date:today,from:f,to:t,amount:a,status:"Executed",unit:"HO"};
+    db.transfers.push(tf);
+    tf.je=post("TRANSFER",tf.id,"HO",[["Dr",accOf(t),a,bankName(t)],["Cr",accOf(f),a,bankName(f)]],
+      "Transfer internal");
+    db.bankAccounts.find(x=>x.id===f).balance-=a;db.bankAccounts.find(x=>x.id===t).balance+=a;
+    db.bankTxns.push({id:nextId("BTX"),account:f,date:today,desc:"TRANSFER KE "+bankName(t).toUpperCase(),
+      ref:tf.id,debit:a,credit:0,status:"Matched",match:tf.id,src:"manual"});
+    db.bankTxns.push({id:nextId("BTX"),account:t,date:today,desc:"TRANSFER DARI "+bankName(f).toUpperCase(),
+      ref:tf.id,debit:0,credit:a,status:"Matched",match:tf.id,src:"manual"});
+    aud("transfer",tf.id,"Dibuat & dieksekusi");save();render();toast("Transfer "+tf.id+" dieksekusi — tanpa Party")}}]})}
+</script>
+<script>
+/* ── PAYABLES ──────────────────────────── */
+let billFilter="";
+S["ap/bills"]=()=>{
+ let rows=db.bills.slice().sort((a,b)=>b.date.localeCompare(a.date));
+ const F=[["","Semua"],["open","Terbuka"],["due7","Jatuh tempo ≤7 hari"],["over","Lewat tempo"],["inpay","Dalam pembayaran"],["paid","Lunas"]];
+ if(billFilter==="open")rows=rows.filter(b=>["Open","Overdue","Partially Paid"].includes(b.status));
+ if(billFilter==="due7")rows=rows.filter(b=>["Open","Partially Paid"].includes(b.status)&&daysBetween(today,b.due)<=7);
+ if(billFilter==="over")rows=rows.filter(b=>b.status==="Overdue"||(["Open","Partially Paid"].includes(b.status)&&daysBetween(today,b.due)<0));
+ if(billFilter==="inpay")rows=rows.filter(b=>b.status==="In Payment");
+ if(billFilter==="paid")rows=rows.filter(b=>b.status==="Paid");
+ const outst=db.bills.filter(b=>!["Paid","Draft","Cancelled"].includes(b.status)).reduce((s,b)=>s+b.amount-b.paid,0);
+ const over=db.bills.filter(b=>b.status==="Overdue").reduce((s,b)=>s+b.amount-b.paid,0);
+ return{filters:F.map(([v,t])=>`<button class="chipf" data-f="${v}" aria-pressed="${billFilter===v}">${h(t)}</button>`).join("")
+   +`<span class="spacer"></span><button class="btn" id="newRun">Buat payment run</button>`,
+  body:kpi([[rp(outst),"Utang terbuka"],[rp(over),"Lewat jatuh tempo","bad"],
+    [rp(db.bills.filter(b=>b.status==="In Payment").reduce((s,b)=>s+b.amount,0)),"Dalam pembayaran","new"]])+
+  `<div style="height:14px"></div>`+
+  T([{t:"Tagihan",r:b=>`<span class="id">${h(b.id)}</span><div class="sub">${h(b.no)}</div>`},
+     {t:"Pemasok",r:b=>h(party(b.supplier).name)},{t:"Klasifikasi",r:b=>h(b.klass)},
+     {t:"Unit",r:b=>h(b.unit)},{t:"Tanggal",r:b=>h(fdate(b.date))},
+     {t:"Jatuh tempo",r:b=>{const d=daysBetween(today,b.due);
+       return h(fdate(b.due))+(["Paid","Draft","Cancelled"].includes(b.status)?"":
+        `<div class="sub" style="color:var(--${d<0?"bad":d<=7?"warn":"ink3"})">${d<0?Math.abs(d)+" hari lewat":d+" hari lagi"}</div>`)}},
+     {t:"Nilai",num:1,r:b=>`<b>${rp0(b.amount)}</b>`},
+     {t:"Sisa",num:1,r:b=>rp0(b.amount-b.paid)},{t:"Status",r:b=>bg(b.status)}],rows,{link:1}),
+  after:()=>{bindRows(rows,b=>go("#/d/bill/"+b.id));
+   document.querySelectorAll("[data-f]").forEach(x=>x.onclick=()=>{billFilter=x.dataset.f;render()});
+   $("#newRun").onclick=()=>{if(!guard())return;go("#/ap/runs")}}}};
+
+S["ap/payments"]=()=>{
+ const rows=db.payments.slice().sort((a,b)=>b.date.localeCompare(a.date));
+ return{body:`<div class="note">Satu objek kanonik untuk uang keluar. Dokumen cetaknya <b>BKK</b>.
+   Tidak ada API bank — Finance melakukan transfer sendiri lalu menandainya <i>Executed</i>;
+   tagihan baru berubah jadi <i>Paid</i> setelah mutasi bank mencocokkan.</div>`+
+  T([{t:"Payment",r:p=>`<span class="id">${h(p.id)}</span><div class="sub">${h(p.bkk)}</div>`},
+     {t:"Pihak",r:p=>h(party(p.party).name)+`<div class="sub">${h(p.role)}</div>`},
+     {t:"Tanggal",r:p=>h(fdate(p.date))},{t:"Dari",r:p=>h(bankName(p.account))},
+     {t:"Jumlah",num:1,r:p=>`<b>${rp0(p.amount)}</b>`},{t:"Status",r:p=>bg(p.status)},
+     {t:"Mutasi bank",r:p=>p.bankTxn?`<span class="id">${h(p.bankTxn)}</span>`:`<span class="sub">belum</span>`}],rows,{link:1}),
+  after:()=>bindRows(rows,p=>go("#/d/payment/"+p.id))}};
+
+S["ap/runs"]=()=>{
+ const elig=db.bills.filter(b=>["Open","Overdue","Partially Paid"].includes(b.status));
+ return{filters:`<button class="btn pri" id="mkRun">Buat payment run baru</button>`,
+  body:`<div class="note"><b>Payment run bersifat opsional dan tidak memposting apa pun.</b>
+   Ia hanya cara memilih banyak kewajiban lalu mengambil satu keputusan bayar. Jurnal lahir dari
+   Payment yang dihasilkannya, bukan dari run-nya.</div>`+
+  T([{t:"Run",r:r=>`<span class="id">${h(r.id)}</span>`},{t:"Tanggal",r:r=>h(fdate(r.date))},
+     {t:"Rekening",r:r=>h(bankName(r.account))},{t:"Kewajiban",num:1,r:r=>r.items.length},
+     {t:"Total",num:1,r:r=>`<b>${rp0(r.total)}</b>`},{t:"Status",r:r=>bg(r.status)},
+     {t:"Jurnal run",r:()=>`<span class="sub">nol</span>`},
+     {t:"",r:r=>r.status==="Approved"?`<button class="btn pri" data-ex="${r.id}">Eksekusi</button>`:
+       r.status==="Prepared"?`<button class="btn" data-apr="${r.id}">Setujui</button>`:""}],db.runs,
+     {link:1,empty:"Belum ada payment run."})+
+   `<h3 style="margin:22px 0 10px;font-size:12px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink3)">Kewajiban yang bisa dipilih</h3>`+
+   T([{t:"Kewajiban",r:b=>`<span class="id">${h(b.id)}</span>`},{t:"Pihak",r:b=>h(party(b.supplier).name)},
+      {t:"Jatuh tempo",r:b=>h(fdate(b.due))},{t:"Sisa",num:1,r:b=>rp0(b.amount-b.paid)}],elig),
+  after:()=>{bindRows(db.runs,r=>go("#/d/run/"+r.id));
+   $("#mkRun").onclick=()=>{if(!guard())return;mkRun()};
+   document.querySelectorAll("[data-apr]").forEach(x=>x.onclick=e=>{e.stopPropagation();
+     const r=db.runs.find(v=>v.id===x.dataset.apr);
+     if(db.role!=="Finance Manager"){toast("Hanya Finance Manager yang menyetujui run",1);return}
+     r.status="Approved";aud("run",r.id,"Disetujui");save();render();toast("Run disetujui")});
+   document.querySelectorAll("[data-ex")&&document.querySelectorAll("[data-ex]").forEach(x=>x.onclick=e=>{e.stopPropagation();
+     execRun(db.runs.find(v=>v.id===x.dataset.ex))})}}};
+function mkRun(){
+ const elig=db.bills.filter(b=>["Open","Overdue","Partially Paid"].includes(b.status));
+ const extra=[["PAYROLL","Payroll September — "+rp(db.payroll.net),db.payroll.net],
+  ["TAX","PPh 21 September — "+rp(38_900_000),38_900_000]];
+ modal({title:"Payment run baru",
+  body:fld("rnAcc","Rekening pembayar",selOf("rnAcc",db.bankAccounts.map(b=>[b.id,b.name+" — "+rp(b.balance)])))+
+   `<div class="f"><label>Kewajiban</label><div style="max-height:220px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:8px">`+
+   elig.map(b=>`<label style="display:flex;gap:8px;align-items:center;padding:3px 0;font-size:12.5px">
+     <input type="checkbox" class="rnB" value="${b.id}"><span>${h(b.id)} · ${h(party(b.supplier).name)}</span>
+     <b class="num" style="margin-left:auto">${rp0(b.amount-b.paid)}</b></label>`).join("")+
+   extra.map(([k,t,a])=>`<label style="display:flex;gap:8px;align-items:center;padding:3px 0;font-size:12.5px">
+     <input type="checkbox" class="rnX" value="${k}" data-a="${a}"><span>${h(t)}</span></label>`).join("")+
+   `</div></div>`,
+  actions:[{label:"Batal"},{label:"Siapkan run",pri:1,run:m=>{
+    const items=[...m.querySelectorAll(".rnB:checked")].map(c=>{
+      const b=db.bills.find(x=>x.id===c.value);return{kind:"Bill",id:b.id,amt:b.amount-b.paid}});
+    [...m.querySelectorAll(".rnX:checked")].forEach(c=>items.push({kind:c.value,id:c.value,amt:+c.dataset.a}));
+    if(!items.length){toast("Pilih minimal satu kewajiban",1);return false}
+    const r={id:nextId("RUN"),date:today,account:$("#rnAcc",m).value,items,
+      total:items.reduce((s,i)=>s+i.amt,0),status:"Prepared"};
+    db.runs.push(r);aud("run",r.id,"Disiapkan",items.length+" kewajiban");save();render();
+    toast("Run "+r.id+" disiapkan — belum ada jurnal")}}]})}
+function execRun(r){
+ if(db.role!=="Finance Manager"){toast("Hanya Finance Manager yang mengeksekusi",1);return}
+ r.items.forEach(it=>{
+  if(it.kind==="Bill"){const b=db.bills.find(x=>x.id===it.id);const p=createPayment(b,it.amt,r.account);
+    p.status="Awaiting Settlement";p.run=r.id}
+  else{const p={id:nextId("PAY"),bkk:nextId("BKK"),party:it.kind==="PAYROLL"?"P-302":"P-201",
+    role:it.kind==="PAYROLL"?"Employee":"Government",amount:it.amt,date:today,account:r.account,
+    method:"Transfer",ref:"",status:"Awaiting Settlement",source:it.kind,sourceId:it.id,
+    alloc:[],bankTxn:null,unit:"HO",run:r.id};
+   db.payments.push(p);
+   p.je=post("PAYMENT",p.id,"HO",[["Dr",it.kind==="PAYROLL"?"2301":"2201",it.amt],
+     ["Cr",r.account==="BA-03"?"1105":"1104",it.amt]],it.kind==="PAYROLL"?"Pembayaran gaji":"Setoran pajak");
+   if(it.kind==="PAYROLL")db.payroll.paid=it.amt;
+   const ba=db.bankAccounts.find(x=>x.id===r.account);if(ba)ba.balance-=it.amt;
+   aud("payment",p.id,"Dibuat dari run "+r.id)}});
+ r.status="Executed";aud("run",r.id,"Dieksekusi",r.items.length+" payment dibuat");
+ save();render();toast(r.items.length+" Payment dibuat. Run sendiri tetap nol jurnal.")}
+
+S["ap/expenses"]=()=>({body:`<div class="note">Pengeluaran langsung tanpa siklus utang pemasok, dan
+ klaim pegawai. Pembayarannya tetap memakai objek Payment yang sama — tidak ada objek pembayaran kedua.</div>`+
+ T([{t:"No",r:e=>`<span class="id">${h(e.id)}</span>`},{t:"Unit",r:e=>h(unitName(e.unit))},
+    {t:"Tanggal",r:e=>h(fdate(e.date))},{t:"Kategori",r:e=>h(e.cat)},
+    {t:"Jumlah",num:1,r:e=>rp0(e.amount)},{t:"Status",r:e=>bg(e.status)}],db.expenses,
+    {link:1,empty:"Belum ada pengeluaran langsung."}),
+ after:()=>bindRows(db.expenses,e=>go("#/d/exp/"+e.id))});
+S["ap/advances"]=()=>({body:T([{t:"No",r:b=>`<span class="id">${h(b.id)}</span>`},
+ {t:"Pemasok",r:b=>h(party(b.supplier).name)},{t:"Tanggal",r:b=>h(fdate(b.date))},
+ {t:"Jumlah",num:1,r:b=>rp0(b.amount)},{t:"Terpakai",num:1,r:()=>"—"},{t:"Status",r:b=>bg(b.status)}],
+ db.bills.filter(b=>b.klass==="Prepaid"),{empty:"Belum ada uang muka."})});
+S["ap/giro"]=()=>({body:`<div class="note">Giro mundur: diterbitkan → diserahkan → jatuh tempo → cair.
+ Sampai cair, nilainya duduk di <b>Outstanding Giro</b>, bukan di bank.</div>`+
+ T([{t:"Nomor giro",r:()=>""},{t:"Pemasok",r:()=>""},{t:"Jatuh tempo",r:()=>""},{t:"Nilai",num:1,r:()=>""}],[],
+   {empty:"Belum ada giro diterbitkan di data contoh ini."})});
+</script>
+<script>
+/* ── RECEIVABLES ───────────────────────── */
+let arRole="";
+S["ar/open"]=()=>{
+ const list=[];
+ db.settlements.filter(s=>s.status!=="Settled").forEach(s=>list.push({role:"Acquirer",p:s.acquirer,
+   id:s.id,date:s.date,amt:s.gross,open:s.net,st:s.status,go:"#/d/settlement/"+s.id}));
+ db.iuts.filter(i=>i.status!=="Acknowledged").forEach(i=>list.push({role:"Affiliate",p:"P-A"+i.to,
+   id:i.id,date:i.date,amt:i.amount,open:i.amount,st:i.status,go:"#/d/iut/"+i.id}));
+ db.cashCounts.filter(c=>c.variance<0&&!c.adjusted).forEach(c=>list.push({role:"Employee",p:"P-301",
+   id:c.id,date:c.date,amt:-c.variance,open:-c.variance,st:"Belum diputuskan",go:"#/d/count/"+c.id}));
+ const rows=arRole?list.filter(x=>x.role===arRole):list;
+ const R=["","Customer","Acquirer","Employee","Affiliate"];
+ return{filters:R.map(r=>`<button class="chipf" data-r="${r}" aria-pressed="${arRole===r}">${h(r||"Semua")}</button>`).join(""),
+  body:`<div class="note">Satu daftar, satu filter peran Party — bukan tujuh baris menu.
+   Saldo afiliasi di sini adalah <b>pandangan</b> ke Due From/Due To, bukan catatan kedua.</div>`+
+  T([{t:"Peran",r:x=>`<span class="b info">${h(x.role)}</span>`},{t:"Pihak",r:x=>h(party(x.p).name)},
+     {t:"Sumber",r:x=>`<span class="id">${h(x.id)}</span>`},{t:"Tanggal",r:x=>h(fdate(x.date))},
+     {t:"Nilai",num:1,r:x=>rp0(x.amt)},{t:"Terbuka",num:1,r:x=>`<b>${rp0(x.open)}</b>`},
+     {t:"Umur",num:1,r:x=>daysBetween(x.date,today)+" hari"},{t:"Status",r:x=>bg(x.st)}],rows,{link:1}),
+  after:()=>{bindRows(rows,x=>go(x.go));
+   document.querySelectorAll("[data-r]").forEach(b=>b.onclick=()=>{arRole=b.dataset.r;render()})}}};
+
+S["ar/settlements"]=()=>{
+ const rows=db.settlements.slice().sort((a,b)=>b.date.localeCompare(a.date));
+ return{body:`<div class="note">Kartu dan QRIS: penjualan mengakui piutang acquirer penuh; settlement
+   membawa uang bersih dan MDR jadi beban. Ini inti retail — dan alasan <b>satu</b> akun penjualan cukup.</div>`+
+  T([{t:"Batch",r:s=>`<span class="id">${h(s.id)}</span><div class="sub">${h(s.batch)}</div>`},
+     {t:"Acquirer",r:s=>h(party(s.acquirer).name)},{t:"Tanggal",r:s=>h(fdate(s.date))},
+     {t:"Kotor",num:1,r:s=>rp0(s.gross)},{t:"MDR",num:1,r:s=>rp0(s.mdr)},
+     {t:"Neto diharapkan",num:1,r:s=>`<b>${rp0(s.net)}</b>`},{t:"Status",r:s=>bg(s.status)},
+     {t:"",r:s=>s.status!=="Settled"?`<button class="btn" data-st="${s.id}">Catat settlement</button>`:""}],rows,{link:1}),
+  after:()=>{bindRows(rows,s=>go("#/d/settlement/"+s.id));
+   document.querySelectorAll("[data-st]").forEach(b=>b.onclick=e=>{e.stopPropagation();if(!guard())return;
+     const s=db.settlements.find(x=>x.id===b.dataset.st);
+     const bt=db.bankTxns.find(t=>t.status==="Unmatched"&&t.credit===s.net);
+     recordSettlement(s,bt);save();render();toast("Receipt/BKM dibuat, piutang kartu lunas")})}}};
+
+S["ar/receipts"]=()=>({body:`<div class="note">Objek kanonik uang masuk. Dokumen cetaknya <b>BKM</b>.</div>`+
+ T([{t:"Receipt",r:r=>`<span class="id">${h(r.id)}</span><div class="sub">${h(r.bkm)}</div>`},
+    {t:"Pihak",r:r=>h(party(r.party).name)},{t:"Tanggal",r:r=>h(fdate(r.date))},
+    {t:"Masuk ke",r:r=>h(bankName(r.into))},{t:"Jumlah",num:1,r:r=>`<b>${rp0(r.amount)}</b>`},
+    {t:"Status",r:r=>bg(r.status)}],db.receipts,{link:1,empty:"Belum ada penerimaan dicatat."}),
+ after:()=>bindRows(db.receipts,r=>go("#/d/receipt/"+r.id))});
+
+/* ── INTER-UNIT ────────────────────────── */
+S["iu/transfers"]=()=>{
+ const rows=db.iuts.slice().sort((a,b)=>b.date.localeCompare(a.date));
+ return{filters:`<button class="btn pri" id="newIut">Danai unit</button>`,
+  body:`<div class="note">Satu kiriman, <b>dua pengakuan</b>, dua tanggal. HO mengakui saat mentransfer;
+   unit mengakui saat benar-benar menerima uangnya. Di antara keduanya saldo afiliasi berdiri satu sisi —
+   itulah eksposurnya, bukan akun transit.</div>`+
+  T([{t:"Referensi",r:i=>`<span class="id">${h(i.id)}</span>`},{t:"Dari",r:i=>h(i.from)},
+     {t:"Ke",r:i=>h(unitName(i.to))},{t:"Tujuan",r:i=>h(i.purpose)},{t:"Tanggal",r:i=>h(fdate(i.date))},
+     {t:"BKK",num:1,r:i=>rp0(i.amount)},{t:"BKM",num:1,r:i=>i.status==="Acknowledged"?rp0(i.amount):`<span class="sub">—</span>`},
+     {t:"Status",r:i=>bg(i.status)},
+     {t:"",r:i=>i.status==="Discrepancy"?`<button class="btn" data-cf="${i.id}">Konfirmasi selisih</button>`:""}],rows,{link:1}),
+  after:()=>{bindRows(rows,i=>go("#/d/iut/"+i.id));
+   $("#newIut").onclick=()=>{if(!guard())return;newIut()};
+   document.querySelectorAll("[data-cf]").forEach(b=>b.onclick=e=>{e.stopPropagation();
+     confirmShort(db.iuts.find(i=>i.id===b.dataset.cf))})}}};
+function newIut(){
+ modal({title:"Danai unit",
+  body:fld("iuTo","Unit tujuan",selOf("iuTo",STORES.map(s=>[s.id,s.id+" — "+s.name])))+
+   fld("iuPur","Tujuan",selOf("iuPur",[["Petty Cash","Petty Cash"],["Modal Kasir","Modal Kasir"],["Payroll","Payroll"]]))+
+   fld("iuAmt","Jumlah",`<input id="iuAmt" type="number" step="500000" value="5000000">`)+
+   fld("iuCus","Dibawa oleh",`<input id="iuCus" value="Kepala Toko">`,
+     "Custody dicatat, tapi tidak pernah menulis jurnal."),
+  actions:[{label:"Batal"},{label:"Terbitkan BKK",pri:1,run:m=>{
+    const amt=+$("#iuAmt",m).value;if(!amt){toast("Jumlah belum diisi",1);return false}
+    const i={id:nextId("IUT"),from:"HO",to:$("#iuTo",m).value,nature:"FINANCING",
+      purpose:$("#iuPur",m).value,amount:amt,date:today,status:"Unmatched",
+      custodian:$("#iuCus",m).value,received:null,bkk:nextId("BKK"),bkm:null};
+    db.iuts.push(i);
+    i.jeHO=post("INTERUNIT_SETTLE",i.id,"HO",[["Dr","1501",amt,"kirim ke "+unitName(i.to)],["Cr","1104",amt]],
+      "Pendanaan "+i.purpose+" "+unitName(i.to));
+    db.bankAccounts.find(b=>b.id==="BA-01").balance-=amt;
+    db.bankTxns.push({id:nextId("BTX"),account:"BA-01",date:today,
+      desc:"TRANSFER "+unitName(i.to).toUpperCase(),ref:i.bkk,debit:amt,credit:0,
+      status:"Matched",match:i.id,src:"manual"});
+    aud("iut",i.id,"Diterbitkan","BKK "+i.bkk);save();render();
+    toast("BKK terbit. Unit belum mengakui — afiliasi berdiri satu sisi.")}}]})}
+function confirmShort(i){
+ if(db.role!=="Finance Manager"&&db.role!=="Finance Staff"){toast("Konfirmasi selisih milik Finance HO",1);return}
+ const short=i.amount-i.received;
+ modal({title:"Konfirmasi selisih — "+i.id,
+  body:dl([["Dikirim (BKK)",`<b>${rp(i.amount)}</b>`],["Diterima fisik",rp(i.received)],
+    ["Selisih",`<b style="color:var(--bad)">${rp(short)}</b>`],["Penanggung jawab",h(i.who||"—")]])+
+   `<div class="note" style="margin-top:14px">BKM tetap terbit <b>utuh ${rp(i.amount)}</b>.
+    Tidak ada pengakuan sebagian — selisihnya jadi Piutang Pegawai di dalam BKM yang sama.</div>`,
+  actions:[{label:"Batal"},{label:"Bebankan ke pegawai",pri:1,run:()=>{
+    const acc=i.purpose==="Modal Kasir"?"1103":"1102";
+    i.status="Acknowledged";i.bkm=nextId("BKM");i.resolved=true;
+    i.jeUnit=post("INTERUNIT_SETTLE",i.id,i.to,
+      [["Dr",acc,i.received,"yang benar-benar diterima"],["Dr","1202",short,"tagihan ke "+(i.who||"pegawai")],
+       ["Cr","1501",i.amount,"utuh"]],"Terima "+i.purpose+" dengan selisih");
+    const ca=db.cashAccounts.find(c=>c.unit===i.to&&c.acc===acc);if(ca)ca.balance+=i.received;
+    aud("iut",i.id,"Selisih dibebankan ke pegawai",rp(short));save();render();
+    toast("BKM utuh "+rp(i.amount)+" — selisih jadi Piutang Pegawai")}}]})}
+
+S["iu/matrix"]=()=>{
+ const rows=STORES.map(s=>{
+  const sent=db.iuts.filter(i=>i.to===s.id).reduce((a,i)=>a+i.amount,0);
+  const ack=db.iuts.filter(i=>i.to===s.id&&i.status==="Acknowledged").reduce((a,i)=>a+i.amount,0);
+  const goods=db.salesDays.filter(x=>x.unit===s.id).reduce((a,x)=>a+Math.round(x.net*0.12),0);
+  return{unit:s.id,name:s.name,fin:sent,ack,pending:sent-ack,goods};
+ }).filter(r=>r.fin||r.goods);
+ const tot=rows.reduce((a,r)=>({fin:a.fin+r.fin,pending:a.pending+r.pending,goods:a.goods+r.goods}),{fin:0,pending:0,goods:0});
+ return{body:kpi([[rp(tot.fin),"Saldo Affiliasi Pembiayaan"],[rp(tot.goods),"Saldo Affiliasi Atas Barang"],
+   [rp(tot.pending),"Belum diakui unit","warn"]])+`<div style="height:14px"></div>
+   <div class="note">Satu akun bertanda per nature — HO mendebit, unit mengkredit akun yang sama.
+   Dijumlah lintas 14 unit hasilnya nol saat kedua sisi diakui. Sisa ≠ 0 adalah kiriman yang
+   belum diakui unit penerima, dan itu muncul sebagai temuan saat tutup buku.</div>`+
+  T([{t:"Unit",r:r=>`<b>${h(r.unit)}</b> <span class="sub">${h(r.name)}</span>`},
+     {t:"Pembiayaan — dikirim HO",num:1,r:r=>rp0(r.fin)},
+     {t:"Diakui unit",num:1,r:r=>rp0(r.ack)},
+     {t:"Belum diakui",num:1,r:r=>r.pending?`<b style="color:var(--warn)">${rp0(r.pending)}</b>`:"—"},
+     {t:"Atas barang",num:1,r:r=>rp0(r.goods)},
+     {t:"Status",r:r=>bg(r.pending?"Discrepancy":"Matched")}],rows)}};
+</script>
+<script>
+/* ── ACCOUNTING ────────────────────────── */
+S["acc/journals"]=()=>{
+ const rows=db.journals.slice().sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));
+ return{filters:`<button class="btn" id="newJE">Jurnal manual</button>
+   <span class="sub">Hanya Finance HO, dan tidak bisa menyentuh kas unit.</span>`,
+  body:T([{t:"Jurnal",r:j=>`<span class="id">${h(j.id)}</span>`},{t:"Tanggal",r:j=>h(fdate(j.date))},
+     {t:"Sumber",r:j=>`<span class="b mute">${h(j.kind)}</span> <span class="sub">${h(j.srcId||"")}</span>`},
+     {t:"Unit",r:j=>h(j.unit)},{t:"Keterangan",r:j=>h(j.memo)},
+     {t:"Nilai",num:1,r:j=>rp0(j.total)},{t:"Baris",num:1,r:j=>j.lines.length}],rows,{link:1}),
+  after:()=>{bindRows(rows,j=>go("#/d/je/"+j.id));
+   $("#newJE").onclick=()=>{if(!guard())return;
+    if(!["Finance Manager","Finance Staff","Accounting"].includes(db.role)){toast("Jurnal manual hanya Finance/Accounting HO",1);return}
+    manualJE()}}}};
+function manualJE(){
+ const opts=ACC.filter(a=>!a.custody).map(a=>[a.code,a.code+" · "+a.name]);
+ modal({title:"Jurnal manual",
+  body:`<div class="note" style="margin-bottom:14px">Akun kas unit (CASH ON HAND, PETTY CASH, MODAL KASIR)
+   sengaja tidak ada di daftar ini — kebijakan akunnya AUTO_ONLY, jadi tak seorang pun boleh menjurnalnya.</div>`+
+   fld("jeD","Debit",selOf("jeD",opts))+fld("jeC","Kredit",selOf("jeC",opts,"1104"))+
+   fld("jeA","Jumlah",`<input id="jeA" type="number" step="100000" placeholder="0">`)+
+   fld("jeM","Keterangan",`<input id="jeM" placeholder="alasan penyesuaian">`),
+  actions:[{label:"Batal"},{label:"Posting",pri:1,run:m=>{
+    const a=+$("#jeA",m).value;if(!a){toast("Jumlah belum diisi",1);return false}
+    const id=post("MANUAL","MJ-"+Date.now(),"HO",[["Dr",$("#jeD",m).value,a],["Cr",$("#jeC",m).value,a]],
+      $("#jeM",m).value||"Jurnal manual");
+    aud("je",id,"Diposting manual");save();render();toast("Jurnal "+id+" diposting")}}]})}
+
+S["acc/ledger"]=()=>{
+ const bal={};db.journals.forEach(j=>j.lines.forEach(l=>{
+   bal[l.acc]=bal[l.acc]||{dr:0,cr:0};bal[l.acc][l.side.toLowerCase()]+=l.amt}));
+ const rows=Object.entries(bal).map(([acc,v])=>({acc,name:accName(acc),dr:v.dr,cr:v.cr,net:v.dr-v.cr}))
+  .sort((a,b)=>a.acc.localeCompare(b.acc));
+ const t=rows.reduce((a,r)=>({dr:a.dr+r.dr,cr:a.cr+r.cr}),{dr:0,cr:0});
+ return{body:`<div class="note">Neraca saldo sebelum akun dipilih, buku besar sesudahnya.
+   Total debit dan kredit harus sama — kalau tidak, ada yang salah di mesin posting.</div>`+
+  kpi([[rp(t.dr),"Total debit"],[rp(t.cr),"Total kredit"],
+    [Math.abs(t.dr-t.cr)<2?"Seimbang":"TIDAK SEIMBANG","Kontrol",Math.abs(t.dr-t.cr)<2?"ok":"bad"]])+
+  `<div style="height:14px"></div>`+
+  T([{t:"Akun",r:r=>`<span class="id">${h(r.acc)}</span>`},{t:"Nama",r:r=>h(r.name)},
+     {t:"Debit",num:1,r:r=>rp0(r.dr)},{t:"Kredit",num:1,r:r=>rp0(r.cr)},
+     {t:"Saldo",num:1,r:r=>`<b>${rp(r.net)}</b>`}],rows,{link:1}),
+  after:()=>bindRows(rows,r=>go("#/d/acc/"+r.acc))}};
+
+S["acc/close"]=()=>{
+ const checks=[["Rekonsiliasi bank",db.bankTxns.filter(b=>b.status==="Unmatched").length],
+  ["Hitung kas per unit",db.cashCounts.filter(c=>c.status==="Variance").length],
+  ["Tagihan pemasok terposting",db.bills.filter(b=>b.status==="Draft").length],
+  ["Kiriman antar-unit diakui unit",db.iuts.filter(i=>i.status!=="Acknowledged").length],
+  ["Settlement acquirer dicatat",db.settlements.filter(s=>s.status!=="Settled").length],
+  ["Payroll diposting",db.payroll.paid?0:1],
+  ["Pajak diposting",db.taxes.filter(t=>t.status==="Open").length]];
+ const open=checks.reduce((s,c)=>s+c[1],0);
+ return{body:`<div class="note">Bulan ditutup boleh melewati penghalang — tetapi yang dilewati
+   <b>ikut tercatat</b>. Itu bedanya dengan menutup mata.</div>`+
+  kpi([[db.period,"Periode berjalan"],[open,"Penghalang terbuka",open?"warn":"ok"],
+    [db.periodClosed?"Closed":"Open","Status"]])+`<div style="height:14px"></div>`+
+  T([{t:"Daftar periksa",r:c=>h(c[0])},{t:"Terbuka",num:1,r:c=>c[1]||"—"},
+     {t:"Status",r:c=>bg(c[1]?"Exception":"Reconciled")}],checks)+
+  `<div style="margin-top:14px"><button class="btn pri" id="doClose">${db.periodClosed?"Buka kembali":"Tutup bulan "+db.period}</button></div>`,
+  after:()=>{$("#doClose").onclick=()=>{
+    if(db.role!=="Finance Manager"&&db.role!=="Accounting"){toast("Tutup buku milik Finance Manager / Accounting",1);return}
+    if(db.periodClosed){db.periodClosed=false;aud("period",db.period,"Dibuka kembali");toast("Periode dibuka kembali")}
+    else{db.periodClosed=true;aud("period",db.period,"Ditutup",open?open+" penghalang dilewati":"tanpa penghalang");
+      toast(open?"Ditutup — "+open+" penghalang dilewati dan tercatat":"Ditutup bersih")}
+    save();render()}}}};
+
+S["acc/audit"]=()=>{
+ const rows=db.audit.slice().reverse();
+ return{body:`<div class="note">Setiap tindakan yang mengubah keadaan keuangan tercatat di sini —
+   siapa, kapan, terhadap apa.</div>`+
+  T([{t:"Waktu",r:a=>new Date(a.at).toLocaleString("id-ID")},{t:"Objek",r:a=>`<span class="id">${h(a.obj)}</span>`},
+     {t:"Jenis",r:a=>h(a.type)},{t:"Tindakan",r:a=>`<b>${h(a.action)}</b>`},
+     {t:"Oleh",r:a=>h(a.who)},{t:"Catatan",r:a=>h(a.note)}],rows,{empty:"Belum ada aktivitas."})}};
+
+S["acc/prepaid"]=()=>({body:`<div class="note">Jadwal dua arah: yang dibayar di muka dilepas bertahap,
+ yang belum dibayar diakui lebih dulu.</div>`+T([{t:"Sumber",r:b=>`<span class="id">${h(b.id)}</span>`},
+ {t:"Pemasok",r:b=>h(party(b.supplier).name)},{t:"Nilai",num:1,r:b=>rp0(b.amount)},
+ {t:"Diakui",num:1,r:()=>"—"},{t:"Sisa",num:1,r:b=>rp0(b.amount)}],
+ db.bills.filter(b=>b.klass==="Prepaid"),{empty:"Belum ada jadwal prepaid."})});
+S["acc/adjust"]=()=>({body:`<div class="note">Penyesuaian terkendali: selisih kas, susut persediaan,
+ pembulatan, selisih rekonsiliasi, penghapusan. Wajib beralasan dan disetujui — dan
+ <b>tidak pernah lahir otomatis</b> dari hitungan kas.</div>`+
+ T([{t:"Sumber",r:c=>`<span class="id">${h(c.id)}</span>`},{t:"Unit",r:c=>h(c.unit)},
+    {t:"Jenis",r:()=>"Selisih kas"},{t:"Nilai",num:1,r:c=>rp(c.variance)},
+    {t:"Status",r:c=>bg(c.adjusted?"Adjusted":"Belum")}],
+    db.cashCounts.filter(c=>c.variance),{link:1,empty:"Tidak ada selisih menunggu keputusan."}),
+ after:()=>bindRows(db.cashCounts.filter(c=>c.variance),c=>go("#/d/count/"+c.id))});
+S["acc/opening"]=()=>({body:`<div class="note">Saldo awal 14 unit dipindahkan sebagai dokumen terbuka,
+ bukan satu jurnal gelondongan. Saldo afiliasi masuk per pasangan unit.</div>`+
+ T([{t:"Unit",r:()=>""},{t:"Akun",r:()=>""},{t:"Saldo",num:1,r:()=>""}],[],
+   {empty:"Belum ada saldo awal diimpor di data contoh ini."})});
+
+/* ── DOMAINS ───────────────────────────── */
+S["dom/payroll"]=()=>{
+ const p=db.payroll;
+ return{body:`<div class="note">HR memiliki data pegawai dan perhitungannya. Finance memiliki
+   keadaan keuangan dan eksekusi pembayarannya. Payroll yang disetujui langsung melahirkan
+   <b>Payroll Payable</b> — tanpa payment request.</div>`+
+  kpi([[rp(p.gross),"Gross"],[rp(p.pph),"PPh 21"],[rp(p.net),"Payroll payable"],
+    [rp(p.paid),"Sudah dibayar",p.paid?"ok":"warn"]])+`<div style="height:14px"></div>`+
+  dl([["Periode",h(p.period)],["Sumber",h(p.source)],["Pegawai",p.employees],["Status",bg(p.status)],
+    ["Jurnal akrual",`<span class="id">${h(p.je)}</span>`]])+
+  `<div style="height:16px"></div>`+jeBlock([p.je])+
+  (p.paid?"":`<div style="margin-top:14px"><button class="btn pri" id="payPR">Masukkan ke payment run</button></div>`),
+  after:()=>{const b=$("#payPR");if(b)b.onclick=()=>go("#/ap/runs")}}};
+
+S["dom/assets"]=()=>({body:kpi([[rp(db.assets.reduce((s,a)=>s+a.cost,0)),"Harga perolehan"],
+  [rp(db.assets.reduce((s,a)=>s+a.accum,0)),"Akumulasi penyusutan"],
+  [rp(db.assets.reduce((s,a)=>s+a.nbv,0)),"Nilai buku"]])+`<div style="height:14px"></div>`+
+ T([{t:"Aset",r:a=>`<span class="id">${h(a.id)}</span><div class="sub">${h(a.name)}</div>`},
+    {t:"Unit",r:a=>h(a.unit)},{t:"Custody",r:a=>h(a.custodian)},{t:"Perolehan",r:a=>h(fdate(a.date))},
+    {t:"Umur",num:1,r:a=>a.life+" thn"},{t:"Harga",num:1,r:a=>rp0(a.cost)},
+    {t:"Akumulasi",num:1,r:a=>rp0(a.accum)},{t:"Nilai buku",num:1,r:a=>`<b>${rp0(a.nbv)}</b>`}],db.assets)});
+S["dom/depr"]=()=>({body:`<div class="note">Jadwal tersimpan, satu jurnal per baris. Akun diambil dari
+ kelas aset — bukan dari kode yang ditulis di dalam program.</div>`+
+ T([{t:"Aset",r:a=>h(a.name)},{t:"Per bulan",num:1,r:a=>rp0(Math.round(a.cost/(a.life*12)))},
+    {t:"Sudah disusutkan",num:1,r:a=>rp0(a.accum)},{t:"Sisa",num:1,r:a=>rp0(a.nbv)}],db.assets)});
+S["dom/stock"]=()=>({body:T([{t:"Unit",r:u=>h(u.name)},{t:"Persediaan",num:1,r:u=>rp0(u.v)},
+  {t:"BDP",num:1,r:u=>rp0(u.t)}],STORES.map((s,i)=>({name:s.name,v:420_000_000+i*17_500_000,t:i<4?38_000_000:0})))});
+S["dom/tax"]=()=>({body:T([{t:"Jenis",r:t=>`<b>${h(t.type)}</b>`},{t:"Periode",r:t=>h(t.period)},
+  {t:"Terutang",num:1,r:t=>rp0(t.payable)},{t:"Kredit",num:1,r:t=>rp0(t.credit)},
+  {t:"Neto",num:1,r:t=>`<b>${rp0(t.net)}</b>`},{t:"Jatuh tempo",r:t=>h(fdate(t.due))},
+  {t:"Status",r:t=>bg(t.status)}],db.taxes)});
+S["dom/financing"]=()=>({body:T([{t:"Pinjaman",r:l=>`<span class="id">${h(l.id)}</span>`},
+  {t:"Pemberi",r:l=>h(party(l.lender).name)},{t:"Pokok",num:1,r:l=>rp0(l.principal)},
+  {t:"Sisa",num:1,r:l=>`<b>${rp0(l.outstanding)}</b>`},{t:"Bunga",num:1,r:l=>l.rate+"%"},
+  {t:"Angsuran",num:1,r:l=>rp0(l.installment)},{t:"Berikutnya",r:l=>h(fdate(l.next))}],db.loans)});
+
+/* ── SETUP & REPORTS ───────────────────── */
+S["set/coa"]=()=>({body:`<div class="note">Bagan turunan klien, 144 akun. Kolom <b>kebijakan</b>
+ menentukan siapa boleh menulis akun itu — bukan sekadar aktif/tidak aktif.</div>`+
+ T([{t:"Kode",r:a=>`<span class="id">${h(a.code)}</span>`},{t:"Nama",r:a=>h(a.name)},
+    {t:"Akar",r:a=>a.root},{t:"Custody",r:a=>a.custody?`<span class="b ${a.custody==="UNIT"?"new":"info"}">${h(a.custody)}</span>`:"—"},
+    {t:"Kebijakan",r:a=>a.custody?bg("Matched")&&`<span class="b ok">otomatis penuh</span>`:
+      (a.root>=6?`<span class="b warn">jurnal manual</span>`:`<span class="b info">mesin + koreksi</span>`)}],ACC)});
+S["set/map"]=()=>({body:`<div class="note">Inilah yang membuat janji <i>"pengguna tak pernah memilih akun"</i>
+ bisa ditepati: arti × unit × qualifier → kode akun. Arti yang belum dipetakan <b>menolak posting</b>.</div>`+
+ T([{t:"Arti",r:m=>`<span class="id">${h(m[0])}</span>`},{t:"Akun",r:m=>h(m[1])+" · "+h(accName(m[1]))},
+    {t:"Berlaku",r:()=>"14 unit"}],
+   [["cash","1101"],["petty_cash","1102"],["cashier_float","1103"],["bank_giro","1104"],
+    ["trade_payable","2101"],["vat_in","1404"],["inventory","1301"],["cogs","5101"],
+    ["revenue_cash","4101"],["card_receivable","1201"],["card_fee","6202"],
+    ["affiliate_financing","1501"],["affiliate_goods","1502"],["payroll_payable","2301"]])});
+S["set/rules"]=()=>({body:`<div class="note">Kernel kontrol posting: tiap akun menyatakan siapa boleh
+ menulisnya, dan dokumen mana yang boleh menyentuhnya.</div>`+
+ T([{t:"Akun",r:r=>h(r[0])},{t:"Mode",r:r=>`<span class="b ${r[2]}">${h(r[1])}</span>`},{t:"Dokumen yang diizinkan",r:r=>h(r[3])}],
+   [["1101 CASH ON HAND","AUTO_ONLY / NO","ok","SALE_DAY · CASH_SHIFT · STORE_DEPOSIT · CASH_COUNT"],
+    ["1102 PETTY CASH","AUTO_ONLY / NO","ok","INTERUNIT_SETTLE · STORE_EXPENSE · CASH_COUNT"],
+    ["1103 MODAL KASIR","AUTO_ONLY / NO","ok","INTERUNIT_SETTLE · OPENING · CASH_COUNT"],
+    ["1501 Saldo Affiliasi","AUTO_ONLY / OVERRIDE","ok","INTERUNIT_SETTLE · OPENING · koreksi"],
+    ["1104 Bank - Giro","SEMI_AUTO / OVERRIDE","info","PAYMENT · TRANSFER · BANK_STATEMENT · koreksi"],
+    ["6301 Biaya Kebersihan","MANUAL / YES","warn","bebas — Finance HO boleh menjurnal"]])});
+S["set/terms"]=()=>({body:T([{t:"Pemasok",r:p=>h(p.name)},{t:"Termin",num:1,r:p=>p.terms+" hari"},
+  {t:"Rekening",r:p=>h(p.bank||"—")}],suppliers())});
+S["set/settings"]=()=>({body:dl([["Batas belanja toko tanpa izin HO","Rp 500.000"],
+  ["Peran yang boleh menjurnal manual","Finance Staff · Finance Manager · Accounting — hanya di HO"],
+  ["Peran yang menyetujui payment run","Finance Manager"],
+  ["Unit akuntansi","HO + C001…C013 · DC masuk ke HO"],
+  ["Akun transit","tidak dipakai — selisih waktu hidup di saldo afiliasi"],
+  ["API bank","tidak ada — mutasi masuk lewat impor atau entri manual"]])});
+S["rep/statements"]=()=>{
+ const bal={};db.journals.forEach(j=>j.lines.forEach(l=>{
+  bal[l.acc]=(bal[l.acc]||0)+(l.side==="Dr"?l.amt:-l.amt)}));
+ const sec=(r)=>Object.entries(bal).filter(([a])=>a[0]===r)
+   .map(([a,v])=>({a,n:accName(a),v})).sort((x,y)=>x.a.localeCompare(y.a));
+ const sum=r=>sec(r).reduce((s,x)=>s+x.v,0);
+ const rev=-sum("4"), cogs=sum("5"), opex=sum("6")+sum("7"), other=sum("8");
+ return{body:`<div class="grid g2">
+  <div class="card"><h3>Laba rugi — ${h(db.period)}</h3>`+
+   [["Penjualan bersih",rev],["Harga pokok",-cogs],["Laba kotor",rev-cogs],
+    ["Beban usaha",-opex],["Pendapatan/beban lain",-other],["Laba sebelum pajak",rev-cogs-opex-other]]
+   .map(([k,v],i)=>`<div style="display:flex;justify-content:space-between;padding:5px 0;
+     border-bottom:1px solid var(--line2);${i%3===2?"font-weight:600":""}">
+     <span>${h(k)}</span><span class="num">${rp(v)}</span></div>`).join("")+`</div>
+  <div class="card"><h3>Neraca — posisi</h3>`+
+   [["Aset",sum("1")],["Kewajiban",-sum("2")],["Ekuitas + laba berjalan",-sum("3")+(rev-cogs-opex-other)]]
+   .map(([k,v])=>`<div style="display:flex;justify-content:space-between;padding:5px 0;
+     border-bottom:1px solid var(--line2)"><span>${h(k)}</span><span class="num">${rp(v)}</span></div>`).join("")+
+   `<p class="sub" style="margin-top:10px">Angka diturunkan dari jurnal yang benar-benar diposting
+    di prototipe ini — bukan angka hias.</p></div></div>`}};
+</script>
+<script>
+/* ═══════════════ 9. DETAIL PAGES ═══════════════ */
+let curTab=0;
+const DET={};
+
+DET.bill=id=>{const b=db.bills.find(x=>x.id===id);if(!b)return null;
+ const pays=db.payments.filter(p=>p.alloc.some(a=>a.bill===b.id));
+ const btx=pays.map(p=>p.bankTxn).filter(Boolean);
+ return{title:b.id,sub:party(b.supplier).name+" · "+b.no,status:b.status,amount:b.amount,
+  hero:[["Pemasok",h(party(b.supplier).name)],["No. faktur",h(b.no)],["Tanggal",h(fdate(b.date))],
+   ["Jatuh tempo",h(fdate(b.due))+" ("+b.terms+" hari)"],["Unit",h(unitName(b.unit))],
+   ["Klasifikasi",h(b.klass)],["Sudah dibayar",rp(b.paid)],["Sisa",`<b>${rp(b.amount-b.paid)}</b>`],
+   b.disputed?["Sengketa",h(b.disputed)]:null],
+  chain:[{t:"Faktur "+b.no},{t:b.id,now:1},...pays.map(p=>({t:p.id,go:"#/d/payment/"+p.id})),
+   ...btx.map(t=>({t,go:"#/cash/txns"})),...(b.je?[{t:b.je,go:"#/d/je/"+b.je}]:[])],
+  truth:{Source:{v:"Faktur pemasok "+h(b.no)+(b.grFrom?" + penerimaan barang "+h(b.grFrom):""),b:"Matched"},
+   Business:{v:"Kita berutang "+rp(b.amount-b.paid)+" kepada "+h(party(b.supplier).name),b:b.status},
+   Process:{v:pays.length?pays.map(p=>p.id+" — "+p.status).join(", "):"Belum ada pembayaran",
+    b:pays.length?pays[0].status:"Draft"},
+   Bank:{v:btx.length?"Mutasi "+btx.join(", ")+" sudah cocok":"Belum ada mutasi bank yang mencocokkan",
+    b:btx.length?"Matched":"Unmatched"},
+   Ledger:b.je?{v:"Jurnal "+b.je+" dan "+pays.filter(p=>p.je).length+" jurnal pembayaran",b:"Matched"}:null},
+  jes:[b.je,...pays.map(p=>p.je)],
+  related:[...pays.map(p=>["Payment",p.id,"#/d/payment/"+p.id,rp(p.amount),p.status])],
+  actions:billActions(b)}};
+function billActions(b){
+ const A=[];
+ if(b.status==="Draft"){A.push({label:"Setujui",pri:1,run:()=>{b.status="Open";
+   const debit=b.klass==="Inventory"?"1301":"6309";
+   b.je=post("GOODS_RECEIPT",b.id,b.unit,[["Dr",debit,b.net],["Dr","1404",b.tax],["Cr","2101",b.amount]],
+     "Tagihan "+b.no);aud("bill",b.id,"Disetujui & diposting");toast("Tagihan terbuka")}});
+  A.push({label:"Hapus draft",danger:1,run:()=>{db.bills=db.bills.filter(x=>x.id!==b.id);
+   aud("bill",b.id,"Draft dihapus");go("#/ap/bills");toast("Draft dihapus")}})}
+ if(["Open","Overdue","Partially Paid"].includes(b.status)){
+  A.push({label:"Bayar sekarang",pri:1,run:()=>payBill(b)});
+  A.push({label:"Catat sengketa",run:()=>{b.status="Disputed";b.disputed="Ditandai "+fdate(today);
+   aud("bill",b.id,"Disengketakan");toast("Ditandai sengketa")}})}
+ if(b.je)A.push({label:"Hapus",danger:1,run:()=>{
+  modal({title:"Tidak bisa dihapus",body:`<p>Tagihan <b>${h(b.id)}</b> sudah menghasilkan jurnal
+   <b>${h(b.je)}</b>. Catatan akuntansi yang sudah diposting tidak pernah dihapus keras.</p>
+   <p class="sub">Yang tersedia: <b>Pembalikan</b> — jurnal balik yang tetap menunjuk aslinya.</p>`,
+   actions:[{label:"Tutup"},{label:"Balikkan jurnal",danger:1,pri:1,run:()=>{
+     const r=reverseJE(b.je,"pembatalan tagihan");b.status="Cancelled";
+     aud("bill",b.id,"Dibalikkan",r);save();render();toast("Jurnal dibalik — "+r)}}]});
+  return "stay"}});
+ return A}
+function payBill(b){
+ modal({title:"Bayar tagihan — "+b.id,
+  body:dl([["Pemasok",h(party(b.supplier).name)],["Sisa",`<b>${rp(b.amount-b.paid)}</b>`]])+
+   `<div style="height:12px"></div>`+
+   fld("pyAcc","Dibayar dari",selOf("pyAcc",db.bankAccounts.map(x=>[x.id,x.name+" — "+rp(x.balance)])))+
+   fld("pyAmt","Jumlah",`<input id="pyAmt" type="number" value="${b.amount-b.paid}" step="100000">`)+
+   `<div class="note">Tidak ada API bank. Menekan tombol ini mencatat bahwa <b>Anda</b> yang melakukan
+    transfernya. Tagihan jadi <i>In Payment</i> — dan baru <i>Paid</i> setelah mutasi bank cocok.</div>`,
+  actions:[{label:"Batal"},{label:"Catat pembayaran",pri:1,run:m=>{
+    const amt=+$("#pyAmt",m).value;if(!amt)return false;
+    const p=createPayment(b,amt,$("#pyAcc",m).value);p.status="Awaiting Settlement";
+    save();render();toast("Payment "+p.id+" dicatat — tagihan In Payment, belum Paid")}}]})}
+
+DET.payment=id=>{const p=db.payments.find(x=>x.id===id);if(!p)return null;
+ const bills=p.alloc.map(a=>db.bills.find(b=>b.id===a.bill)).filter(Boolean);
+ const bt=p.bankTxn?db.bankTxns.find(b=>b.id===p.bankTxn):null;
+ return{title:p.id,sub:party(p.party).name+" · BKK "+p.bkk,status:p.status,amount:p.amount,
+  hero:[["Pihak",h(party(p.party).name)],["Peran",h(p.role)],["BKK",h(p.bkk)],
+   ["Tanggal",h(fdate(p.date))],["Dibayar dari",h(bankName(p.account))],["Metode",h(p.method)],
+   p.run?["Payment run",h(p.run)]:null,["Sumber",h(p.source)+" "+h(p.sourceId)]],
+  chain:[...bills.map(b=>({t:b.id,go:"#/d/bill/"+b.id})),{t:p.id,now:1},
+   ...(bt?[{t:bt.id,go:"#/cash/txns"}]:[]),...(p.je?[{t:p.je,go:"#/d/je/"+p.je}]:[])],
+  truth:{Source:{v:bills.length?"Tagihan "+bills.map(b=>b.no).join(", "):h(p.source),b:"Matched"},
+   Business:{v:bills.length?"Utang "+rp(p.amount)+" kepada "+h(party(p.party).name):"Kewajiban "+h(p.source),
+    b:bills[0]?bills[0].status:"Open"},
+   Process:{v:"Payment "+p.id+" — "+p.status,b:p.status},
+   Bank:bt?{v:"Mutasi "+bt.id+" · "+fdate(bt.date)+" · "+rp(bt.debit||bt.credit),b:"Matched"}
+    :{v:"Belum ada mutasi bank. Transfer dilakukan manual lewat internet banking.",b:"Unmatched"},
+   Ledger:p.je?{v:"Jurnal "+p.je,b:"Matched"}:null},
+  jes:[p.je],related:bills.map(b=>["Bill",b.id,"#/d/bill/"+b.id,rp(b.amount),b.status]),
+  actions:[
+   ...(p.status==="Awaiting Settlement"?[{label:"Cocokkan mutasi bank",pri:1,run:()=>go("#/cash/recon")}]:[]),
+   {label:"Hapus",danger:1,run:()=>{modal({title:"Tidak bisa dihapus",
+    body:`<p>Payment <b>${h(p.id)}</b> sudah diposting${p.je?" sebagai jurnal <b>"+h(p.je)+"</b>":""}.
+     Sistem menolak penghapusan keras atas catatan keuangan yang sudah diposting.</p>
+     <p class="sub">Yang tersedia: <b>Pembalikan</b>, yang tetap menyimpan rujukan ke transaksi asli.</p>`,
+    actions:[{label:"Tutup"},{label:"Balikkan",danger:1,pri:1,run:()=>{
+      const r=reverseJE(p.je,"pembatalan pembayaran");p.status="Cancelled";
+      p.alloc.forEach(a=>{const b=db.bills.find(x=>x.id===a.bill);if(b){b.inPay=0;b.status="Open"}});
+      aud("payment",p.id,"Dibalikkan",r);save();render();toast("Dibalik — "+r)}}]});return "stay"}}]}};
+
+DET.sales=id=>{const s=db.salesDays.find(x=>x.id===id);if(!s)return null;
+ const cc=db.cashCounts.find(c=>c.unit===s.unit&&c.kind==="CASH ON HAND");
+ return{title:s.id,sub:unitName(s.unit)+" · "+fdate(s.date),status:s.recon,amount:s.net,
+  hero:[["Unit",h(unitName(s.unit))],["Tanggal",h(fdate(s.date))],["Struk",s.txns],
+   ["Kotor",rp(s.gross)],["Diskon",rp(s.disc)],["Retur",rp(s.ret)],["Bersih",`<b>${rp(s.net)}</b>`],
+   ["Tunai",rp(s.cash)],["Kartu & QRIS",rp(s.debit+s.credit+s.qris)]],
+  chain:[{t:"Struk POS"},{t:s.id,now:1},...(cc?[{t:cc.id,go:"#/d/count/"+cc.id}]:[]),
+   ...(s.je?[{t:s.je,go:"#/d/je/"+s.je}]:[]),...(s.jeCogs?[{t:s.jeCogs,go:"#/d/je/"+s.jeCogs}]:[])],
+  truth:{Source:{v:s.txns+" struk POS yang COMPLETED pada "+fdate(s.date),b:"Matched"},
+   Business:{v:"Penjualan bersih "+rp(s.net)+"; piutang kartu "+rp(s.debit+s.credit+s.qris),b:s.status},
+   Process:{v:"Hari dagang ditutup dan diposting",b:s.status},
+   Physical:cc?{v:"Hitungan kas "+cc.id+": fisik "+rp(cc.actual)+", selisih "+rp(cc.variance),
+     b:cc.status}:null,
+   Bank:{v:"Setoran ke bank dan settlement acquirer dicocokkan terpisah",b:"Unmatched"},
+   Ledger:s.je?{v:"Jurnal penjualan "+s.je+" dan HPP "+s.jeCogs,b:"Matched"}:null},
+  jes:[s.je,s.jeCogs],related:cc?[["Cash count",cc.id,"#/d/count/"+cc.id,rp(cc.actual),cc.status]]:[],
+  actions:[{label:"Koreksi terkendali",run:()=>toast("Penjualan POS yang sudah diposting tidak diedit — hanya dikoreksi lewat dokumen terpisah")}]}};
+
+DET.count=id=>{const c=db.cashCounts.find(x=>x.id===id);if(!c)return null;
+ return{title:c.id,sub:unitName(c.unit)+" · "+c.kind,status:c.status,amount:c.actual,
+  hero:[["Unit",h(unitName(c.unit))],["Pot",h(c.kind)],["Tanggal",h(fdate(c.date))],
+   ["Penghitung",h(c.counter)],["Saksi",h(c.witness)],["Menurut buku",rp(c.expected)],
+   ["Fisik",rp(c.actual)],["Selisih",`<b style="color:var(--${c.variance<0?"bad":c.variance>0?"ok":"ink"})">${rp(c.variance)}</b>`]],
+  chain:[{t:"Berita acara"},{t:c.id,now:1},{t:c.adjusted?"Penyesuaian disetujui":"Belum ada jurnal"}],
+  truth:{Source:{v:"Berita acara hitung kas, dihitung "+h(c.counter)+", disaksikan "+h(c.witness),b:"Matched"},
+   Business:{v:c.variance?"Selisih "+rp(c.variance)+" belum jadi klaim terhadap siapa pun":"Tidak ada selisih",
+    b:c.variance?"Exception":"Reconciled"},
+   Process:{v:"Penghitungan dicatat"+(c.adjusted?"; penyesuaian disetujui":"; belum ada keputusan"),b:c.status},
+   Physical:{v:"Fisik "+rp(c.actual)+" versus buku "+rp(c.expected),b:c.variance?"Variance":"Confirmed"},
+   Ledger:c.adjusted?{v:"Penyesuaian diposting",b:"Matched"}:null},
+  jes:[],related:[],
+  note:`<div class="note"><b>Hitung kas tidak menghasilkan jurnal.</b> Ia bukti, bukan keputusan.
+   Selisih baru masuk buku lewat dokumen penyesuaian tersendiri yang disetujui — bukan otomatis.</div>`,
+  actions:c.variance&&!c.adjusted?[{label:"Ajukan penyesuaian",pri:1,run:()=>{
+    if(!["Finance Manager","Accounting"].includes(db.role)){toast("Penyesuaian disetujui Finance Manager / Accounting",1);return"stay"}
+    const amt=Math.abs(c.variance);
+    c.adjusted=true;c.status="Adjusted";
+    c.je=post("ADJUSTMENT",c.id,c.unit,c.variance<0
+      ?[["Dr","8106",amt,"selisih kas kurang"],["Cr",c.acc,amt]]
+      :[["Dr",c.acc,amt],["Cr","8105",amt,"selisih kas lebih"]],"Penyesuaian selisih kas "+c.id);
+    const ca=db.cashAccounts.find(x=>x.unit===c.unit&&x.acc===c.acc);if(ca)ca.balance=c.actual;
+    aud("count",c.id,"Penyesuaian disetujui & diposting",rp(c.variance));
+    save();render();toast("Penyesuaian diposting — ini keputusan terpisah, bukan akibat otomatis")}}]:[]}};
+
+DET.iut=id=>{const i=db.iuts.find(x=>x.id===id);if(!i)return null;
+ return{title:i.id,sub:unitName(i.from)+" → "+unitName(i.to)+" · "+i.purpose,status:i.status,amount:i.amount,
+  hero:[["Dari",h(unitName(i.from))],["Ke",h(unitName(i.to))],["Tujuan",h(i.purpose)],
+   ["Tanggal",h(fdate(i.date))],["BKK",h(i.bkk)],["BKM",h(i.bkm||"—")],
+   ["Dibawa oleh",h(i.custodian)],["Diterima fisik",i.received==null?"—":rp(i.received)]],
+  chain:[{t:"BKK "+i.bkk},{t:i.id,now:1},{t:i.bkm?"BKM "+i.bkm:"BKM belum terbit"},
+   ...(i.jeHO?[{t:i.jeHO,go:"#/d/je/"+i.jeHO}]:[]),...(i.jeUnit?[{t:i.jeUnit,go:"#/d/je/"+i.jeUnit}]:[])],
+  truth:{Source:{v:"Instruksi pendanaan HO, BKK "+h(i.bkk),b:"Matched"},
+   Business:{v:"Saldo Affiliasi Pembiayaan "+rp(i.amount)+" antara HO dan "+h(unitName(i.to)),
+    b:i.status==="Acknowledged"?"Matched":"Unmatched"},
+   Process:{v:"HO sudah mentransfer pada "+fdate(i.date),b:"Executed"},
+   Receiving:i.status==="Acknowledged"
+    ?{v:"Unit mengakui menerima "+rp(i.received)+(i.resolved?" — selisih dibebankan ke pegawai":""),b:"Acknowledged"}
+    :i.status==="Discrepancy"
+     ?{v:"Unit melaporkan fisik hanya "+rp(i.received)+" — menunggu konfirmasi HO",b:"Discrepancy"}
+     :{v:"Unit belum mengakui. Saldo afiliasi berdiri satu sisi — inilah eksposurnya.",b:"Unmatched"},
+   Bank:{v:"Mutasi keluar dari BCA Giro tercatat",b:"Matched"},
+   Ledger:{v:i.jeUnit?"Dua sisi lengkap: "+i.jeHO+" dan "+i.jeUnit:"Baru sisi HO: "+i.jeHO,
+    b:i.jeUnit?"Matched":"Partially Matched"}},
+  jes:[i.jeHO,i.jeUnit],related:[],
+  note:i.status!=="Acknowledged"?`<div class="note">Total BKM <b>harus sama</b> dengan total BKK.
+   Tidak ada pengakuan sebagian — kalau fisiknya kurang, selisihnya jadi Piutang Pegawai di dalam
+   BKM yang sama setelah HO mengkonfirmasi.</div>`:"",
+  actions:i.status==="Discrepancy"?[{label:"Konfirmasi & bebankan",pri:1,run:()=>{confirmShort(i);return"stay"}}]
+   :i.status==="Unmatched"?[{label:"Terima (sisi unit)",pri:1,run:()=>{db.store=i.to;receiveIut(i);return"stay"}}]:[]}};
+
+DET.exp=id=>{const e=db.expenses.find(x=>x.id===id);if(!e)return null;
+ return{title:e.id,sub:unitName(e.unit)+" · "+e.cat,status:e.status,amount:e.amount,
+  hero:[["Unit",h(unitName(e.unit))],["Tanggal",h(fdate(e.date))],["Kategori",h(e.cat)],
+   ["Keterangan",h(e.memo)],["Dibuat oleh",h(e.by)]],
+  chain:[{t:"Nota + foto"},{t:e.id,now:1},...(e.je?[{t:e.je,go:"#/d/je/"+e.je}]:[])],
+  truth:{Source:{v:"Nota pengeluaran + foto bukti",b:"Matched"},
+   Business:{v:"Beban "+h(e.cat)+" "+rp(e.amount)+" di "+h(unitName(e.unit)),b:e.status},
+   Process:{v:e.status==="Draft"?"Menunggu persetujuan HO":"Disetujui dan dibayar dari petty cash",b:e.status},
+   Ledger:e.je?{v:"Jurnal "+e.je,b:"Matched"}:null},
+  jes:[e.je],related:[],actions:[]}};
+
+DET.run=id=>{const r=db.runs.find(x=>x.id===id);if(!r)return null;
+ const pays=db.payments.filter(p=>p.run===r.id);
+ return{title:r.id,sub:"Payment run · "+fdate(r.date),status:r.status,amount:r.total,
+  hero:[["Tanggal",h(fdate(r.date))],["Rekening pembayar",h(bankName(r.account))],
+   ["Kewajiban",r.items.length],["Total",`<b>${rp(r.total)}</b>`],
+   ["Jurnal run","tidak ada — run tidak memposting"]],
+  chain:[{t:r.id,now:1},...pays.map(p=>({t:p.id,go:"#/d/payment/"+p.id}))],
+  truth:{Source:{v:r.items.length+" kewajiban terbuka yang dipilih",b:"Matched"},
+   Business:{v:"Kewajiban senilai "+rp(r.total),b:"Open"},
+   Process:{v:"Run "+r.status+(pays.length?" — "+pays.length+" Payment dibuat":""),b:r.status},
+   Ledger:{v:"Run sendiri nol jurnal. Jurnal lahir dari Payment yang dihasilkannya.",b:"Matched"}},
+  jes:pays.map(p=>p.je),
+  related:[...r.items.map(i=>[i.kind,i.id,i.kind==="Bill"?"#/d/bill/"+i.id:"#",rp(i.amt),""]),
+   ...pays.map(p=>["Payment",p.id,"#/d/payment/"+p.id,rp(p.amount),p.status])],
+  actions:r.status==="Prepared"?[{label:"Setujui",pri:1,run:()=>{
+    if(db.role!=="Finance Manager"){toast("Hanya Finance Manager",1);return"stay"}
+    r.status="Approved";aud("run",r.id,"Disetujui");toast("Disetujui")}}]
+   :r.status==="Approved"?[{label:"Eksekusi",pri:1,run:()=>{execRun(r);return"stay"}}]:[]}};
+
+DET.transfer=id=>{const t=db.transfers.find(x=>x.id===id);if(!t)return null;
+ return{title:t.id,sub:bankName(t.from)+" → "+bankName(t.to),status:t.status,amount:t.amount,
+  hero:[["Dari",h(bankName(t.from))],["Ke",h(bankName(t.to))],["Tanggal",h(fdate(t.date))],
+   ["Party","tidak berlaku — uang perusahaan sendiri"]],
+  chain:[{t:t.id,now:1},...(t.je?[{t:t.je,go:"#/d/je/"+t.je}]:[])],
+  truth:{Source:{v:"Instruksi transfer internal",b:"Matched"},
+   Business:{v:"Tidak ada pendapatan atau beban — uang berpindah tempat",b:"Matched"},
+   Process:{v:"Transfer "+t.status,b:t.status},
+   Bank:{v:"Dua mutasi: keluar dari "+bankName(t.from)+", masuk ke "+bankName(t.to),b:"Matched"},
+   Ledger:{v:"Jurnal "+t.je,b:"Matched"}},
+  jes:[t.je],related:[],actions:[]}};
+
+DET.settlement=id=>{const s=db.settlements.find(x=>x.id===id);if(!s)return null;
+ const r=db.receipts.find(x=>x.sourceId===s.id);
+ return{title:s.id,sub:party(s.acquirer).name+" · "+s.batch,status:s.status,amount:s.net,
+  hero:[["Acquirer",h(party(s.acquirer).name)],["Batch",h(s.batch)],["Tanggal",h(fdate(s.date))],
+   ["Kotor",rp(s.gross)],["MDR",rp(s.mdr)],["Neto",`<b>${rp(s.net)}</b>`]],
+  chain:[{t:"Batch EDC"},{t:"Piutang kartu"},{t:s.id,now:1},
+   ...(r?[{t:r.id,go:"#/d/receipt/"+r.id}]:[]),...(r&&r.je?[{t:r.je,go:"#/d/je/"+r.je}]:[])],
+  truth:{Source:{v:"Batch settlement "+h(s.batch)+" dari "+h(party(s.acquirer).name),b:"Matched"},
+   Business:{v:h(party(s.acquirer).name)+" berutang "+rp(s.gross)+" ke kita; neto diharapkan "+rp(s.net),
+    b:s.status},
+   Process:{v:r?"Receipt "+r.id+" dicatat":"Belum ada penerimaan dicatat",b:r?"Settled":"Awaiting Settlement"},
+   Bank:{v:r&&r.bankTxn?"Mutasi "+r.bankTxn+" cocok":"Belum ada mutasi masuk yang cocok",
+    b:r&&r.bankTxn?"Matched":"Unmatched"},
+   Ledger:r?{v:"Jurnal "+r.je+" — bank naik, MDR jadi beban, piutang kartu lunas",b:"Matched"}:null},
+  jes:r?[r.je]:[],related:r?[["Receipt",r.id,"#/d/receipt/"+r.id,rp(r.amount),r.status]]:[],
+  actions:s.status!=="Settled"?[{label:"Catat settlement",pri:1,run:()=>{
+    const bt=db.bankTxns.find(t=>t.status==="Unmatched"&&t.credit===s.net);
+    recordSettlement(s,bt);toast("Receipt dibuat — piutang kartu lunas")}}]:[]}};
+
+DET.receipt=id=>{const r=db.receipts.find(x=>x.id===id);if(!r)return null;
+ return{title:r.id,sub:party(r.party).name+" · BKM "+r.bkm,status:r.status,amount:r.amount,
+  hero:[["Pihak",h(party(r.party).name)],["BKM",h(r.bkm)],["Tanggal",h(fdate(r.date))],
+   ["Masuk ke",h(bankName(r.into))],["Sumber",h(r.source)+" "+h(r.sourceId)]],
+  chain:[{t:r.sourceId,go:"#/d/settlement/"+r.sourceId},{t:r.id,now:1},
+   ...(r.bankTxn?[{t:r.bankTxn,go:"#/cash/txns"}]:[]),...(r.je?[{t:r.je,go:"#/d/je/"+r.je}]:[])],
+  truth:{Source:{v:h(r.source)+" "+h(r.sourceId),b:"Matched"},
+   Business:{v:"Piutang "+rp(r.amount)+" tertagih",b:"Settled"},
+   Process:{v:"Receipt "+r.status,b:r.status},
+   Bank:r.bankTxn?{v:"Mutasi "+r.bankTxn+" cocok",b:"Matched"}:{v:"Belum cocok",b:"Unmatched"},
+   Ledger:{v:"Jurnal "+r.je,b:"Matched"}},
+  jes:[r.je],related:[],actions:[]}};
+
+DET.je=id=>{const j=db.journals.find(x=>x.id===id);if(!j)return null;
+ return{title:j.id,sub:j.kind+" · "+fdate(j.date),status:j.reversalOf?"Reversal":"Posted",amount:j.total,
+  hero:[["Sumber",h(j.kind)+" "+h(j.srcId||"")],["Unit",h(unitName(j.unit))],
+   ["Tanggal",h(fdate(j.date))],["Keterangan",h(j.memo)],j.reversalOf?["Membalik",h(j.reversalOf)]:null],
+  chain:[{t:j.srcId||j.kind},{t:j.id,now:1}],
+  truth:{Ledger:{v:j.lines.length+" baris, total "+rp(j.total),b:"Matched"}},
+  jes:[j.id],related:[],
+  actions:[{label:"Hapus",danger:1,run:()=>{modal({title:"Tidak bisa dihapus",
+   body:`<p>Jurnal <b>${h(j.id)}</b> sudah diposting. Catatan akuntansi tidak pernah dihapus keras —
+    itu aturan, bukan pilihan.</p><p class="sub">Yang tersedia: pembalikan, yang tetap menunjuk aslinya.</p>`,
+   actions:[{label:"Tutup"},{label:"Balikkan",danger:1,pri:1,run:()=>{
+     const r=reverseJE(j.id,"koreksi");aud("je",j.id,"Dibalikkan",r);save();go("#/d/je/"+r);
+     toast("Jurnal balik "+r+" dibuat")}}]});return"stay"}}]}};
+
+DET.acc=code=>{const lines=[];
+ db.journals.forEach(j=>j.lines.filter(l=>l.acc===code).forEach(l=>lines.push({j,l})));
+ const dr=lines.filter(x=>x.l.side==="Dr").reduce((s,x)=>s+x.l.amt,0);
+ const cr=lines.filter(x=>x.l.side==="Cr").reduce((s,x)=>s+x.l.amt,0);
+ return{title:code,sub:accName(code),status:"Posted",amount:dr-cr,
+  hero:[["Akun",h(code)+" · "+h(accName(code))],["Debit",rp(dr)],["Kredit",rp(cr)],
+   ["Saldo",`<b>${rp(dr-cr)}</b>`],["Baris",lines.length]],
+  chain:[{t:code,now:1}],truth:{Ledger:{v:lines.length+" baris jurnal menyentuh akun ini",b:"Matched"}},
+  jes:[],related:[],
+  extra:T([{t:"Jurnal",r:x=>`<span class="id">${h(x.j.id)}</span>`},{t:"Tanggal",r:x=>h(fdate(x.j.date))},
+    {t:"Sumber",r:x=>h(x.j.kind)+" "+h(x.j.srcId||"")},{t:"Unit",r:x=>h(x.l.unit)},
+    {t:"Debit",num:1,r:x=>x.l.side==="Dr"?rp0(x.l.amt):"—"},
+    {t:"Kredit",num:1,r:x=>x.l.side==="Cr"?rp0(x.l.amt):"—"}],lines),
+  extraRows:lines,extraGo:x=>go("#/d/je/"+x.j.id),actions:[]}};
+</script>
+<script>
+/* ═══════════════ 10. RENDER ═══════════════ */
+let route={kind:"screen",path:"store/sales"};
+function go(hash){location.hash=hash.replace(/^#/,"")?hash:"#/store/sales"}
+function parse(){
+ const raw=(location.hash||"#/store/sales").replace(/^#\/?/,"");
+ const p=raw.split("/");
+ if(p[0]==="d")return{kind:"detail",type:p[1],id:p.slice(2).join("/")};
+ return{kind:"screen",path:p.slice(0,2).join("/")||"store/sales"};
+}
+function sidebar(){
+ const cur=route.kind==="screen"?route.path:"";
+ return `<div class="brand"><h1>Finance</h1><p>Prototipe · 1 HO · 13 toko · 1 DC</p>
+  <select class="roleSel" id="roleSel">`+ROLES.map(r=>
+   `<option ${r===db.role?"selected":""}>${h(r)}</option>`).join("")+`</select></div>`+
+ NAV.map(([g,items])=>`<div class="navgrp"><h2>${h(g)}</h2>`+items.map(([p,l,cnt])=>{
+   const n=cnt?cnt():0;
+   return `<a class="navlink ${p===cur?"on":""}" href="#/${p}">${h(l)}${n?`<span class="n">${n}</span>`:""}</a>`;
+ }).join("")+`</div>`).join("");
+}
+function topbar(extra){
+ const t=route.kind==="screen"?(TITLES[route.path]||["","?"]):["Dokumen",route.id];
+ return `<div class="crumb">Finance<span>›</span>${h(t[0])}<span>›</span><b>${h(t[1])}</b></div>
+  <div class="spacer"></div>${extra||""}
+  <button class="btn" id="btnReset">Muat ulang data contoh</button>`;
+}
+function renderScreen(){
+ const f=S[route.path];
+ if(!f){$("#page").innerHTML=`<div class="ph"><div><h2>${h((TITLES[route.path]||["","Layar"])[1])}</h2>
+   <p>Layar ini ada di peta menu tetapi belum diisi di prototipe. Yang sudah dalam adalah
+   alur uang inti: tagihan, pembayaran, bank, kas toko, antar-unit, dan buku besar.</p></div></div>`;
+  $("#top").innerHTML=topbar();return}
+ const v=f();
+ const t=TITLES[route.path];
+ $("#page").innerHTML=`<div class="ph"><div><h2>${h(t[1])}</h2></div></div>
+  ${v.filters?`<div class="filters">${v.filters}</div>`:""}${v.body}`;
+ $("#top").innerHTML=topbar();
+ if(v.after)v.after();
+}
+function renderDetail(){
+ const f=DET[route.type];const v=f?f(route.id):null;
+ if(!v){$("#page").innerHTML=`<div class="empty">Dokumen tidak ditemukan.</div>`;$("#top").innerHTML=topbar();return}
+ const tabs=["Ringkasan","Truth trace","Akuntansi","Terkait","Audit"];
+ if(curTab>=tabs.length)curTab=0;
+ const body=()=>{
+  if(curTab===0)return (v.note||"")+`<div class="card">${dl(v.hero)}</div>`+
+    `<div style="height:14px"></div><div class="card"><h3>Rantai dokumen</h3>${chain(v.chain||[])}</div>`+
+    (v.extra?`<div style="height:14px"></div>${v.extra}`:"");
+  if(curTab===1)return truth(v.truth||{});
+  if(curTab===2)return jeBlock(v.jes||[]);
+  if(curTab===3)return (v.related&&v.related.length)
+    ?T([{t:"Jenis",r:r=>h(r[0])},{t:"Dokumen",r:r=>`<span class="id">${h(r[1])}</span>`},
+        {t:"Nilai",num:1,r:r=>h(r[3])},{t:"Status",r:r=>r[4]?bg(r[4]):"—"}],v.related,{link:1})
+    :`<div class="empty" style="border:1px solid var(--line);border-radius:10px">Tidak ada dokumen terkait.</div>`;
+  return auditBlock(route.id);
+ };
+ $("#page").innerHTML=`<div class="hero"><div>
+   <div style="font:600 13px var(--mono)">${h(v.title)}</div>
+   <div style="font-size:16px;margin-top:2px">${h(v.sub)}</div>
+   <div style="margin-top:8px">${bg(v.status)}</div></div>
+   <div class="amt"><div class="v">${rp(v.amount||0)}</div><div class="l">nilai dokumen</div></div></div>
+  <div class="tabs">${tabs.map((t,i)=>`<div class="tab ${i===curTab?"on":""}" data-t="${i}">${h(t)}</div>`).join("")}</div>
+  <div id="tabBody">${body()}</div>`;
+ $("#top").innerHTML=topbar((v.actions||[]).map((a,i)=>
+   `<button class="btn ${a.pri?"pri":""} ${a.danger?"danger":""}" data-act="${i}">${h(a.label)}</button>`).join(""));
+ document.querySelectorAll("[data-t]").forEach(x=>x.onclick=()=>{curTab=+x.dataset.t;
+   $("#tabBody").innerHTML=body();bindChain();
+   if(curTab===3&&v.related&&v.related.length)bindRows(v.related,r=>r[2]!=="#"&&go(r[2]));
+   if(curTab===0&&v.extraRows)bindRows(v.extraRows,v.extraGo)});
+ document.querySelectorAll("[data-act]").forEach(x=>x.onclick=()=>{
+   if(!guard())return;
+   const a=v.actions[+x.dataset.act];const r=a.run&&a.run();
+   if(r!=="stay"){save();render()}});
+ bindChain();
+ if(v.extraRows)bindRows(v.extraRows,v.extraGo);
+}
+function render(){
+ route=parse();
+ $("#side").innerHTML=sidebar();
+ if(route.kind==="detail")renderDetail();else renderScreen();
+ const rs=$("#roleSel");if(rs)rs.onchange=()=>{db.role=rs.value;save();render();
+   toast("Peran: "+db.role+(db.role==="Auditor / Read Only"?" — hanya membaca":""))};
+ const br=$("#btnReset");if(br)br.onclick=()=>{
+   modal({title:"Muat ulang data contoh",body:`<p>Seluruh perubahan yang Anda buat di prototipe ini
+    akan hilang dan data contoh dikembalikan ke keadaan awal.</p>`,
+    actions:[{label:"Batal"},{label:"Muat ulang",danger:1,pri:1,run:()=>reset()}]})};
+ document.querySelectorAll(".navlink").forEach(a=>a.onclick=()=>{curTab=0});
+}
+window.addEventListener("hashchange",()=>{curTab=0;render()});
+load();
+if(!location.hash)location.hash="#/store/sales";
+render();
+</script>
+</body></html>

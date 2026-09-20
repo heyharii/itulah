@@ -28,6 +28,7 @@ import { CataloguePicker } from "@/screens/procurement/pick-items"
 import {
   GRID_CELL,
   GRID_HEAD,
+  nextPoNumber,
   useIdempotencyKey,
 } from "@/screens/procurement/shared"
 import type {
@@ -180,36 +181,6 @@ const CELL = "border-l border-hairline p-0 align-middle first:border-l-0"
 /// focus colours, which the cell is already drawing.
 const BOX =
   "min-h-9 w-full rounded-none border-transparent bg-transparent px-3 hover:border-transparent hover:bg-transparent has-[input:focus-visible]:border-transparent has-[input:focus-visible]:bg-transparent"
-
-/// The next number in the series, from the orders already raised.
-///
-/// `PO-20260904-2217` is the shape the book is written in: the day it was
-/// raised, then a counter that does not restart. So the counter is the largest
-/// tail anybody has used plus one — read from the order list rather than
-/// invented, because a number that collides is refused by a UNIQUE constraint
-/// and the buyer is the one who has to guess again.
-///
-/// It is a suggestion, not an allocation. Nothing reserves it, two people
-/// composing at once are offered the same one, and the second to press Create
-/// PO is told the number is taken. That is the honest failure for a book with
-/// no server-side counter behind it — and the reason a refused order refetches
-/// the book: the next press is offered a number that is free, without asking
-/// a buyer to invent one.
-function nextPoNumber(existing: readonly { po_number: string }[]): string {
-  const highest = existing.reduce((top, order) => {
-    const tail = /-(\d+)$/.exec(order.po_number)
-    if (tail === null) return top
-    const seen = Number.parseInt(tail[1], 10)
-    return Number.isFinite(seen) && seen > top ? seen : top
-  }, 0)
-  const today = new Date()
-  const stamp = [
-    today.getFullYear(),
-    String(today.getMonth() + 1).padStart(2, "0"),
-    String(today.getDate()).padStart(2, "0"),
-  ].join("")
-  return `PO-${stamp}-${String(highest + 1).padStart(4, "0")}`
-}
 
 /// Whole rupiah or pieces, falling back to what the catalogue said when what
 /// is typed is not a number. A blank box is somebody mid-edit, not an order

@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query"
 import { Check as CheckIcon, ChevronDown, X } from "lucide-react"
 import { useMemo, useState } from "react"
 
+import { Button } from "@/components/ui/button"
 import { Day } from "@/components/ui/day"
 import { Input, Select } from "@/components/ui/field"
 import { Meter } from "@/components/ui/meter"
@@ -13,6 +14,7 @@ import { financeKeys, searchAccounts } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
 import { cn } from "@/lib/utils"
 import {
+  useLineCategories,
   useLocations,
   useMeaningLabel,
   useSiteName,
@@ -21,6 +23,7 @@ import {
   type AsOf,
   type DateWindow,
 } from "@/screens/finance/hooks"
+import type { LineCategory } from "@/lib/queries/finance"
 import type { LedgerAccount, Supplier } from "@itulah/contract"
 
 /// The chrome finance needs that `components/ui` does not carry, kept inside
@@ -38,9 +41,17 @@ import type { LedgerAccount, Supplier } from "@itulah/contract"
 /// module boundary.
 ///
 /// Everything else here is bound to a finance endpoint and belongs nowhere
-/// else. `<AccountPicker>`, `<LocationSelect>` and `<SiteName>` each fetch a
-/// specific URL, and a shared component that fetches a specific URL is a
-/// shared component with a module hidden inside it.
+/// else. `<AccountPicker>`, `<CategoryPicker>`, `<LocationSelect>` and
+/// `<SiteName>` each fetch a specific URL, and a shared component that fetches
+/// a specific URL is a shared component with a module hidden inside it.
+///
+/// `<AccountAndCategory>` is the one to reach for in a form. Since the chart
+/// collapsed to forty accounts, choosing an account is two answers rather than
+/// one — the account, and the category its family demands — and which second
+/// box to draw, or whether to draw one at all, is decided by the first answer.
+/// Six screens deciding that for themselves would be six chances to decide it
+/// differently. `<AccountPicker>` on its own is right only where nothing is
+/// being posted: a report's filter, or the account a bank statement *is*.
 ///
 /// The hooks those three call — and the module's date vocabulary,
 /// `useAsOf` and `useWindow` — live in `hooks.ts` rather than here. Not
@@ -552,6 +563,18 @@ export function WindowControl({ range }: { range: DateWindow }) {
 /// are the client's own Indonesian and are never translated — an accountant is
 /// looking for "Piutang Affiliasi Pembiayaan CIKUPA", and anything else is a
 /// different account as far as they are concerned.
+/// What choosing an account hands back.
+///
+/// `category_family` travels with the code because it is not a property of the
+/// screen, it is a property of the account: 6301 takes an `expense_category`
+/// and 1102 takes nothing, and a caller that stored only the code would have
+/// to ask a second time to find out which.
+export interface PickedAccount {
+  readonly account_code: string
+  readonly name: string
+  readonly category_family: string | null
+}
+
 export function AccountPicker({
   onPick,
   seed = "",
@@ -572,7 +595,7 @@ export function AccountPicker({
   /// what stops anybody having to meet that refusal.
   accept,
 }: {
-  onPick: (account: { account_code: string; name: string }) => void
+  onPick: (account: PickedAccount) => void
   seed?: string
   placeholder?: string
   allowGroups?: boolean
@@ -630,6 +653,7 @@ export function AccountPicker({
                         onPick({
                           account_code: account.account_code,
                           name: account.name,
+                          category_family: account.category_family,
                         })
                       }
                       className="flex w-full items-center gap-2 border-b border-hairline px-3 py-2 text-left transition-colors last:border-b-0 hover:bg-soft disabled:cursor-not-allowed disabled:opacity-55"
@@ -649,6 +673,322 @@ export function AccountPicker({
               ),
           })}
         </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Categories — the second half of choosing an account
+// ---------------------------------------------------------------------------
+
+/// Choose the category the account's family asks for.
+///
+/// Never rendered on its own: a category without an account is a word with no
+/// sentence around it, and the family it belongs to is the account's to
+/// declare. `<AccountAndCategory>` below is the control; this is its second
+/// box.
+///
+/// Names are the client's own Indonesian and are never translated — an
+/// accountant is looking for "Biaya Pemakaian Listrik", and an English
+/// rendering is a different line as far as they are concerned. `name_en`,
+/// where the chart carries one, stays in `title` beside the code, which is
+/// where the id of everything else in this module lives too.
+///
+/// # Why it searches rather than dropping down
+///
+/// Because `expense_category` has 51 values and is the box a person will use
+/// most — it is what 6101, 6301 and 6401 all take, which is every cost this
+/// client has. A native select of 51 Indonesian names is a scroll, and the
+/// codes are `UPPER_SNAKE` slugs of the client's own account names, so
+/// somebody who half-remembers "listrik" can type it and find
+/// `BIAYA_PEMAKAIAN_LISTRIK` without knowing the slug. The small families —
+/// `item_class` has two — lose nothing by using the same control, and a
+/// second control for them would be a second answer to "what does choosing
+/// look like".
+///
+/// # Why retired categories are not offered
+///
+/// That is the opposite of `<AccountPicker>`'s rule and the difference is
+/// real: a retired *account* is one somebody is holding a piece of paper for
+/// and has to be told about, and these lists are two to fifty-one words long,
+/// so an option that can only be refused is noise rather than an answer. One
+/// already chosen is still shown — losing somebody's answer because the list
+/// moved under them is worse than an option that is no longer offered.
+export function CategoryPicker({
+  family,
+  value,
+  onPick,
+  placeholder = "Which category",
+  className,
+  label,
+}: {
+  /// The family the chosen account declares. Never `null` here — the caller
+  /// does not render this box at all for an account that takes no category.
+  family: string
+  /// The chosen `category_code`, or `""`.
+  value: string
+  onPick: (categoryCode: string | null) => void
+  placeholder?: string
+  className?: string
+  label?: string
+}) {
+  const categories = useLineCategories(family)
+  const [query, setQuery] = useState("")
+  const [open, setOpen] = useState(false)
+
+  const offered = useMemo(
+    () =>
+      categories.rows.filter(
+        (one) => one.is_active || one.category_code === value
+      ),
+    [categories.rows, value]
+  )
+
+  // Name and code both: the accountant reads the name and the person who set
+  // the map quotes the code.
+  const rows = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+    if (needle === "") return offered
+    return offered.filter(
+      (one) =>
+        one.name.toLowerCase().includes(needle) ||
+        one.category_code.toLowerCase().includes(needle)
+    )
+  }, [offered, query])
+
+  const chosen = offered.find((one) => one.category_code === value) ?? null
+
+  return (
+    <Combobox.Root
+      items={rows as LineCategory[]}
+      filter={null}
+      value={chosen}
+      onValueChange={(next) => {
+        const category = next as LineCategory | null
+        onPick(category === null ? null : category.category_code)
+        setQuery("")
+      }}
+      inputValue={open ? query : (chosen?.name ?? "")}
+      onInputValueChange={(next) => open && setQuery(next)}
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next)
+        if (next) setQuery("")
+      }}
+      itemToStringLabel={(one) => (one ? (one as LineCategory).name : "")}
+      modal={false}
+    >
+      <Combobox.InputGroup className={cn(PICKER_FIELD, className)}>
+        <Combobox.Input
+          aria-label={label}
+          placeholder={
+            categories.isPending ? "Reading the categories…" : placeholder
+          }
+          className="min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-mute"
+        />
+        {chosen !== null && (
+          <button
+            type="button"
+            aria-label="Clear"
+            className="shrink-0 rounded-full p-0.5 text-line-ico hover:bg-soft-3 hover:text-ink"
+            onClick={(event) => {
+              event.stopPropagation()
+              onPick(null)
+            }}
+          >
+            <X className="size-3" />
+          </button>
+        )}
+        <Combobox.Trigger
+          aria-label="Open"
+          className="shrink-0 text-line-ico hover:text-ink"
+        >
+          <ChevronDown className="size-3.5" />
+        </Combobox.Trigger>
+      </Combobox.InputGroup>
+
+      <Combobox.Portal>
+        <Combobox.Positioner
+          side="bottom"
+          align="start"
+          sideOffset={6}
+          className="z-50 w-[var(--anchor-width)] min-w-[16rem]"
+        >
+          <Combobox.Popup className={cn(POPUP, "w-full")}>
+            <Combobox.List>
+              <Combobox.Empty className="px-2.5 py-3 text-center text-meta text-mute">
+                {categories.isPending
+                  ? "Reading the categories…"
+                  : categories.isError
+                    ? "The categories could not be read."
+                    : `No category in ${family} matches.`}
+              </Combobox.Empty>
+              {rows.map((one) => (
+                <Combobox.Item
+                  key={one.category_code}
+                  value={one}
+                  title={
+                    one.name_en === null || one.name_en === undefined
+                      ? one.category_code
+                      : `${one.category_code} · ${one.name_en}`
+                  }
+                  className={cn(ITEM, "gap-2")}
+                >
+                  <Tag>{one.category_code}</Tag>
+                  <span className="min-w-0 flex-1 truncate text-ink">
+                    {one.name}
+                  </span>
+                  {one.category_code === value && (
+                    <CheckIcon className="size-3.5 shrink-0 text-line-ico" />
+                  )}
+                </Combobox.Item>
+              ))}
+            </Combobox.List>
+          </Combobox.Popup>
+        </Combobox.Positioner>
+      </Combobox.Portal>
+    </Combobox.Root>
+  )
+}
+
+/// An account, and the category that account's family asks for.
+///
+/// The chart collapsed from 190 postable accounts to 40, and everything that
+/// used to tell two of them apart — which bank, which rack, PPh 21 or PPh 23,
+/// electricity or water — became a category on the line. So picking an account
+/// is now two answers where it used to be one, and the second one is not
+/// optional: `assert_category_matches_account` refuses a line whose account
+/// declares a family and whose category is missing, and refuses a line whose
+/// account declares none and whose category is set.
+///
+/// # Why this is one control and not two beside each other
+///
+/// Because which second box to draw — and whether to draw one at all — is
+/// decided by the *first* answer, and five screens each deciding that for
+/// themselves is five chances to decide it differently. Choosing 1102 Bank
+/// shows no category box at all, because a bank line's identity is the bank
+/// account it already names; choosing 6301 shows forty-eight expense
+/// categories and will not let go until one is picked. Neither is the screen's
+/// judgement to make.
+///
+/// # What a caller still owns
+///
+/// Whether the answer is usable. `accountChoiceReady` is the whole of it, and
+/// the caller decides what an unfinished answer means: a journal row with no
+/// category is one somebody has not finished, a bill line with none is a line
+/// the server will refuse. Nothing here disables anybody's button.
+export interface AccountChoice {
+  readonly account_code: string
+  readonly name: string
+  /// What the account declares, carried so the caller does not have to look it
+  /// up again to know whether a category is owed.
+  readonly category_family: string | null
+  readonly category_code: string | null
+}
+
+/// An account is chosen and, if its family asks for one, so is a category.
+///
+/// The one rule, written once. `null` — nothing chosen at all — is not ready
+/// either, which is what every caller means by it.
+export function accountChoiceReady(
+  choice: AccountChoice | null | undefined
+): boolean {
+  if (choice === null || choice === undefined) return false
+  if (choice.account_code === "") return false
+  return choice.category_family === null || choice.category_code !== null
+}
+
+/// What is missing from a choice, in the caller's own sentence — or `null`
+/// when nothing is.
+///
+/// Separate from `accountChoiceReady` because a disabled button and an
+/// explanation are different jobs: the button asks a yes/no question, and the
+/// person looking at a greyed-out "Post entry" needs the sentence.
+export function accountChoiceProblem(
+  choice: AccountChoice | null | undefined
+): string | null {
+  if (choice === null || choice === undefined || choice.account_code === "")
+    return "No account chosen."
+  if (choice.category_family !== null && choice.category_code === null)
+    return "This account needs a category."
+  return null
+}
+
+export function AccountAndCategory({
+  value,
+  onChange,
+  seed,
+  placeholder,
+  allowGroups,
+  accept,
+  /// What the category box is called to a screen reader, when the visible
+  /// label is a table header rather than a `<Field>`.
+  categoryLabel = "Category",
+  /// Drawn under the category box when the account asks for one and none has
+  /// been chosen. Off by default: a table of six journal rows does not want
+  /// six copies of the same sentence, and the composer says it once at the
+  /// bottom instead.
+  explain = false,
+}: {
+  value: AccountChoice | null
+  onChange: (next: AccountChoice | null) => void
+  seed?: string
+  placeholder?: string
+  allowGroups?: boolean
+  accept?: (account: LedgerAccount) => string | null
+  categoryLabel?: string
+  explain?: boolean
+}) {
+  if (value === null || value.account_code === "") {
+    return (
+      <AccountPicker
+        seed={seed}
+        placeholder={placeholder}
+        allowGroups={allowGroups}
+        accept={accept}
+        onPick={(account) =>
+          onChange({
+            account_code: account.account_code,
+            name: account.name,
+            category_family: account.category_family,
+            // Never carried across from whatever was chosen before: a
+            // category belongs to a family, and a new account may not be in
+            // the same one.
+            category_code: null,
+          })
+        }
+      />
+    )
+  }
+
+  return (
+    <div className="flex min-w-0 flex-col gap-1.5">
+      <span className="flex min-w-0 items-center gap-2">
+        <Tag>{value.account_code}</Tag>
+        <span className="min-w-0 flex-1 truncate text-[0.78125rem] text-ink">
+          {value.name}
+        </span>
+        <Button size="sm" variant="quiet" onClick={() => onChange(null)}>
+          Change
+        </Button>
+      </span>
+
+      {value.category_family !== null && (
+        <>
+          <CategoryPicker
+            family={value.category_family}
+            value={value.category_code ?? ""}
+            label={categoryLabel}
+            onPick={(code) => onChange({ ...value, category_code: code })}
+          />
+          {explain && value.category_code === null && (
+            <span className="text-[0.71875rem] text-warn-fg">
+              {value.account_code} is one line of the statement; the category is
+              what it was for. The database refuses the entry without it.
+            </span>
+          )}
+        </>
       )}
     </div>
   )

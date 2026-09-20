@@ -384,6 +384,16 @@ pub async fn redeem_points_to_voucher(
         .execute(&mut *tx)
         .await?;
 
+    // No journal, deliberately, and the reason is a chart question rather than
+    // an oversight: the client keeps a loyalty obligation on `66 Hutang
+    // Lain-lain`, and 0264 left that account unresolved in the forty-account
+    // shape — "it needs its own decision". Booking the promise to a
+    // related-party payable would put a shopper's points among money owed to a
+    // related company, wrong in a way that still balances, which is the kind
+    // that survives a year. So points move in `points_ledger` and the voucher
+    // they become is booked where every other voucher is; the deferred-revenue
+    // side waits for the account, exactly as 0297 said it would.
+
     tx.commit().await?;
     Ok(json!({
         "redemption_id": redemption_id,

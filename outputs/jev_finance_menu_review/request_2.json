@@ -1,0 +1,61 @@
+{
+  "model":"jev-latest",
+  "state":{
+    "objective":"Resolve ambiguous navigation details for a concrete compact Finance menu in frontend-hub.",
+    "fixed_context":[
+      "One PT Perorangan; all units are sites of the same entity.",
+      "HO centrally controls Finance and every company bank account.",
+      "Units cannot access bank accounts, select GL accounts, make manual journals, or transact unit-to-unit.",
+      "Unit operational cash tasks live in Operations/Store; Finance receives their evidence and exceptions.",
+      "Supplier master and PO live in GA/Procurement; physical asset register lives in GA; employee/payroll inputs live in HR; inventory quantities and movements live in Inventory; selling terms live in Commercial.",
+      "Finance owns AP validation, Treasury/payment execution, settlement and bank reconciliation, asset accounting, tax, GL, close and financial reporting.",
+      "System/subledger posting is the default. Manual journals are exceptional and restricted.",
+      "The first Jev pass selected a hybrid compact HO Finance model with 95% confidence, role-specific overview with 100%, role-filtered navigation with 100%, one Reports screen with 100%, restricted COA with 99%, restricted posting rules with 98%, dedicated Tax for Finance roles with 97%, and restricted Financing with 99%.",
+      "Current active Finance has 14 rows: Overview; Supplier bills; Payments; Cash & bank; Charges without a sale; Assets; Journal; Reports; Ledger; Chart of accounts; Line categories; Account map; Giro printing; Period close.",
+      "Target should minimize search and cognitive load while preserving distinct jobs and segregation of duties."
+    ],
+    "candidate_final_menu":{
+      "work":["Overview","Accounts payable","Payments","Cash & bank","Asset accounting","Manual journals"],
+      "books":["Reports","Ledger"],
+      "controls":["Tax","Financing","Period close"],
+      "setup_restricted":["Chart of accounts","Posting rules"]
+    },
+    "inside_screen_views":{
+      "Accounts payable":["Bills/invoices","Matching","Aging","Advances related to suppliers"],
+      "Payments":["Payment instructions","Approval status","Bank release status","Giro print action"],
+      "Cash & bank":["Cash status","Bank accounts","Statements/transactions","Bank reconciliation","Charges without a sale"],
+      "Asset accounting":["Assessment/capitalization","Depreciation","Impairment","Disposal accounting"],
+      "Reports":["Trial balance","Profit & loss","Balance sheet","Cash flow","AP/AR aging"],
+      "Posting rules":["Account map","Line categories","Unmapped meanings"],
+      "Period close":["Readiness checklist","Subledger certifications","Close controls","Approval","Close/reopen actions"]
+    }
+  },
+  "questions":{
+    "accept_candidate_shape":{"type":"choice","instructions":"Is the proposed 13-row role-filtered Finance menu an appropriate final base?","criteria":{"yes":"It matches the stated ownership, system-posting model, and cognitive-load goal.","no":"A materially different top-level structure is required."}},
+    "ap_not_bills":{"type":"choice","instructions":"Should the current Supplier bills row be renamed Accounts payable and contain bills, matching and aging as views?","criteria":{"yes":"Use Accounts payable as the work domain and keep bill details inside it.","no":"Keep Supplier bills as the top-level name."}},
+    "payment_instruction_nested":{"type":"choice","instructions":"Should Payment instruction be a view/queue inside Payments rather than a separate sidebar row?","criteria":{"yes":"It is a stage of controlled Treasury execution.","no":"It needs a separate persistent destination."}},
+    "giro_config_nested":{"type":"choice","instructions":"Should giro layout configuration live as a restricted Bank Account setting while printing is an action on an approved payment?","criteria":{"yes":"Separate configuration from transaction action and remove the Giro printing sidebar row.","no":"Keep Giro printing as a persistent sidebar row."}},
+    "cash_bank_one_row":{"type":"choice","instructions":"Should Cash & bank remain one sidebar row with nested views instead of six persistent rows?","criteria":{"yes":"The views share a money/reconciliation workspace and role filtering can hide unauthorized bank actions.","no":"Cash, cash count, banks, accounts, transactions and reconciliation require separate rows."}},
+    "cash_status_in_finance":{"type":"choice","instructions":"Should Cash & bank in HO Finance show read-only unit cash status and exceptions while cash recording remains in Operations/Store?","criteria":{"yes":"Finance needs oversight and reconciliation without duplicating unit data entry.","no":"Remove all unit-cash information from Finance."}},
+    "bank_accounts_as_view":{"type":"choice","instructions":"Should Bank Accounts be a restricted view/settings area inside Cash & bank rather than a sidebar item?","criteria":{"yes":"It is infrequent master maintenance within the bank workspace.","no":"It needs a top-level persistent menu."}},
+    "unmatched_nested":{"type":"choice","instructions":"Should Charges without a sale move from a dedicated row into Cash & bank exceptions and Finance Overview alerts?","criteria":{"yes":"It is an exception queue within settlement/bank reconciliation.","no":"Keep it as a permanent top-level item."}},
+    "asset_accounting_row":{"type":"choice","instructions":"Should Finance rename Assets to Asset accounting, while GA owns the physical register and custody?","criteria":{"yes":"The label makes Finance's scope explicit.","no":"Finance should retain a generic Assets row."}},
+    "manual_journal_row":{"type":"choice","instructions":"Should an authorized General Accounting user have a persistent Manual journals row?","criteria":{"yes":"Exception journals are a distinct controlled job and need a visible queue/history.","no":"Journal creation should exist only as an action within Ledger."}},
+    "manual_label":{"type":"choice","instructions":"For that restricted screen, should the label explicitly be Manual journals rather than Journal?","criteria":{"yes":"It distinguishes exceptional human entries from system-generated postings.","no":"The shorter Journal label is clearer enough."}},
+    "reports_and_ledger_separate":{"type":"choice","instructions":"Should Reports and Ledger remain two separate sidebar rows?","criteria":{"yes":"Statements/aging and account-entry investigation are distinct user jobs.","no":"Combine them into a single screen."}},
+    "trial_balance_reports":{"type":"choice","instructions":"Should Trial Balance be a view under Reports instead of the default Ledger view?","criteria":{"yes":"It is a period/report balance view.","no":"It should be the default unfiltered Ledger view."}},
+    "sales_register_crosslink":{"type":"choice","instructions":"Should Sales Register be owned by Sales/Commercial while Finance Reports provides an authorized cross-link/read view rather than a separate duplicate implementation?","criteria":{"yes":"One source and two authorized entry points avoid duplicate logic.","no":"Finance should maintain a separate sales-register implementation."}},
+    "coa_row":{"type":"choice","instructions":"Should Chart of accounts remain a restricted Finance sidebar row for General Accounting/Finance Manager roles?","criteria":{"yes":"Natural-account governance is an infrequent but real accounting responsibility.","no":"Hide it entirely from navigation."}},
+    "posting_rules_merge":{"type":"choice","instructions":"Should Line categories and Account map be merged into one restricted Posting rules screen?","criteria":{"yes":"They jointly translate business meaning into governed ledger posting and unmapped exceptions.","no":"They require separate persistent rows."}},
+    "tax_row":{"type":"choice","instructions":"Should Tax remain a role-visible Finance row rather than only a checklist inside Period close?","criteria":{"yes":"Obligations, filings and reconciliation form an ongoing workflow.","no":"The current volume is adequately served inside Reports and Period close."}},
+    "prepaids_nested":{"type":"choice","instructions":"Should Prepaids & accruals be a view/work queue within Accounts payable and Period close, with individual schedules opened as records rather than a sidebar row?","criteria":{"yes":"This preserves the schedule subledger without adding persistent navigation.","no":"It needs its own top-level workspace."}},
+    "advances_nested":{"type":"choice","instructions":"Should advances be views within AP or AR based on party/purpose, with aging and settlement, rather than one generic top-level Advances row?","criteria":{"yes":"The owning obligation/receivable workflow provides the correct context.","no":"All advances need one top-level menu."}},
+    "financing_row":{"type":"choice","instructions":"Should Financing be a restricted row with separate Bank loans and Owner capital/drawings views?","criteria":{"yes":"Both are infrequent but distinct from routine payments and manual journals.","no":"They should be handled only through Payments or Journal."}},
+    "one_period_close":{"type":"choice","instructions":"Should readiness, controls, certification, approval, and close/reopen actions be combined into one Period close workspace?","criteria":{"yes":"They are stages of one controlled close process.","no":"Controls & close and Period close require separate rows."}},
+    "payroll_linked_views":{"type":"choice","instructions":"Should payroll inputs and calculation remain in People while Finance sees linked payroll payable, payment and accounting reconciliation views?","criteria":{"yes":"This follows process ownership and segregation of duties.","no":"Move the full payroll workflow into Finance."}},
+    "inventory_linked_review":{"type":"choice","instructions":"Should inventory valuation and movement stay in Inventory while Finance Overview/Period close links to exceptions and accounting review?","criteria":{"yes":"Inventory owns operations; Finance owns accounting certification.","no":"Duplicate Inventory Accounting as a complete Finance menu."}},
+    "unit_no_finance_nav":{"type":"choice","instructions":"Should ordinary unit users have no central Finance sidebar and instead see their cash, deposit, petty-cash and sales-reconciliation tasks in Operations/Store?","criteria":{"yes":"Role ownership and bank restrictions remain clear.","no":"Units require a Store section inside Finance."}},
+    "auditor_readonly_same_screens":{"type":"choice","instructions":"Should auditors use the same authorized Finance screens in read-only mode instead of a separate auditor menu tree?","criteria":{"yes":"The same records and evidence should be inspected without alternate navigation logic.","no":"Build a distinct Finance navigation tree for auditors."}},
+    "role_based_count":{"type":"choice","instructions":"What persistent row count should be targeted for a normal Finance role after role filtering?","criteria":{"six_to_eight":"6-8 rows, with specialized controls visible only when assigned.","nine_to_eleven":"9-11 rows.","twelve_to_thirteen":"All 12-13 proposed rows for every Finance role."}}
+  }
+}

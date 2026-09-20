@@ -1,0 +1,965 @@
+{
+ "categories": {
+  "ASURANSI_BAYAR_DIMUKA": {
+   "family": "prepaid_kind",
+   "name": "Asuransi Bayar Dimuka"
+  },
+  "SEWA_TANAH_BAYAR_DIMUKA": {
+   "family": "prepaid_kind",
+   "name": "Sewa Tanah Bayar Dimuka"
+  },
+  "SEWA_TOKO_BAYAR_DIMUKA": {
+   "family": "prepaid_kind",
+   "name": "Sewa Toko Bayar Dimuka"
+  },
+  "SEWA_RUMAH_BAYAR_DIMUKA": {
+   "family": "prepaid_kind",
+   "name": "Sewa Rumah Bayar Dimuka"
+  },
+  "KONTRAK_MAINTENANCE_BAYAR_DIMUKA": {
+   "family": "prepaid_kind",
+   "name": "Kontrak Maintenance Bayar Dimuka"
+  },
+  "SEWA_KENDARAAN_BAYAR_DIMUKA": {
+   "family": "prepaid_kind",
+   "name": "Sewa Kendaraan Bayar Dimuka"
+  },
+  "BIAYA_PROMOSI_BAYAR_DIMUKA": {
+   "family": "prepaid_kind",
+   "name": "Biaya Promosi Bayar Dimuka"
+  },
+  "BIAYA_IJIN_USAHA_BAYAR_DIMUKA": {
+   "family": "prepaid_kind",
+   "name": "Biaya Ijin Usaha Bayar Dimuka"
+  },
+  "BIAYA_BAYAR_DIMUKA_LAIN_LAIN": {
+   "family": "prepaid_kind",
+   "name": "Biaya Bayar Dimuka Lain Lain"
+  },
+  "ADVANCED_TRAVELLING": {
+   "family": "advance_purpose",
+   "name": "Advanced - Travelling"
+  },
+  "ADVANCED_PURCHASE": {
+   "family": "advance_purpose",
+   "name": "Advanced  - Purchase"
+  },
+  "ADVANCED_TO_CONTRACTORS": {
+   "family": "advance_purpose",
+   "name": "Advanced  - To Contractors"
+  },
+  "ADVANCED_OTHERS": {
+   "family": "advance_purpose",
+   "name": "Advanced  - Others"
+  },
+  "BIAYA_GAJI_DAN_UPAH_YMHD": {
+   "family": "accrual_kind",
+   "name": "Biaya Gaji dan Upah YMHD"
+  },
+  "THR_INSENTIF_BONUS_PESANGON_YMHD": {
+   "family": "accrual_kind",
+   "name": "THR/Insentif/Bonus/Pesangon YMHD"
+  },
+  "BIAYA_BUNGA_PINJAMAN_YMHD": {
+   "family": "accrual_kind",
+   "name": "Biaya Bunga Pinjaman YMHD"
+  },
+  "BIAYA_PENGOBATAN_YMHD": {
+   "family": "accrual_kind",
+   "name": "Biaya Pengobatan  YMHD"
+  },
+  "BIAYA_ASURANSI_DAN_BPJS_YMHD": {
+   "family": "accrual_kind",
+   "name": "Biaya Asuransi dan BPJS YMHD"
+  },
+  "BIAYA_TELEPHONE_FAX_MODEM_YMHD": {
+   "family": "accrual_kind",
+   "name": "Biaya Telephone, Fax, Modem YMHD"
+  },
+  "BIAYA_PEMAKAIAN_LISTRIK_YMHD": {
+   "family": "accrual_kind",
+   "name": "Biaya Pemakaian Listrik YMHD"
+  },
+  "BIAYA_PEMAKAIAN_AIR_BERSIH_YMHD": {
+   "family": "accrual_kind",
+   "name": "Biaya Pemakaian Air Bersih YMHD"
+  },
+  "BIAYA_SEWA_KANTOR_TOKO_YMHD": {
+   "family": "accrual_kind",
+   "name": "Biaya Sewa Kantor / Toko YMHD"
+  },
+  "BIAYA_SEWA_RUMAH_MESS_YMHD": {
+   "family": "accrual_kind",
+   "name": "Biaya Sewa Rumah / Mess YMHD"
+  },
+  "BIAYA_CUSTOMER_SUPPLIES": {
+   "family": "expense_category",
+   "name": "Biaya Customer Supplies"
+  },
+  "BIAYA_CREDIT_CARD": {
+   "family": "expense_category",
+   "name": "Biaya Credit Card"
+  },
+  "BIAYA_PROMOSI": {
+   "family": "expense_category",
+   "name": "Biaya Promosi"
+  },
+  "BIAYA_DEKORASI": {
+   "family": "expense_category",
+   "name": "Biaya Dekorasi"
+  },
+  "BIAYA_ADVERTISING_IKLAN": {
+   "family": "expense_category",
+   "name": "Biaya Advertising / Iklan"
+  },
+  "BIAYA_BONGKAR_MUAT_BARANG": {
+   "family": "expense_category",
+   "name": "Biaya Bongkar Muat Barang"
+  },
+  "BIAYA_PENGIRIMAN_BARANG_KURIR_EKSPEDISI": {
+   "family": "expense_category",
+   "name": "Biaya Pengiriman Barang/kurir/Ekspedisi"
+  },
+  "BIAYA_GAJI_KARYAWAN": {
+   "family": "pay_component",
+   "name": "Biaya Gaji Karyawan"
+  },
+  "BIAYA_LEMBUR": {
+   "family": "pay_component",
+   "name": "Biaya Lembur"
+  },
+  "UANG_MAKAN": {
+   "family": "pay_component",
+   "name": "Uang Makan"
+  },
+  "UANG_TRANSPORT": {
+   "family": "pay_component",
+   "name": "Uang Transport"
+  },
+  "BIAYA_KESEHATAN_PENGOBATAN": {
+   "family": "pay_component",
+   "name": "Biaya Kesehatan & Pengobatan"
+  },
+  "BIAYA_ASURANSI_PEGAWAI_BPJS": {
+   "family": "pay_component",
+   "name": "Biaya Asuransi Pegawai / BPJS"
+  },
+  "TUNJANGAN_HARI_RAYA": {
+   "family": "pay_component",
+   "name": "Tunjangan Hari Raya (THR)"
+  },
+  "BIAYA_UNIFORM_SERAGAM_KERJA": {
+   "family": "pay_component",
+   "name": "Biaya Uniform / Seragam Kerja"
+  },
+  "BIAYA_SPORT_RECREATION": {
+   "family": "pay_component",
+   "name": "Biaya Sport & Recreation"
+  },
+  "FUNERAL_CONTRIBUTION": {
+   "family": "pay_component",
+   "name": "Funeral Contribution"
+  },
+  "BIAYA_MANPOWER_DEVELOPMENT": {
+   "family": "pay_component",
+   "name": "Biaya Manpower Development"
+  },
+  "BIAYA_PESANGON": {
+   "family": "pay_component",
+   "name": "Biaya Pesangon"
+  },
+  "KOMISI_BONUS_INSENTIF": {
+   "family": "pay_component",
+   "name": "Komisi / Bonus / Insentif"
+  },
+  "BIAYA_KEBERSIHAN": {
+   "family": "expense_category",
+   "name": "Biaya Kebersihan (Cleaning)"
+  },
+  "ALAT_TULIS_KANTOR_BARANG_CETAKAN": {
+   "family": "expense_category",
+   "name": "Alat Tulis Kantor & Barang Cetakan"
+  },
+  "BIAYA_RUMAH_TANGGA": {
+   "family": "expense_category",
+   "name": "Biaya Rumah Tangga"
+  },
+  "BIAYA_BANK_HO": {
+   "family": "expense_category",
+   "name": "Biaya Bank HO"
+  },
+  "BIAYA_TELEPHONE_FACSIMILE_MODEM": {
+   "family": "expense_category",
+   "name": "Biaya Telephone,Facsimile, Modem"
+  },
+  "BIAYA_PEMAKAIAN_LISTRIK": {
+   "family": "expense_category",
+   "name": "Biaya Pemakaian Listrik"
+  },
+  "BIAYA_PEMAKAIAN_AIR_BERSIH": {
+   "family": "expense_category",
+   "name": "Biaya Pemakaian Air Bersih (PDAM)"
+  },
+  "BIAYA_PERJALANAN_DINAS": {
+   "family": "expense_category",
+   "name": "Biaya Perjalanan Dinas"
+  },
+  "BIAYA_LOKAL_TRANSPORT": {
+   "family": "expense_category",
+   "name": "Biaya Lokal Transport"
+  },
+  "BIAYA_PERIJINAN": {
+   "family": "expense_category",
+   "name": "Biaya Perijinan"
+  },
+  "COMPUTER_EXPENSES": {
+   "family": "expense_category",
+   "name": "Computer Expenses"
+  },
+  "BIAYA_PENYISIHAN_KERUGIAN_PIUTANG": {
+   "family": "expense_category",
+   "name": "Biaya Penyisihan Kerugian Piutang"
+  },
+  "BIAYA_PERLENGKAPAN_TOKO_DAN_KANTOR": {
+   "family": "expense_category",
+   "name": "Biaya Perlengkapan Toko dan Kantor"
+  },
+  "BIAYA_STOCK_OPNAME": {
+   "family": "expense_category",
+   "name": "Biaya Stock Opname"
+  },
+  "BIAYA_PERALATAN_LISTRIK": {
+   "family": "expense_category",
+   "name": "Biaya Peralatan Listrik"
+  },
+  "TIRE_TUBES_EXPENCES": {
+   "family": "expense_category",
+   "name": "Tire & Tubes  Expences"
+  },
+  "F_U_E_L_O_I_L_EXPENCES": {
+   "family": "expense_category",
+   "name": "F u e l  & O I l  Expences"
+  },
+  "T_O_O_L_S_EKSPENCES": {
+   "family": "expense_category",
+   "name": "T o o l s (Peralatan) Ekspences"
+  },
+  "BIAYA_LUBRICATION_GREASE_BAHAN_BAKAR_GENSET": {
+   "family": "expense_category",
+   "name": "Biaya Lubrication & Grease, Bahan Bakar Genset"
+  },
+  "BIAYA_TELEPHONE_EQUIPMENT": {
+   "family": "expense_category",
+   "name": "Biaya Telephone Equipment"
+  },
+  "BIAYA_DONASI": {
+   "family": "expense_category",
+   "name": "Biaya Donasi (CSR, Zakat)"
+  },
+  "BIAYA_KONSULTAN": {
+   "family": "expense_category",
+   "name": "Biaya Konsultan"
+  },
+  "BIAYA_LISENSI_KENDARAAN": {
+   "family": "expense_category",
+   "name": "Biaya Lisensi Kendaraan ( STNK, Uji Kir)"
+  },
+  "BIAYA_PERLENGKAPAN_MESS_ATAU_RUMAH_DINAS": {
+   "family": "expense_category",
+   "name": "Biaya Perlengkapan Mess atau Rumah Dinas"
+  },
+  "MISCELLANEOUS_EXPENCES": {
+   "family": "expense_category",
+   "name": "Miscellaneous Expences"
+  },
+  "BIAYA_PERBAIKAN_DAN_PERAWATAN_FFE": {
+   "family": "expense_category",
+   "name": "BIAYA PERBAIKAN DAN PERAWATAN FFE"
+  },
+  "SOFTWARE_MAINTENANCE": {
+   "family": "expense_category",
+   "name": "SOFTWARE MAINTENANCE"
+  },
+  "BIAYA_PERBAIKAN_DAN_PERAWATAN_KOMPUTER": {
+   "family": "expense_category",
+   "name": "BIAYA PERBAIKAN DAN PERAWATAN KOMPUTER"
+  },
+  "BIAYA_PERBAIKAN_DAN_PERAWATAN_BANGUNAN": {
+   "family": "expense_category",
+   "name": "BIAYA PERBAIKAN DAN PERAWATAN BANGUNAN"
+  },
+  "BIAYA_PERBAIKAN_DAN_PERAWATAN_STAFF_HOUSE": {
+   "family": "expense_category",
+   "name": "BIAYA PERBAIKAN DAN PERAWATAN STAFF HOUSE"
+  },
+  "BIAYA_PERBAIKAN_DAN_PERAWATAN_KENDARAAN": {
+   "family": "expense_category",
+   "name": "BIAYA PERBAIKAN DAN PERAWATAN KENDARAAN"
+  },
+  "BIAYA_PERBAIKAN_DAN_PERAWATAN_AIRCONDITIONER": {
+   "family": "expense_category",
+   "name": "BIAYA PERBAIKAN DAN PERAWATAN AIRCONDITIONER & REFRIGERATOR"
+  },
+  "BIAYA_POWER_PLANT": {
+   "family": "expense_category",
+   "name": "BIAYA POWER PLANT"
+  },
+  "P_A_I_N_T": {
+   "family": "expense_category",
+   "name": "P A I N T (BIAYA PENGECATAN)"
+  },
+  "BIAYA_PERBAIKAN_DAN_PERAWATAN_LIFT": {
+   "family": "expense_category",
+   "name": "BIAYA PERBAIKAN DAN PERAWATAN LIFT"
+  },
+  "BIAYA_SEWA_TANAH": {
+   "family": "expense_category",
+   "name": "Biaya Sewa Tanah"
+  },
+  "BIAYA_LAND_RIGHT": {
+   "family": "expense_category",
+   "name": "Biaya Land Right"
+  },
+  "BIAYA_SEWA_BANGUNAN_TOKO_DAN_GUDANG": {
+   "family": "expense_category",
+   "name": "Biaya Sewa Bangunan Toko dan Gudang"
+  },
+  "BIAYA_SEWA_RUMAH_DINAS_MESS": {
+   "family": "expense_category",
+   "name": "Biaya Sewa Rumah Dinas / Mess"
+  },
+  "PROPERTY_ALL_RISK_FIRE_INSURANCE": {
+   "family": "expense_category",
+   "name": "Property All Risk & Fire Insurance"
+  },
+  "BIAYA_PAJAK_BUMI_DAN_BANGUNAN": {
+   "family": "expense_category",
+   "name": "Biaya Pajak Bumi Dan Bangunan  (PBB)"
+  },
+  "BIAYA_PAJAK_REKLAME": {
+   "family": "expense_category",
+   "name": "Biaya Pajak Reklame"
+  },
+  "BIAYA_MANAGEMENT_FEE": {
+   "family": "expense_category",
+   "name": "Biaya Management FEE"
+  },
+  "BIAYA_ASURANSI_KENDARAAN": {
+   "family": "expense_category",
+   "name": "Biaya Asuransi Kendaraan"
+  },
+  "DRAWER": {
+   "family": "pot",
+   "name": "Kas Laci"
+  },
+  "PETTY": {
+   "family": "pot",
+   "name": "Kas Kecil"
+  },
+  "FLOAT": {
+   "family": "pot",
+   "name": "Modal Kasir"
+  },
+  "TRANSIT": {
+   "family": "pot",
+   "name": "Setoran Dalam Perjalanan"
+  },
+  "CASH": {
+   "family": "tender",
+   "name": "Tunai"
+  },
+  "DEBIT_BCA": {
+   "family": "tender",
+   "name": "Debit BCA"
+  },
+  "DEBIT_MANDIRI": {
+   "family": "tender",
+   "name": "Debit Mandiri"
+  },
+  "DEBIT_BRI": {
+   "family": "tender",
+   "name": "Debit BRI"
+  },
+  "DEBIT_BNI": {
+   "family": "tender",
+   "name": "Debit BNI"
+  },
+  "CREDIT_VISA": {
+   "family": "tender",
+   "name": "Kartu Kredit VISA"
+  },
+  "CREDIT_MASTER": {
+   "family": "tender",
+   "name": "Kartu Kredit MasterCard"
+  },
+  "QRIS": {
+   "family": "tender",
+   "name": "QRIS"
+  },
+  "ONLINE_OWN": {
+   "family": "tender",
+   "name": "Online Sendiri"
+  },
+  "ONLINE_MARKETPLACE": {
+   "family": "tender",
+   "name": "Online Market Place"
+  },
+  "VOUCHER": {
+   "family": "tender",
+   "name": "Voucher"
+  },
+  "TENDER_OTHER": {
+   "family": "tender",
+   "name": "Tender Lain-lain"
+  },
+  "CREDIT_CARD": {
+   "family": "tender",
+   "name": "Kartu Kredit (tanpa rincian jaringan)"
+  },
+  "DEBIT_CARD": {
+   "family": "tender",
+   "name": "Kartu Debit (tanpa rincian bank)"
+  },
+  "EMPLOYEE": {
+   "family": "party",
+   "name": "Pegawai"
+  },
+  "STORE_MANAGER": {
+   "family": "party",
+   "name": "Kepala Toko"
+  },
+  "MANAGEMENT": {
+   "family": "party",
+   "name": "Manajemen"
+  },
+  "CARD_CREDIT": {
+   "family": "party",
+   "name": "Kartu Kredit"
+  },
+  "CARD_DEBIT": {
+   "family": "party",
+   "name": "Kartu Debit"
+  },
+  "MERCHANDISE": {
+   "family": "item_class",
+   "name": "Barang Dagangan"
+  },
+  "SUPPLIES": {
+   "family": "item_class",
+   "name": "Kantong Belanja & Perlengkapan"
+  },
+  "FINANCING": {
+   "family": "interunit_reason",
+   "name": "Pembiayaan"
+  },
+  "GOODS": {
+   "family": "interunit_reason",
+   "name": "Atas Barang"
+  },
+  "INTERUNIT_OTHER": {
+   "family": "interunit_reason",
+   "name": "Lain-lain"
+  },
+  "PPH21": {
+   "family": "tax_kind",
+   "name": "PPh Pasal 21"
+  },
+  "PPH23": {
+   "family": "tax_kind",
+   "name": "PPh Pasal 23"
+  },
+  "PPH25": {
+   "family": "tax_kind",
+   "name": "PPh Pasal 25"
+  },
+  "PPH29": {
+   "family": "tax_kind",
+   "name": "PPh Pasal 29"
+  },
+  "PPH_FINAL": {
+   "family": "tax_kind",
+   "name": "PPh Pasal 4(2) Final"
+  },
+  "PPN_IN": {
+   "family": "tax_kind",
+   "name": "PPN Masukan"
+  },
+  "PPN_OUT": {
+   "family": "tax_kind",
+   "name": "PPN Keluaran"
+  },
+  "PBB": {
+   "family": "tax_kind",
+   "name": "Pajak Bumi & Bangunan"
+  },
+  "TAX_OTHER": {
+   "family": "tax_kind",
+   "name": "Pajak Lainnya"
+  },
+  "VOUCHER_LIABILITY": {
+   "family": "deferred_revenue_kind",
+   "name": "Hutang Voucher"
+  },
+  "CUSTOMER_DEPOSIT": {
+   "family": "deferred_revenue_kind",
+   "name": "Uang Muka Penjualan"
+  },
+  "DISCOUNT": {
+   "family": "deduction_kind",
+   "name": "Discount / Potongan Penjualan"
+  },
+  "RETURN": {
+   "family": "deduction_kind",
+   "name": "Retur Penjualan"
+  },
+  "INTEREST": {
+   "family": "income_kind",
+   "name": "Pendapatan Bunga Bank"
+  },
+  "ROUNDING": {
+   "family": "income_kind",
+   "name": "Selisih Pembulatan"
+  },
+  "RENT_BUILDING": {
+   "family": "income_kind",
+   "name": "Pendapatan Sewa Gedung"
+  },
+  "RENT_EQUIPMENT": {
+   "family": "income_kind",
+   "name": "Pendapatan Sewa Peralatan"
+  },
+  "MANAGEMENT_FEE": {
+   "family": "income_kind",
+   "name": "Management Fee"
+  },
+  "CASH_VARIANCE": {
+   "family": "income_kind",
+   "name": "Selisih Kas"
+  },
+  "ASSET_DISPOSAL": {
+   "family": "income_kind",
+   "name": "Laba (Rugi) Pelepasan Aset"
+  },
+  "INCOME_OTHER": {
+   "family": "income_kind",
+   "name": "Pendapatan (Biaya) Lain-Lain"
+  },
+  "COGS": {
+   "family": "cost_kind",
+   "name": "Harga Pokok Pembelian"
+  },
+  "PURCHASE_DISCOUNT": {
+   "family": "cost_kind",
+   "name": "Potongan Pembelian"
+  },
+  "SHRINKAGE": {
+   "family": "loss_kind",
+   "name": "Kehilangan Barang atau Selisih Stock Opname"
+  },
+  "DAMAGE": {
+   "family": "loss_kind",
+   "name": "Biaya Kerusakan Persediaan Barang Dagangan"
+  }
+ },
+ "classes": {
+  "TANAH_HAK_MILIK": {
+   "kind": "PPE",
+   "name": "Tanah Hak Milik"
+  },
+  "HAK_SEWA_TANAH_HGB": {
+   "kind": "PPE",
+   "name": "Hak Sewa Tanah / HGB"
+  },
+  "BANGUNAN_UTAMA": {
+   "kind": "PPE",
+   "name": "Bangunan Utama"
+  },
+  "BANGUNAN_TAMBAHAN": {
+   "kind": "PPE",
+   "name": "Bangunan Tambahan"
+  },
+  "BANGUNAN_STAFF_HOUSE_MESS": {
+   "kind": "PPE",
+   "name": "Bangunan Staff House / Mess"
+  },
+  "INSTALASI_MEKANIKAL_ELEKTRIKAL": {
+   "kind": "PPE",
+   "name": "Instalasi Mekanikal Elektrikal"
+  },
+  "AIR_CONDITIONER": {
+   "kind": "PPE",
+   "name": "Air Conditioner"
+  },
+  "LIFT": {
+   "kind": "PPE",
+   "name": "Lift"
+  },
+  "ESKALATOR": {
+   "kind": "PPE",
+   "name": "Eskalator"
+  },
+  "GENSET": {
+   "kind": "PPE",
+   "name": "Genset"
+  },
+  "MOBIL": {
+   "kind": "PPE",
+   "name": "Mobil"
+  },
+  "SEPEDA_MOTOR": {
+   "kind": "PPE",
+   "name": "Sepeda Motor"
+  },
+  "FFE_OFFICE": {
+   "kind": "PPE",
+   "name": "FFE Office"
+  },
+  "FFE_TOKO_DAN_GUDANG": {
+   "kind": "PPE",
+   "name": "FFE Toko dan Gudang"
+  },
+  "FFE_KOMPUTER": {
+   "kind": "PPE",
+   "name": "FFE Komputer"
+  },
+  "FFE_MUSIC": {
+   "kind": "PPE",
+   "name": "FFE Music"
+  },
+  "FFE_STAFF_HOUSE_MESS": {
+   "kind": "PPE",
+   "name": "FFE Staff House / Mess"
+  },
+  "FFE_INTERIOR": {
+   "kind": "PPE",
+   "name": "FFE Interior"
+  },
+  "FFE_EXTERIOR": {
+   "kind": "PPE",
+   "name": "FFE Exterior"
+  },
+  "OE_RAK_1": {
+   "kind": "OE",
+   "name": "OE - Rak 1"
+  },
+  "OE_RAK_2": {
+   "kind": "OE",
+   "name": "OE - Rak 2"
+  },
+  "OE_RAK_3": {
+   "kind": "OE",
+   "name": "OE - Rak 3"
+  },
+  "OE_RAK_4": {
+   "kind": "OE",
+   "name": "OE - Rak 4"
+  },
+  "OE_PAJANGAN_GANTUNGAN_2": {
+   "kind": "OE",
+   "name": "OE - Pajangan Gantungan 2"
+  },
+  "OE_PAJANGAN_GANTUNGAN_4": {
+   "kind": "OE",
+   "name": "OE - Pajangan Gantungan 4"
+  },
+  "OE_PAJANGAN_GANTUNGAN_6": {
+   "kind": "OE",
+   "name": "OE - Pajangan Gantungan 6"
+  },
+  "OE_PAJANGAN_GANTUNGAN_LAIN_LAIN": {
+   "kind": "OE",
+   "name": "OE - Pajangan Gantungan Lain - Lain"
+  },
+  "OE_MEJA_1": {
+   "kind": "OE",
+   "name": "OE - Meja 1"
+  },
+  "OE_MEJA_2": {
+   "kind": "OE",
+   "name": "OE - Meja 2"
+  },
+  "OE_MEJA_3": {
+   "kind": "OE",
+   "name": "OE - Meja 3"
+  },
+  "OE_BOX_OB_KAYU": {
+   "kind": "OE",
+   "name": "OE - Box OB Kayu"
+  },
+  "OE_BOX_OB_BESI": {
+   "kind": "OE",
+   "name": "OE - Box OB Besi"
+  },
+  "OE_HOLO": {
+   "kind": "OE",
+   "name": "OE - Holo"
+  },
+  "OE_BREKET": {
+   "kind": "OE",
+   "name": "OE - Breket"
+  },
+  "OE_BELALAI": {
+   "kind": "OE",
+   "name": "OE - Belalai"
+  },
+  "OE_PATUNG_FULL_BODI_DEWASA": {
+   "kind": "OE",
+   "name": "OE - Patung Full Bodi Dewasa"
+  },
+  "OE_PATUNG_FULL_BODI_ANAK": {
+   "kind": "OE",
+   "name": "OE - Patung Full Bodi Anak"
+  },
+  "OE_PATUNG_SETENGAH_BADAN_PRIA": {
+   "kind": "OE",
+   "name": "OE - Patung  Setengah Badan Pria"
+  },
+  "OE_PATUNG_SETENGAH_BADAN_WANITA_1": {
+   "kind": "OE",
+   "name": "OE - Patung  Setengah Badan  Wanita 1"
+  },
+  "OE_PATUNG_SETENGAH_BADAN_WANITA_2": {
+   "kind": "OE",
+   "name": "OE - Patung  Setengah Badan  Wanita 2"
+  },
+  "OE_PATUNG_SETENGAH_BADAN_ANAK": {
+   "kind": "OE",
+   "name": "OE - Patung  Setengah Badan Anak"
+  },
+  "OE_PATUNG_KEPALA_DEWASA": {
+   "kind": "OE",
+   "name": "OE - Patung  Kepala  Dewasa"
+  },
+  "OE_PATUNG_KEPALA_ANAK": {
+   "kind": "OE",
+   "name": "OE - Patung  Kepala  Anak"
+  },
+  "OE_PATUNG_KAKI_DEWASA": {
+   "kind": "OE",
+   "name": "OE - Patung  Kaki Dewasa"
+  },
+  "OE_PATUNG_KAKI_ANAK": {
+   "kind": "OE",
+   "name": "OE - Patung  Kaki Anak"
+  },
+  "OE_HANGER_WANITA_ABG": {
+   "kind": "OE",
+   "name": "OE - Hanger Wanita / ABG"
+  },
+  "OE_HANGER_PRIA": {
+   "kind": "OE",
+   "name": "OE - Hanger  Pria"
+  },
+  "OE_HANGER_JACKET": {
+   "kind": "OE",
+   "name": "OE - Hanger Jacket"
+  },
+  "OE_HANGER_KAYU_ANAK": {
+   "kind": "OE",
+   "name": "OE - Hanger Kayu Anak"
+  },
+  "OE_HANGER_BODY_STELAN": {
+   "kind": "OE",
+   "name": "OE - Hanger Body / Stelan"
+  },
+  "OE_HANGER_JEPIT_DEWASA": {
+   "kind": "OE",
+   "name": "OE - Hanger Jepit Dewasa"
+  },
+  "OE_HANGER_JEPIT_ANAK": {
+   "kind": "OE",
+   "name": "OE - Hanger Jepit Anak"
+  },
+  "OE_HANGER_GAMIS_IBU": {
+   "kind": "OE",
+   "name": "OE - Hanger Gamis / Ibu"
+  },
+  "OE_PIN_KAWAT_SENSOR": {
+   "kind": "OE",
+   "name": "OE - PIN / Kawat Sensor"
+  },
+  "OE_TAS_KERANJANG_BELANJA": {
+   "kind": "OE",
+   "name": "OE - Tas / Keranjang Belanja"
+  },
+  "SEVENTH_SOFT_APPLICATION": {
+   "kind": "INTANGIBLE",
+   "name": "Seventh Soft Application"
+  },
+  "OPTI_TEX_SYSTEM": {
+   "kind": "INTANGIBLE",
+   "name": "Opti Tex System"
+  },
+  "PRE_OPENING": {
+   "kind": "DEFERRED",
+   "name": "Pre Opening"
+  },
+  "CONTRACT_IN_PROGRESS": {
+   "kind": "PPE",
+   "name": "Contract In Progress (CIP)"
+  }
+ },
+ "leaf_category": {
+  "1011301001": "ASURANSI_BAYAR_DIMUKA",
+  "1011301002": "SEWA_TANAH_BAYAR_DIMUKA",
+  "1011301003": "SEWA_TOKO_BAYAR_DIMUKA",
+  "1011301004": "SEWA_RUMAH_BAYAR_DIMUKA",
+  "1011301005": "KONTRAK_MAINTENANCE_BAYAR_DIMUKA",
+  "1011301006": "SEWA_KENDARAAN_BAYAR_DIMUKA",
+  "1011301007": "BIAYA_PROMOSI_BAYAR_DIMUKA",
+  "1011301008": "BIAYA_IJIN_USAHA_BAYAR_DIMUKA",
+  "1011301009": "BIAYA_BAYAR_DIMUKA_LAIN_LAIN",
+  "1011303001": "ADVANCED_TRAVELLING",
+  "1011303002": "ADVANCED_PURCHASE",
+  "1011303003": "ADVANCED_TO_CONTRACTORS",
+  "1011303004": "ADVANCED_OTHERS",
+  "2012201001": "BIAYA_GAJI_DAN_UPAH_YMHD",
+  "2012201002": "THR_INSENTIF_BONUS_PESANGON_YMHD",
+  "2012201003": "BIAYA_BUNGA_PINJAMAN_YMHD",
+  "2012201004": "BIAYA_PENGOBATAN_YMHD",
+  "2012201005": "BIAYA_ASURANSI_DAN_BPJS_YMHD",
+  "2012201006": "BIAYA_TELEPHONE_FAX_MODEM_YMHD",
+  "2012201007": "BIAYA_PEMAKAIAN_LISTRIK_YMHD",
+  "2012201008": "BIAYA_PEMAKAIAN_AIR_BERSIH_YMHD",
+  "2012201009": "BIAYA_SEWA_KANTOR_TOKO_YMHD",
+  "2012201010": "BIAYA_SEWA_RUMAH_MESS_YMHD",
+  "6010110001": "BIAYA_CUSTOMER_SUPPLIES",
+  "6010110002": "BIAYA_CREDIT_CARD",
+  "6010110003": "BIAYA_PROMOSI",
+  "6010110004": "BIAYA_DEKORASI",
+  "6010110005": "BIAYA_ADVERTISING_IKLAN",
+  "6010110006": "BIAYA_BONGKAR_MUAT_BARANG",
+  "6010110007": "BIAYA_PENGIRIMAN_BARANG_KURIR_EKSPEDISI",
+  "6010111001": "BIAYA_GAJI_KARYAWAN",
+  "6010111002": "BIAYA_LEMBUR",
+  "6010111003": "UANG_MAKAN",
+  "6010111004": "UANG_TRANSPORT",
+  "6010111005": "BIAYA_KESEHATAN_PENGOBATAN",
+  "6010111006": "BIAYA_ASURANSI_PEGAWAI_BPJS",
+  "6010111007": "TUNJANGAN_HARI_RAYA",
+  "6010111008": "BIAYA_UNIFORM_SERAGAM_KERJA",
+  "6010111009": "BIAYA_SPORT_RECREATION",
+  "6010111010": "FUNERAL_CONTRIBUTION",
+  "6010111011": "BIAYA_MANPOWER_DEVELOPMENT",
+  "6010111012": "BIAYA_PESANGON",
+  "6010111013": "KOMISI_BONUS_INSENTIF",
+  "6010210001": "BIAYA_GAJI_KARYAWAN",
+  "6010210002": "BIAYA_LEMBUR",
+  "6010210003": "UANG_MAKAN",
+  "6010210004": "UANG_TRANSPORT",
+  "6010210005": "BIAYA_KESEHATAN_PENGOBATAN",
+  "6010210006": "BIAYA_ASURANSI_PEGAWAI_BPJS",
+  "6010210007": "TUNJANGAN_HARI_RAYA",
+  "6010210008": "BIAYA_UNIFORM_SERAGAM_KERJA",
+  "6010210009": "BIAYA_SPORT_RECREATION",
+  "6010210010": "FUNERAL_CONTRIBUTION",
+  "6010210011": "BIAYA_MANPOWER_DEVELOPMENT",
+  "6010210012": "BIAYA_PESANGON",
+  "6010210013": "KOMISI_BONUS_INSENTIF",
+  "6010310001": "BIAYA_KEBERSIHAN",
+  "6010310002": "ALAT_TULIS_KANTOR_BARANG_CETAKAN",
+  "6010310003": "BIAYA_RUMAH_TANGGA",
+  "6010310004": "BIAYA_BANK_HO",
+  "6010310005": "BIAYA_TELEPHONE_FACSIMILE_MODEM",
+  "6010310006": "BIAYA_PEMAKAIAN_LISTRIK",
+  "6010310007": "BIAYA_PEMAKAIAN_AIR_BERSIH",
+  "6010310008": "BIAYA_PERJALANAN_DINAS",
+  "6010310009": "BIAYA_LOKAL_TRANSPORT",
+  "6010310010": "BIAYA_PERIJINAN",
+  "6010310011": "COMPUTER_EXPENSES",
+  "6010310012": "BIAYA_PENYISIHAN_KERUGIAN_PIUTANG",
+  "6010310013": "BIAYA_PERLENGKAPAN_TOKO_DAN_KANTOR",
+  "6010310014": "BIAYA_STOCK_OPNAME",
+  "6010310015": "BIAYA_PERALATAN_LISTRIK",
+  "6010310016": "TIRE_TUBES_EXPENCES",
+  "6010310017": "F_U_E_L_O_I_L_EXPENCES",
+  "6010310018": "T_O_O_L_S_EKSPENCES",
+  "6010310019": "BIAYA_LUBRICATION_GREASE_BAHAN_BAKAR_GENSET",
+  "6010310020": "BIAYA_TELEPHONE_EQUIPMENT",
+  "6010310021": "BIAYA_DONASI",
+  "6010310022": "BIAYA_KONSULTAN",
+  "6010310023": "BIAYA_LISENSI_KENDARAAN",
+  "6010310024": "BIAYA_PERLENGKAPAN_MESS_ATAU_RUMAH_DINAS",
+  "6010310099": "MISCELLANEOUS_EXPENCES",
+  "6010410001": "BIAYA_PERBAIKAN_DAN_PERAWATAN_FFE",
+  "6010410002": "SOFTWARE_MAINTENANCE",
+  "6010410003": "BIAYA_PERBAIKAN_DAN_PERAWATAN_KOMPUTER",
+  "6010410004": "BIAYA_PERBAIKAN_DAN_PERAWATAN_BANGUNAN",
+  "6010410005": "BIAYA_PERBAIKAN_DAN_PERAWATAN_STAFF_HOUSE",
+  "6010410006": "BIAYA_PERBAIKAN_DAN_PERAWATAN_KENDARAAN",
+  "6010410007": "BIAYA_PERBAIKAN_DAN_PERAWATAN_AIRCONDITIONER",
+  "6010410008": "BIAYA_POWER_PLANT",
+  "6010410009": "P_A_I_N_T",
+  "6010410010": "BIAYA_PERBAIKAN_DAN_PERAWATAN_LIFT",
+  "7010110001": "BIAYA_SEWA_TANAH",
+  "7010110002": "BIAYA_LAND_RIGHT",
+  "7010110003": "BIAYA_SEWA_BANGUNAN_TOKO_DAN_GUDANG",
+  "7010110004": "BIAYA_SEWA_RUMAH_DINAS_MESS",
+  "7010310001": "PROPERTY_ALL_RISK_FIRE_INSURANCE",
+  "7010310002": "BIAYA_PAJAK_BUMI_DAN_BANGUNAN",
+  "7020310003": "BIAYA_PAJAK_REKLAME",
+  "7020310004": "BIAYA_MANAGEMENT_FEE",
+  "7020310005": "BIAYA_ASURANSI_KENDARAAN"
+ },
+ "leaf_class": {
+  "1021501001": "TANAH_HAK_MILIK",
+  "1021501002": "HAK_SEWA_TANAH_HGB",
+  "1021502001": "BANGUNAN_UTAMA",
+  "1021502002": "BANGUNAN_TAMBAHAN",
+  "1021502003": "BANGUNAN_STAFF_HOUSE_MESS",
+  "1021503001": "INSTALASI_MEKANIKAL_ELEKTRIKAL",
+  "1021504001": "AIR_CONDITIONER",
+  "1021504002": "LIFT",
+  "1021504003": "ESKALATOR",
+  "1021504004": "GENSET",
+  "1021505001": "MOBIL",
+  "1021505002": "SEPEDA_MOTOR",
+  "1021506001": "FFE_OFFICE",
+  "1021506002": "FFE_TOKO_DAN_GUDANG",
+  "1021506003": "FFE_KOMPUTER",
+  "1021506004": "FFE_MUSIC",
+  "1021506005": "FFE_STAFF_HOUSE_MESS",
+  "1021506006": "FFE_INTERIOR",
+  "1021506007": "FFE_EXTERIOR",
+  "1021507001": "OE_RAK_1",
+  "1021507002": "OE_RAK_2",
+  "1021507003": "OE_RAK_3",
+  "1021507004": "OE_RAK_4",
+  "1021507005": "OE_PAJANGAN_GANTUNGAN_2",
+  "1021507006": "OE_PAJANGAN_GANTUNGAN_4",
+  "1021507007": "OE_PAJANGAN_GANTUNGAN_6",
+  "1021507008": "OE_PAJANGAN_GANTUNGAN_LAIN_LAIN",
+  "1021507009": "OE_MEJA_1",
+  "1021507010": "OE_MEJA_2",
+  "1021507011": "OE_MEJA_3",
+  "1021507012": "OE_BOX_OB_KAYU",
+  "1021507013": "OE_BOX_OB_BESI",
+  "1021507014": "OE_HOLO",
+  "1021507015": "OE_BREKET",
+  "1021507016": "OE_BELALAI",
+  "1021507017": "OE_PATUNG_FULL_BODI_DEWASA",
+  "1021507018": "OE_PATUNG_FULL_BODI_ANAK",
+  "1021507019": "OE_PATUNG_SETENGAH_BADAN_PRIA",
+  "1021507020": "OE_PATUNG_SETENGAH_BADAN_WANITA_1",
+  "1021507021": "OE_PATUNG_SETENGAH_BADAN_WANITA_2",
+  "1021507022": "OE_PATUNG_SETENGAH_BADAN_ANAK",
+  "1021507023": "OE_PATUNG_KEPALA_DEWASA",
+  "1021507024": "OE_PATUNG_KEPALA_ANAK",
+  "1021507025": "OE_PATUNG_KAKI_DEWASA",
+  "1021507026": "OE_PATUNG_KAKI_ANAK",
+  "1021507027": "OE_HANGER_WANITA_ABG",
+  "1021507028": "OE_HANGER_PRIA",
+  "1021507029": "OE_HANGER_JACKET",
+  "1021507030": "OE_HANGER_KAYU_ANAK",
+  "1021507031": "OE_HANGER_BODY_STELAN",
+  "1021507032": "OE_HANGER_JEPIT_DEWASA",
+  "1021507033": "OE_HANGER_JEPIT_ANAK",
+  "1021507034": "OE_HANGER_GAMIS_IBU",
+  "1021507035": "OE_PIN_KAWAT_SENSOR",
+  "1021507036": "OE_TAS_KERANJANG_BELANJA",
+  "1021701001": "SEVENTH_SOFT_APPLICATION",
+  "1021701002": "OPTI_TEX_SYSTEM",
+  "1031802001": "PRE_OPENING",
+  "1031803001": "CONTRACT_IN_PROGRESS"
+ }
+}

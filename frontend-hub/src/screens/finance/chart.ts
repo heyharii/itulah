@@ -159,6 +159,73 @@ export function monthOf(iso: string | null | undefined): string {
 /// is what stops anybody meeting the refusal.
 export const EXPENSE_LINE_CLASSES: readonly string[] = ["1", "6", "7"]
 
+/// The sixteen category families, in the order the balance sheet meets them,
+/// and a short gloss for each.
+///
+/// The order is the accounts' own — 1101 cash, 1201 receivables, 1301
+/// inventory, down to 6201 personnel — because that is the order an accountant
+/// reads a chart in, and sorting sixteen technical identifiers alphabetically
+/// would open the list on `accrual_kind` and put `pot`, which is the first
+/// thing anybody touches, in the middle.
+///
+/// The gloss is a reading aid and never a label on the wire: `family` is our
+/// identifier, lowercase and snake-cased, and the CATEGORY names inside each
+/// family are the client's own Indonesian and are never translated anywhere.
+///
+/// A family the server sends that is not listed here still renders — the
+/// screen falls back to the identifier — because a list in the browser going
+/// stale must not hide a row the database has.
+export const CATEGORY_FAMILIES: readonly {
+  readonly family: string
+  readonly label: string
+  readonly accounts: string
+}[] = [
+  { family: "pot", label: "Pot kas", accounts: "1101" },
+  { family: "tender", label: "Cara bayar", accounts: "1201 · 4101" },
+  { family: "party", label: "Pihak", accounts: "1202 · 1209" },
+  {
+    family: "item_class",
+    label: "Kelas barang",
+    accounts: "1301 · 1302 · 1309",
+  },
+  {
+    family: "prepaid_kind",
+    label: "Jenis biaya dibayar dimuka",
+    accounts: "1401",
+  },
+  { family: "advance_purpose", label: "Tujuan uang muka", accounts: "1403" },
+  { family: "interunit_reason", label: "Alasan antar-unit", accounts: "1501" },
+  { family: "tax_kind", label: "Jenis pajak", accounts: "1402 · 2201 · 8201" },
+  { family: "accrual_kind", label: "Jenis akrual", accounts: "2301" },
+  {
+    family: "deferred_revenue_kind",
+    label: "Jenis kewajiban penjualan",
+    accounts: "2401",
+  },
+  { family: "deduction_kind", label: "Jenis potongan", accounts: "4201" },
+  { family: "income_kind", label: "Jenis pendapatan lain", accounts: "4301" },
+  { family: "cost_kind", label: "Jenis harga pokok", accounts: "5101" },
+  { family: "loss_kind", label: "Jenis susut", accounts: "5102" },
+  {
+    family: "expense_category",
+    label: "Kategori beban",
+    accounts: "6101 · 6301 · 6401",
+  },
+  { family: "pay_component", label: "Komponen gaji", accounts: "6201" },
+]
+
+/// Where a family sits in the reading order above, or the end of the list for
+/// one this browser has not heard of.
+export function categoryFamilyOrder(family: string): number {
+  const at = CATEGORY_FAMILIES.findIndex((one) => one.family === family)
+  return at === -1 ? CATEGORY_FAMILIES.length : at
+}
+
+/// The gloss for a family, or the identifier itself.
+export function categoryFamilyLabel(family: string): string {
+  return CATEGORY_FAMILIES.find((one) => one.family === family)?.label ?? family
+}
+
 /// The four families a money account falls into, in the order a treasurer reads
 /// them, and the meanings under each.
 ///

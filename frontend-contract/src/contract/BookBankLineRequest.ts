@@ -8,6 +8,16 @@ export type BookBankLineRequest = {
  */
 account_code: string, 
 /**
+ * And what kind of thing it is, on the accounts that are kept by kind.
+ *
+ * The forty-account chart made this the question: `6301` is every general
+ * and administrative expense the company pays, so "which account" no
+ * longer distinguishes a bank charge from a consultant's fee. Only the
+ * person reading the narration can say, which is why it arrives with the
+ * account and not from a rule.
+ */
+category_code: string | null, 
+/**
  * Why this line is that account. Required, and for the same reason a
  * reversal's reason is: it is the only record of the judgement somebody
  * made, and a bank line booked with no explanation is the entry an auditor

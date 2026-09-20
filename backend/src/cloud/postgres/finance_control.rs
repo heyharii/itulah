@@ -338,10 +338,31 @@ pub async fn finance_controls(
             subledger_minor: sub,
             difference_minor: gl - sub,
             unmatched: row.try_get("drafts")?,
-            covered: true,
+            // Not covered, and the difference below is not a discrepancy to
+            // chase: it is the whole subledger. A payroll run approves slips
+            // and posts NOTHING — `pay.rs` builds no `PostingIntent` — so
+            // `payroll_payable` is only ever DEBITED, by a store paying an
+            // advance against it (`store_money.rs`). The credit that should
+            // raise the liability, and the salary expense that should sit
+            // opposite it, have never existed.
+            //
+            // This is the largest thing missing from the ledger: the client's
+            // own 2025 general ledger puts head-office salaries alone at
+            // Rp 2.87 billion. It predates the forty-account chart and is not
+            // caused by it — what the chart changed is that the expense now has
+            // one visible home (`6201 Beban karyawan`, carrying a
+            // `pay_component`) instead of twenty-six unmapped client leaves, so
+            // the hole is a named account nothing reaches rather than a gap in
+            // a list nobody read.
+            //
+            // Not filled in here, because WHEN the expense is recognised —
+            // approval or payment — is a policy decision, not a defect to patch.
+            // `docs/finance-client-decisions.md` carries the question.
+            covered: false,
             note: Some(
-                "Slip dari run yang sudah tidak draft; yang sudah dibayarkan mengurangi \
-                 saldo lewat jurnalnya sendiri."
+                "Run payroll belum memposting jurnal apa pun: tidak ada beban gaji \
+                 dan tidak ada kredit ke utang gaji, jadi selisih di bawah ini sama \
+                 dengan seluruh subledger. Lihat docs/finance-client-decisions.md."
                     .into(),
             ),
         });
@@ -586,6 +607,51 @@ pub async fn finance_close_readiness(
         unbalanced,
     ));
 
+    // The inter-unit account, which for one legal entity must be nothing.
+    //
+    // The owner settled it on 18 September 2026: fourteen units, ONE company.
+    // Inside one company a balance between head office and a shop is not an
+    // asset and not a liability — it is the same fact written twice, and it
+    // eliminates. So `1501` is a single SIGNED account rather than six, and the
+    // whole of it has to come to zero across the estate, every month, for ever.
+    //
+    // That invariant is the reason the six affiliate families were collapsed at
+    // all. In the client's chart the same rule existed as "the sum of what A is
+    // owed by B equals the sum of what B owes A, for 196 ordered pairs" — a
+    // check nobody has ever run, which is exactly why inter-unit balances drift
+    // in systems built that way. Here it is one SUM, and it blocks the close.
+    //
+    // Per unit it is expected to be non-zero, which is the point: that is what
+    // a shop's own balance sheet needs to balance. Only the total is zero.
+    let interunit: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(l.debit_minor - l.credit_minor), 0)::bigint
+           FROM journal_line l
+           JOIN journal_entry e ON e.entry_id = l.entry_id
+          WHERE l.account_code = '1501'
+            AND e.posting_date <= make_date($1, $2, 1) + INTERVAL '1 month' - INTERVAL '1 day'",
+    )
+    .bind(i32::from(year16))
+    .bind(i32::from(month16))
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0);
+    checks.push(check(
+        "INTERUNIT_NETS",
+        "Rekening koran antar-unit nol untuk perusahaan",
+        if interunit == 0 { "OK" } else { "BLOCKER" },
+        if interunit == 0 {
+            "Saldo antar-unit saling menghapus, sebagaimana seharusnya dalam satu badan hukum"
+                .to_string()
+        } else {
+            format!(
+                "Selisih {interunit} pada 1501: satu sisi dibukukan tanpa lawannya. \
+                 Cari jurnal yang menyentuh 1501 tanpa counter_site_id, atau pasangan \
+                 yang hanya satu arahnya diposting."
+            )
+        },
+        interunit.abs(),
+    ));
+
     let blockers = checks.iter().filter(|c| c.status == "BLOCKER").count() as i64;
     let unknowns = checks.iter().filter(|c| c.status == "UNKNOWN").count() as i64;
     Ok(FinanceCloseReadiness {
@@ -738,7 +804,14 @@ pub async fn ledger_trace(
                     WHEN 'SALE_DAY'           THEN 'sales_posting'
                     WHEN 'STORE_DEPOSIT'      THEN 'store_deposit'
                     WHEN 'SUPPLIER_INVOICE'   THEN 'supplier_invoice'
+                    -- Two kinds, one run. 0266 split amortisation off from
+                    -- depreciation because the two are different economic
+                    -- events with different allow-lists; the sub-ledger they
+                    -- reconcile against is the same `asset_depreciation_entry`
+                    -- either way, so the drill-down must name it for both or
+                    -- every intangible's charge reads as unreconciled.
                     WHEN 'DEPRECIATION'       THEN 'asset_depreciation_run'
+                    WHEN 'AMORTIZATION_RUN'   THEN 'asset_depreciation_run'
                     WHEN 'PAYROLL_RUN'        THEN 'payroll_run'
                     ELSE NULL
                 END AS subledger,

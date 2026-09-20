@@ -1,0 +1,191 @@
+old_code,old_name,provenance,new_account,new_name,line_key
+1011001001,CASH ON HAND,CLIENT,1101,Cash On Hand,DRAWER
+1011001002,PETTY CASH,CLIENT,1101,Cash On Hand,PETTY
+1011001003,Modal Kasir,CLIENT,1101,Cash On Hand,FLOAT
+1011002001,Cash In Bank Giro Bank BCA,CLIENT,1102,Cash In Bank,<bank account: giro>
+1011002002,Cash In Bank Giro Bank MANDIRI,CLIENT,1102,Cash In Bank,<bank account: giro>
+1011002003,Cash In Bank Giro Bank BRI,CLIENT,1102,Cash In Bank,<bank account: giro>
+1011002004,Cash In Bank Giro Bank BNI,CLIENT,1102,Cash In Bank,<bank account: giro>
+1011002005,Cash In Bank Giro Bank DANAMON,CLIENT,1102,Cash In Bank,<bank account: giro>
+1011003001,Cash In Bank Tabungan Bank BCA,CLIENT,1102,Cash In Bank,<bank account: tabungan>
+1011003002,Cash In Bank Tabungan Bank Mandiri,CLIENT,1102,Cash In Bank,<bank account: tabungan>
+1011003003,Cash In Bank Tabungan Bank BRI,CLIENT,1102,Cash In Bank,<bank account: tabungan>
+1011003004,Cash In Bank Tabungan Bank BNI,CLIENT,1102,Cash In Bank,<bank account: tabungan>
+1011003005,Cash In Bank Tabungan Bank BTN,CLIENT,1102,Cash In Bank,<bank account: tabungan>
+1011004001,TIME DEPOSIT BANK BCA,CLIENT,1102,Cash In Bank,<bank account: deposito>
+1011004002,TIME DEPOSIT BANK MANDIRI,CLIENT,1102,Cash In Bank,<bank account: deposito>
+1011004003,TIME DEPOSIT BANK BRI,CLIENT,1102,Cash In Bank,<bank account: deposito>
+1011004004,TIME DEPOSIT BANK BNI,CLIENT,1102,Cash In Bank,<bank account: deposito>
+1011005001,Setoran Dalam Perjalanan,PENDING_CLIENT_CODE,1101,Cash On Hand,TRANSIT
+1011101001,Piutang Kartu Kredit,CLIENT,1201,Piutang Dagang,CREDIT
+1011101002,Piutang Debit Card,CLIENT,1201,Piutang Dagang,DEBIT
+1011101003,Piutang QRIS,PENDING_CLIENT_CODE,1201,Piutang Dagang,QRIS
+1011102001,PIUTANG PEGAWAI,CLIENT,1202,Piutang Lain-lain,EMPLOYEE
+1011102002,Piutang Kepala Toko,CLIENT,1202,Piutang Lain-lain,STORE_MANAGER
+1011102003,Piutang Manajemen,CLIENT,1202,Piutang Lain-lain,MANAGEMENT
+1011103001,"Cadangan, Penghapusan Piutang Tak Tertagih, Piutang Kartu Kredit",CLIENT,1209,Cadangan Penghapusan Piutang Tak Tertagih,CREDIT
+1011201001,Persediaan Barang Dagangan,CLIENT,1301,Persediaan,MERCHANDISE
+1011202001,Kantong Belanja  Plastik Ukuran KECIL,CLIENT,1301,Persediaan,SUPPLIES
+1011203001,Barang Dalam Perjalanan Barang Dagangan HEAD OFFICE,CLIENT,1302,Barang Dalam Perjalanan,MERCHANDISE
+1011204001,Barang Dalam Perjalanan Kantong Belanja HEAD OFFICE,CLIENT,1302,Barang Dalam Perjalanan,SUPPLIES
+1011299001,Cadangan Kerusakan atau kehilangan Barang - Barang Dagangan,CLIENT,1309,Cadangan Kerusakan atau Kehilangan Barang,MERCHANDISE
+1011301001,Asuransi Bayar Dimuka,CLIENT,1401,Biaya Dibayar Dimuka,<name>
+1011301002,Sewa Tanah Bayar Dimuka,CLIENT,1401,Biaya Dibayar Dimuka,<name>
+1011301005,Kontrak Maintenance Bayar Dimuka,CLIENT,1401,Biaya Dibayar Dimuka,<name>
+1011301007,Biaya Promosi Bayar Dimuka,CLIENT,1401,Biaya Dibayar Dimuka,<name>
+1011301008,Biaya Ijin Usaha Bayar Dimuka,CLIENT,1401,Biaya Dibayar Dimuka,<name>
+1011301009,Biaya Bayar Dimuka Lain Lain,CLIENT,1401,Biaya Dibayar Dimuka,<name>
+1011302001,Prepaid - PPh Pasal 21,CLIENT,1402,Pajak Bayar Dimuka,<tax type>
+1011302002,Prepaid - PPh Pasal 25,CLIENT,1402,Pajak Bayar Dimuka,<tax type>
+1011302003,Prepaid - PPh Pasal 29,CLIENT,1402,Pajak Bayar Dimuka,<tax type>
+1011302004,Prepaid - VAT (PPN Masukan),CLIENT,1402,Pajak Bayar Dimuka,<tax type>
+1011302005,Prepaid - Land Tax (PBB),CLIENT,1402,Pajak Bayar Dimuka,<tax type>
+1011302006,Prepaid - Other Tax,CLIENT,1402,Pajak Bayar Dimuka,<tax type>
+1011303001,Advanced - Travelling,CLIENT,1403,Uang Muka,<name>
+1011303002,Advanced  - Purchase,CLIENT,1403,Uang Muka,<name>
+1011303003,Advanced  - To Contractors,CLIENT,1403,Uang Muka,<name>
+1011303004,Advanced  - Others,CLIENT,1403,Uang Muka,<name>
+1021401001,Piutang Affiliasi Pembiayaan HEAD OFFICE,CLIENT,1501,Piutang (Hutang) Affiliasi Antar Unit,FINANCING
+1021402001,Piutang Affiliasi Atas Barang HEAD OFFICE,CLIENT,1501,Piutang (Hutang) Affiliasi Antar Unit,GOODS
+1021403001,Piutang Affiliasi Lain-lain HEAD OFFICE,CLIENT,1501,Piutang (Hutang) Affiliasi Antar Unit,OTHER
+1021501001,Tanah Hak Milik,CLIENT,1601,Aktiva Tetap,<asset class>
+1021501002,Hak Sewa Tanah / HGB,CLIENT,1601,Aktiva Tetap,<asset class>
+1021502001,Bangunan Utama,CLIENT,1601,Aktiva Tetap,<asset class>
+1021503001,Instalasi Mekanikal & Elektrikal,CLIENT,1601,Aktiva Tetap,<asset class>
+1021504001,Air Conditioner,CLIENT,1601,Aktiva Tetap,<asset class>
+1021505001,Mobil,CLIENT,1601,Aktiva Tetap,<asset class>
+1021506001,"Furniture, Fixture & Equipment Office",CLIENT,1601,Aktiva Tetap,<asset class>
+1021507001,Operating Equipment - Rak 1,CLIENT,1601,Aktiva Tetap,<asset class>
+1021601002,Akumulasi Penyusutan - Hak  Pengelolaan Tanah (Land Right) / HGB,CLIENT,1609,Akumulasi Penyusutan Aktiva Tetap,<asset class>
+1021602001,Akumulasi Penyusutan - Bangunan Utama,CLIENT,1609,Akumulasi Penyusutan Aktiva Tetap,<asset class>
+1021603001,Akumulasi - Penyusutan - Instalasi - Mekanikal  Electrical,CLIENT,1609,Akumulasi Penyusutan Aktiva Tetap,<asset class>
+1021604001,Akumulasi-Penyusutan Mesin - Air Conditioner,CLIENT,1609,Akumulasi Penyusutan Aktiva Tetap,<asset class>
+1021605001,Akumulasi Penyusutan - Mobil,CLIENT,1609,Akumulasi Penyusutan Aktiva Tetap,<asset class>
+1021606001,"Akumulasi Penyusutan - Furniture, Fixture & Equipment Office",CLIENT,1609,Akumulasi Penyusutan Aktiva Tetap,<asset class>
+1021607001,Reserve Replacement Operating Equipment- Rak 1,CLIENT,1610,Reserve Replacement Operating Equipment,<asset class>
+1021701001,Seventh Soft Application,CLIENT,1602,Intangible Asset,SOFTWARE
+1021702001,Akumulasi Amortisasi Seventh Soft Application,CLIENT,1619,Akumulasi Amortisasi,SOFTWARE
+1031801001,Disposed Inventory,CLIENT,RETIRE,RETIRE,dead: Disposed Inventory
+1031802001,Pre Opening,CLIENT,1602,Intangible Asset,PRE_OPENING
+1031802002,Akumulasi Amortisasi Pre Opening,CLIENT,1619,Akumulasi Amortisasi,PRE_OPENING
+1031803001,Contract In Progress (CIP),CLIENT,1601,Aktiva Tetap,CIP
+2012001001,Hutang Suppliers  Barang Dagangan,CLIENT,2101,Hutang Supplier,<supplier: merchandise>
+2012001002,Hutang Supplier Barang Dagang - Suspend,CLIENT,2102,Hutang Supplier - Suspend,<supplier>
+2012001003,Hutang Supplier  Non Barang Dagang,CLIENT,2101,Hutang Supplier,<supplier: non-merchandise>
+2012002001,Outstanding Giro Bank BCA,CLIENT,2103,Outstanding Giro,<bank account>
+2012101001,Hutang Pajak PPH Pasal 21,CLIENT,2201,Hutang Pajak,<tax type>
+2012101002,Hutang Pajak PPH Pasal 23 (withhold),CLIENT,2201,Hutang Pajak,<tax type>
+2012101003,Hutang  VAT PPN Keluaran,CLIENT,2201,Hutang Pajak,<tax type>
+2012101004,Hutang Pajak Bumi & Bangunan,CLIENT,2201,Hutang Pajak,<tax type>
+2012101005,Hutang Pajak PPH Pasal 25,CLIENT,2201,Hutang Pajak,<tax type>
+2012101006,Hutang Pajak PPh Pasal 29,PENDING_CLIENT_CODE,2201,Hutang Pajak,<tax type>
+2012201001,Biaya Gaji dan Upah Yang Masih Harus Dibayar,CLIENT,2301,Biaya Yang Masih Harus Dibayar,<name>
+2012201003,Biaya Bunga Pinjaman Yang Masih Harus Dibayar,CLIENT,2301,Biaya Yang Masih Harus Dibayar,<name>
+2012201006,"Biaya Telephone, Fax, Modem Yang Masih Harus Dibayar",CLIENT,2301,Biaya Yang Masih Harus Dibayar,<name>
+2012201009,Biaya Sewa Kantor / Toko Yang Masih Harus Dibayar,CLIENT,2301,Biaya Yang Masih Harus Dibayar,<name>
+2012301001,Hutang Affiliasi Pembiayaan HEAD OFFICE,CLIENT,1501,Piutang (Hutang) Affiliasi Antar Unit,FINANCING
+2012302001,Hutang Affiliasi Atas Barang HEAD OFFICE,CLIENT,1501,Piutang (Hutang) Affiliasi Antar Unit,GOODS
+2012303001,Hutang Lain-lain Principal HEAD OFFICE,CLIENT,2502,Pinjaman Principal,<principal>
+2012305001,Hutang Voucher,PENDING_CLIENT_CODE,2401,Uang Muka Penjualan,VOUCHER
+2012501001,Pinjaman Jangka Panjang Jatuh Tempo - Principal,CLIENT,2502,Pinjaman Principal,<principal>
+2012502001,Pinjaman Jangka Panjang Jatuh Tempo  Bank BCA,CLIENT,2501,Pinjaman Bank,<facility>
+2022401001,Pinjaman Jangka Panjang  Principal,CLIENT,2502,Pinjaman Principal,<principal>
+2022402001,Pinjaman Jangka Panjang  Bank BCA,CLIENT,2501,Pinjaman Bank,<facility>
+205001,Uang Muka - Penjualan,CLIENT,2401,Uang Muka Penjualan,CUSTOMER_DEPOSIT
+3013001001,Modal Setor,CLIENT,3101,Modal Setor,<principal>
+3013001002,Laba (Rugi) Ditahan,CLIENT,3201,Laba (Rugi) Ditahan,—
+3013001003,Laba (Rugi) bulan berjalan,CLIENT,DERIVED,DERIVED,"current-year result, not posted"
+3013001004,Prive,CLIENT,3102,Prive,<principal>
+4010110001,Penjualan Tunai,CLIENT,4101,Penjualan,CASH
+4010111001,Penjualan Debit Card Bank BCA,CLIENT,4101,Penjualan,<DEBIT_bank>
+4010111002,Penjualan Debit Card Bank Mandiri,CLIENT,4101,Penjualan,<DEBIT_bank>
+4010111003,Penjualan Debit Card Bank BRI,CLIENT,4101,Penjualan,<DEBIT_bank>
+4010111004,Penjualan Debit Card Bank BNI,CLIENT,4101,Penjualan,<DEBIT_bank>
+4010112001,Penjualan Kartu Kredit VISA Card,CLIENT,4101,Penjualan,<CREDIT_network>
+4010112002,Penjualan Kartu Kredit Master Card,CLIENT,4101,Penjualan,<CREDIT_network>
+4010113001,Penjualan  Online Sendiri,CLIENT,4101,Penjualan,ONLINE_OWN
+4010113002,Penjualan  Online Market Place,CLIENT,4101,Penjualan,ONLINE_MARKETPLACE
+4010114001,Penjualan QRIS,PENDING_CLIENT_CODE,4101,Penjualan,QRIS
+4010213001,Discount / Potongan Penjualan,CLIENT,4201,Potongan Penjualan,—
+4010214001,Retur Penjualan,CLIENT,4202,Retur Penjualan,—
+4020110001,Management Fee,CLIENT,4301,Pendapatan Lain-lain,MANAGEMENT_FEE
+5010110001,Harga Pokok Pembelian,CLIENT,5101,Harga Pokok Pembelian,COGS
+6010110001,Biaya Customer Supplies,CLIENT,6101,Biaya Penjualan,<name>
+6010110002,Biaya Credit Card,CLIENT,6101,Biaya Penjualan,<name>
+6010110003,Biaya Promosi,CLIENT,6101,Biaya Penjualan,<name>
+6010110004,Biaya Dekorasi,CLIENT,6101,Biaya Penjualan,<name>
+6010110005,Biaya Advertising / Iklan,CLIENT,6101,Biaya Penjualan,<name>
+6010110006,Biaya Bongkar Muat Barang,CLIENT,6101,Biaya Penjualan,<name>
+6010110007,Biaya Pengiriman Barang/kurir/Ekspedisi,CLIENT,6101,Biaya Penjualan,<name>
+6010110008,Biaya  Kerusakan Persediaan Barang Dagangan,CLIENT,5102,Kehilangan Barang & Selisih Stock Opname,DAMAGE
+6010210001,Biaya Gaji Pegawai,CLIENT,6201,Biaya Pegawai,<component>
+6010210002,Biaya Lembur,CLIENT,6201,Biaya Pegawai,<component>
+6010210003,Uang Makan,CLIENT,6201,Biaya Pegawai,<component>
+6010210004,Uang Transport,CLIENT,6201,Biaya Pegawai,<component>
+6010210005,Biaya Kesehatan & Pengobatan,CLIENT,6201,Biaya Pegawai,<component>
+6010210006,Biaya Asuransi Pegawai / BPJS,CLIENT,6201,Biaya Pegawai,<component>
+6010210007,Tunjangan Hari Raya (THR),CLIENT,6201,Biaya Pegawai,<component>
+6010210008,Biaya Uniform / Seragam Kerja,CLIENT,6201,Biaya Pegawai,<component>
+6010210009,Biaya Sport & Recreation,CLIENT,6201,Biaya Pegawai,<component>
+6010210010,Funeral Contribution,CLIENT,6201,Biaya Pegawai,<component>
+6010210011,Biaya Manpower Development,CLIENT,6201,Biaya Pegawai,<component>
+6010210012,Biaya Pesangon,CLIENT,6201,Biaya Pegawai,<component>
+6010210013,"Komisi, Bonus & Insentif",CLIENT,6201,Biaya Pegawai,<component>
+6010310001,Biaya Kebersihan (Cleaning),CLIENT,6301,Biaya Administrasi dan Umum,<name>
+6010310002,Alat Tulis Kantor & Barang Cetakan,CLIENT,6301,Biaya Administrasi dan Umum,<name>
+6010310003,Biaya Rumah Tangga,CLIENT,6301,Biaya Administrasi dan Umum,<name>
+6010310004,Biaya Bank Head Office,CLIENT,6301,Biaya Administrasi dan Umum,<name>
+6010310005,"Biaya Telephone,Facsimile, Modem",CLIENT,6301,Biaya Administrasi dan Umum,<name>
+6010310006,Biaya Pemakaian Listrik,CLIENT,6301,Biaya Administrasi dan Umum,<name>
+6010310007,Biaya Pemakaian Air Bersih (PDAM),CLIENT,6301,Biaya Administrasi dan Umum,<name>
+6010310008,Biaya Perjalanan Dinas,CLIENT,6301,Biaya Administrasi dan Umum,<name>
+6010310009,Biaya Lokal Transport,CLIENT,6301,Biaya Administrasi dan Umum,<name>
+6010310010,Biaya Perijinan,CLIENT,6301,Biaya Administrasi dan Umum,<name>
+6010310011,Computer Expenses,CLIENT,6301,Biaya Administrasi dan Umum,<name>
+6010310012,Biaya Penyisihan Kerugian Piutang,CLIENT,6301,Biaya Administrasi dan Umum,<name>
+6010310013,Biaya Perlengkapan Toko dan Kantor,CLIENT,6301,Biaya Administrasi dan Umum,<name>
+6010310014,Biaya Stock Opname,CLIENT,6301,Biaya Administrasi dan Umum,<name>
+6010310015,Biaya Peralatan Listrik,CLIENT,6301,Biaya Administrasi dan Umum,<name>
+6010310016,Tire & Tubes  Expenses,CLIENT,6301,Biaya Administrasi dan Umum,<name>
+6010310017,Fuel & Oil Expenses,CLIENT,6301,Biaya Administrasi dan Umum,<name>
+6010310018,Tools (Peralatan) Expenses,CLIENT,6301,Biaya Administrasi dan Umum,<name>
+6010310021,"Biaya Donasi (CSR, Zakat)",CLIENT,6301,Biaya Administrasi dan Umum,<name>
+6010310022,Biaya Konsultan,CLIENT,6301,Biaya Administrasi dan Umum,<name>
+6010310023,"Biaya Lisensi Kendaraan ( STNK, Uji Kir)",CLIENT,6301,Biaya Administrasi dan Umum,<name>
+6010310024,Biaya Perlengkapan Mess atau Rumah Dinas,CLIENT,6301,Biaya Administrasi dan Umum,<name>
+6010310099,Miscellaneous Expenses,CLIENT,6301,Biaya Administrasi dan Umum,<name>
+6010410001,"BIAYA PERBAIKAN DAN PERAWATAN FURNITURE, FIXTURE & EQUIPMENT",CLIENT,6301,Biaya Administrasi dan Umum,<name: maintenance>
+6010410002,SOFTWARE MAINTENANCE,CLIENT,6301,Biaya Administrasi dan Umum,<name: maintenance>
+6010410003,BIAYA PERBAIKAN DAN PERAWATAN KOMPUTER,CLIENT,6301,Biaya Administrasi dan Umum,<name: maintenance>
+6010410004,BIAYA PERBAIKAN DAN PERAWATAN BANGUNAN,CLIENT,6301,Biaya Administrasi dan Umum,<name: maintenance>
+6010410005,BIAYA PERBAIKAN DAN PERAWATAN STAFF HOUSE,CLIENT,6301,Biaya Administrasi dan Umum,<name: maintenance>
+6010410006,BIAYA PERBAIKAN DAN PERAWATAN KENDARAAN,CLIENT,6301,Biaya Administrasi dan Umum,<name: maintenance>
+6010410007,BIAYA PERBAIKAN DAN PERAWATAN AIRCONDITIONER & REFRIGERATOR,CLIENT,6301,Biaya Administrasi dan Umum,<name: maintenance>
+6010410008,Biaya Power Plant,CLIENT,6301,Biaya Administrasi dan Umum,<name: maintenance>
+6010410010,BIAYA PERBAIKAN DAN PERAWATAN LIFT,CLIENT,6301,Biaya Administrasi dan Umum,<name: maintenance>
+7010110001,Biaya Sewa Tanah,CLIENT,6401,Biaya Sewa,<name>
+7010110002,Biaya Land Right,CLIENT,6401,Biaya Sewa,<name>
+7010110003,Biaya Sewa Bangunan Toko dan Gudang,CLIENT,6401,Biaya Sewa,<name>
+7010110004,Biaya Sewa Rumah Dinas / Mess,CLIENT,6401,Biaya Sewa,<name>
+7010210001,Biaya Depresiasi Bangunan Utama,CLIENT,7101,Biaya Depresiasi dan Amortisasi,<asset class>
+7010211001,"Biaya Depresiasi Instalasi Mekanikal, Elektrikal",CLIENT,7101,Biaya Depresiasi dan Amortisasi,<asset class>
+7010212001,Biaya Depresiasi Mesin -  Air Conditioning,CLIENT,7101,Biaya Depresiasi dan Amortisasi,<asset class>
+7010213001,Biaya Depresiasi Kendaraan - Mobil,CLIENT,7101,Biaya Depresiasi dan Amortisasi,<asset class>
+7010214001,"Biaya Depresiasi Furniture, Fixture & Equipment Office",CLIENT,7101,Biaya Depresiasi dan Amortisasi,<asset class>
+7010215001,Biaya Replacement Operating Equipment - Rack 1,CLIENT,7101,Biaya Depresiasi dan Amortisasi,<asset class>
+7010216001,Biaya Amortisasi Seventh Soft Application,CLIENT,7101,Biaya Depresiasi dan Amortisasi,<asset class>
+7010216002,Biaya Amortisasi Biaya Pre Opening,CLIENT,7101,Biaya Depresiasi dan Amortisasi,<asset class>
+7010310001,Property All Risk & Fire Insurance,CLIENT,6301,Biaya Administrasi dan Umum,<name>
+7010310002,Biaya Pajak Bumi Dan Bangunan  (PBB),CLIENT,6301,Biaya Administrasi dan Umum,<name>
+7020310003,Biaya Pajak Reklame,CLIENT,6301,Biaya Administrasi dan Umum,<name>
+7020310004,Biaya Management FEE,CLIENT,6301,Biaya Administrasi dan Umum,<name>
+7020310005,Biaya Asuransi Kendaraan,CLIENT,6301,Biaya Administrasi dan Umum,<name>
+8010110001,Pendapatan Bunga Bank,CLIENT,4301,Pendapatan Lain-lain,INTEREST
+8010110002,Selisih Pembulatan,CLIENT,4301,Pendapatan Lain-lain,ROUNDING
+8010110003,Potongan Pembelian,CLIENT,5101,Harga Pokok Pembelian,PURCHASE_DISCOUNT
+8010110004,Pendapatan Sewa Gedung,CLIENT,4301,Pendapatan Lain-lain,RENT_BUILDING
+8010110006,Kehilangan Barang atau Selisih Stock Opname,CLIENT,5102,Kehilangan Barang & Selisih Stock Opname,SHRINKAGE
+8010110007,Pendapatan (Biaya) Lain-Lain,CLIENT,4301,Pendapatan Lain-lain,OTHER
+8020111001,Biaya Bunga Pinjaman Bank,CLIENT,8101,Biaya Bunga,<facility: bank>
+8020111002,Biaya Bunga Leasing,CLIENT,8101,Biaya Bunga,<facility: leasing>
+8030112001,Current Tax Income/Expense PPH Pasal 25,CLIENT,8201,Pajak Penghasilan,<tax type>

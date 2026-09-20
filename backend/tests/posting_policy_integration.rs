@@ -6,13 +6,13 @@
 //! two that succeed are here to prove the refusals are not simply "everything
 //! is refused".
 //!
-//! The chart is not seeded. Since 0243 the migrations write the client's own,
-//! and these tests name real accounts from it:
+//! The chart is not seeded. Since 0243 the migrations write the client's own
+//! and 0289 collapsed it to forty; these tests name real accounts from it:
 //!
-//!     1011001001  CASH ON HAND                     dimension = unit
-//!     2012001001  Hutang Suppliers Barang Dagangan  dimension = unit
-//!     1011002001  Cash In Bank Giro Bank BCA        dimension = company
-//!     1011203001  Barang Dalam Perjalanan …         requires_counter_site
+//!     1101  Kas                         dimension = unit,    category `pot`
+//!     2101  Hutang usaha                dimension = company, supplier_id
+//!     1102  Bank                        dimension = company, bank_account_id
+//!     1302  Barang dalam perjalanan     requires_counter_site, `item_class`
 //!
 //! Policy is set with raw SQL rather than through an endpoint, deliberately: the
 //! endpoint that edits a posting profile does not exist yet, and the guarantee
@@ -26,17 +26,40 @@ use uuid;
 
 const ACTOR: &str = "ana";
 const APPROVER: &str = "budi";
-const CASH: &str = "1011001001";
-const PAYABLE: &str = "2012001001";
-const COMPANY_BANK: &str = "1011002001";
-const IN_TRANSIT: &str = "1011203001";
+const CASH: &str = "1101";
+const PAYABLE: &str = "2101";
+const COMPANY_BANK: &str = "1102";
+const IN_TRANSIT: &str = "1302";
 /// The replacement reserve, and the expense that forms it. Two paths, one of
 /// which the owner has ruled on and one of which is still pending.
-const RESERVE: &str = "1021607001";
-const RESERVE_EXPENSE: &str = "7010215001";
+const RESERVE: &str = "1610";
+const RESERVE_EXPENSE: &str = "7101";
 /// Migration-only by owner decision (0267): the prepayment came across and must
-/// not grow. Its allow-list is `OPENING` and nothing else.
-const PREPAID_PPH29: &str = "1011302003";
+/// not grow. Its allow-list is `OPENING` and nothing else — see the gap noted
+/// on the test that reads it.
+const PREPAID_PPH29: &str = "1402";
+
+/// The category each of the accounts above takes, or `None` where its identity
+/// is a column instead.
+///
+/// A category is not decoration to a policy test: 0288's trigger refuses a
+/// missing one before `validate_account_posting` is ever reached, so a probe
+/// without this would prove that the category trigger works and nothing about
+/// the policy it was written for.
+fn category_for(code: &str) -> Option<&'static str> {
+    match code {
+        CASH => Some("DRAWER"),
+        IN_TRANSIT => Some("MERCHANDISE"),
+        PREPAID_PPH29 => Some("PPH29"),
+        // 0294: the charge account carries all three kinds, because the client
+        // does not depreciate operating equipment and a P&L that could not say
+        // so had lost the distinction 0159 exists for.
+        RESERVE_EXPENSE => Some("REPLACEMENT"),
+        // `2101` by supplier, `1102` by bank account, `1610` by asset. None of
+        // the three declares a family.
+        _ => None,
+    }
+}
 const HO: &str = "dc";
 const SHOP: &str = "store-01";
 
@@ -67,9 +90,16 @@ async fn rule(pool: &PgPool, code: &str, kind: &str, effect: &str) {
     sqlx::query(
         // Restating rather than inserting: 0268 ships the reserve's own DENY row
         // in the chain, so a test that wants it there finds it already there.
+        //
+        // The conflict target spells the coalesce because that is the index now.
+        // 0294 dropped the primary key — NULL is the value that means "the whole
+        // account", and a key cannot hold one — for a unique index over
+        // `(account_code, source_kind, COALESCE(category_code, ''))`, and an
+        // `ON CONFLICT` naming only the first two matches nothing.
         "INSERT INTO account_source_rule (account_code, source_kind, effect, set_by)
          VALUES ($1,$2,$3,$4)
-         ON CONFLICT (account_code, source_kind) DO UPDATE SET effect = EXCLUDED.effect",
+         ON CONFLICT (account_code, source_kind, COALESCE(category_code, ''))
+         DO UPDATE SET effect = EXCLUDED.effect",
     )
     .bind(code)
     .bind(kind)
@@ -92,6 +122,7 @@ fn entry(
     let line = |code: &str, debit_minor: i64, credit_minor: i64| PostingLine {
         account: LineAccount::Account {
             account_code: code.into(),
+            category_code: category_for(code).map(str::to_string),
         },
         site_id: site.into(),
         debit_minor,
@@ -334,10 +365,28 @@ async fn deny_wins_over_allow_for_the_same_kind(pool: PgPool) {
 
 /// 11. A migration-only account takes the migration and nothing else.
 ///
-/// `1011302003 Prepaid - PPh Pasal 29` is the sharpest case the ALLOW direction
-/// has: the owner ruled it may not grow, its obligation now lives at
-/// `2012101006` (0265), and offsetting the two is a tax return nobody has filed.
-/// Both halves of that come from migrations, so this needs no seed.
+/// `1011302003 Prepaid - PPh Pasal 29` was the sharpest case the ALLOW
+/// direction has: the owner ruled it may not grow, its obligation lives at
+/// `2201 × PPH29` (0265's `2012101006`), and offsetting the two is a tax return
+/// nobody has filed. Both halves of that come from migrations, so this needs no
+/// seed.
+///
+/// This was red, and why is worth keeping written down.
+///
+/// The account is `1402 × PPH29` now, and 0267's `ALLOW OPENING` row sat on
+/// `1011302003`, which no longer posts. 0291 said `account_source_rule` was
+/// "already on the new codes"; it was not, and the same was true of
+/// `1021607001 ASSET_RESERVE DENY` (0268) and both of `7010216002`'s rows
+/// (0267). Four owner decisions about which documents may reach an account,
+/// silently not in force.
+///
+/// Moving them was not a mechanical remap either, and that was the harder half:
+/// the table was keyed on the ACCOUNT alone, so an `ALLOW OPENING`-only list on
+/// `1402` would have frozen PPN masukan and PPh 25 with it, and both move every
+/// month. 0294 gave the table the category grain `account_category_policy`
+/// already had, and `validate_account_posting` reads a rule with a category as
+/// applying to that pairing and one without as applying to the account — which
+/// is what every rule written before 0294 meant.
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn a_migration_only_account_takes_opening_and_nothing_else(pool: PgPool) {
     open_september(&pool).await;

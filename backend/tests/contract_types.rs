@@ -1008,6 +1008,24 @@ fn the_wire_types_are_written_for_the_browser() {
         ProfitAndLoss,
         UnitResult
     );
+
+    // The forty-account chart's two new lists. Identity that used to be baked
+    // into an account code is now a category on the line, and an asset's class
+    // is the register's own code rather than a family under `10215` — so the
+    // account picker needs to be told which categories an account admits, and
+    // the register needs to be told what an asset may be filed as. Named here
+    // and not merely derived, for the reason the whole file exists: a type that
+    // is not named is silently not written.
+    for_contract!(
+        &config,
+        LineCategory,
+        CategoryAccount,
+        CategoryFamily,
+        CategoryPolicyOverride,
+        LineCategoryDirectory,
+        AssetClass,
+        AssetClassList
+    );
     inventory_backend::cloud::postgres::SaleDayRow::export_all(&config)
         .unwrap_or_else(|e| panic!("SaleDayRow: {e}"));
     inventory_backend::cloud::postgres::SaleDayPage::export_all(&config)

@@ -50,6 +50,17 @@ pub struct JournalLineView {
     pub debit_minor: i64,
     pub credit_minor: i64,
     pub supplier_id: Option<String>,
+    /// What kind of thing this line is, on the accounts that are kept by kind.
+    ///
+    /// Not a decoration on a drill-down: with forty accounts the code alone no
+    /// longer says what a line is about. Every general and administrative
+    /// expense the company pays is `6301`, and an entry detail showing four
+    /// lines of `6301` without their categories is a screen a reader has to
+    /// leave in order to understand.
+    pub category_code: Option<String>,
+    /// The category's own name, so the entry reads without a second lookup —
+    /// the same bargain `account_name` already struck.
+    pub category_name: Option<String>,
     /// Which asset this line is about, when it is about one. The second
     /// sub-ledger dimension, beside the supplier.
     pub asset_id: Option<Uuid>,
@@ -534,9 +545,11 @@ pub async fn journal_entry(pool: &PgPool, entry_id: Uuid) -> Result<JournalEntry
     let lines = sqlx::query(
         "SELECT l.line_number, l.account_code, a.name AS account_name, l.site_id,
                 l.counter_site_id, l.debit_minor, l.credit_minor, l.supplier_id,
+                l.category_code, k.name AS category_name,
                 l.asset_id, f.asset_number, l.memo
            FROM journal_line l
            JOIN ledger_account a ON a.account_code = l.account_code
+           LEFT JOIN line_category k ON k.category_code = l.category_code
            LEFT JOIN fixed_asset f ON f.asset_id = l.asset_id
           WHERE l.entry_id = $1 ORDER BY l.line_number",
     )
@@ -558,6 +571,8 @@ pub async fn journal_entry(pool: &PgPool, entry_id: Uuid) -> Result<JournalEntry
                     debit_minor: row.try_get("debit_minor")?,
                     credit_minor: row.try_get("credit_minor")?,
                     supplier_id: row.try_get("supplier_id")?,
+                    category_code: row.try_get("category_code")?,
+                    category_name: row.try_get("category_name")?,
                     asset_id: row.try_get("asset_id")?,
                     asset_number: row.try_get("asset_number")?,
                     memo: row.try_get("memo")?,
@@ -610,6 +625,14 @@ pub struct GeneralLedgerScope {
     pub needle: Option<String>,
     /// `source_kind`s to keep. Empty means every kind. Also rows-only.
     pub kinds: Vec<String>,
+    /// Categories to keep. Empty means every category, and also every line
+    /// that carries none. Rows-only, like the kinds.
+    ///
+    /// The filter the forty-account chart made necessary: `6301` is every
+    /// general and administrative expense the company pays, so its ledger is
+    /// forty-eight kinds of cost in one list and "what did we spend on
+    /// electricity" is unanswerable without this.
+    pub categories: Vec<String>,
     /// `amount`, `entry` or `reconciliation`. Anything else is the house
     /// order: the window's own sequence, which is the order the running
     /// balance was computed in.
@@ -641,6 +664,10 @@ pub struct GeneralLedgerFacet {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct GeneralLedgerFacets {
     pub kinds: Vec<GeneralLedgerFacet>,
+    /// The categories this account was posted under inside the window, with
+    /// the client's own name for each as the label. Empty on an account that
+    /// declares no family, which is most of the balance sheet.
+    pub categories: Vec<GeneralLedgerFacet>,
     /// The locations this account moved at inside the window.
     ///
     /// Informational when `site_id` was given, where there is exactly one and
@@ -680,6 +707,14 @@ pub struct GeneralLedgerRow {
     pub account_code: String,
     /// The client's own name for that account, never translated.
     pub account_name: String,
+    /// What kind of thing this line is, on an account that is kept by kind,
+    /// and the client's own name for that kind.
+    ///
+    /// The same argument `account_code` above makes, one level down: under
+    /// `6301` every row would otherwise be called "Beban Umum & Administrasi",
+    /// and telling them apart would mean opening each voucher.
+    pub category_code: Option<String>,
+    pub category_name: Option<String>,
     pub site_id: String,
     /// The unit on the other side of the movement, when the posting named
     /// one. 0120 put it on the line.
@@ -795,7 +830,7 @@ impl LedgerCursor {
 const LEDGER_WINDOW: &str = "
     SELECT l.line_id, e.entry_id, e.entry_number, e.posting_date, e.source_kind,
            e.source_id, l.site_id, l.counter_site_id, l.account_code,
-           l.supplier_id,
+           l.category_code, l.supplier_id,
            COALESCE(l.memo, e.memo) AS memo,
            l.debit_minor, l.credit_minor,
            (m.journal_line_id IS NOT NULL) AS reconciled,
@@ -817,7 +852,8 @@ const LEDGER_WINDOW: &str = "
 
 /// The search and the filters, applied to [`LEDGER_WINDOW`]'s output.
 ///
-/// Binds on from `$6`: the search pattern or NULL, then the kinds or NULL.
+/// Binds on from `$6`: the search pattern or NULL, then the kinds or NULL, then
+/// the categories or NULL.
 /// Spelled once because the page and the counts must narrow identically.
 const LEDGER_SEARCH: &str = "
     SELECT * FROM windowed
@@ -827,6 +863,7 @@ const LEDGER_SEARCH: &str = "
 const LEDGER_FILTERS: &str = "
     SELECT * FROM searched
      WHERE ($7::text[] IS NULL OR source_kind = ANY($7))
+       AND ($8::text[] IS NULL OR category_code = ANY($8))
 ";
 
 /// One account's movements over a window, with the balance walking down it.
@@ -876,6 +913,7 @@ pub async fn general_ledger(
         .filter(|text| !text.is_empty())
         .map(|text| format!("%{text}%"));
     let kinds = (!scope.kinds.is_empty()).then(|| scope.kinds.clone());
+    let categories = (!scope.categories.is_empty()).then(|| scope.categories.clone());
 
     // The sort, and the tie-break that makes it total. Every order ends in the
     // line id, which is the primary key of `journal_line`.
@@ -934,14 +972,16 @@ pub async fn general_ledger(
               kept AS NOT MATERIALIZED ({LEDGER_FILTERS}),
               page AS NOT MATERIALIZED (
                 SELECT * FROM kept
-                 WHERE $8::uuid IS NULL
-                    OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE line_id = $8)
+                 WHERE $9::uuid IS NULL
+                    OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE line_id = $9)
                  ORDER BY {order}
-                 LIMIT $9
+                 LIMIT $10
               )
-         SELECT page.*, account.name AS account_name, party.name AS supplier_name
+         SELECT page.*, account.name AS account_name, party.name AS supplier_name,
+                cat.name AS category_name
            FROM page
            LEFT JOIN ledger_account account ON account.account_code = page.account_code
+           LEFT JOIN line_category cat ON cat.category_code = page.category_code
            LEFT JOIN supplier party ON party.supplier_id::text = page.supplier_id
           ORDER BY {order}"
     );
@@ -953,6 +993,7 @@ pub async fn general_ledger(
         .bind(scope.to)
         .bind(&needle)
         .bind(&kinds)
+        .bind(&categories)
         .bind(cursor.as_ref().map(|c| c.line_id))
         .bind(limit)
         .fetch_all(pool)
@@ -984,6 +1025,8 @@ pub async fn general_ledger(
             account_name: row
                 .try_get::<Option<String>, _>("account_name")?
                 .unwrap_or_default(),
+            category_code: row.try_get("category_code")?,
+            category_name: row.try_get("category_name")?,
             site_id: row.try_get("site_id")?,
             counter_site_id: row.try_get("counter_site_id")?,
             supplier_id: row.try_get("supplier_id")?,
@@ -1003,6 +1046,7 @@ pub async fn general_ledger(
         opening,
         needle.as_deref(),
         kinds.as_deref(),
+        categories.as_deref(),
     )
     .await?;
 
@@ -1046,6 +1090,7 @@ struct LedgerSummary {
 ///   per-value counts also read the WINDOW, so "Payments 12" means "twelve
 ///     payments moved this account this month".
 ///   `total` reads the FILTERED set, because it describes the list on screen.
+#[allow(clippy::too_many_arguments)]
 async fn ledger_summary(
     pool: &PgPool,
     account_code: &str,
@@ -1053,6 +1098,7 @@ async fn ledger_summary(
     opening: i64,
     needle: Option<&str>,
     kinds: Option<&[String]>,
+    categories: Option<&[String]>,
 ) -> Result<LedgerSummary, AppError> {
     let sql = format!(
         "WITH windowed AS ({LEDGER_WINDOW}),
@@ -1066,6 +1112,14 @@ async fn ledger_summary(
                 (SELECT p.name FROM site p WHERE p.id = w.site_id),
                 COUNT(*)::bigint, 0::bigint, 0::bigint
            FROM windowed w GROUP BY w.site_id
+          UNION ALL
+         -- `IS NOT NULL` and not a COALESCE to a placeholder: a facet value has
+         -- to be a value the filter can be given back, and no category means
+         -- the absence of one.
+         SELECT 'category', w.category_code,
+                (SELECT c.name FROM line_category c WHERE c.category_code = w.category_code),
+                COUNT(*)::bigint, 0::bigint, 0::bigint
+           FROM windowed w WHERE w.category_code IS NOT NULL GROUP BY w.category_code
           UNION ALL
          SELECT 'window', '', NULL::text, COUNT(*)::bigint,
                 COALESCE(SUM(debit_minor), 0)::bigint,
@@ -1083,6 +1137,7 @@ async fn ledger_summary(
         .bind(scope.to)
         .bind(needle)
         .bind(kinds)
+        .bind(categories)
         .fetch_all(pool)
         .await?;
 
@@ -1093,6 +1148,7 @@ async fn ledger_summary(
         total: 0,
         facets: GeneralLedgerFacets {
             kinds: Vec::new(),
+            categories: Vec::new(),
             sites: Vec::new(),
         },
     };
@@ -1103,6 +1159,11 @@ async fn ledger_summary(
         let n: i64 = row.try_get("n")?;
         match kind.as_str() {
             "kind" => summary.facets.kinds.push(GeneralLedgerFacet {
+                value,
+                label,
+                count: n,
+            }),
+            "category" => summary.facets.categories.push(GeneralLedgerFacet {
                 value,
                 label,
                 count: n,
@@ -1120,7 +1181,11 @@ async fn ledger_summary(
             _ => summary.total = n,
         }
     }
-    for list in [&mut summary.facets.kinds, &mut summary.facets.sites] {
+    for list in [
+        &mut summary.facets.kinds,
+        &mut summary.facets.categories,
+        &mut summary.facets.sites,
+    ] {
         list.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.value.cmp(&b.value)));
     }
     Ok(summary)

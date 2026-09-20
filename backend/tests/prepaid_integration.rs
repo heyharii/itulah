@@ -10,29 +10,42 @@ use chrono::NaiveDate;
 use inventory_backend::cloud::postgres::{
     self as cloud, CreatePrepaidScheduleRequest, PrepaidAllocationRequest,
 };
-use sqlx::{PgPool, Row};
+use sqlx::PgPool;
 use uuid::Uuid;
 
 const ACTOR: &str = "ana";
 const SITE: &str = "store-01";
-/// `1011301001 Asuransi Bayar Dimuka` — the client's own prepaid insurance.
-const PREPAID: &str = "1011301001";
-/// `1011302004 Prepaid - VAT (PPN Masukan)` — a tax CREDIT, which this module
-/// must refuse.
-const PREPAID_TAX: &str = "1011302004";
-/// `7010310001 Property All Risk & Fire Insurance` — where the months land.
-const EXPENSE: &str = "7010310001";
-const PAYABLE: &str = "2012001001";
+/// `1401 Biaya dibayar dimuka` × `ASURANSI_BAYAR_DIMUKA` — the client's own
+/// prepaid insurance, which was `1011301001`.
+const PREPAID: &str = "1401";
+const PREPAID_KIND: &str = "ASURANSI_BAYAR_DIMUKA";
+/// `1402 Pajak dibayar dimuka` × `PPN_IN` — a tax CREDIT, which this module
+/// must refuse. Was `1011302004 Prepaid - VAT (PPN Masukan)`.
+///
+/// The refusal still has a different ACCOUNT to name, which is the thing the
+/// test below turns on: prepaid expenses and prepaid taxes did not fold
+/// together.
+const PREPAID_TAX: &str = "1402";
+const PREPAID_TAX_KIND: &str = "PPN_IN";
+/// `6301` × `PROPERTY_ALL_RISK_FIRE_INSURANCE` — where the months land. Was
+/// `7010310001 Property All Risk & Fire Insurance`, under the client's root 7.
+const EXPENSE: &str = "6301";
+const EXPENSE_KIND: &str = "PROPERTY_ALL_RISK_FIRE_INSURANCE";
+/// `2101 Hutang usaha`, was `2012001001`. Which supplier is `supplier_id`.
+const PAYABLE: &str = "2101";
 
-async fn map(pool: &PgPool, key: &str, code: &str) {
+async fn map(pool: &PgPool, key: &str, code: &str, category: Option<&str>) {
     sqlx::query(
-        "INSERT INTO account_map (semantic_key, site_id, qualifier, account_code, set_by)
-         VALUES ($1,$2,'',$3,'test')
-         ON CONFLICT (semantic_key, site_id, qualifier) DO UPDATE SET account_code = $3",
+        "INSERT INTO account_map
+           (semantic_key, site_id, qualifier, account_code, category_code, set_by)
+         VALUES ($1,$2,'',$3,$4,'test')
+         ON CONFLICT (semantic_key, site_id, qualifier)
+         DO UPDATE SET account_code = $3, category_code = $4",
     )
     .bind(key)
     .bind(SITE)
     .bind(code)
+    .bind(category)
     .execute(pool)
     .await
     .unwrap_or_else(|error| panic!("map {key}: {error}"));
@@ -76,20 +89,25 @@ async fn a_posted_bill(pool: &PgPool, amount_minor: i64) -> String {
     .execute(&mut *tx)
     .await
     .unwrap_or_else(|error| panic!("bill entry: {error}"));
-    for (index, (code, debit, credit)) in [(PREPAID, amount_minor, 0), (PAYABLE, 0, amount_minor)]
-        .into_iter()
-        .enumerate()
+    for (index, (code, category, debit, credit)) in [
+        (PREPAID, Some(PREPAID_KIND), amount_minor, 0),
+        (PAYABLE, None, 0, amount_minor),
+    ]
+    .into_iter()
+    .enumerate()
     {
         sqlx::query(
             "INSERT INTO journal_line
-               (line_id, entry_id, line_number, account_code, site_id, debit_minor, credit_minor)
-             VALUES ($1,$2,$3,$4,$5,$6,$7)",
+               (line_id, entry_id, line_number, account_code, site_id, category_code,
+                debit_minor, credit_minor)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
         )
         .bind(Uuid::new_v4())
         .bind(entry_id)
         .bind(index as i32 + 1)
         .bind(code)
         .bind(SITE)
+        .bind(category)
         .bind(debit)
         .bind(credit)
         .execute(&mut *tx)
@@ -106,7 +124,9 @@ fn ask(source_id: &str, amount_minor: i64) -> CreatePrepaidScheduleRequest {
     CreatePrepaidScheduleRequest {
         site_id: SITE.into(),
         prepaid_account_code: PREPAID.into(),
+        prepaid_category_code: Some(PREPAID_KIND.into()),
         expense_account_code: EXPENSE.into(),
+        expense_category_code: Some(EXPENSE_KIND.into()),
         source_kind: "SUPPLIER_INVOICE".into(),
         source_id: source_id.into(),
         amount_minor,
@@ -130,7 +150,7 @@ async fn balance(pool: &PgPool, code: &str) -> i64 {
 
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn a_year_of_insurance_becomes_twelve_months_of_expense(pool: PgPool) {
-    map(&pool, "prepaid_expense", PREPAID).await;
+    map(&pool, "prepaid_expense", PREPAID, Some(PREPAID_KIND)).await;
     for month in 10..=12 {
         open_period(&pool, 2026, month).await;
     }
@@ -218,7 +238,7 @@ async fn a_year_of_insurance_becomes_twelve_months_of_expense(pool: PgPool) {
 
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn the_last_month_finishes_the_schedule_to_the_rupiah(pool: PgPool) {
-    map(&pool, "prepaid_expense", PREPAID).await;
+    map(&pool, "prepaid_expense", PREPAID, Some(PREPAID_KIND)).await;
     let amount = 1_000_001;
     let source_id = a_posted_bill(&pool, amount).await;
     // A three-month schedule, so the whole life fits in a test.
@@ -278,15 +298,16 @@ async fn the_last_month_finishes_the_schedule_to_the_rupiah(pool: PgPool) {
 
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn a_tax_credit_is_not_a_prepayment(pool: PgPool) {
-    // `vat_in` is where `1011302004` belongs, and this module refuses it: a tax
-    // credit is reclaimed on a return, not amortised over months.
-    map(&pool, "vat_in", PREPAID_TAX).await;
-    map(&pool, "prepaid_expense", PREPAID).await;
+    // `vat_in` is where `1402 × PPN_IN` belongs, and this module refuses it: a
+    // tax credit is reclaimed on a return, not amortised over months.
+    map(&pool, "vat_in", PREPAID_TAX, Some(PREPAID_TAX_KIND)).await;
+    map(&pool, "prepaid_expense", PREPAID, Some(PREPAID_KIND)).await;
     let amount = 600_000;
     let source_id = a_posted_bill(&pool, amount).await;
 
     let mut request = ask(&source_id, amount);
     request.prepaid_account_code = PREPAID_TAX.into();
+    request.prepaid_category_code = Some(PREPAID_TAX_KIND.into());
     let refused = cloud::prepaid_schedule_create(&pool, &request, ACTOR)
         .await
         .err()
@@ -301,7 +322,7 @@ async fn a_tax_credit_is_not_a_prepayment(pool: PgPool) {
 
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn a_schedule_needs_a_document_that_has_already_posted(pool: PgPool) {
-    map(&pool, "prepaid_expense", PREPAID).await;
+    map(&pool, "prepaid_expense", PREPAID, Some(PREPAID_KIND)).await;
     let refused =
         cloud::prepaid_schedule_create(&pool, &ask(&Uuid::new_v4().to_string(), 120_000), ACTOR)
             .await
@@ -315,7 +336,7 @@ async fn a_schedule_needs_a_document_that_has_already_posted(pool: PgPool) {
 
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn the_months_it_already_took_survive_cancelling(pool: PgPool) {
-    map(&pool, "prepaid_expense", PREPAID).await;
+    map(&pool, "prepaid_expense", PREPAID, Some(PREPAID_KIND)).await;
     open_period(&pool, 2026, 10).await;
     let amount = 1_200_000;
     let source_id = a_posted_bill(&pool, amount).await;

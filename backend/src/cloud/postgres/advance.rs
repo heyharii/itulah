@@ -64,6 +64,12 @@ pub struct AdvanceSettlement {
     pub amount_minor: i64,
     pub account_code: Option<String>,
     pub account_name: Option<String>,
+    /// What the spending was, on the accounts that are kept by kind — the half
+    /// of "where it landed" that a four-digit code no longer carries.
+    pub category_code: Option<String>,
+    /// The client's own word for that kind, joined here rather than resolved
+    /// in the browser.
+    pub category_name: Option<String>,
     pub entry_id: Uuid,
     pub entry_number: Option<String>,
     pub evidence: Option<String>,
@@ -118,6 +124,12 @@ pub struct SettleAdvanceRequest {
     /// Where an expense landed.
     #[serde(default)]
     pub account_code: Option<String>,
+    /// And what it was. Required when that account declares a family: an
+    /// advance settled into `6301` without saying which kind of cost is an
+    /// advance nobody accounted for, which is the thing the refusal below
+    /// already exists to prevent.
+    #[serde(default)]
+    pub category_code: Option<String>,
     /// Where a refund went back into.
     #[serde(default)]
     pub cash_key: Option<String>,
@@ -227,9 +239,11 @@ pub async fn advance_detail(pool: &PgPool, advance_id: Uuid) -> Result<AdvanceDo
 
     let rows = sqlx::query(
         "SELECT st.settlement_id, st.kind, st.amount_minor, st.account_code, la.name AS account_name,
+                st.category_code, lk.name AS category_name,
                 st.entry_id, e.entry_number, st.evidence, st.note, st.settled_by, st.settled_at
            FROM advance_settlement st
            LEFT JOIN ledger_account la ON la.account_code = st.account_code
+           LEFT JOIN line_category lk ON lk.category_code = st.category_code
            LEFT JOIN journal_entry e ON e.entry_id = st.entry_id
           WHERE st.advance_id = $1
           ORDER BY st.settled_at",
@@ -246,6 +260,8 @@ pub async fn advance_detail(pool: &PgPool, advance_id: Uuid) -> Result<AdvanceDo
                 amount_minor: row.try_get("amount_minor")?,
                 account_code: row.try_get("account_code")?,
                 account_name: row.try_get("account_name")?,
+                category_code: row.try_get("category_code")?,
+                category_name: row.try_get("category_name")?,
                 entry_id: row.try_get("entry_id")?,
                 entry_number: row.try_get("entry_number")?,
                 evidence: row.try_get("evidence")?,
@@ -421,7 +437,7 @@ pub async fn advance_settle(
     let number = document.advance.advance_number.clone();
     let currency = document.advance.currency.clone();
 
-    let (debit_line, account_code, cash_key) = match request.kind.as_str() {
+    let (debit_line, account_code, category_code, cash_key) = match request.kind.as_str() {
         "EXPENSE" => {
             let code = request.account_code.clone().ok_or_else(|| {
                 AppError::Validation(
@@ -430,10 +446,27 @@ pub async fn advance_settle(
                         .into(),
                 )
             })?;
+            // And what kind of spending, where the account is kept by kind.
+            // Checked before the settlement is written rather than left to the
+            // poster: the person with the receipts in their hand is the only
+            // one who knows, and they are here now.
+            let category = request
+                .category_code
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty());
+            super::ledger::assert_category_for_account(
+                pool,
+                code.trim(),
+                category,
+                super::ledger::Intent::Post,
+            )
+            .await?;
             (
                 PostingLine {
                     account: LineAccount::Account {
                         account_code: code.clone(),
+                        category_code: category.map(str::to_string),
                     },
                     site_id: site_id.clone(),
                     counter_site_id: None,
@@ -445,6 +478,12 @@ pub async fn advance_settle(
                     memo: None,
                 },
                 Some(code),
+                request
+                    .category_code
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string),
                 None,
             )
         }
@@ -455,6 +494,7 @@ pub async fn advance_settle(
             (
                 PostingLine::debit(&key, &site_id, request.amount_minor)
                     .with_qualifier(&request.cash_qualifier),
+                None,
                 None,
                 Some(key),
             )
@@ -487,15 +527,16 @@ pub async fn advance_settle(
     let posted = post(&mut tx, &intent, Some(&purpose), actor).await?;
     sqlx::query(
         "INSERT INTO advance_settlement
-           (settlement_id, advance_id, kind, amount_minor, account_code, cash_key,
-            cash_qualifier, entry_id, evidence, note, settled_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
+           (settlement_id, advance_id, kind, amount_minor, account_code, category_code,
+            cash_key, cash_qualifier, entry_id, evidence, note, settled_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
     )
     .bind(settlement_id)
     .bind(advance_id)
     .bind(&request.kind)
     .bind(request.amount_minor)
     .bind(account_code.as_deref())
+    .bind(category_code.as_deref())
     .bind(cash_key.as_deref())
     .bind(&request.cash_qualifier)
     .bind(posted.entry_id)

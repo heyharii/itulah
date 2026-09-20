@@ -1,0 +1,110 @@
+{
+  "model": "jev-latest",
+  "state": {
+    "objective": "Re-evaluate only the narrow operational claims that previously had confidence below 0.95. Each question is atomic. Do not infer that repetition is evidence and do not increase certainty merely to meet a threshold.",
+    "confirmed_facts": [
+      "All HO and operating units are sites in one PT Perorangan.",
+      "The old 12-digit account embeds a two-digit E1 site suffix. Removing E1 produces 493 repeating families plus six non-E1 leaves, total 499 families.",
+      "A row-level table covers all 6,908 leaf accounts and all 499 families with no unmapped row.",
+      "The target data model stores site_id, target_account_id and relevant domain dimensions on transactions or their governed subledgers.",
+      "An effective-dated legacy crosswalk stores each legacy account code, target account, required dimension values and migration status.",
+      "Original historical ledgers remain immutable and available for historical legacy reports.",
+      "Transactions created after migration can be mapped back to a unique legacy reporting code only when every distinguishing dimension required by that mapping is populated and historically retained.",
+      "Seventy internal affiliate families and one current-profit family are deactivated only after balance trace, reclassification and reconciliation.",
+      "The 225-account working design keeps all 104 unresolved-evidence families separate while applying supported groupings elsewhere.",
+      "The 142-account scenario groups those 104 unresolved families into 21 placeholders and therefore requires additional evidence.",
+      "No client balances, journals, contracts, asset register, tax returns or reconciliation results have been supplied."
+    ]
+  },
+  "questions": {
+    "remove_site_from_natural_account": {
+      "type": "choice",
+      "instructions": "Given one legal entity and a mandatory governed site_id, should site identity be removed from the natural account code?",
+      "criteria": {
+        "yes": "Use one natural account across sites and retain site_id for location reporting and control.",
+        "no": "Keep a separate natural account for every site."
+      }
+    },
+    "six908_to_499_coverage": {
+      "type": "choice",
+      "instructions": "Does the stated row-level crosswalk establish that every one of the 6,908 legacy leaf codes has a disposition within the 499-family layer?",
+      "criteria": {
+        "yes": "Coverage is complete at the mapping level.",
+        "no": "Some legacy code lacks a family disposition."
+      }
+    },
+    "coverage_not_classification": {
+      "type": "choice",
+      "instructions": "Does complete row coverage by itself prove that every accounting classification and merger is correct?",
+      "criteria": {
+        "no": "Coverage and classification correctness are separate tests.",
+        "yes": "Complete coverage proves every merger."
+      }
+    },
+    "historical_legacy_reports": {
+      "type": "choice",
+      "instructions": "Can original historical legacy reports remain reproducible when the immutable historical ledger and original codes are retained?",
+      "criteria": {
+        "yes": "Historical reporting reads preserved historical postings and codes.",
+        "no": "Every old account must remain active for new posting."
+      }
+    },
+    "new_transaction_reverse_mapping": {
+      "type": "choice",
+      "instructions": "Can a new target transaction be mapped uniquely to a legacy reporting code when target account, site and every required distinguishing dimension are mandatory, stored and effective-dated?",
+      "criteria": {
+        "yes": "The complete key resolves one legacy code through the governed crosswalk.",
+        "no": "Unique mapping is impossible even with a complete deterministic key."
+      }
+    },
+    "missing_dimension_blocks_reverse": {
+      "type": "choice",
+      "instructions": "If a required distinguishing dimension is missing, should unique reverse mapping to a legacy code be considered invalid?",
+      "criteria": {
+        "yes": "Block or flag the mapping rather than guessing.",
+        "no": "Choose an arbitrary legacy account."
+      }
+    },
+    "use_225_today": {
+      "type": "choice",
+      "instructions": "With unresolved families held separately and no client evidence yet supplied, should 225 be used as the working configuration rather than 142?",
+      "criteria": {
+        "yes": "Use 225 and merge further only after evidence gates pass.",
+        "no": "Use 142 immediately."
+      }
+    },
+    "do_not_call_142_final": {
+      "type": "choice",
+      "instructions": "Should the team avoid calling 142 the final production count before the 21 unresolved target clusters are tested?",
+      "criteria": {
+        "yes": "Describe 142 only as a conditional optimization scenario.",
+        "no": "Call 142 final now."
+      }
+    },
+    "exception_families_separate": {
+      "type": "choice",
+      "instructions": "Until journal, contract and balance evidence resolves their accounting nature, should the 104 unresolved families remain separately controlled in the working design?",
+      "criteria": {
+        "yes": "Do not merge unresolved nature merely because names repeat.",
+        "no": "Merge them into 21 placeholders immediately."
+      }
+    },
+    "thirty_rejected": {
+      "type": "choice",
+      "instructions": "Would forcing this COA to approximately 30 natural accounts create material over-compression under the stated requirements?",
+      "criteria": {
+        "yes": "It would combine materially different accounting natures or create excessive dependence on dimensions.",
+        "no": "Thirty preserves all stated natures and controls."
+      }
+    },
+    "confidence_policy": {
+      "type": "choice",
+      "instructions": "If a material decision remains below the team's 0.95 confidence threshold, what should happen?",
+      "criteria": {
+        "hold": "Keep the conservative mapping and request client evidence; do not repeat questions merely to raise confidence.",
+        "repeat": "Repeat until the model reports at least 0.95.",
+        "ignore": "Deploy the uncertain merger."
+      }
+    }
+  }
+}

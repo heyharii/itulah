@@ -101,7 +101,12 @@ export function GeneralLedger() {
   })
 
   const ledger = useQuery({
-    queryKey: financeKeys.ledger(code ?? "", site || null, range.from, range.to),
+    queryKey: financeKeys.ledger(
+      code ?? "",
+      site || null,
+      range.from,
+      range.to
+    ),
     queryFn: ({ signal }) =>
       accountLedger(
         code ?? "",
@@ -289,7 +294,11 @@ export function GeneralLedger() {
                     </button>
                   ))}
                   {site !== "" && (
-                    <Button variant="quiet" size="sm" onClick={() => setSite("")}>
+                    <Button
+                      variant="quiet"
+                      size="sm"
+                      onClick={() => setSite("")}
+                    >
                       Every unit
                     </Button>
                   )}
@@ -321,6 +330,16 @@ export function GeneralLedger() {
                       <Th width="12rem">Voucher</Th>
                       <Th width="8rem">Type</Th>
                       <Th width="9rem">Account</Th>
+                      {/* The column the forty-account chart makes necessary.
+                          `6301` holds 560 of the client's old leaves, so a
+                          ledger of it without this is one name printed a
+                          hundred times. Drawn always and not only when the
+                          account declares a family: a ledger read under a
+                          heading mixes accounts that do and accounts that do
+                          not, and a column that came and went with the
+                          narrowing would be worse than one that is sometimes
+                          quiet. */}
+                      <Th width="11rem">Category</Th>
                       <Th width="8rem">Unit</Th>
                       <Th>Against &amp; party</Th>
                       <Th align="right" width="9rem">
@@ -342,6 +361,7 @@ export function GeneralLedger() {
                     <tr className="bg-soft">
                       <Td>{day(data.from)}</Td>
                       <Td className="font-medium text-ink">Opening balance</Td>
+                      <Td />
                       <Td />
                       <Td />
                       <Td />
@@ -419,6 +439,23 @@ export function GeneralLedger() {
                             )}
                           </Td>
                           <Td>
+                            {row.category_name === null ? (
+                              <span
+                                className="text-faint"
+                                title="This account takes no category — its detail is the bank account, asset, supplier or facility the line names."
+                              >
+                                —
+                              </span>
+                            ) : (
+                              <span
+                                className="text-body"
+                                title={row.category_code ?? undefined}
+                              >
+                                {row.category_name}
+                              </span>
+                            )}
+                          </Td>
+                          <Td>
                             <SiteName id={row.site_id} className="text-body" />
                           </Td>
                           <Td>
@@ -461,7 +498,7 @@ export function GeneralLedger() {
                           <tr key={`${row.line_id}-voucher`}>
                             <Td />
                             <td
-                              colSpan={8}
+                              colSpan={9}
                               className="border-b border-hairline px-2 pt-0 pb-3"
                             >
                               <Voucher voucher={voucher} />
@@ -481,6 +518,7 @@ export function GeneralLedger() {
                       <Td />
                       <Td />
                       <Td />
+                      <Td />
                       <Td align="right">{money(data.window_debit_minor)}</Td>
                       <Td align="right">{money(data.window_credit_minor)}</Td>
                       <Td align="right">{money(data.closing_minor)}</Td>
@@ -491,8 +529,8 @@ export function GeneralLedger() {
 
               <Note>
                 Three of ERPNext&rsquo;s columns cannot be filled from a ledger
-                row here, and none of them is invented instead.{" "}
-                <b>Account</b> and <b>Party</b> are not on the wire —{" "}
+                row here, and none of them is invented instead. <b>Account</b>{" "}
+                and <b>Party</b> are not on the wire —{" "}
                 <code>GeneralLedgerRow</code> carries the line, the voucher, the
                 unit and the two amounts, and nothing else — and{" "}
                 <b>against-account</b> is a property of the voucher rather than

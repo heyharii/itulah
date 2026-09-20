@@ -19,6 +19,7 @@ use uuid::Uuid;
 // lane-H
 pub mod acquirer;
 pub mod articles;
+pub mod asset_classes;
 pub mod assets;
 pub mod assistant;
 pub mod attendance;
@@ -47,6 +48,7 @@ pub mod integrity;
 pub mod interunit;
 pub mod leave;
 pub mod letters;
+pub mod line_categories;
 pub mod member;
 pub mod money;
 pub mod notifications;
@@ -511,6 +513,23 @@ pub fn router(state: AppState) -> Router {
     )
     .route("/api/v1/sync/status", get(sync_status))
     .route("/api/v1/sync/ingest", post(sync_ingest))
+    // The three calls a shop's till cannot answer on its own — see
+    // `relay_voucher_*` in `edge/http.rs`. Machine-authenticated for the same
+    // reason ingest is: the caller is a node proving which shop it is, not a
+    // person with a session, and the cashier's name travels in the body exactly
+    // as it does on a sale fact.
+    .route(
+        "/api/v1/sync/vouchers/{code}/authorize",
+        post(sync_voucher_authorize),
+    )
+    .route(
+        "/api/v1/sync/vouchers/{code}/commit",
+        post(sync_voucher_commit),
+    )
+    .route(
+        "/api/v1/sync/vouchers/{code}/release",
+        post(sync_voucher_release),
+    )
     .route("/api/v1/sync/dead-letters", get(sync_dead_letters))
     .route("/api/v1/sync/trigger", post(sync_trigger))
     .route("/api/v1/sync/breaker/reset", post(sync_breaker_reset))
@@ -836,6 +855,11 @@ pub fn router(state: AppState) -> Router {
     .merge(financing::routes(Router::new()))
     .merge(prepaid::routes(Router::new()))
     .merge(tax::routes(Router::new()))
+    // The two lists the forty-account chart made necessary: what a line may
+    // be categorised as, and what an asset may be filed as. Read-only — both
+    // are seeded by migration, because they are the chart and not a setting.
+    .merge(line_categories::routes(Router::new()))
+    .merge(asset_classes::routes(Router::new()))
     .merge(sales_posting::lane_a_routes(Router::new()))
     // lane-H routes: a shop's evening against its own EDC slip, and
     // head office settling what the acquirers owe.
@@ -2806,6 +2830,66 @@ async fn sync_status(State(s): State<AppState>) -> Result<Json<Value>, AppError>
 
 /// The receiver half of the protocol: a contiguous batch in, a prefix
 /// acknowledgement out. Guarded by a shared key when one is configured.
+/// Who a machine credential says it is: the origin it proved, and the shop that
+/// origin is registered for.
+struct MachineOrigin {
+    origin_id: String,
+    /// The site the register holds for this origin. `None` on an unregistered
+    /// origin in development, where there is nothing to check against.
+    site_id: Option<String>,
+}
+
+/// Prove an origin's `x-sync-key`, and answer which shop it is.
+///
+/// Extracted from `sync_ingest` rather than written a second time: the voucher
+/// relay is the same kind of caller as an upload — a node, not a person — and
+/// two spellings of "is this really store-07" is exactly the drift this
+/// codebase keeps refusing. A registered origin is accepted ONLY with its own
+/// key, so no store can act for another; an authenticated Cloud rejects
+/// unregistered origins, because its master key is a provisioning credential;
+/// dev keeps the master-key fallback.
+async fn authenticate_origin(
+    state: &AppState,
+    headers: &HeaderMap,
+    origin_id: &str,
+) -> Result<MachineOrigin, AppError> {
+    let presented = headers.get("x-sync-key").and_then(|v| v.to_str().ok());
+    match infrastructure::origin_credential_digest(&state.db, origin_id).await? {
+        Some(digest) => {
+            let authorized =
+                presented.is_some_and(|key| infrastructure::ingest_key_matches(&digest, key));
+            if !authorized {
+                return Err(AppError::Forbidden(
+                    "invalid or missing x-sync-key for this origin".into(),
+                ));
+            }
+            let site_id = infrastructure::origin_site(&state.db, origin_id).await?;
+            Ok(MachineOrigin {
+                origin_id: origin_id.to_string(),
+                site_id,
+            })
+        }
+        None => {
+            if state.config.jwt_secret.is_some() {
+                return Err(AppError::Forbidden(
+                    "invalid or missing x-sync-key for this origin".into(),
+                ));
+            }
+            if let Some(expected) = &state.config.sync_ingest_key {
+                if !presented.is_some_and(|value| security::constant_time_eq(value, expected)) {
+                    return Err(AppError::Forbidden(
+                        "invalid or missing x-sync-key for this origin".into(),
+                    ));
+                }
+            }
+            Ok(MachineOrigin {
+                origin_id: origin_id.to_string(),
+                site_id: None,
+            })
+        }
+    }
+}
+
 async fn sync_ingest(
     State(s): State<AppState>,
     headers: HeaderMap,
@@ -2816,32 +2900,149 @@ async fn sync_ingest(
     // origin_id. An authenticated Cloud rejects unregistered origins: its
     // master key is a provisioning credential, never an ingest identity.
     // Auth-disabled development keeps the explicit master-key fallback.
-    let presented = headers.get("x-sync-key").and_then(|v| v.to_str().ok());
-    match infrastructure::origin_credential_digest(&s.db, &batch.origin_id).await? {
-        Some(digest) => {
-            let authorized =
-                presented.is_some_and(|key| infrastructure::ingest_key_matches(&digest, key));
-            if !authorized {
-                return Err(AppError::Forbidden(
-                    "invalid or missing x-sync-key for this origin".into(),
-                ));
-            }
-        }
-        None => {
-            if s.config.jwt_secret.is_some() {
-                return Err(AppError::Forbidden(
-                    "invalid or missing x-sync-key for this origin".into(),
-                ));
-            }
-            if let Some(expected) = &s.config.sync_ingest_key {
-                if !presented.is_some_and(|value| security::constant_time_eq(value, expected)) {
-                    return Err(AppError::Forbidden("invalid or missing x-sync-key".into()));
-                }
-            }
-        }
-    }
+    authenticate_origin(&s, &headers, &batch.origin_id).await?;
     let response = infrastructure::ingest_batch(&s.db, &batch).await?;
     Ok(Json(serde_json::to_value(&response)?))
+}
+
+/// What a relaying shop asks, and cannot be believed about.
+#[derive(Debug, serde::Deserialize)]
+struct RelayVoucherRequest {
+    /// The origin that is asking. Proved against its own key, never trusted.
+    origin_id: String,
+    /// The basket the hold is for — the till's own id for a sale that has no
+    /// row anywhere yet.
+    checkout_id: String,
+    #[serde(default)]
+    amount_minor: Option<i64>,
+    #[serde(default)]
+    sale_id: Option<Uuid>,
+    #[serde(default)]
+    reason: Option<String>,
+    #[serde(default)]
+    hold_seconds: Option<i64>,
+    /// The shop the relay believes it is. Checked against the register rather
+    /// than used: a till in store-01 must not hold a card against store-07.
+    #[serde(default)]
+    site_id: Option<String>,
+    /// The cashier. Trusted because the shop authenticated them — a machine
+    /// credential says which SHOP, and only the shop's own edge knows which
+    /// person, exactly as it does for a sale fact.
+    actor_id: String,
+}
+
+/// Prove the caller, and answer the shop it may speak for.
+///
+/// The register wins wherever it disagrees: a relaying node that stamps the
+/// wrong site gets the register's answer, and one that stamps a site the
+/// register does not know is refused outright. `None` from the register is the
+/// development fallback, where there is no register to check — the stamped id
+/// is then the only candidate, which is the same trust the ingest path extends.
+async fn relay_site(
+    state: &AppState,
+    headers: &HeaderMap,
+    request: &RelayVoucherRequest,
+) -> Result<String, AppError> {
+    let origin = authenticate_origin(state, headers, &request.origin_id).await?;
+    let stamped = request
+        .site_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    match (origin.site_id, stamped) {
+        (Some(registered), Some(claimed)) if registered != claimed => {
+            Err(AppError::Forbidden(format!(
+                "origin {} speaks for {registered}, not {claimed}",
+                origin.origin_id
+            )))
+        }
+        (Some(registered), _) => Ok(registered),
+        (None, Some(claimed)) => Ok(claimed.to_string()),
+        (None, None) => Err(AppError::Validation(
+            "a voucher hold has to say which shop it is for".into(),
+        )),
+    }
+}
+
+fn relay_actor(request: &RelayVoucherRequest) -> Result<String, AppError> {
+    let actor = request.actor_id.trim();
+    if actor.is_empty() {
+        return Err(AppError::Validation(
+            "a voucher call has to be attributable to somebody".into(),
+        ));
+    }
+    Ok(actor.to_string())
+}
+
+async fn sync_voucher_authorize(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Path(code): Path<String>,
+    Json(request): Json<RelayVoucherRequest>,
+) -> Result<Json<Value>, AppError> {
+    let site_id = relay_site(&s, &headers, &request).await?;
+    let amount = request.amount_minor.unwrap_or(0);
+    if amount <= 0 {
+        return Err(AppError::Validation(
+            "a hold has to say how much of the card the basket takes".into(),
+        ));
+    }
+    let held = infrastructure::authorize_voucher(
+        &s.db,
+        &code,
+        infrastructure::AuthorizeVoucherRequest {
+            checkout_id: request.checkout_id.clone(),
+            amount_minor: amount,
+            site_id: Some(site_id),
+            actor_id: relay_actor(&request)?,
+            hold_seconds: request.hold_seconds,
+        },
+    )
+    .await?;
+    Ok(Json(held))
+}
+
+async fn sync_voucher_commit(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Path(code): Path<String>,
+    Json(request): Json<RelayVoucherRequest>,
+) -> Result<Json<Value>, AppError> {
+    // The site is proved here even though the commit needs no site of its own:
+    // a call from a store that may not speak for this shop is a call to refuse,
+    // and refusing it before the money moves is the only moment it is cheap.
+    relay_site(&s, &headers, &request).await?;
+    let committed = infrastructure::commit_voucher_hold(
+        &s.db,
+        &code,
+        infrastructure::CommitVoucherRequest {
+            checkout_id: request.checkout_id.clone(),
+            sale_id: request.sale_id,
+            actor_id: relay_actor(&request)?,
+        },
+    )
+    .await?;
+    Ok(Json(serde_json::to_value(&committed)?))
+}
+
+async fn sync_voucher_release(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Path(code): Path<String>,
+    Json(request): Json<RelayVoucherRequest>,
+) -> Result<Json<Value>, AppError> {
+    relay_site(&s, &headers, &request).await?;
+    let released = infrastructure::release_voucher_hold(
+        &s.db,
+        &code,
+        infrastructure::ReleaseVoucherRequest {
+            checkout_id: request.checkout_id.clone(),
+            actor_id: relay_actor(&request)?,
+            reason: request.reason,
+        },
+    )
+    .await?;
+    Ok(Json(released))
 }
 
 /// What the fleet sent that this server would not take — an envelope rather

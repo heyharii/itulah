@@ -13,7 +13,7 @@ export type InterunitReport = { head_office_site_id: string, pairs: Array<Interu
 disagreeing: Array<string>, 
 /**
  * Pairs with no mapping, as `store-07 PEMBIAYAAN`. A posting that needed
- * one of these would be refused by `resolve_account`, so this is a list of
+ * one of these would be refused by `resolve_account_code`, so this is a list of
  * entries that cannot be written yet — worth seeing before somebody tries.
  */
 unmapped: Array<string>, };

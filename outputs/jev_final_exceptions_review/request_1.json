@@ -1,0 +1,43 @@
+{
+  "model": "jev-latest",
+  "state": {
+    "objective": "Review unresolved loan, lease and exception families and define evidence-dependent dispositions so every client COA family has a reviewed status.",
+    "confirmed_context": [
+      "One PT Perorangan owns all sites; no permanent HO-unit affiliate receivables/payables are required.",
+      "No foreign currency, overdraft or pledged deposits exist.",
+      "Bank identity belongs in bank_account_id/facility_id; site association and HO-only access are separate concerns.",
+      "Final migration decisions still require contracts, policies, transaction samples and reconciled balances."
+    ],
+    "remaining_patterns": {
+      "current_maturity_loans_6": "Principal plus five named-bank PJP Jatuh Tempo families.",
+      "long_term_loans_6": "Principal plus five named-bank long-term loan families.",
+      "principal_site_14": "Other Payable Principal repeated for HO and 13 sites; creditor is unknown.",
+      "interest_expense_2": ["Bank Loan Interest Expense", "Leasing Interest Expense"],
+      "lease_expense_4": ["Land Rent", "Land Right Cost", "Store/Warehouse Building Rent", "Staff House Rent"],
+      "asset_exceptions": ["HGB/Land Right cost and accumulated amortization", "Pre-opening and accumulated amortization", "CIP", "Disposed Inventory", "36 Reserve Replacement OE"],
+      "operating_exceptions": ["Inventory damage expense", "Purchase Cost/COGS", "Purchase Discount", "Current Tax Inc/Exp PPh25", "Other Income (Expense)", "Current-month Profit/Loss", "GRNI/Supplier Suspend"]
+    }
+  },
+  "questions": {
+    "current_bank_loans": {"type":"choice","instructions":"Can five named-bank current-maturity loan families become one Current Maturities of Bank Loans GL with facility_id?","criteria":{"conditional":"Yes after facility schedules and maturity reconciliation.","retain5":"Bank name must remain in GL.","net":"Net against bank cash."}},
+    "long_bank_loans": {"type":"choice","instructions":"Can five named-bank long-term loan families become one Long-term Bank Loans GL with facility_id?","criteria":{"conditional":"Yes after contracts and schedules reconcile.","retain5":"Bank name must remain in GL.","current":"Merge current and long-term portions."}},
+    "current_long_separate": {"type":"choice","instructions":"Must current maturities and long-term portions remain separate presentation natures?","criteria":{"yes":"Keep current and noncurrent natural accounts with scheduled reclassification.","one":"Use one loan GL regardless of maturity."}},
+    "principal_in_bank": {"type":"choice","instructions":"Can Principal-labelled current and long-term families be merged into bank loans without identifying the creditor?","criteria":{"no":"Verify creditor and contract first.","yes":"Principal means bank automatically.","equity":"Principal means owner equity automatically."}},
+    "principal_site": {"type":"choice","instructions":"Given one legal entity, may 14 site-labelled Principal liabilities reduce to one creditor/facility control if evidence proves the same external owner/lender obligation?","criteria":{"conditional":"Yes, site identity moves to site/use-of-funds detail and creditor/facility controls the liability.","retain14":"Site must remain in GL.","delete":"Delete without identifying balances."}},
+    "interest_two": {"type":"choice","instructions":"Should bank-loan and leasing interest expenses be merged automatically?","criteria":{"review":"Financing type, lease accounting and reporting may justify separate natures; facility_id supplies identity.","one":"Merge immediately.","principal":"Add all interest to principal."}},
+    "lease_four": {"type":"choice","instructions":"Can four lease/rent expense families be finalized before contract-by-contract lease/land-right assessment?","criteria":{"no":"Classify short-term/low-value expense, ROU depreciation/interest, land rights and service components first.","one":"Merge all to rent expense immediately.","asset":"Capitalize all automatically."}},
+    "hgb": {"type":"choice","instructions":"Can HGB/Land Right cost and accumulated amortization be finalized from labels alone?","criteria":{"no":"Review legal right, term, renewal, ownership and accounting policy.","land":"Treat as nondepreciable owned land.","rou":"Treat as ROU automatically."}},
+    "preopening": {"type":"choice","instructions":"Can Pre-opening and accumulated amortization remain as an asset merely because legacy accounts exist?","criteria":{"no":"Test recognition policy and postings; reclassify prospectively/auditably as required.","yes":"Legacy existence proves capitalization."}},
+    "cip": {"type":"choice","instructions":"Can Contract In Progress be assigned without knowing whether it is construction of own asset or customer contract?","criteria":{"no":"Inspect contract/project and posting flows; keep provisional separate control.","asset":"Always fixed-asset CIP.","revenue":"Always customer contract asset."}},
+    "disposed_inventory": {"type":"choice","instructions":"Can Disposed Inventory be finalized without transaction evidence?","criteria":{"no":"Determine inventory disposal, fixed-asset disposal, clearing or loss nature from entries.","inventory":"Always inventory asset.","expense":"Always expense."}},
+    "reserve_oe": {"type":"choice","instructions":"Can 36 Reserve Replacement OE families become one control account if postings prove one common balance-sheet nature and item names are detail?","criteria":{"conditional":"Yes only after identifying contra-asset/provision/other nature and reconciling roll-forward.","retain36":"Every item type must remain GL.","expense":"Merge with replacement expense."}},
+    "damage_expense": {"type":"choice","instructions":"Should inventory damage expense remain conditional on whether an allowance is used?","criteria":{"yes":"Posting model determines direct loss versus allowance utilization and expense recognition.","no":"Name alone finalizes treatment."}},
+    "cogs_purchase": {"type":"choice","instructions":"Should Purchase Cost/COGS and Purchase Discount remain conditional on periodic/perpetual method?","criteria":{"yes":"Inventory method and closing flow determine mapping.","no":"Map from labels alone."}},
+    "tax_exception": {"type":"choice","instructions":"Should Current Tax Inc/Exp PPh25 remain exception status until entries and tax returns separate expense, installment/credit, payable and true-up?","criteria":{"yes":"Split by actual nature before migration.","no":"Keep mixed account."}},
+    "mixed_income_expense": {"type":"choice","instructions":"Should Other Income (Expense) be split by transaction nature rather than retained as a mixed account?","criteria":{"yes":"Map each posting to controlled income or expense nature.","no":"Retain unrestricted mixed account."}},
+    "current_profit": {"type":"choice","instructions":"Should Current-month Profit/Loss be system-derived and legacy manual balances reconciled before deactivation?","criteria":{"yes":"Use closing engine and retained-earnings roll-forward.","manual":"Keep unrestricted manual posting."}},
+    "grni": {"type":"choice","instructions":"Should Supplier Suspend remain a controlled GRNI/unmatched-receipt account until PO-GRN-invoice matching clears it?","criteria":{"yes":"Keep distinct with aging and reconciliation.","ap":"Merge unmatched amounts into confirmed AP.","expense":"Write off automatically."}},
+    "coverage_claim": {"type":"choice","instructions":"When every family is assigned approved, conditional, retain, deactivate-after-reclass, or unresolved-evidence status, is it valid to say every family was reviewed even though some final mappings await client evidence?","criteria":{"yes":"Review coverage is complete, while migration approval remains conditional for documented exceptions.","no":"A family cannot be reviewed unless evidence already resolves it."}},
+    "final_count": {"type":"choice","instructions":"Can a single defensible final COA count be claimed before all documented evidence gates are resolved?","criteria":{"no":"Report a recommended conditional target plus conservative range and unresolved gates.","yes":"Choose the smallest count regardless of evidence."}}
+  }
+}

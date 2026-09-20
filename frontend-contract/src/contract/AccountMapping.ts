@@ -13,4 +13,13 @@ qualifier: string, account_code: string,
  * The client's name for that account, so the screen can be read without
  * looking every code up.
  */
-account_name: string, set_by: string, set_at: string, note: string | null, };
+account_name: string, 
+/**
+ * Which category the map chose alongside the account, on the accounts that
+ * declare a family.
+ *
+ * Half of a mapping now, not a decoration: the chart of forty has one
+ * account for every expense a shop pays and tells them apart by this. A
+ * map row that names `6301` and no category is a row that cannot post.
+ */
+category_code: string | null, set_by: string, set_at: string, note: string | null, };

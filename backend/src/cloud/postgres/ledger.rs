@@ -5,10 +5,34 @@
 //!
 //! **No balance is stored.** Every figure below is summed from `journal_line`
 //! at the moment it is asked for. A group account's balance is the sum over its
-//! descendants, found by prefix on the account code, because the client's codes
-//! are a tree written in digits. This is the same decision `purchase_order`
-//! makes about received quantities, for the same reason: a stored total and the
-//! rows it summarises drift, and when they do nobody can say which to believe.
+//! descendants, found by prefix on the account code, because a code here is a
+//! path: the digits to the left of where you stop name the heading you are
+//! standing under. This is the same decision `purchase_order` makes about
+//! received quantities, for the same reason: a stored total and the rows it
+//! summarises drift, and when they do nobody can say which to believe.
+//!
+//! # What the prefix rollup actually requires, now that two charts share it
+//!
+//! It used to be enough to say "the client's codes are a tree written in
+//! digits", because there was one chart and the importer had built it that way.
+//! There are now two sets of codes in `ledger_account` and only one of them is
+//! the client's: the retired 190 leaves, ten to twelve digits on the client's
+//! `{1,3,5,7,10,12}` ladder, and the forty postable accounts of 0287–0292, four
+//! digits, ours, hung directly under the same single-digit roots `1`–`8`.
+//!
+//! The rollup still works, and it works for a narrower reason than the old
+//! sentence claimed: **no account code in the chart is a strict prefix of
+//! another except through a declared heading.** The forty are all four digits,
+//! so none can prefix another; and none of them prefixes a legacy leaf either —
+//! checked, not assumed, because `1301` matching `1031803001` would have rolled
+//! Contract In Progress into Persediaan and still balanced. What holds it is
+//! that the client's second rung is `101`/`102`/`103` and ours is `11`–`16`,
+//! `21`–`25`, `31`/`32`, `41`–`43`, `51`, `61`–`64`, `71`, `81`/`82`.
+//!
+//! So `root_class` — the first digit — keeps meaning what it meant, which is
+//! why `financial_statements.rs` did not have to change; and a future code that
+//! did prefix an existing one would break these sums silently, which is the one
+//! thing to check before minting another.
 
 use super::poster::HEAD_OFFICE_SITE;
 use crate::cloud::application::AppError;
@@ -29,8 +53,10 @@ pub struct LedgerAccount {
     pub parent_code: Option<String>,
     /// `1` ASSET … `8` BEBAN NON OPERASIONAL.
     pub root_class: String,
-    /// The rung of the client's `{1,3,5,7,10,12}` ladder, which is the code's
-    /// own length. Sent so the browser can indent without measuring strings.
+    /// The code's own length, which is the rung it sits on. The retired client
+    /// accounts are on their `{1,3,5,7,10,12}` ladder; the forty postable ones
+    /// are all `4`, one step under a root of `1`. Sent so the browser can
+    /// indent without measuring strings.
     pub depth: i32,
     /// A heading. Has a balance by summation; nothing may be posted to it.
     pub is_group: bool,
@@ -115,6 +141,13 @@ pub struct AccountMapping {
     /// The client's name for that account, so the screen can be read without
     /// looking every code up.
     pub account_name: String,
+    /// Which category the map chose alongside the account, on the accounts that
+    /// declare a family.
+    ///
+    /// Half of a mapping now, not a decoration: the chart of forty has one
+    /// account for every expense a shop pays and tells them apart by this. A
+    /// map row that names `6301` and no category is a row that cannot post.
+    pub category_code: Option<String>,
     pub set_by: String,
     pub set_at: DateTime<Utc>,
     pub note: Option<String>,
@@ -128,6 +161,15 @@ pub struct SetAccountMappingRequest {
     #[serde(default)]
     pub qualifier: String,
     pub account_code: String,
+    /// The category to store with the account. Required when the account
+    /// declares a family, refused when it does not — [`set_account_mapping`]
+    /// says which and lists the codes that would have worked.
+    ///
+    /// Optional in the wire shape rather than in the rule: an old client that
+    /// omits it still reaches a refusal that explains itself, where a missing
+    /// field would have reached a deserialisation error that does not.
+    #[serde(default)]
+    pub category_code: Option<String>,
     pub note: Option<String>,
 }
 
@@ -163,15 +205,44 @@ pub struct SemanticKeyDoc {
     pub qualified: bool,
     /// Which menu group stops working without it.
     pub needed_for: String,
+    /// The `line_category` family the account behind this meaning declares, or
+    /// `None` when it declares none.
+    ///
+    /// The chart of forty keeps one account per REPORT LINE and moves every
+    /// other distinction onto the line — which bank, which rack, which PPh
+    /// article, electricity or water. Most of those distinctions already had a
+    /// column or a sub-ledger; what was left became `line_category`, and this
+    /// is the family the map row beside this meaning has to choose from.
+    ///
+    /// `None` is a statement, not a gap. It says the account this points at
+    /// answers "which one" some other way — `bank_account_id` for the three
+    /// bank meanings, `asset_id` for the six asset ones, `supplier_id`,
+    /// `financing_facility`, `principal` — and the database will REFUSE a line
+    /// that carries a category into it. Getting this wrong in either direction
+    /// is a refusal at posting time, so the Account Map screen shows it beside
+    /// the key rather than leaving somebody to find out.
+    pub category_family: Option<String>,
 }
 
-fn key(key: &str, label: &str, expects: &str, qualified: bool, needed_for: &str) -> SemanticKeyDoc {
+fn key(
+    key: &str,
+    label: &str,
+    expects: &str,
+    qualified: bool,
+    needed_for: &str,
+    category_family: Option<&str>,
+) -> SemanticKeyDoc {
     SemanticKeyDoc {
         key: key.into(),
         label: label.into(),
         expects: expects.into(),
         qualified,
         needed_for: needed_for.into(),
+        // Positional and required, rather than a builder call a new key could
+        // be written without. Twenty of the seventy-eight are `None`, and a
+        // `None` that was reached by forgetting reads exactly like one that was
+        // reached by deciding — so the compiler asks the question every time.
+        category_family: category_family.map(Into::into),
     }
 }
 
@@ -364,16 +435,18 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "inventory",
             "Merchandise inventory",
-            "1011201001 Persediaan Barang Dagangan",
+            "1301 Persediaan · MERCHANDISE",
             false,
             "Payables",
+            Some("item_class"),
         ),
         key(
             "trade_payable",
             "Supplier payable",
-            "2012001001 Hutang Suppliers Barang Dagangan",
+            "2101 Hutang usaha · which one is supplier_id",
             false,
             "Payables",
+            None,
         ),
         // The four a tax type names and nothing pointed at before 0279. The
         // accounts existed — `2012101001`, `1011302002`, `2012101006`,
@@ -385,93 +458,106 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "capital_contributed",
             "Capital put in by an owner",
-            "3013001001 Modal Setor",
+            "3101 Modal disetor · which one is principal",
             false,
             "Equity",
+            None,
         ),
         key(
             "owner_drawings",
             "Drawings taken by an owner",
-            "3013001004 Prive",
+            "3102 Prive · which one is principal",
             false,
             "Equity",
+            None,
         ),
         key(
             "pph21_payable",
             "PPh 21 owed",
-            "2012101001 Hutang Pajak PPH Pasal 21",
+            "2201 Hutang pajak · PPH21",
             false,
             "Tax",
+            Some("tax_kind"),
         ),
         key(
             "pph25_credit",
             "PPh 25 paid in advance",
-            "1011302002 Prepaid - PPh Pasal 25",
+            "1402 Pajak dibayar dimuka · PPH25",
             false,
             "Tax",
+            Some("tax_kind"),
         ),
         key(
             "pph29_payable",
             "PPh 29 owed",
-            "2012101006 Hutang Pajak PPh Pasal 29",
+            "2201 Hutang pajak · PPH29",
             false,
             "Tax",
+            Some("tax_kind"),
         ),
         key(
             "pbb_payable",
             "Land and building tax owed",
-            "2012101004 Hutang Pajak Bumi & Bangunan",
+            "2201 Hutang pajak · PBB",
             false,
             "Tax",
+            Some("tax_kind"),
         ),
         key(
             "vat_in",
             "Input VAT",
-            "1011302004 Prepaid - VAT (PPN Masukan)",
+            "1402 Pajak dibayar dimuka · PPN_IN",
             false,
             "Payables",
+            Some("tax_kind"),
         ),
         key(
             "purchase_discount",
             "Purchase discount and price variance",
-            "8010110003 Potongan Pembelian",
+            "5101 Harga pokok penjualan · PURCHASE_DISCOUNT",
             false,
             "Payables",
+            Some("cost_kind"),
         ),
         key(
             "non_merchandise_payable",
             "Non-merchandise payable",
-            "2012001003 Hutang Supplier Non Barang Dagang",
+            "2101 Hutang usaha · which one is supplier_id",
             false,
             "Expenses",
+            None,
         ),
         key(
             "accrued_expense",
             "Accrued expense",
-            "2012201* Biaya ... YMHD",
+            "2301 Biaya masih harus dibayar · an accrual_kind, per qualifier",
             true,
             "Payables",
+            Some("accrual_kind"),
         ),
         key(
             "cash",
             "Cash on hand",
-            "1011001001 Cash On Hand",
+            "1101 Kas · DRAWER",
             false,
             "Cash & Bank",
+            Some("pot"),
         ),
         key(
             "petty_cash",
             "Petty cash",
-            "1011001002 Petty Cash",
+            "1101 Kas · PETTY",
             false,
             "Cash & Bank",
+            Some("pot"),
         ),
         key(
             "cashier_float",
             "Cashier float",
-            "1011001003 Modal Kasir",
+            "1101 Kas · FLOAT",
             false,
             "Cash & Bank",
+            Some("pot"),
         ),
         // Where takings sit between a drawer and a bank. Unqualified, unlike
         // the two bank keys below it: a bag of notes is in transit to one
@@ -487,16 +573,18 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "bank_savings",
             "Bank — savings",
-            "1011003* Cash In Bank Tabungan",
+            "1102 Bank · which one is bank_account_id",
             true,
             "Cash & Bank",
+            None,
         ),
         key(
             "bank_giro",
             "Bank — giro",
-            "1011002* Cash In Bank Giro",
+            "1102 Bank · which one is bank_account_id",
             true,
             "Cash & Bank",
+            None,
         ),
         // lane-C: the instrument, not the bank.
         //
@@ -510,9 +598,10 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "giro_outstanding",
             "Giro issued, not cleared",
-            "2012002* Outstanding Giro",
+            "2103 Giro keluar belum cair · which one is bank_account_id",
             true,
             "Payables",
+            None,
         ),
         // lane-C: a fixed deposit is money the company has and cannot spend
         // today. It holds money — `MONEY_MEANINGS` says so — which is what
@@ -525,9 +614,10 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "time_deposit",
             "Time deposit",
-            "1011004* TIME DEPOSIT",
+            "1102 Bank · which one is bank_account_id",
             true,
             "Cash & Bank",
+            None,
         ),
         // lane-C: the three lines every bank statement carries every month,
         // and the accounts the seeded bank rules propose.
@@ -540,16 +630,18 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "bank_admin_fee",
             "Bank charges",
-            "6010310004 Biaya Bank HO",
+            "6301 Beban umum & administrasi · BIAYA_BANK_HO",
             false,
             "Cash & Bank",
+            Some("expense_category"),
         ),
         key(
             "interest_income",
             "Bank interest received",
-            "8010110001 Pendapatan Bunga Bank",
+            "4301 Pendapatan lain-lain · INTEREST",
             false,
             "Cash & Bank",
+            Some("income_kind"),
         ),
         // The client's chart has no leaf named for PPh final on interest, so
         // this points at the income-tax expense they do keep. It is an expense
@@ -561,16 +653,32 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "tax_on_interest",
             "Tax withheld on bank interest",
-            "8030112001 Current Tax Inc/Exp PPH Pasal 25",
+            "8201 Pajak penghasilan · PPH25",
             false,
             "Cash & Bank",
+            Some("tax_kind"),
         ),
+        // The residue between what the return documents say was refunded and
+        // what their refund rows add up to — `domain::sales_posting` — and
+        // nothing else. Two keys since 0296, one per side, because the sign is
+        // known at the one moment the rule computes the residue and a REVENUE
+        // account is no place for the days it costs money. Documents over rows
+        // is a credit here; rows over documents is a debit to `rounding_loss`.
         key(
             "rounding",
-            "Rounding difference",
-            "8010110002 Selisih pembulatan",
+            "Rounding difference — gain",
+            "4301 Pendapatan Lain-lain · ROUNDING (residu untung; residu rugi → rounding_loss)",
             false,
             "Cash & Bank",
+            Some("income_kind"),
+        ),
+        key(
+            "rounding_loss",
+            "Rounding difference — loss",
+            "8301 Biaya Lain-lain · ROUNDING_LOSS",
+            false,
+            "Cash & Bank",
+            Some("other_expense_kind"),
         ),
         // Where a drawer that does not agree with the books is explained.
         //
@@ -582,12 +690,28 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         // book a short drawer met a refusal naming a meaning they had never
         // seen. 0238 seeds the binding as well, so the refusal is gone rather
         // than merely explained.
+        //
+        // Since 0296 this is the OVER side only. A till that came up short was
+        // a debit inside a revenue account — arithmetically right, and the one
+        // presentation defect the collapse to forty was meant to cure — so the
+        // three rules that book a difference (`cash_counts`, `store_money`,
+        // an ADJUSTMENT) credit this on an overage and debit `cash_shortage`
+        // on a shortage. Both are unqualified: the unit is the dimension.
         key(
             "cash_variance",
-            "Cash count difference",
-            "8010110007 Pendapatan (Biaya) Lain-Lain",
+            "Cash count difference — over",
+            "4301 Pendapatan Lain-lain · CASH_VARIANCE (kelebihan kas; kekurangan → cash_shortage)",
             false,
             "Cash & Bank",
+            Some("income_kind"),
+        ),
+        key(
+            "cash_shortage",
+            "Cash count difference — short",
+            "8301 Biaya Lain-lain · CASH_SHORTAGE",
+            false,
+            "Cash & Bank",
+            Some("other_expense_kind"),
         ),
         // lane-A changed these two from unqualified to qualified. What a shop
         // is owed on cards is owed by a NAMED acquirer, clearing on its own
@@ -599,16 +723,18 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "card_receivable_credit",
             "Credit card receivable",
-            "1011101001 Piutang kartu Kredit (per network)",
+            "1201 Piutang tender · a tender, per qualifier",
             true,
             "Receivables",
+            Some("tender"),
         ),
         key(
             "card_receivable_debit",
             "Debit card receivable",
-            "1011101002 Piutang Debit Card (per bank)",
+            "1201 Piutang tender · a tender, per qualifier",
             true,
             "Receivables",
+            Some("tender"),
         ),
         // lane-P
         //
@@ -627,16 +753,18 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "store_manager_receivable",
             "Store manager float",
-            "1011102002 PIUTANG KEPALA TOKO",
+            "1202 Piutang karyawan & lainnya · STORE_MANAGER",
             false,
             "Receivables",
+            Some("party"),
         ),
         key(
             "card_fee",
             "Card fee (MDR)",
-            "6010110002 Biaya Credit Card",
+            "6101 Beban penjualan · BIAYA_CREDIT_CARD",
             false,
             "Receivables",
+            Some("expense_category"),
         ),
         // The three the counter takes that the client's chart never answered
         // for, and the one it answers for too many times.
@@ -675,44 +803,98 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "voucher_liability",
             "Vouchers outstanding",
-            "205001 Uang Muka - Penjualan",
+            "2401 Kewajiban voucher & uang muka penjualan · CUSTOMER_DEPOSIT",
             false,
             "Sales",
+            Some("deferred_revenue_kind"),
         ),
+        // The member-points half of the same story has NO key here on purpose.
+        // The client's chart keeps a loyalty obligation on `66 Hutang
+        // Lain-lain`, and 0264 left that account without a home in the
+        // forty-account shape in as many words: "it needs its own decision".
+        // Until Finance makes it, a redemption posts nothing, which is the
+        // state 0297 described — and the honest one, because a liability
+        // booked to a related-party payable would be wrong in a way that
+        // balances.
+        //
+        // What a giveaway costs. The chart has `6101 Beban penjualan` with the
+        // client's own categories since 0287/0289; what was missing is the one
+        // meaning a rule can name, so that issuing a free-sample voucher and a
+        // BOGO giveaway are the same ask. This is the client's `74 Biaya
+        // Promosi` and `76 Biaya Advertising / Iklan`, which are the SAME
+        // account carrying two categories.
+        key(
+            "marketing_expense",
+            "Promotion and marketing expense",
+            "6101 Beban penjualan · BIAYA_PROMOSI",
+            false,
+            "Sales",
+            Some("expense_category"),
+        ),
+        key(
+            "advertising_expense",
+            "Advertising expense",
+            "6101 Beban penjualan · BIAYA_ADVERTISING_IKLAN",
+            false,
+            "Sales",
+            Some("expense_category"),
+        ),
+        // The sibling the client keeps on the SAME account with a different
+        // category — their #76 Biaya Advertising / Iklan. Two meanings rather
+        // than one key with a parameter, because the category comes from the
+        // map and not from the caller: an agency invoice and a giveaway are
+        // different questions asked of the same line of the profit and loss.
+        key(
+            "advertising_expense",
+            "Advertising expense",
+            "6101 Beban penjualan · BIAYA_ADVERTISING_IKLAN",
+            false,
+            "Sales",
+            Some("expense_category"),
+        ),
+        // A tender that is none of the named four already has its pair —
+        // `other_receivable` / `revenue_other`, registered further down and
+        // used by `domain::sales_posting`, so a day containing one still
+        // posts.
         key(
             "affiliate_receivable",
             "Inter-unit receivable",
-            "1021401* Piutang Affiliasi Pembiayaan",
+            "1501 Rekening koran antar-unit · FINANCING",
             true,
             "Receivables",
+            Some("interunit_reason"),
         ),
         key(
             "affiliate_payable",
             "Inter-unit payable",
-            "2012301* Hutang Affiliasi Pembiayaan",
+            "1501 Rekening koran antar-unit · FINANCING",
             true,
             "Payables",
+            Some("interunit_reason"),
         ),
         key(
             "goods_in_transit",
             "Goods in transit",
-            "1011203* BDP Barang Dagangan",
+            "1302 Barang dalam perjalanan · MERCHANDISE",
             true,
             "Inventory & COGS",
+            Some("item_class"),
         ),
         key(
             "cogs",
             "Cost of goods",
-            "5010110001 Harga Pokok Pembelian",
+            "5101 Harga pokok penjualan · COGS",
             false,
             "Inventory & COGS",
+            Some("cost_kind"),
         ),
         key(
             "stock_loss",
             "Stock count variance",
-            "8010110006 Kehilangan Barang atau Selisih Stock Opname",
+            "5102 Susut & selisih persediaan · SHRINKAGE",
             false,
             "Inventory & COGS",
+            Some("loss_kind"),
         ),
         // Both write-off sides, and both on the client's one "income (expense)"
         // leaf. The chart has no bad-debt expense account: what it has is
@@ -723,56 +905,78 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         // `bad_debt_expense` says what it did, whatever the balance it lands in
         // is called.
         //
-        // `asset_disposal_result` is already on this same leaf, so it is now
-        // three meanings on 8010110007. That is the client's filing, not ours.
+        // `asset_disposal_result` was on this same leaf too, so it was three
+        // meanings on 8010110007. That was the client's filing, not ours — and
+        // 0296 unpicked the half of it that put losses under income.
         key(
             "bad_debt_expense",
             "Receivable written off",
-            "8010110007 Pendapatan (Biaya) Lain-Lain",
+            "4301 Pendapatan lain-lain · INCOME_OTHER",
             false,
             "Corrections",
+            Some("expense_category"),
         ),
+        // The client's `8010110007` was one signed leaf. It is two meanings
+        // since 0296: a payable given up on, or anything else that is income
+        // with no better name, credits this; a cost with no better name debits
+        // `other_expense`. A correction that names either with a direction
+        // that would put it on the wrong side is routed to the twin —
+        // `corrections::sides_for` — so no rule debits a `4301` meaning.
         key(
             "other_income_expense",
-            "Other income and expense",
-            "8010110007 Pendapatan (Biaya) Lain-Lain",
+            "Other income",
+            "4301 Pendapatan Lain-lain · INCOME_OTHER (pendapatan; biaya → other_expense)",
             false,
             "Corrections",
+            Some("income_kind"),
+        ),
+        key(
+            "other_expense",
+            "Other expense",
+            "8301 Biaya Lain-lain · OTHER_EXPENSE",
+            false,
+            "Corrections",
+            Some("other_expense_kind"),
         ),
         key(
             "prepaid_expense",
             "Prepaid expense",
-            "1011301* Biaya Dibayar Dimuka",
+            "1401 Biaya dibayar dimuka · a prepaid_kind, per qualifier",
             true,
             "Expenses",
+            Some("prepaid_kind"),
         ),
         key(
             "advance",
             "Advance",
-            "1011303* Uang Muka / Advanced",
+            "1403 Uang muka · an advance_purpose, per qualifier",
             true,
             "Expenses",
+            Some("advance_purpose"),
         ),
         key(
             "fixed_asset",
             "Fixed asset",
-            "10215* Aktiva Tetap",
+            "1601 Aset tetap · which one is asset_id",
             true,
             "Fixed Assets",
+            None,
         ),
         key(
             "accumulated_depreciation",
             "Accumulated depreciation",
-            "10216* Akumulasi Penyusutan",
+            "1609 Akumulasi penyusutan · which one is asset_id",
             true,
             "Fixed Assets",
+            None,
         ),
         key(
             "depreciation_expense",
             "Depreciation expense",
-            "70102* Biaya Depresiasi",
+            "7101 Beban penyusutan & amortisasi · which one is asset_id",
             true,
             "Fixed Assets",
+            None,
         ),
         // The seventh family is not depreciated and the client's chart says so
         // in its own names: `1021607 Reserve Replacement - Operating
@@ -783,16 +987,18 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "replacement_reserve",
             "Replacement reserve",
-            "1021607* Reserve Replacement - Operating Equipment",
+            "1610 Cadangan penggantian operating equipment · which one is asset_id",
             true,
             "Fixed Assets",
+            None,
         ),
         key(
             "replacement_expense",
             "Replacement expense",
-            "7010215* Biaya Replacement Operating Equipment",
+            "7101 Beban penyusutan & amortisasi · which one is asset_id",
             true,
             "Fixed Assets",
+            None,
         ),
         // Intangibles. A separate cost meaning because an intangible's cost is
         // the one asset cost that does not sit under `10215`, so
@@ -805,53 +1011,69 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "work_in_progress",
             "Work in progress",
-            "1031803001* Contract In Progress (CIP)",
+            "1601 Aset tetap · which one is asset_id",
             true,
             "Fixed Assets",
+            None,
         ),
         key(
             "intangible_asset",
             "Intangible asset",
-            "10217* Intangible Asset",
+            "1602 Aset takberwujud & aset tangguhan · which one is asset_id",
             true,
             "Fixed Assets",
+            None,
         ),
         key(
             "accumulated_amortisation",
             "Accumulated amortisation",
-            "1021702* Acc Amort Software",
+            "1619 Akumulasi amortisasi · which one is asset_id",
             true,
             "Fixed Assets",
+            None,
         ),
         key(
             "amortisation_expense",
             "Amortisation expense",
-            "7010216* Biaya Amortisasi Intangible Asset",
+            "7101 Beban penyusutan & amortisasi · which one is asset_id",
             true,
             "Fixed Assets",
+            None,
         ),
         // Where the difference between what an asset was worth and what it
         // fetched lands. The client's chart has no account named for it — they
-        // keep no "Laba (Rugi) Penjualan Aktiva Tetap" — so the expectation
-        // below points at the general other-income-and-expense leaf they do
-        // keep, and it is a suggestion like every other on this screen.
+        // keep no "Laba (Rugi) Penjualan Aktiva Tetap" — so the expectations
+        // below point at the other-income and other-expense leaves the forty
+        // do keep, and they are suggestions like every other on this screen.
         //
-        // One key for both directions rather than a gain key and a loss key.
-        // Which way it falls is arithmetic — proceeds against net book value —
-        // and two keys would mean two mappings that have to agree about the
-        // same event, plus a rule choosing between them. The client's own
-        // account is signed, so a gain is a credit to it and a loss a debit.
+        // Two keys since 0296, one per side. This list used to argue for one
+        // key on the grounds that which way it falls is arithmetic and two
+        // mappings would have to agree about the same event. Both still true;
+        // what changed is that the client's signed account no longer exists as
+        // one account. A loss debited into `4301` sat inside REVENUE on the
+        // income statement, and `financial_statements::section_of` reads root
+        // 8 as cost — so `assets::dispose_asset` computes the result once and
+        // credits this on a gain or debits `asset_disposal_loss` on a loss.
         //
-        // Unmapped, disposal refuses and names this key, which is the whole
-        // point: the Account Map screen lists it as unset from the day this
-        // ships, rather than somebody discovering it while trying to write off
-        // a stolen laptop.
+        // Unmapped, disposal refuses and names whichever key that disposal
+        // needed, which is the whole point: the Account Map screen lists both
+        // as unset from the day this ships, rather than somebody discovering
+        // it while trying to write off a stolen laptop.
         key(
             "asset_disposal_result",
-            "Gain or loss on disposal",
-            "8010110007 Pendapatan (Biaya) Lain-Lain",
+            "Gain on disposal",
+            "4301 Pendapatan Lain-lain · ASSET_DISPOSAL (laba; rugi → asset_disposal_loss)",
             false,
             "Fixed Assets",
+            Some("income_kind"),
+        ),
+        key(
+            "asset_disposal_loss",
+            "Loss on disposal",
+            "8301 Biaya Lain-lain · ASSET_DISPOSAL_LOSS",
+            false,
+            "Fixed Assets",
+            Some("other_expense_kind"),
         ),
         // The client's seventh asset family is not depreciated. `1021607` is
         // named `Reserve Replacement - Operating Equipment` where the other six
@@ -869,16 +1091,18 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "loan_principal",
             "Loan principal",
-            "20224* / 20125* Pinjaman",
+            "2501 Pinjaman bank · which one is financing_facility",
             true,
             "Loans & Financing",
+            None,
         ),
         key(
             "interest_expense",
             "Interest",
-            "80201* Biaya Bunga",
+            "8101 Beban bunga · which one is financing_facility",
             false,
             "Loans & Financing",
+            None,
         ),
         // lane-A: what a day's takings need. The client splits sales income by
         // how it was settled, because cash is in a drawer tonight and a card is
@@ -904,58 +1128,85 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "revenue_cash",
             "Sales — cash",
-            "4010110001 Penjualan Tunai",
+            "4101 Penjualan · CASH",
             false,
             "Sales posting",
+            Some("tender"),
         ),
         key(
             "revenue_debit",
             "Sales — debit card",
-            "4010111* Penjualan Debit (per bank)",
+            "4101 Penjualan · a tender, per qualifier",
             true,
             "Sales posting",
+            Some("tender"),
         ),
         key(
             "revenue_credit",
             "Sales — credit card",
-            "4010112* Penjualan Kartu Kredit (per network)",
+            "4101 Penjualan · a tender, per qualifier",
             true,
             "Sales posting",
+            Some("tender"),
         ),
         key(
             "revenue_qris",
             "Sales — QRIS",
-            "4010114001 Penjualan QRIS (proposed; the client's chart has none)",
+            "4101 Penjualan · QRIS",
             false,
             "Sales posting",
+            Some("tender"),
+        ),
+        // OTHER: the tender that is none of the four — a marketplace payout, a
+        // transfer, a payment link. The receivable is qualified by the
+        // counterparty (TOKOPEDIA and the like), the income is one account.
+        key(
+            "revenue_other",
+            "Sales — other tenders",
+            "4101 Penjualan · OTHER",
+            false,
+            "Sales posting",
+            Some("tender"),
+        ),
+        key(
+            "other_receivable",
+            "Other tender receivable",
+            "1201 Piutang tender · per counterparty",
+            true,
+            "Sales posting",
+            Some("tender"),
         ),
         key(
             "sales_return",
             "Sales returns",
-            "4010214001 Retur Penjualan",
+            "4202 Retur Penjualan",
             false,
             "Sales posting",
+            None,
         ),
         key(
             "sales_discount",
             "Sales discount",
-            "4010213001 Potongan Penjualan",
+            "4201 Potongan Penjualan",
             false,
             "Sales posting",
+            None,
         ),
         key(
             "vat_out",
             "Output VAT",
-            "2012101003 Hutang PPN Keluaran",
+            "2201 Hutang pajak · PPN_OUT",
             false,
             "Sales posting",
+            Some("tax_kind"),
         ),
         key(
             "qris_receivable",
             "QRIS receivable",
-            "1011101003 Piutang QRIS (proposed; the client's chart has none)",
+            "1201 Piutang tender · QRIS",
             true,
             "Sales posting",
+            Some("tender"),
         ),
         // end lane-A
         // lane-G: the rest of the payables loop.
@@ -976,9 +1227,10 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "supplier_suspend",
             "Supplier payable — goods received, not invoiced",
-            "2012001002 Hutang Supplier Barang Dagang - Suspend",
+            "2102 Barang diterima belum ditagih · which one is supplier_id",
             false,
             "Payables",
+            None,
         ),
         // Where a bill that disagrees with the order puts the difference.
         //
@@ -993,9 +1245,10 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "purchase_price_variance",
             "Purchase price variance",
-            "8010110003 Potongan Pembelian",
+            "5101 Harga pokok penjualan · PURCHASE_DISCOUNT",
             false,
             "Payables",
+            Some("cost_kind"),
         ),
         // Money paid to a supplier before there is a bill to owe them for.
         //
@@ -1007,9 +1260,10 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "advance_purchase",
             "Advance to a supplier",
-            "1011303002 Advanced - Purchase",
+            "1403 Uang muka · ADVANCED_PURCHASE",
             false,
             "Payables",
+            Some("advance_purpose"),
         ),
         // `bank_admin_fee` — the bank's own charge on a transfer, when it comes
         // out of the same movement rather than being debited separately — is
@@ -1021,9 +1275,10 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "pph23_payable",
             "PPh 23 withheld",
-            "2012101002 Hutang Pajak PPH Pasal 23 (withold)",
+            "2201 Hutang pajak · PPH23",
             false,
             "Payables",
+            Some("tax_kind"),
         ),
         // The final-tax half of the same act, and the one honest gap in this
         // list: the client's chart has no PPh 4(2) leaf. `20121 HUTANG PAJAK`
@@ -1041,9 +1296,10 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "pph_final_payable",
             "PPh 4(2) withheld — final",
-            "2012101* Hutang Pajak (the chart keeps no PPh 4(2) leaf; open one)",
+            "2201 Hutang pajak · PPH_FINAL",
             false,
             "Payables",
+            Some("tax_kind"),
         ),
         // ── lane-B — the store cash chain ────────────────────────────────
         //
@@ -1060,9 +1316,10 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "cash_in_transit",
             "Cash in transit",
-            "1011005001 Kas Dalam Perjalanan (proposed — the client has none)",
+            "1101 Kas · TRANSIT",
             false,
             "Cash & Bank",
+            Some("pot"),
         ),
         // The drawer's difference, once somebody has accepted it. The next free
         // leaf under the rung that already holds `8010110002 Selisih
@@ -1080,9 +1337,10 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "payroll_payable",
             "Wages payable",
-            "2012201001 Biaya Gaji dan Upah YMHD",
+            "2301 Biaya masih harus dibayar · BIAYA_GAJI_DAN_UPAH_YMHD",
             false,
             "Payables",
+            Some("accrual_kind"),
         ),
         // What a shop may spend petty cash or an operating fund on. Nine, and
         // the ninth is a catch-all on purpose: a category list with no bottom
@@ -1092,65 +1350,74 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "expense_electricity",
             "Electricity",
-            "6010310006 Biaya Pemakaian Listrik",
+            "6301 Beban umum & administrasi · BIAYA_PEMAKAIAN_LISTRIK",
             false,
             "Store cash",
+            Some("expense_category"),
         ),
         key(
             "expense_water",
             "Water",
-            "6010310007 Biaya Pemakaian Air Bersih (PDAM)",
+            "6301 Beban umum & administrasi · BIAYA_PEMAKAIAN_AIR_BERSIH",
             false,
             "Store cash",
+            Some("expense_category"),
         ),
         key(
             "expense_telephone",
             "Telephone and internet",
-            "6010310005 Biaya Telephone, Facsimile, Modem",
+            "6301 Beban umum & administrasi · BIAYA_TELEPHONE_FACSIMILE_MODEM",
             false,
             "Store cash",
+            Some("expense_category"),
         ),
         key(
             "expense_household",
             "Household",
-            "6010310003 Biaya Rumah Tangga",
+            "6301 Beban umum & administrasi · BIAYA_RUMAH_TANGGA",
             false,
             "Store cash",
+            Some("expense_category"),
         ),
         key(
             "expense_stationery",
             "Stationery and printing",
-            "6010310002 Alat Tulis Kantor & Barang Cetakan",
+            "6301 Beban umum & administrasi · ALAT_TULIS_KANTOR_BARANG_CETAKAN",
             false,
             "Store cash",
+            Some("expense_category"),
         ),
         key(
             "expense_repairs",
             "Repairs and maintenance",
-            "6010410004 BIAYA PERBAIKAN DAN PERAWATAN BANGUNAN",
+            "6301 Beban umum & administrasi · BIAYA_PERBAIKAN_DAN_PERAWATAN_BANGUNAN",
             false,
             "Store cash",
+            Some("expense_category"),
         ),
         key(
             "expense_transport",
             "Local transport",
-            "6010310009 Biaya Lokal Transport",
+            "6301 Beban umum & administrasi · BIAYA_LOKAL_TRANSPORT",
             false,
             "Store cash",
+            Some("expense_category"),
         ),
         key(
             "expense_cleaning",
             "Cleaning",
-            "6010310001 Biaya Kebersihan (Cleaning)",
+            "6301 Beban umum & administrasi · BIAYA_KEBERSIHAN",
             false,
             "Store cash",
+            Some("expense_category"),
         ),
         key(
             "expense_misc",
             "Miscellaneous",
-            "6010310099 Miscellaneous Expences",
+            "6301 Beban umum & administrasi · MISCELLANEOUS_EXPENCES",
             false,
             "Store cash",
+            Some("expense_category"),
         ),
         // ── end lane-B ───────────────────────────────────────────────────
     ]
@@ -1638,9 +1905,11 @@ pub async fn account_with_path(
 /// What one account is worth, including everything filed under it.
 ///
 /// The prefix match is what makes a heading meaningful: asking for `1` gives
-/// the whole of ASSET. It is a `LIKE 'code%'` rather than a recursive walk
-/// because the client's codes already encode the tree, and the index on
-/// `journal_line (account_code, site_id)` serves it directly.
+/// the whole of ASSET — the forty postable accounts under it and the retired
+/// client leaves that still hold history. It is a `LIKE 'code%'` rather than a
+/// recursive walk because the codes encode the tree, and the index on
+/// `journal_line (account_code, site_id)` serves it directly. The module header
+/// says what that encoding now requires of a new code.
 pub async fn account_balance(
     pool: &PgPool,
     code: &str,
@@ -2136,13 +2405,16 @@ impl MappingCursor {
 ///
 /// Binds: `$1` the search pattern or NULL.
 const MAPPING_ROWS: &str = "
-    SELECT m.semantic_key, m.site_id, m.qualifier, m.account_code,
+    SELECT m.semantic_key, m.site_id, m.qualifier, m.account_code, m.category_code,
            a.name AS account_name, m.set_by, m.set_at, m.note
       FROM account_map m JOIN ledger_account a ON a.account_code = m.account_code
      WHERE $1::text IS NULL
         OR m.semantic_key ILIKE $1
         OR m.qualifier ILIKE $1
         OR m.account_code ILIKE $1
+        -- Searchable, because with forty accounts the category is what tells
+        -- two mappings apart: `6301` appears on a dozen rows and PLN on one.
+        OR m.category_code ILIKE $1
         OR a.name ILIKE $1
 ";
 
@@ -2153,6 +2425,7 @@ fn to_mapping(row: &sqlx::postgres::PgRow) -> Result<AccountMapping, AppError> {
         qualifier: row.try_get("qualifier")?,
         account_code: row.try_get("account_code")?,
         account_name: row.try_get("account_name")?,
+        category_code: row.try_get("category_code")?,
         set_by: row.try_get("set_by")?,
         set_at: row.try_get("set_at")?,
         note: row.try_get("note")?,
@@ -2424,6 +2697,250 @@ pub async fn assert_postable(
     Ok(())
 }
 
+// ── the category on a line ───────────────────────────────────────────────
+//
+// The chart of forty keeps one account per line of the balance sheet and the
+// profit and loss, and nothing else. Which bank, which rack, which PPh article,
+// electricity or water — every one of those used to be its own account code,
+// and all of them are now keys on the journal line. Most already had somewhere
+// to live: `bank_account_id`, `asset_id`, `supplier_id`, `counter_site_id`, a
+// tax type, a facility, a principal. What was left over became one table,
+// `line_category`, with a `family` column saying which kind of distinction each
+// value is.
+//
+// The rule is the one `dimension` and `requires_counter_site` already set:
+// an account DECLARES what a line has to bring, and a line that brings the
+// wrong thing is refused. Migration 0288's trigger is the guarantee. What
+// follows is the explanation — and, on the map, the refusal that happens
+// EARLIER than the trigger could, because a map row is written weeks before
+// anything posts through it.
+
+/// What is wrong with the category on a line or a mapping.
+///
+/// Separated from the message so the verdict is reached without a query of its
+/// own: both callers already read the account, and everything the decision
+/// needs — what the account declares, what the named code's own row says, and
+/// the codes a refusal would list — rides back on that read.
+enum CategoryFault {
+    /// The account declares a family and nothing was named.
+    Missing,
+    /// The account declares none and something was named anyway.
+    Unwanted(String),
+    /// Named a code `line_category` has never heard of.
+    Unknown(String),
+    /// Named a real code from the wrong family: `PETTY` on an expense account.
+    WrongFamily(String, String),
+    /// Named a code that is no longer offered.
+    Retired(String),
+}
+
+/// Decide, without touching the database.
+///
+/// `declared` is the account's `category_family`; `given` is what the line or
+/// the mapping carries; `given_family` and `given_active` are that code's own
+/// row, absent when there is no such row.
+fn category_fault(
+    declared: Option<&str>,
+    given: Option<&str>,
+    given_family: Option<&str>,
+    given_active: Option<bool>,
+) -> Option<CategoryFault> {
+    // Trimmed and emptied here rather than at four call sites: a category
+    // arriving as `Some("")` from a form that cleared its box means the same
+    // thing as no category, and the difference must not decide whether a
+    // posting works.
+    let given = given.map(str::trim).filter(|value| !value.is_empty());
+    match (declared, given) {
+        (None, None) => None,
+        (None, Some(named)) => Some(CategoryFault::Unwanted(named.to_string())),
+        (Some(_), None) => Some(CategoryFault::Missing),
+        (Some(wanted), Some(named)) => match given_family {
+            None => Some(CategoryFault::Unknown(named.to_string())),
+            Some(family) if family != wanted => Some(CategoryFault::WrongFamily(
+                named.to_string(),
+                family.to_string(),
+            )),
+            // Inactive is refused for NEW work only, which is every caller of
+            // this: both the poster and the Account Map are writing something.
+            // Nothing here reads history, and a category that was retired last
+            // year must keep explaining the lines it is already on.
+            _ if given_active == Some(false) => Some(CategoryFault::Retired(named.to_string())),
+            _ => None,
+        },
+    }
+}
+
+/// How many valid codes a refusal lists before it stops.
+///
+/// Five, because the point is to show the SHAPE of the family — that `pot`
+/// means DRAWER and PETTY and not a free-text note — and `expense_category` has
+/// forty-eight values nobody reads off an error message. `CATEGORY_CHOICES`
+/// fetches a sixth, and the only thing that sixth is for is knowing whether to
+/// say there are more; keep the two numbers in step.
+const CATEGORY_HINT: usize = 5;
+
+/// The codes a refusal would list, fetched alongside the account rather than
+/// after it.
+///
+/// A lateral and not a second round trip, which is the same bargain
+/// [`validate_account_posting`] already struck with the bank accounts: that
+/// function runs once per posted line, and buying a good error message at the
+/// price of a query per line would be paying for the failure on every success.
+/// `line_category` is a few hundred rows behind an index on `family`, so the
+/// probe costs what reading the account costs.
+///
+/// Joined against `a`, so it expects `ledger_account a` in scope.
+const CATEGORY_CHOICES: &str = "
+    LEFT JOIN LATERAL (
+        SELECT COALESCE(
+                   ARRAY_AGG(k.category_code ORDER BY k.sort_order, k.category_code),
+                   '{}') AS codes
+          FROM (SELECT category_code, sort_order
+                  FROM line_category
+                 WHERE family = a.category_family AND is_active
+                 ORDER BY sort_order, category_code
+                 LIMIT 6) k
+    ) choices ON true";
+
+/// The tail of every category refusal: what would have worked.
+fn category_tail(family: &str, choices: &[String]) -> String {
+    if choices.is_empty() {
+        return format!(
+            " Nothing is on file under '{family}' yet, which is a gap in the setup and not in \
+             this entry."
+        );
+    }
+    let more = choices.len() > CATEGORY_HINT;
+    let listed = choices
+        .iter()
+        .take(CATEGORY_HINT)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ");
+    if more {
+        format!(" Choose one of {listed}, or another {family}.")
+    } else {
+        format!(" Choose one of {listed}.")
+    }
+}
+
+/// Turn a verdict into the sentence a person reads.
+fn category_refusal(
+    code: &str,
+    name: &str,
+    declared: Option<&str>,
+    choices: &[String],
+    fault: CategoryFault,
+    intent: Intent,
+) -> AppError {
+    let family = declared.unwrap_or("category");
+    let message = match fault {
+        CategoryFault::Missing => {
+            let hint = category_tail(family, choices);
+            match intent {
+                Intent::Post => format!(
+                    "{code} {name} is one account for every {family}, and this line names none. \
+                     The account is the report line; the {family} is what it was for.{hint}"
+                ),
+                Intent::Map => format!(
+                    "{code} {name} is one account for every {family}, so a mapping has to choose \
+                     one. Without it every posting through this meaning would be refused.{hint}"
+                ),
+            }
+        }
+        CategoryFault::Unwanted(given) => match intent {
+            Intent::Post => format!(
+                "{code} {name} takes no category, and this line carries {given}. What this \
+                 account is told apart by is its own sub-ledger — the bank account, the asset, \
+                 the supplier — not a category."
+            ),
+            Intent::Map => format!(
+                "{code} {name} takes no category, and this mapping sets {given}. Leave it empty: \
+                 what narrows this account is its sub-ledger, not a category."
+            ),
+        },
+        CategoryFault::Unknown(given) => format!(
+            "there is no category {given}; {code} {name} wants a {family}.{}",
+            category_tail(family, choices)
+        ),
+        CategoryFault::WrongFamily(given, actual) => format!(
+            "{given} is a {actual}, and {code} {name} wants a {family}. The two families are not \
+             interchangeable — that is what having families is for.{}",
+            category_tail(family, choices)
+        ),
+        CategoryFault::Retired(given) => format!(
+            "{given} has been retired, so nothing new is filed under it. It still explains the \
+             lines already on it.{}",
+            category_tail(family, choices)
+        ),
+    };
+    AppError::Validation(message)
+}
+
+/// Refuse a category the account's own declaration does not permit.
+///
+/// # Why at map time and not only at post time
+///
+/// Because a map row is written weeks before anything posts through it, by
+/// somebody sitting on the Account Map screen who can fix it in the same
+/// minute. Migration 0288's trigger catches a bad pair too — but it catches it
+/// on the day a shop's till tries to close, in front of somebody who did not
+/// set the mapping, cannot change it, and is holding a queue.
+///
+/// So this runs on the way IN. `set_account_mapping` calls it beside
+/// [`assert_postable`], for the same reason that one exists: the constraint is
+/// the guarantee, this is the explanation, and the explanation should arrive
+/// while the person who caused it is still in the room.
+pub async fn assert_category_for_account(
+    executor: impl sqlx::PgExecutor<'_>,
+    account_code: &str,
+    category_code: Option<&str>,
+    intent: Intent,
+) -> Result<(), AppError> {
+    let code = account_code.trim();
+    let given = category_code
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let sql = format!(
+        "SELECT a.name, a.category_family, c.family AS given_family, c.is_active AS given_active,
+                choices.codes AS choices
+           FROM ledger_account a
+           LEFT JOIN line_category c ON c.category_code = $2
+           {CATEGORY_CHOICES}
+          WHERE a.account_code = $1"
+    );
+    let row = sqlx::query(&sql)
+        .bind(code)
+        .bind(given)
+        .fetch_optional(executor)
+        .await?;
+    // Absent is not this function's refusal to make: `assert_postable` has
+    // already said "no account {code} in the chart" in better words.
+    let Some(row) = row else { return Ok(()) };
+    let name: String = row.try_get("name")?;
+    let declared: Option<String> = row.try_get("category_family")?;
+    let given_family: Option<String> = row.try_get("given_family")?;
+    let given_active: Option<bool> = row.try_get("given_active")?;
+    let choices: Vec<String> = row.try_get("choices")?;
+
+    match category_fault(
+        declared.as_deref(),
+        given,
+        given_family.as_deref(),
+        given_active,
+    ) {
+        None => Ok(()),
+        Some(fault) => Err(category_refusal(
+            code,
+            &name,
+            declared.as_deref(),
+            &choices,
+            fault,
+            intent,
+        )),
+    }
+}
+
 /// What the poster knows about one line, for the policy checks below.
 ///
 /// Borrowed rather than owned: this is built per line inside `poster::post` and
@@ -2433,12 +2950,48 @@ pub struct PostingFacts<'a> {
     pub source_kind: &'a str,
     pub site_id: &'a str,
     pub counter_site_id: Option<&'a str>,
+    /// The `line_category` the line will carry, resolved from the map or named
+    /// by the person writing the entry.
+    ///
+    /// Checked here rather than left to 0288's trigger for the reason every
+    /// other check in this function is: the trigger says which constraint
+    /// failed, and this says which line, which account and which of the codes
+    /// on file would have worked.
+    pub category_code: Option<&'a str>,
     /// Which of our real bank accounts the line says it moved, when it says.
     ///
     /// A rule that knows sets it. Everything else leaves it `None` and lets the
-    /// validator resolve it, which it can do whenever the ledger binding has
-    /// exactly one active account — and must refuse when it has two.
+    /// validator resolve it, which it can do whenever the map has already said
+    /// which bank — and must refuse when it has not.
     pub bank_account_id: Option<uuid::Uuid>,
+    /// The meaning this line came through, when it came through one.
+    ///
+    /// Carried only so the bank resolution below can read what the map already
+    /// declared. Nothing else in this function looks at it, and nothing should:
+    /// policy is about the ACCOUNT, and a rule that behaved differently
+    /// depending on which door reached the account would be two policies.
+    pub semantic_key: Option<&'a str>,
+    /// And how that meaning was narrowed. On a bank leg this is the
+    /// institution's own code — BCA, MANDIRI — which is the convention 0269
+    /// set and `BANK_MEANINGS` above explains.
+    pub qualifier: Option<&'a str>,
+}
+
+/// Which kind of real account a money meaning stands for.
+///
+/// The other half of `BANK_MEANINGS`: that list says a meaning holds money at a
+/// bank, and this says what sort of account it is. Both halves are needed to
+/// read a map row back to an account now that fourteen of them share `1102` —
+/// the qualifier gives the bank, this gives the product, and `company_bank_account`
+/// is unique on the pair unless we genuinely hold two of the same at one bank,
+/// which is the one case that still has to be named outright (0269).
+fn bank_account_kind(semantic_key: &str) -> Option<&'static str> {
+    match semantic_key {
+        "bank_giro" => Some("GIRO"),
+        "bank_savings" => Some("SAVINGS"),
+        "time_deposit" => Some("TIME_DEPOSIT"),
+        _ => None,
+    }
 }
 
 /// The kinds a PERSON writes, as opposed to the kinds a rule writes.
@@ -2505,106 +3058,280 @@ const CORRECTION_KINDS: [&str; 3] = ["RECLASS", "ADJUSTMENT", "WRITE_OFF"];
 /// replacement reserve needs, where the draw-down is approved and the formation
 /// is not. An ALLOW set means "these and nothing else". DENY is checked first, so
 /// a kind that appears in both is refused.
+///
+/// # Two grains, since the chart became forty accounts
+///
+/// `posting_mode` and `manual_je_policy` are read at the ACCOUNT grain by
+/// default and at the (account, category) grain where `account_category_policy`
+/// has a row — nine of them, written by 0289, each carrying forward one client
+/// account whose door did not survive the merge. See the comment at the
+/// override itself for why neither "strictest wins" nor "loosest wins" was a
+/// defensible rule.
+///
+/// `account_source_rule` is read at both grains too, since 0294. It was keyed
+/// on the account alone, and four rows somebody had decided deliberately (0139,
+/// 0267, 0268) turned out to be decisions about something NARROWER than one of
+/// the forty: `1011302003 Prepaid PPh 29` admits OPENING and nothing else, and
+/// at the account grain that same rule on `1402` would freeze input VAT and the
+/// PPh 25 instalment with it. So a rule may name a category. NULL means the
+/// whole account, which is what every rule written before 0294 means, and the
+/// join below has to keep letting those through or the four decisions become
+/// forty.
+/// The account, its policy, its bank accounts and the category the line names —
+/// everything [`validate_account_posting`] decides on, in one read.
+const POLICY_SELECT: &str = "
+    SELECT a.name, a.posting_mode, a.manual_je_policy, a.dimension,
+           a.requires_counter_site, a.category_family,
+           cat.family AS given_family, cat.is_active AS given_active,
+           choices.codes AS choices,
+           pol.posting_mode AS pol_posting_mode,
+           pol.manual_je_policy AS pol_manual_je_policy,
+           COALESCE(
+               ARRAY_AGG(r.source_kind) FILTER (WHERE r.effect = 'ALLOW'),
+               '{}'
+           ) AS allowed,
+           COALESCE(
+               ARRAY_AGG(r.source_kind) FILTER (WHERE r.effect = 'DENY'),
+               '{}'
+           ) AS denied,
+           -- Whether EVERY rule that matched was written about this CATEGORY
+           -- rather than about the account. It changes no decision and it
+           -- changes the sentence, which is the whole of its value: told that
+           -- `1402` is reached by OPENING alone, a reader would go and widen an
+           -- account that is not what is refusing them.
+           --
+           -- BOOL_AND rather than BOOL_OR, so an account carrying both grains
+           -- understates rather than misleads: 'the account' sends a reader to
+           -- a screen that shows both rules, and 'under PPH29' when a
+           -- whole-account rule was also in play would send them to one that
+           -- shows neither.
+           BOOL_AND(r.category_code IS NOT NULL) AS rule_by_category,
+           held.ids AS bank_ids, held.states AS bank_states,
+           held.labels AS bank_labels, held.by_map AS bank_by_map, meant.is_bank
+      FROM ledger_account a
+      -- A rule with a category is about that pairing; a rule without one is
+      -- about the whole account. Written as two arms of one condition rather
+      -- than as two joins, because a line has one category and so matches at
+      -- most one of them.
+      LEFT JOIN account_source_rule r
+             ON r.account_code = a.account_code
+            AND (r.category_code IS NULL OR r.category_code = $4)
+      -- The category the line carries, by its own primary key. A LEFT JOIN and
+      -- not an inner one because a code nobody has heard of has to reach the
+      -- refusal below rather than silently returning no row at all — which
+      -- would read, wrongly, as 'no such account'.
+      LEFT JOIN line_category cat ON cat.category_code = $4
+      -- And the stricter door, when this pairing has one. Nine rows in 0289,
+      -- each one a client account whose policy did not survive being merged
+      -- into a bigger one. Absent — which is every pairing but those nine —
+      -- leaves `a.posting_mode` and `a.manual_je_policy` governing exactly as
+      -- they did before the chart shrank.
+      LEFT JOIN account_category_policy pol
+             ON pol.account_code = a.account_code AND pol.category_code = $4
+      -- The real accounts registered against this ledger binding, in the
+      -- order a person would be offered them: the primary first. Lateral
+      -- rather than three correlated subqueries so the whole of this check
+      -- stays ONE round trip, which is what made it affordable in the
+      -- posting path to begin with.
+      -- Whether the map says this account holds money at a bank, at this
+      -- place. The declaration of intent, and the only one needed: an
+      -- account nobody has pointed a bank meaning at is not a bank account
+      -- as far as this estate is concerned, and posts as it always did.
+      LEFT JOIN LATERAL (
+          SELECT COUNT(*) > 0 AS is_bank
+            FROM account_map m
+           WHERE m.account_code = a.account_code AND m.site_id = $2
+             AND m.semantic_key = ANY($3)
+      ) meant ON true
+      LEFT JOIN LATERAL (
+          SELECT COALESCE(ARRAY_AGG(c.account_id
+                     ORDER BY c.is_primary DESC, c.account_no_digits), '{}') AS ids,
+                 COALESCE(ARRAY_AGG(c.status
+                     ORDER BY c.is_primary DESC, c.account_no_digits), '{}') AS states,
+                 COALESCE(ARRAY_AGG(b.code || ' ' || c.account_no
+                     ORDER BY c.is_primary DESC, c.account_no_digits), '{}') AS labels,
+                 -- And which of them the LINE already named, without knowing it.
+                 --
+                 -- A leg built from `bank_giro` qualified BCA is somebody
+                 -- saying 'our BCA giro money'. Until 0291 the account code
+                 -- carried that sentence — `1011002001` WAS the BCA giro — and
+                 -- there was one account on it, so the arm below that fills in
+                 -- the only candidate always fired. Fourteen accounts on `1102`
+                 -- ended that, and the sentence did not move: it is on the map
+                 -- row. Matching it here is reading the same declaration off
+                 -- its new home, not inferring anything.
+                 COALESCE(ARRAY_AGG(
+                     COALESCE(b.code = $5 AND c.kind = $6, FALSE)
+                     ORDER BY c.is_primary DESC, c.account_no_digits),
+                     '{}'::boolean[]) AS by_map
+            FROM company_bank_account c
+            JOIN bank b ON b.bank_id = c.bank_id
+           WHERE c.ledger_account_code = a.account_code AND c.site_id = $2
+      ) held ON true";
+
+/// The tail of that read. Everything the aggregate above does not group by
+/// itself has to be named here, the two category columns and the hint included.
+const POLICY_GROUPING: &str = "
+     WHERE a.account_code = $1
+     GROUP BY a.name, a.posting_mode, a.manual_je_policy, a.dimension,
+              a.requires_counter_site, a.category_family,
+              cat.family, cat.is_active, choices.codes,
+              pol.posting_mode, pol.manual_je_policy,
+              held.ids, held.states, held.labels, held.by_map, meant.is_bank";
+
 pub async fn validate_account_posting(
     executor: impl sqlx::PgExecutor<'_>,
     account_code: &str,
     facts: PostingFacts<'_>,
 ) -> Result<Option<uuid::Uuid>, AppError> {
     let code = account_code.trim();
+    let given_category = facts
+        .category_code
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
     // One query and not two: the allow-list is folded in as an array so that
-    // adding this check costs the posting path a single round trip.
-    let row = sqlx::query(
-        "SELECT a.name, a.posting_mode, a.manual_je_policy, a.dimension,
-                a.requires_counter_site,
-                COALESCE(
-                    ARRAY_AGG(r.source_kind) FILTER (WHERE r.effect = 'ALLOW'),
-                    '{}'
-                ) AS allowed,
-                COALESCE(
-                    ARRAY_AGG(r.source_kind) FILTER (WHERE r.effect = 'DENY'),
-                    '{}'
-                ) AS denied,
-                held.ids AS bank_ids, held.states AS bank_states,
-                held.labels AS bank_labels, meant.is_bank
-           FROM ledger_account a
-           LEFT JOIN account_source_rule r ON r.account_code = a.account_code
-           -- The real accounts registered against this ledger binding, in the
-           -- order a person would be offered them: the primary first. Lateral
-           -- rather than three correlated subqueries so the whole of this check
-           -- stays ONE round trip, which is what made it affordable in the
-           -- posting path to begin with.
-           -- Whether the map says this account holds money at a bank, at this
-           -- place. The declaration of intent, and the only one needed: an
-           -- account nobody has pointed a bank meaning at is not a bank account
-           -- as far as this estate is concerned, and posts as it always did.
-           LEFT JOIN LATERAL (
-               SELECT COUNT(*) > 0 AS is_bank
-                 FROM account_map m
-                WHERE m.account_code = a.account_code AND m.site_id = $2
-                  AND m.semantic_key = ANY($3)
-           ) meant ON true
-           LEFT JOIN LATERAL (
-               SELECT COALESCE(ARRAY_AGG(c.account_id
-                          ORDER BY c.is_primary DESC, c.account_no_digits), '{}') AS ids,
-                      COALESCE(ARRAY_AGG(c.status
-                          ORDER BY c.is_primary DESC, c.account_no_digits), '{}') AS states,
-                      COALESCE(ARRAY_AGG(b.code || ' ' || c.account_no
-                          ORDER BY c.is_primary DESC, c.account_no_digits), '{}') AS labels
-                 FROM company_bank_account c
-                 JOIN bank b ON b.bank_id = c.bank_id
-                WHERE c.ledger_account_code = a.account_code AND c.site_id = $2
-           ) held ON true
-          WHERE a.account_code = $1
-          GROUP BY a.name, a.posting_mode, a.manual_je_policy, a.dimension,
-                   a.requires_counter_site, held.ids, held.states, held.labels,
-                   meant.is_bank",
-    )
-    .bind(code)
-    .bind(facts.site_id)
-    .bind(BANK_MEANINGS.as_slice())
-    .fetch_optional(executor)
-    .await?;
+    // adding this check costs the posting path a single round trip. The
+    // category's own row and the codes a refusal would list are folded in the
+    // same way and for the same reason — see `CATEGORY_CHOICES`.
+    //
+    // In three pieces only because `CATEGORY_CHOICES` is shared with
+    // `assert_category_for_account` and a lateral has to sit between the FROM
+    // and the WHERE. Read them as one statement.
+    let sql = format!("{POLICY_SELECT}{CATEGORY_CHOICES}{POLICY_GROUPING}");
+    // Which bank the map named, and which product. Empty is not a bank code, so
+    // an unqualified meaning narrows nothing rather than matching every row.
+    let bank_kind = facts.semantic_key.and_then(bank_account_kind);
+    let bank_code = facts
+        .qualifier
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && bank_kind.is_some());
+    let row = sqlx::query(&sql)
+        .bind(code)
+        .bind(facts.site_id)
+        .bind(BANK_MEANINGS.as_slice())
+        .bind(given_category)
+        .bind(bank_code)
+        .bind(bank_kind)
+        .fetch_optional(executor)
+        .await?;
     // Absent is not this function's refusal to make: `assert_postable` has
     // already said "no account {code} in the chart" in the poster's own words.
     let Some(row) = row else { return Ok(None) };
 
     let name: String = row.try_get("name")?;
-    let posting_mode: String = row.try_get("posting_mode")?;
-    let manual_policy: String = row.try_get("manual_je_policy")?;
+    let account_mode: String = row.try_get("posting_mode")?;
+    let account_manual: String = row.try_get("manual_je_policy")?;
     let dimension: Option<String> = row.try_get("dimension")?;
     let requires_counter_site: bool = row.try_get("requires_counter_site")?;
+    let category_family: Option<String> = row.try_get("category_family")?;
+    let given_family: Option<String> = row.try_get("given_family")?;
+    let given_active: Option<bool> = row.try_get("given_active")?;
+    let category_choices: Vec<String> = row.try_get("choices")?;
+    let pol_mode: Option<String> = row.try_get("pol_posting_mode")?;
+    let pol_manual: Option<String> = row.try_get("pol_manual_je_policy")?;
     let allowed: Vec<String> = row.try_get("allowed")?;
     let denied: Vec<String> = row.try_get("denied")?;
+    let rule_by_category: bool = row
+        .try_get::<Option<bool>, _>("rule_by_category")?
+        .unwrap_or(false);
 
     let kind = facts.source_kind.trim();
     let hand_keyed = HAND_KEYED_KINDS.contains(&kind);
     let correction = CORRECTION_KINDS.contains(&kind);
 
+    // The category is checked FIRST, before any policy is read off it, and the
+    // order is load-bearing rather than tidy: which door governs below depends
+    // on which category this line names, so a line naming a category that does
+    // not belong to this account must be refused before its name is used to
+    // pick a rule. Otherwise a typo would silently fall through to the
+    // account's own, more permissive, policy — and post.
+    //
+    // 0288's trigger guarantees the pairing too, and has to, because the poster
+    // is not the only thing that can reach `journal_line` from inside the
+    // database. But a trigger fires at the end and names a constraint. This
+    // names the line, the account, the family and up to five codes that would
+    // have worked, which is the difference between somebody fixing a posting
+    // rule and somebody filing a bug.
+    if let Some(fault) = category_fault(
+        category_family.as_deref(),
+        given_category,
+        given_family.as_deref(),
+        given_active,
+    ) {
+        return Err(category_refusal(
+            code,
+            &name,
+            category_family.as_deref(),
+            &category_choices,
+            fault,
+            Intent::Post,
+        ));
+    }
+
+    // ── which door governs ───────────────────────────────────────────────
+    //
+    // Merging 190 accounts into 40 merged 190 doors into 40, and neither
+    // obvious rule for doing that is honest.
+    //
+    // Strictest-source-wins closes paths that are live today: cash on hand,
+    // petty cash and cash in transit all admit an approved correction and
+    // `Modal Kasir` does not, so a merged `1101 Kas` taking the strictest of
+    // its sources would refuse the cash-variance correction that every till
+    // reconciliation depends on. Most-permissive-wins opens paths that are
+    // shut: `Selisih Pembulatan` is written only by a rule, and merged into a
+    // `4301` that a person may journal, a person could journal rounding.
+    //
+    // So the account takes the most permissive of its sources, and the nine
+    // pairings that needed the stricter one keep it at the category grain, in
+    // `account_category_policy`. Each of those rows names the client account it
+    // was kept from. A pairing with no row — which is nearly all of them — is
+    // governed exactly as it was before the chart shrank.
+    let by_category = pol_mode.is_some();
+    let posting_mode = pol_mode.unwrap_or(account_mode);
+    let manual_policy = pol_manual.unwrap_or(account_manual);
+    // What to call the thing that is refusing, so the reader knows which of the
+    // two to go and change. "4301 Pendapatan lain-lain under ROUNDING does not
+    // take hand-written entries" is a different problem from "4301 Pendapatan
+    // lain-lain does not", and it is answered somewhere else.
+    let subject = match (by_category, given_category) {
+        (true, Some(category)) => format!("{code} {name} under {category}"),
+        _ => format!("{code} {name}"),
+    };
+    // And the sentence that says which of the two carries the rule — the fact
+    // somebody about to go and widen the ACCOUNT's policy most needs to hear,
+    // because widening it would not open this.
+    let whose = if by_category {
+        " The rule is on that pairing rather than on the account, so opening the account will \
+         not open it."
+    } else {
+        ""
+    };
+
     // Before anything else, because it is the one value that admits nothing: not
     // a rule, not a person, not an approved correction. 0263.
     if posting_mode == "BLOCKED" {
         return Err(AppError::Validation(format!(
-            "{code} {name} takes no postings at all: what may move it has not been decided. \
-             Nothing is wrong with the entry — the account is waiting on a policy."
+            "{subject} takes no postings at all: what may move it has not been decided. \
+             Nothing is wrong with the entry — it is waiting on a policy.{whose}"
         )));
     }
     if posting_mode == "AUTO_ONLY" && hand_keyed {
         return Err(AppError::Validation(format!(
-            "{code} {name} is posted only by a rule; a {kind} entry cannot name it. Whatever moved this account has a document of its own — post that instead."
+            "{subject} is posted only by a rule; a {kind} entry cannot name it. Whatever moved it has a document of its own — post that instead.{whose}"
         )));
     }
     if hand_keyed {
         match manual_policy.as_str() {
             "NO" => {
                 return Err(AppError::Validation(format!(
-                    "{code} {name} does not take hand-written entries, corrections included."
+                    "{subject} does not take hand-written entries, corrections included.{whose}"
                 )))
             }
             // The whole point of the third value: a person may reach it, but
             // only through a document somebody else agreed to.
             "OVERRIDE" if !correction => {
                 return Err(AppError::Validation(format!(
-                    "{code} {name} may be corrected but not journalled: raise an adjustment, a reclass or a write-off, and have it approved."
+                    "{subject} may be corrected but not journalled: raise an adjustment, a reclass or a write-off, and have it approved.{whose}"
                 )))
             }
             _ => {}
@@ -2616,9 +3343,19 @@ pub async fn validate_account_posting(
     // reserve may be drawn down and may not be formed, and saying so as a
     // whitelist would mean listing every kind that IS fine and refusing the ones
     // somebody forgot.
+    //
+    // Which of the two grains the matched rule was written at is said out loud,
+    // for the reason the policy override says it: "1402 is reached by OPENING
+    // alone" would send somebody to widen an account that is not what refused
+    // them — only `1402 × PPH29` is held that way, and every other prepaid tax
+    // on that account posts as it always did.
+    let rule_subject = match (rule_by_category, given_category) {
+        (true, Some(category)) => format!("{code} {name} under {category}"),
+        _ => format!("{code} {name}"),
+    };
     if denied.iter().any(|k| k == kind) {
         return Err(AppError::Validation(format!(
-            "{code} {name} does not take a {kind} posting: that path is held pending a policy. \
+            "{rule_subject} does not take a {kind} posting: that path is held pending a policy. \
              The account is otherwise usable — this refusal is about the document, not the account."
         )));
     }
@@ -2626,7 +3363,7 @@ pub async fn validate_account_posting(
         let mut spelled: Vec<&str> = allowed.iter().map(String::as_str).collect();
         spelled.sort_unstable();
         return Err(AppError::Validation(format!(
-            "{code} {name} does not take a {kind} posting; it is reached by {}.",
+            "{rule_subject} does not take a {kind} posting; it is reached by {}.",
             spelled.join(", ")
         )));
     }
@@ -2658,6 +3395,7 @@ pub async fn validate_account_posting(
     let bank_ids: Vec<uuid::Uuid> = row.try_get("bank_ids")?;
     let bank_states: Vec<String> = row.try_get("bank_states")?;
     let bank_labels: Vec<String> = row.try_get("bank_labels")?;
+    let bank_by_map: Vec<bool> = row.try_get("bank_by_map")?;
     // An opening balance is history arriving, and the account it sat in may have
     // closed before this master existed. The one exemption, and it exempts only
     // the naming — every other refusal above still applies to it.
@@ -2684,9 +3422,34 @@ pub async fn validate_account_posting(
         return Ok(Some(named));
     }
 
-    let live: Vec<usize> = (0..bank_ids.len())
+    let all_live: Vec<usize> = (0..bank_ids.len())
         .filter(|at| bank_states[*at] == "ACTIVE")
         .collect();
+    // Narrowed to what the map already said, when the map said anything.
+    //
+    // This is the arm that keeps the estate posting after fourteen accounts
+    // landed on `1102`. Before 0291 a bank leg reached an account only one real
+    // account was registered against, so `[only]` below answered every time;
+    // now `1102` has fourteen and `[only]` never fires, which refused every
+    // payment, every giro and every deposit in the client's estate — not
+    // because anything was ambiguous, but because the sentence that used to be
+    // in the account code moved to the map row and nothing read it there.
+    //
+    // A narrowing that finds nothing is left alone rather than refused: the map
+    // may name a bank whose accounts nobody has described yet, and the arms
+    // below already have the right words for that. What it must never do is
+    // pick an account at a DIFFERENT bank when one at the named bank exists,
+    // which is why the narrowed set wins whenever it has members.
+    let narrowed: Vec<usize> = all_live
+        .iter()
+        .copied()
+        .filter(|at| bank_by_map.get(*at).copied().unwrap_or(false))
+        .collect();
+    let live: Vec<usize> = if narrowed.is_empty() {
+        all_live
+    } else {
+        narrowed
+    };
     match live.as_slice() {
         // Nothing registered — or only accounts marked DORMANT, which is the word
         // for "exists, unused" and so is not something to resolve TO.
@@ -2717,11 +3480,20 @@ pub async fn validate_account_posting(
         // Two or more, and this is the refusal the whole column exists for: the
         // statement of one BCA account must not be reconciled against a voucher
         // that could have moved the other.
+        //
+        // The sentence names the act and not the machinery. It used to describe
+        // the inference failing — "has 14 accounts, so a posting has to say
+        // which one moved" — which reads as a fault in the chart and sends
+        // somebody to look at `1102`. Nothing is wrong with `1102`. What is
+        // missing is on the document: this entry has to name the bank account,
+        // and until a document has somewhere to name one, that is a gap in the
+        // document rather than in the entry.
         _ if opening => Ok(None),
         _ => Err(AppError::Validation(format!(
-            "{code} {name} at {} has {} accounts, so a posting has to say which one moved: {}.",
-            facts.site_id,
+            "name the bank account: {} of our accounts answer to {code} {name} at {}, and this \
+             entry does not say which one it moved. Choose one of {}.",
             live.len(),
+            facts.site_id,
             live.iter()
                 .map(|at| bank_labels[*at].as_str())
                 .collect::<Vec<_>>()
@@ -2751,11 +3523,25 @@ pub async fn set_account_mapping(
     let code = request.account_code.trim();
     assert_postable(pool, code, Intent::Map).await?;
 
+    // Half a mapping is the account and half is the category, and both are
+    // checked before either is written. A row that names `6301` without an
+    // `expense_category` is not a mapping somebody can finish later: it is a
+    // mapping every posting through it will be refused by, weeks from now, in
+    // front of somebody who did not make it.
+    let category = request
+        .category_code
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    assert_category_for_account(pool, code, category, Intent::Map).await?;
+
     sqlx::query(
-        "INSERT INTO account_map (semantic_key, site_id, qualifier, account_code, set_by, note)
-         VALUES ($1,$2,$3,$4,$5,$6)
+        "INSERT INTO account_map
+           (semantic_key, site_id, qualifier, account_code, category_code, set_by, note)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
          ON CONFLICT (semantic_key, site_id, qualifier)
          DO UPDATE SET account_code = EXCLUDED.account_code,
+                       category_code = EXCLUDED.category_code,
                        set_by = EXCLUDED.set_by,
                        set_at = now(),
                        note = EXCLUDED.note",
@@ -2764,6 +3550,7 @@ pub async fn set_account_mapping(
     .bind(&request.site_id)
     .bind(request.qualifier.trim())
     .bind(code)
+    .bind(category)
     .bind(actor)
     .bind(request.note.as_deref())
     .execute(pool)
@@ -2775,7 +3562,7 @@ pub async fn set_account_mapping(
     // which is what this did before `account_map_page` existed and is a
     // fourteenth of the work.
     let row = sqlx::query(
-        "SELECT m.semantic_key, m.site_id, m.qualifier, m.account_code,
+        "SELECT m.semantic_key, m.site_id, m.qualifier, m.account_code, m.category_code,
                 a.name AS account_name, m.set_by, m.set_at, m.note
            FROM account_map m JOIN ledger_account a ON a.account_code = m.account_code
           WHERE m.semantic_key = $1 AND m.site_id = $2 AND m.qualifier = $3",
@@ -2789,7 +3576,26 @@ pub async fn set_account_mapping(
     to_mapping(&row)
 }
 
-/// Resolve a meaning to an account, refusing rather than guessing.
+/// An account and the category the map chose with it.
+///
+/// Two halves of one answer, and they travel together on purpose. With forty
+/// accounts the code alone no longer says what a line is about — `6301` is
+/// every general and administrative expense the company has — and a caller that
+/// resolved the code and looked the category up separately would be a second
+/// place for the pair to be decided, free to disagree with the first.
+///
+/// `category_code` is `None` on the accounts that declare no family, which is
+/// not the same as "not filled in": the trigger in 0288 refuses a line that
+/// carries a category into such an account as firmly as it refuses one that
+/// omits it from an account that wants one.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Resolved {
+    pub account_code: String,
+    pub category_code: Option<String>,
+}
+
+/// Resolve a meaning to an account and its category, refusing rather than
+/// guessing.
 ///
 /// The error names the key, the location and the qualifier, because that is
 /// exactly what somebody has to go and fill in on the Account Map screen. An
@@ -2799,7 +3605,7 @@ pub async fn resolve_account(
     semantic_key: &str,
     site_id: &str,
     qualifier: &str,
-) -> Result<String, AppError> {
+) -> Result<Resolved, AppError> {
     // Every qualifier this meaning has at this place, not just the one asked
     // for. The extra rows are free — the primary key is
     // (semantic_key, site_id, qualifier), so this is the same index walk — and
@@ -2812,7 +3618,7 @@ pub async fn resolve_account(
     // the error was lying. It was not — an unqualified lookup does not match a
     // qualified row — but nothing in it said so.
     let rows = sqlx::query(
-        "SELECT qualifier, account_code FROM account_map
+        "SELECT qualifier, account_code, category_code FROM account_map
           WHERE semantic_key = $1 AND site_id = $2
           ORDER BY qualifier",
     )
@@ -2824,7 +3630,10 @@ pub async fn resolve_account(
         .iter()
         .find(|row| row.get::<String, _>("qualifier") == qualifier)
     {
-        return Ok(row.get::<String, _>("account_code"));
+        return Ok(Resolved {
+            account_code: row.get::<String, _>("account_code"),
+            category_code: row.get::<Option<String>, _>("category_code"),
+        });
     }
 
     let known: Vec<String> = rows
@@ -2851,6 +3660,30 @@ pub async fn resolve_account(
         "no account is mapped for '{semantic_key}' at {site_id}{asked}{hint}; \
          set it on the Account Map screen before posting"
     )))
+}
+
+/// Resolve a meaning to an account code only.
+///
+/// For the twenty-nine callers that are not posting through the map but
+/// ASSERTING it: a bill screen checking that `trade_payable` is set before it
+/// lets somebody type a bill, a depreciation run checking every class resolves
+/// before it writes the first entry, a settlement importer checking an acquirer
+/// is known. They want the refusal — which is the whole value of the call — and
+/// they have no line to put a category on.
+///
+/// Deliberately not a `Resolved` those callers would `.account_code` away. The
+/// distinction the wrapper draws is worth a name: everything that reaches
+/// [`resolve_account`] is about to write a journal line, and everything that
+/// reaches this one is not. Grep tells you which is which.
+pub async fn resolve_account_code(
+    executor: impl sqlx::PgExecutor<'_>,
+    semantic_key: &str,
+    site_id: &str,
+    qualifier: &str,
+) -> Result<String, AppError> {
+    resolve_account(executor, semantic_key, site_id, qualifier)
+        .await
+        .map(|resolved| resolved.account_code)
 }
 
 // ---------------------------------------------------------------------------

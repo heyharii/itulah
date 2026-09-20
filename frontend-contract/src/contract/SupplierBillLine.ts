@@ -17,6 +17,22 @@ account_name: string,
  */
 site_id: string, amount_minor: number, 
 /**
+ * What kind of cost this is, on the accounts that are kept by kind.
+ *
+ * The half of the coding a four-digit chart no longer carries: every
+ * general and administrative expense the company pays is `6301`, and a
+ * bill whose four lines all read `6301` is a bill nobody can read.
+ */
+category_code: string | null, 
+/**
+ * The client's own word for that kind, joined here rather than looked up
+ * in the browser — the same bargain `account_name` beside it already
+ * struck, and for a stronger reason: there are a hundred and forty
+ * categories, and a screen that resolved this itself would hold the whole
+ * list to render one cell.
+ */
+category_name: string | null, 
+/**
  * Set when this line buys a fixed asset. Posting the bill mints a DRAFT
  * asset in that class pointing back at the line — the acquisition link
  * 0099 left to somebody noticing.

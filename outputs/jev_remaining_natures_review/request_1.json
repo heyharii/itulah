@@ -1,0 +1,45 @@
+{
+  "model": "jev-latest",
+  "state": {
+    "objective": "Review the remaining client COA domains: physical cash, sales/tender channels, contra revenue, other income, purchase/COGS, owner equity and closing accounts. Preserve accounting nature and identify dimension-only detail.",
+    "confirmed_context": [
+      "One PT Perorangan owns HO and all sites. Site_id is a dimension. Finance and bank access are centralized at HO.",
+      "Units may access physical sales cash, petty cash and cashier float/modal kasir.",
+      "Tender, acquirer, sales channel, bank account, item, customer/order and owner can be controlled master/subledger fields.",
+      "No sales contracts, marketplace statements, inventory method, financial-statement format, closing configuration, balances or journal samples have been supplied."
+    ],
+    "actual_families": {
+      "physical_cash_3": ["Cash on Hand", "Petty Cash", "Cashier Float/Modal Kasir"],
+      "sales_9": ["Cash Sales", "Debit Card BCA", "Debit Card Mandiri", "Debit Card BRI", "Debit Card BNI", "Credit Card VISA", "Credit Card MasterCard", "Own Online Sales", "Marketplace Online Sales"],
+      "contra_revenue_2": ["Sales Discount", "Sales Return"],
+      "other_income_5": ["Management Fee", "Other Income", "Bank Interest Income", "Building Rental Income", "Equipment Rental Income"],
+      "rounding_1": "Rounding Difference",
+      "unresolved_other_1": "Other Income (Expense)",
+      "purchase_cogs_2": ["Purchase Cost/COGS", "Purchase Discount"],
+      "owner_equity_2": ["Paid-in Capital", "Prive/Owner Draw"],
+      "closing_2": ["Retained Earnings", "Current-month Profit/Loss"]
+    }
+  },
+  "questions": {
+    "cash_identity": {"type":"choice","instructions":"Should individual cash box/location identity be stored outside natural GL in cash_location_id with custodian and reconciliation?","criteria":{"yes":"Use cash location/subledger detail.","gl":"Create GL for each drawer/site.","text":"Use descriptions only."}},
+    "cash_three": {"type":"choice","instructions":"Can Cash on Hand, Petty Cash and Cashier Float become one physical-cash GL solely because cash_location/type exists?","criteria":{"review":"Different purpose, replenishment, restrictions and controls may justify separate natural/control accounts; validate before merging.","one":"Merge immediately.","always3":"They must always remain three GLs."}},
+    "sales_bank_names": {"type":"choice","instructions":"Should bank/acquirer names in debit-card sales remain encoded in sales revenue GLs?","criteria":{"dimension":"Move to tender_type/acquirer_id; revenue GL should reflect revenue nature.","gl":"Keep one sales GL per bank.","bank_asset":"Post revenue directly as bank asset only."}},
+    "sales_nine_to_one": {"type":"choice","instructions":"If all nine channels sell the same merchandise under the same gross/net revenue policy, can nine sales GLs become one Merchandise Sales Revenue GL with channel/tender/acquirer dimensions?","criteria":{"conditional":"Yes, subject to marketplace principal-agent, fees, returns and settlement reconciliation.","retain9":"Channel must stay in GL.","one_now":"Merge without contract evidence."}},
+    "marketplace": {"type":"choice","instructions":"Must marketplace and own-online sales be reviewed for principal-versus-agent and gross-versus-net presentation before merging?","criteria":{"yes":"Contracts and settlement statements determine presentation.","no":"Both are automatically identical to cash sales."}},
+    "receivable_link": {"type":"choice","instructions":"Should card sales create the same account as card/acquirer receivable?","criteria":{"no":"Credit revenue and debit the appropriate tender receivable/cash settlement account, linked by tender/acquirer.","yes":"Use a single combined revenue/asset account."}},
+    "discount_return": {"type":"choice","instructions":"Can Sales Discount and Sales Return become one contra-revenue GL with adjustment_type?","criteria":{"review":"Possible only if reporting, tax, inventory return and approval workflows remain distinguishable; otherwise retain two.","one":"Merge immediately.","revenue":"Post both directly into gross sales without identification."}},
+    "returns_inventory": {"type":"choice","instructions":"Does a sales return require item/inventory and tax consequences beyond a revenue dimension?","criteria":{"yes":"Link return document to item, tax, customer/tender and inventory condition.","no":"Only reduce revenue total."}},
+    "other_income_one": {"type":"choice","instructions":"Should management fee, bank interest, building rent, equipment rent and other income become one Other Income GL?","criteria":{"no":"They have different operating/financing, contract, tax and disclosure natures.","yes":"All non-sales income is one nature.","dimension":"One GL is always sufficient if income_type exists."}},
+    "rental_two": {"type":"choice","instructions":"Can building and equipment rental income share one Rental Income GL with leased_object_type if contracts, tax and reporting align?","criteria":{"conditional":"Yes, subject to contract and reporting validation.","retain2":"Always retain two.","sales":"Merge into merchandise sales."}},
+    "rounding": {"type":"choice","instructions":"Should Rounding Difference remain a controlled, low-threshold account rather than be merged into general income?","criteria":{"controlled":"Keep or use a dedicated rounding account with tolerance and monitoring, allowing debit or credit according to policy.","income":"Always treat as income.","sales":"Merge into sales."}},
+    "other_income_expense": {"type":"choice","instructions":"Can Other Income (Expense) be mapped conclusively from its combined label?","criteria":{"no":"Inspect postings and split/reclassify by actual debit/credit nature; avoid a mixed unrestricted account.","income":"Treat all as income.","expense":"Treat all as expense."}},
+    "purchase_method": {"type":"choice","instructions":"Can Purchase Cost/COGS and Purchase Discount be finalized without confirming periodic versus perpetual inventory accounting?","criteria":{"no":"Inventory method determines posting and whether purchase accounts close into COGS/inventory.","yes":"Names alone are enough."}},
+    "purchase_discount": {"type":"choice","instructions":"Should purchase discounts automatically be presented as other income?","criteria":{"no":"Apply consistently against inventory cost/purchases/COGS under the chosen policy.","yes":"Always other income."}},
+    "capital_draw": {"type":"choice","instructions":"For a PT Perorangan, should Paid-in Capital and Prive/Owner Draw remain separate natural equity accounts?","criteria":{"separate":"Capital contributions and owner withdrawals are distinct equity movements.","net":"Use one net owner account.","expense":"Treat owner draw as operating expense."}},
+    "owner_id": {"type":"choice","instructions":"Does having one current owner eliminate the need for controlled owner/shareholder identity in equity transaction records?","criteria":{"no":"Maintain owner/shareholder master and legal documentation even if there is one owner.","yes":"No owner identity or documents are needed."}},
+    "retained_earnings": {"type":"choice","instructions":"Should Retained Earnings remain distinct from paid-in capital and owner draw?","criteria":{"yes":"Keep accumulated results as a distinct equity nature.","merge":"Merge all equity movements."}},
+    "current_profit": {"type":"choice","instructions":"Should Current-month Profit/Loss be an ordinary manual posting account?","criteria":{"system":"Normally system-calculated from P&L and closed to retained earnings according to period-close design; review legacy manual postings.","manual":"Use as unrestricted manual posting account.","capital":"Post directly to paid-in capital monthly."}},
+    "closing_gate": {"type":"choice","instructions":"What evidence is required before removing or retaining the current-profit account?","criteria":{"close_config":"Closing rules, historical journals, reporting engine behavior and retained-earnings roll-forward.","name":"Account label alone.","jev":"Jev answer alone."}},
+    "next_remaining": {"type":"choice","instructions":"After these domains, what must be reviewed before claiming every account family is covered?","criteria":{"loans_unresolved":"Principal-labelled liabilities, bank loan maturity/long-term groups, leases, unresolved REVIEW accounts and a coverage audit.","none":"All remaining accounts can be assumed correct.","random":"Only inspect the largest balances."}}
+  }
+}

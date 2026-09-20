@@ -23,175 +23,15 @@ use uuid::Uuid;
 
 const ACTOR: &str = "ratna";
 
-/// One row of the seeded chart: code, name, parent, whether it is a heading,
-/// and the location it is scoped to.
-type ChartRow = (
-    &'static str,
-    &'static str,
-    Option<&'static str>,
-    bool,
-    Option<&'static str>,
-);
-
-/// Enough of the client's own chart to buy a machine, depreciate it, sell it at
-/// a loss, and reserve against a rack.
+/// The chart is the migrations' own.
 ///
-/// The codes are the client's, read from their master account file, and the
-/// three operating-equipment blocks are the point of half this file: `1021607`
-/// is `Reserve Replacement`, not accumulated depreciation, and `7010215` is
-/// `BIAYA REPLACEMENT`, not depreciation expense.
-const CHART: &[ChartRow] = &[
-    ("1", "ASSET", None, true, None),
-    ("101", "CURRENT ASSET", Some("1"), true, None),
-    ("10110", "KAS & SETARA KAS", Some("101"), true, None),
-    ("1011001", "CASH ON HAND", Some("10110"), true, None),
-    (
-        "101100100100",
-        "Cash on Hand HO",
-        Some("1011001"),
-        false,
-        Some("dc"),
-    ),
-    ("102", "NON CURRENT ASSET", Some("1"), true, None),
-    ("10215", "AKTIVA TETAP", Some("102"), true, None),
-    ("1021504", "Machineries", Some("10215"), true, None),
-    (
-        "102150400100",
-        "Mesin HO",
-        Some("1021504"),
-        false,
-        Some("dc"),
-    ),
-    ("1021507", "Operating Equipment", Some("10215"), true, None),
-    ("1021507001", "OE - Rak 1", Some("1021507"), true, None),
-    (
-        "102150700100",
-        "OE - Rak 1 HO",
-        Some("1021507001"),
-        false,
-        Some("dc"),
-    ),
-    (
-        "10216",
-        "AKUMULASI PENYUSUTAN AKTIVA TETAP",
-        Some("102"),
-        true,
-        None,
-    ),
-    ("1021604", "Akum-Penyusu - Mesin", Some("10216"), true, None),
-    (
-        "102160400100",
-        "Akum-Penyusu - Mesin HO",
-        Some("1021604"),
-        false,
-        Some("dc"),
-    ),
-    (
-        "1021607",
-        "Reserve Replacement - Operating Equipment",
-        Some("10216"),
-        true,
-        None,
-    ),
-    (
-        "1021607001",
-        "Reserve Replacement OE- Rak 1",
-        Some("1021607"),
-        true,
-        None,
-    ),
-    (
-        "102160700100",
-        "RR OE- Rak 1 HO",
-        Some("1021607001"),
-        false,
-        Some("dc"),
-    ),
-    ("2", "LIABILITIES", None, true, None),
-    ("201", "HUTANG USAHA", Some("2"), true, None),
-    (
-        "201200100300",
-        "Hutang Supplier Non Barang Dagang HO",
-        Some("201"),
-        false,
-        Some("dc"),
-    ),
-    ("7", "BEBAN USAHA LAINNYA", None, true, None),
-    (
-        "70102",
-        "BIAYA DEPRESIASI DAN AMORTISASI",
-        Some("7"),
-        true,
-        None,
-    ),
-    (
-        "7010212",
-        "BIAYA DEPRESIASI  MESIN",
-        Some("70102"),
-        true,
-        None,
-    ),
-    (
-        "701021200100",
-        "Biaya Depresiasi Mesin HO",
-        Some("7010212"),
-        false,
-        Some("dc"),
-    ),
-    (
-        "7010215",
-        "BIAYA REPLACEMENT OPERATING EQUIPMENT",
-        Some("70102"),
-        true,
-        None,
-    ),
-    (
-        "7010215001",
-        "Biaya Replacement OE - Rack 1",
-        Some("7010215"),
-        true,
-        None,
-    ),
-    (
-        "701021500100",
-        "Biaya Replacement OE - Rack 1 HO",
-        Some("7010215001"),
-        false,
-        Some("dc"),
-    ),
-    ("8", "BEBAN  NON OPERASIONAL", None, true, None),
-    (
-        "801",
-        "PENDAPATAN DAN (BIAYA) LAIN - LAIN",
-        Some("8"),
-        true,
-        None,
-    ),
-    (
-        "801011000700",
-        "Pendapatan (Biaya) Lain-Lain HO",
-        Some("801"),
-        false,
-        Some("dc"),
-    ),
-];
-
+/// This used to mint thirty rows of the client's own file down to twelve-digit
+/// per-unit leaves. The point of half this file lived in the shape of those
+/// codes: `1021607 Reserve Replacement` is not accumulated depreciation and
+/// `7010215 BIAYA REPLACEMENT` is not depreciation expense. Half of that
+/// survives — `1610` is not `1609` — and half does not: the two expense blocks
+/// both remap to `7101`.
 async fn seed(pool: &PgPool) {
-    for (code, name, parent, is_group, site) in CHART {
-        sqlx::query(
-            "INSERT INTO ledger_account (account_code, name, parent_code, is_group, site_id)
-             VALUES ($1,$2,$3,$4,$5)
-             ON CONFLICT (account_code) DO NOTHING",
-        )
-        .bind(code)
-        .bind(name)
-        .bind(*parent)
-        .bind(is_group)
-        .bind(*site)
-        .execute(pool)
-        .await
-        .unwrap_or_else(|error| panic!("{code}: {error}"));
-    }
     for (year, month) in [(2026, 1), (2026, 2), (2026, 3)] {
         cloud::open_period(pool, year, month)
             .await
@@ -199,7 +39,7 @@ async fn seed(pool: &PgPool) {
     }
 }
 
-async fn map(pool: &PgPool, key: &str, qualifier: &str, code: &str) {
+async fn map(pool: &PgPool, key: &str, qualifier: &str, code: &str, category: Option<&str>) {
     cloud::set_account_mapping(
         pool,
         &cloud::SetAccountMappingRequest {
@@ -207,6 +47,7 @@ async fn map(pool: &PgPool, key: &str, qualifier: &str, code: &str) {
             site_id: "dc".into(),
             qualifier: qualifier.into(),
             account_code: code.into(),
+            category_code: category.map(str::to_string),
             note: None,
         },
         ACTOR,
@@ -216,14 +57,43 @@ async fn map(pool: &PgPool, key: &str, qualifier: &str, code: &str) {
 }
 
 /// The three a machine needs to be depreciated and taken off the books again —
-/// but NOT `asset_disposal_result`, which each test maps for itself so that the
-/// refusal can be seen before the fix.
+/// but NOT `asset_disposal_loss` (nor its gain twin `asset_disposal_result`),
+/// which each test maps for itself so that the refusal can be seen before the
+/// fix.
 async fn map_machinery(pool: &PgPool) {
-    map(pool, "fixed_asset", "1021504", "102150400100").await;
-    map(pool, "accumulated_depreciation", "1021504", "102160400100").await;
-    map(pool, "depreciation_expense", "1021504", "701021200100").await;
-    map(pool, "cash", "", "101100100100").await;
-    map(pool, "non_merchandise_payable", "", "201200100300").await;
+    // The qualifier is the asset CLASS, drawn from `asset_class` since 0287.
+    // Which asset a line is about is `journal_line.asset_id`, and the class is
+    // read from the register — so `1609` takes no category. The two accounts
+    // that carry several kinds of thing do: 0294 gave `1601` an `asset_stage`
+    // and `7101` a `depreciation_kind`, because a chart of forty cannot say
+    // "finished work" or "this was a replacement, not a write-down" any other
+    // way.
+    map(
+        pool,
+        "fixed_asset",
+        "AIR_CONDITIONER",
+        "1601",
+        Some("IN_SERVICE"),
+    )
+    .await;
+    map(
+        pool,
+        "accumulated_depreciation",
+        "AIR_CONDITIONER",
+        "1609",
+        None,
+    )
+    .await;
+    map(
+        pool,
+        "depreciation_expense",
+        "AIR_CONDITIONER",
+        "7101",
+        Some("DEPRECIATION"),
+    )
+    .await;
+    map(pool, "cash", "", "1101", Some("DRAWER")).await;
+    map(pool, "non_merchandise_payable", "", "2101", None).await;
 }
 
 fn date(year: i32, month: u32, day: u32) -> NaiveDate {
@@ -237,7 +107,7 @@ async fn a_machine(pool: &PgPool) -> Uuid {
         &cloud::RegisterAssetRequest {
             asset_number: "AST-000001".into(),
             name: "Mesin bordir Tajima".into(),
-            category_code: "1021504".into(),
+            category_code: "AIR_CONDITIONER".into(),
             site_id: "dc".into(),
             acquired_on: date(2026, 1, 2),
             serial_number: None,
@@ -323,20 +193,32 @@ async fn a_disposal_at_a_loss_posts_once_the_client_s_own_account_is_mapped(pool
 
     // The hole, seen before it is filled. Book value is 11,000,000 and it
     // fetched 5,000,000, so 6,000,000 has to land somewhere — and until
-    // `asset_disposal_result` is mapped there is nowhere, so the whole disposal
+    // `asset_disposal_loss` is mapped there is nowhere, so the whole disposal
     // is refused. Every disposal except one at exactly book value hit this.
+    // The refusal names the LOSS key: this disposal never needed the gain
+    // side, so mapping that alone would not have opened it.
     let refused = cloud::dispose_asset(&pool, asset_id, &sold_for_less, ACTOR)
         .await
         .expect_err("a loss with nowhere to land must be refused, not defaulted");
     assert!(
-        refused.to_string().contains("asset_disposal_result"),
+        refused.to_string().contains("asset_disposal_loss"),
         "the refusal has to name the key somebody must go and set: {refused}"
     );
 
     // The client keeps no "Laba (Rugi) Penjualan Aktiva Tetap" — classes 4 and
-    // 8 of their chart have nothing of the kind. What they keep is one signed
-    // other-income-and-expense leaf, which is why this is one key and not two.
-    map(&pool, "asset_disposal_result", "", "801011000700").await;
+    // 8 of their chart have nothing of the kind. What they kept was one signed
+    // other-income-and-expense leaf (`8010110007`) carrying three meanings at
+    // once, and a reader had to guess which from the sign. 0296 split that
+    // leaf along the sign: a gain is `4301 × ASSET_DISPOSAL`, and a loss is
+    // `8301 × ASSET_DISPOSAL_LOSS`, under root 8 where a cost belongs.
+    map(
+        &pool,
+        "asset_disposal_loss",
+        "",
+        "8301",
+        Some("ASSET_DISPOSAL_LOSS"),
+    )
+    .await;
 
     let disposed = cloud::dispose_asset(&pool, asset_id, &sold_for_less, ACTOR)
         .await
@@ -349,15 +231,16 @@ async fn a_disposal_at_a_loss_posts_once_the_client_s_own_account_is_mapped(pool
         .unwrap_or_else(|| panic!("a disposed asset carries its entry"));
     let posted = lines(&pool, entry_id).await;
 
-    // Cost out, accumulated out, cash in, and the difference to the client's
-    // own account. A loss is a debit.
+    // Cost out, accumulated out, cash in, and the difference to the
+    // other-expense account. A loss is a debit, and a debit to `8301` — never
+    // to `4301`, where it would be a cost inside revenue.
     assert_eq!(
         posted,
         vec![
-            ("102150400100".into(), 0, 12_000_000, Some(asset_id)),
-            ("102160400100".into(), 1_000_000, 0, Some(asset_id)),
-            ("101100100100".into(), 5_000_000, 0, Some(asset_id)),
-            ("801011000700".into(), 6_000_000, 0, Some(asset_id)),
+            ("1601".into(), 0, 12_000_000, Some(asset_id)),
+            ("1609".into(), 1_000_000, 0, Some(asset_id)),
+            ("1101".into(), 5_000_000, 0, Some(asset_id)),
+            ("8301".into(), 6_000_000, 0, Some(asset_id)),
         ],
         "the loss is 12,000,000 less 1,000,000 charged less 5,000,000 received"
     );
@@ -519,12 +402,17 @@ async fn a_bill_line_that_says_it_buys_a_machine_puts_the_machine_on_the_registe
         &pool,
         "INV-2026-0001",
         cloud::RecordBillLine {
-            account_code: "102150400100".into(),
+            account_code: "1601".into(),
             site_id: "dc".into(),
             amount_minor: 9_000_000,
-            asset_class_code: Some("1021504".into()),
+            asset_class_code: Some("AIR_CONDITIONER".into()),
             draws_reserve: false,
             memo: Some("Mesin obras Yamato".into()),
+            // Which asset this buys is the class beside it and, once posted,
+            // `journal_line.asset_id`. What `1601` still has to be told is the
+            // STAGE: a machine bought outright is in service, not a contract
+            // still being built.
+            category_code: Some("IN_SERVICE".into()),
         },
     )
     .await;
@@ -547,7 +435,10 @@ async fn a_bill_line_that_says_it_buys_a_machine_puts_the_machine_on_the_registe
     let asset = &registered[0];
     assert_eq!(asset.status, "DRAFT", "nobody has confirmed it exists yet");
     assert_eq!(asset.name, "Mesin obras Yamato");
-    assert_eq!(asset.category_code, "1021504");
+    // The register files an asset under an `asset_class` row since 0287, not
+    // under the client's seven-digit family `1021504` — the class the bill line
+    // named is the class the register keeps.
+    assert_eq!(asset.category_code, "AIR_CONDITIONER");
     assert_eq!(asset.decision, None, "Finance has still to assess it");
     assert_eq!(
         asset.acquired_via.as_deref(),
@@ -561,8 +452,8 @@ async fn a_bill_line_that_says_it_buys_a_machine_puts_the_machine_on_the_registe
     assert_eq!(
         posted,
         vec![
-            ("102150400100".into(), 9_000_000, 0, Some(asset.asset_id)),
-            ("201200100300".into(), 0, 9_000_000, None),
+            ("1601".into(), 9_000_000, 0, Some(asset.asset_id)),
+            ("2101".into(), 0, 9_000_000, None),
         ]
     );
 
@@ -639,7 +530,10 @@ async fn a_bill_line_that_says_it_buys_a_machine_puts_the_machine_on_the_registe
 
     // And the line still carries what it said, so the bill can be read back.
     assert_eq!(billed.len(), 1);
-    assert_eq!(billed[0].asset_class_code.as_deref(), Some("1021504"));
+    assert_eq!(
+        billed[0].asset_class_code.as_deref(),
+        Some("AIR_CONDITIONER")
+    );
     assert!(!billed[0].draws_reserve);
 }
 
@@ -651,16 +545,29 @@ async fn a_bill_line_that_says_it_buys_a_machine_puts_the_machine_on_the_registe
 async fn a_class_is_reserved_for_monthly_and_a_replacement_draws_the_reserve_down(pool: PgPool) {
     seed(&pool).await;
     map_machinery(&pool).await;
-    // The qualifier is the CLASS. `1021507001 OE - Rak 1` resolves to the
-    // client's own `1021607001` reserve and `7010215001` charge — the two
-    // parallel blocks their chart has always had.
-    map(&pool, "replacement_reserve", "1021507001", "102160700100").await;
-    map(&pool, "replacement_expense", "1021507001", "701021500100").await;
+    // The qualifier is the CLASS, and it is a row in `asset_class` now rather
+    // than an account code. `OE_RAK_1` resolves to `1610` (what was the
+    // client's `1021607001 Reserve Replacement`) and `7101`.
+    //
+    // NOTE that the charge is `7101`, the same account depreciation uses:
+    // `7010215 BIAYA REPLACEMENT` and `7010212 BIAYA DEPRESIASI` both remap
+    // there. The two parallel blocks the client's chart has always had survive
+    // on the balance sheet (`1609` against `1610`) and not in the profit and
+    // loss.
+    map(&pool, "replacement_reserve", "OE_RAK_1", "1610", None).await;
+    map(
+        &pool,
+        "replacement_expense",
+        "OE_RAK_1",
+        "7101",
+        Some("REPLACEMENT"),
+    )
+    .await;
 
     cloud::set_asset_replacement_rate(
         &pool,
         &cloud::SetReplacementRateRequest {
-            class_code: "1021507001".into(),
+            class_code: "OE_RAK_1".into(),
             site_id: "dc".into(),
             effective_from: date(2026, 1, 1),
             monthly_charge_minor: 400_000,
@@ -695,8 +602,8 @@ async fn a_class_is_reserved_for_monthly_and_a_replacement_draws_the_reserve_dow
     assert_eq!(
         lines(&pool, entry.get("entry_id")).await,
         vec![
-            ("701021500100".into(), 400_000, 0, None),
-            ("102160700100".into(), 0, 400_000, None),
+            ("7101".into(), 400_000, 0, None),
+            ("1610".into(), 0, 400_000, None),
         ],
         "the charge is per class and about no single thing, so no line names an asset"
     );
@@ -723,12 +630,17 @@ async fn a_class_is_reserved_for_monthly_and_a_replacement_draws_the_reserve_dow
         &pool,
         "INV-2026-0002",
         cloud::RecordBillLine {
-            account_code: "701021500100".into(),
+            account_code: "7101".into(),
             site_id: "dc".into(),
             amount_minor: 350_000,
-            asset_class_code: Some("1021507001".into()),
+            asset_class_code: Some("OE_RAK_1".into()),
             draws_reserve: true,
             memo: Some("Rak baru toko".into()),
+            // What the person coded it as. The posting rule ignores the account
+            // on a reserve-drawing line — it debits the reserve — but the line
+            // is still stored against `7101`, and `7101` takes a
+            // `depreciation_kind`.
+            category_code: Some("REPLACEMENT".into()),
         },
     )
     .await;
@@ -737,8 +649,8 @@ async fn a_class_is_reserved_for_monthly_and_a_replacement_draws_the_reserve_dow
     assert_eq!(
         lines(&pool, replacement_entry).await,
         vec![
-            ("102160700100".into(), 350_000, 0, None),
-            ("201200100300".into(), 0, 350_000, None),
+            ("1610".into(), 350_000, 0, None),
+            ("2101".into(), 0, 350_000, None),
         ],
         "a replacement draws the reserve down; it does not reach the profit and loss again"
     );
@@ -763,7 +675,7 @@ async fn a_class_is_reserved_for_monthly_and_a_replacement_draws_the_reserve_dow
     // 400,000 reserved and 350,000 spent leaves 50,000 in the fund.
     let reserve: i64 = sqlx::query(
         "SELECT COALESCE(SUM(credit_minor - debit_minor), 0)::bigint AS net
-           FROM journal_line WHERE account_code = '102160700100'",
+           FROM journal_line WHERE account_code = '1610'",
     )
     .fetch_one(&pool)
     .await
@@ -792,12 +704,13 @@ async fn a_draw_that_names_no_class_is_refused_before_it_reaches_the_books(pool:
             note: None,
             kind: Some("EXPENSE".into()),
             lines: Some(vec![cloud::RecordBillLine {
-                account_code: "701021500100".into(),
+                account_code: "7101".into(),
                 site_id: "dc".into(),
                 amount_minor: 100_000,
                 asset_class_code: None,
                 draws_reserve: true,
                 memo: None,
+                category_code: Some("REPLACEMENT".into()),
             }]),
             matching: None,
             withholding_code: None,

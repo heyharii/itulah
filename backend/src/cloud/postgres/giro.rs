@@ -32,7 +32,7 @@
 //! otherwise have the reversal land somewhere the issue never touched — both
 //! accounts wrong by the same amount, and the trial balance still balancing.
 
-use super::ledger::resolve_account;
+use super::ledger::resolve_account_code;
 use super::poster::{post, reverse, PostingIntent, PostingLine};
 use crate::cloud::application::AppError;
 use crate::cloud::domain::{giro_may_move, GiroState};
@@ -464,8 +464,8 @@ pub async fn giro_clear(
 
     // Both meanings resolved before anything is written, so an unmapped bank
     // is refused by name rather than arriving from the poster.
-    resolve_account(&mut *tx, "giro_outstanding", &site_id, &bank).await?;
-    resolve_account(&mut *tx, "bank_giro", &site_id, &bank).await?;
+    resolve_account_code(&mut *tx, "giro_outstanding", &site_id, &bank).await?;
+    resolve_account_code(&mut *tx, "bank_giro", &site_id, &bank).await?;
 
     let outgoing = direction == "OUT";
     let memo = format!("Giro {number} {bank}");

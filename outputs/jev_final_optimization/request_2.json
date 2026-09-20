@@ -1,0 +1,58 @@
+{
+  "model": "jev-latest",
+  "state": {
+    "objective": "Red-team the proposed 142-account end-state after round 1 found it conditionally defensible but selected 225 as today's working target. Focus on the weakest confidence areas and whether 142 is a point target, lower bound, or range anchor.",
+    "round_one_results": [
+      "6,908 to 499 by site removal: appropriate probability 0.95.",
+      "142 assuming every evidence gate passes: defensible probability 0.86; too low 0.12.",
+      "225 as current working design: probability 0.98.",
+      "Legacy reconstruction: yes 0.85, partial 0.14.",
+      "Three physical-cash controls: appropriate 0.78, review 0.21.",
+      "Forty operating-expense targets: appropriate 0.80, review 0.16.",
+      "Architecture preserves natural-account natures: yes 0.98.",
+      "Bank, assets, inventory, payroll, revenue, tax and zero permanent interunit accounts each received 0.93-1.00 appropriate probability.",
+      "Jev cannot certify production without client evidence."
+    ],
+    "important_count_mechanics": [
+      "142 groups 104 unresolved legacy families into 21 unresolved target placeholders.",
+      "Holding those 104 unresolved families separately while applying other proposed groupings gives 225.",
+      "If every unresolved placeholder proves to be one common nature, 225 can converge to 142.",
+      "If evidence splits an unresolved placeholder into multiple accounting natures, the final count will be above 142.",
+      "If evidence supports additional merges among retained accounts, the final count could be below 142, but no such merge should be assumed merely to reduce count."
+    ],
+    "reconstruction_requirements": [
+      "Effective-dated mapping from each legacy code to target account and dimension values.",
+      "Historical preservation of site and other dimension values.",
+      "Many-to-one posting is allowed; reverse reporting uses the saved crosswalk and transaction dimensions.",
+      "Deactivated internal accounts retain legacy history and reclassification audit trail rather than becoming active target accounts."
+    ],
+    "physical_cash": [
+      "Cash on Hand", "Petty Cash", "Cashier Float/Modal Kasir"
+    ],
+    "opex_design": "Forty target operating expense accounts retain distinct natures such as utilities, travel, permits, consultant, insurance, tax, advertising and bank fees. Object identity is dimensionalized only for nine physical maintenance accounts and 36 Replacement OE item labels; Software Maintenance remains separate.",
+    "exception_clusters": [
+      "36 Reserve Replacement OE families proposed as one placeholder if one balance-sheet nature is proven.",
+      "36 Replacement OE expense families proposed as one placeholder if expense-versus-capitalization and reserve mechanics align.",
+      "14 Principal liabilities proposed as one placeholder only if creditor/facility evidence proves common nature.",
+      "HGB, pre-opening, CIP, disposed inventory, mixed other income/expense, current tax PPh25, purchase/COGS method, lease expenses and Giro Keluar are separately flagged."
+    ]
+  },
+  "questions": {
+    "142_exactness": {"type":"choice","instructions":"How should 142 be communicated before exception evidence is resolved?","criteria":{"conditional_anchor":"A conditional architecture anchor, not an exact production count; final count may rise or fall after gates.","exact":"The exact final count regardless of evidence.","minimum":"A guaranteed mathematical minimum.","invalid":"A meaningless number."}},
+    "225_role": {"type":"choice","instructions":"What is the proper role of 225?","criteria":{"working":"A safer working design that applies supported groupings but holds unresolved legacy natures apart until evidence.","final":"The exact final production count.","too_low":"Even working use must retain all 428.","irrelevant":"It has no implementation value."}},
+    "best_range": {"type":"choice","instructions":"Based on the stated architecture and unresolved clusters, which range best represents the likely defensible end-state after evidence testing?","criteria":{"around_142":"Roughly 130-170, centered near 142; exceptions may split and a few retained natures may merge.","around_225":"Roughly 200-250 even after all evidence succeeds.","around_30":"Roughly 25-45 natural accounts.","around_428":"Roughly 400-450 accounts remain necessary."}},
+    "thirty_feasible": {"type":"choice","instructions":"Could approximately 30 natural accounts preserve the stated accounting natures and controls for this client?","criteria":{"no":"It would force materially different assets, liabilities, taxes, revenues and expenses into overly broad controls.","yes":"Thirty is sufficient if every detail becomes a dimension.","unknown":"No structural view is possible."}},
+    "legacy_transaction_reconstruction": {"type":"choice","instructions":"Can a target posting be uniquely expanded back to one legacy code if several old codes map to the same target and the distinguishing dimension was not captured on that transaction?","criteria":{"no":"The required distinguishing dimensions must be mandatory/defaulted and historically stored; otherwise reconstruction is ambiguous.","yes":"The crosswalk alone can always choose the old code.","random":"Choose any legacy code in the group."}},
+    "legacy_summary_reconstruction": {"type":"choice","instructions":"Can historical legacy reports still be preserved even when deactivated accounts have no equivalent active target?","criteria":{"yes":"Keep original historical ledger plus reclassification bridge; do not fabricate target postings back into closed internal accounts.","no":"Closed accounts must stay active forever.","delete":"Delete historical rows."}},
+    "cash_three_final": {"type":"choice","instructions":"Given units separately handle petty cash, cashier float and physical sales cash, is retaining three physical-cash natural/control accounts the safer default?","criteria":{"yes":"Keep three; cash_location/site dimensions identify individual drawers and units.","one":"Use one physical cash GL now.","site_gl":"Create one GL per site."}},
+    "opex_forty_final": {"type":"choice","instructions":"Given the design retains materially different expense natures and compresses mainly object identity, is forty operating-expense targets a reasonable default?","criteria":{"yes":"Keep the forty-target structure until management reporting and policy support specific additional mergers.","one":"Use one operating-expense GL with expense_type.","legacy":"Retain all legacy expense labels indefinitely.","split":"Forty is clearly too few from the supplied facts."}},
+    "expense_dimension_ui": {"type":"choice","instructions":"Should expense_type be mandatory on every expense posting if the natural account already states a specific nature?","criteria":{"contextual":"Require only when the chosen natural account needs subtype detail; otherwise derive/default or hide it.","always":"Always show and require it.","never":"Never use expense subtype dimensions."}},
+    "reserve_oe_split_risk": {"type":"choice","instructions":"Is one Reserve Replacement OE placeholder guaranteed to remain one account after transaction review?","criteria":{"no":"Evidence may reveal contra asset, provision, accrual or other balances requiring split/reclassification.","yes":"Similar item labels guarantee one nature."}},
+    "replacement_expense_split_risk": {"type":"choice","instructions":"Is one Replacement OE Expense placeholder guaranteed to remain one account?","criteria":{"no":"Some transactions may be expense, capital replacement or reserve utilization and must be separated by actual nature.","yes":"All replacement labels prove expense."}},
+    "principal_split_risk": {"type":"choice","instructions":"Is one Principal Liability placeholder guaranteed to remain one account?","criteria":{"no":"Creditor, maturity, subordination, related-party status and legal terms may require multiple accounts.","yes":"The word Principal proves one common loan."}},
+    "exceptions_direction": {"type":"choice","instructions":"What is the more likely effect of resolving the 21 exception targets on the count?","criteria":{"often_up":"Several placeholders may split by proven nature, so the count may rise above 142.","always_down":"Every exception will merge further and reduce count.","no_change":"Evidence cannot affect count."}},
+    "additional_merge_direction": {"type":"choice","instructions":"Should the team actively seek further mergers below 142 before testing the current evidence gates?","criteria":{"no":"First close high-risk gates and validate reporting; pursue further mergers only where nature and controls truly align.","yes":"Reduce count first and validate later.","thirty":"Force the result toward 30."}},
+    "permutation_criterion": {"type":"choice","instructions":"What makes one account permutation better than another?","criteria":{"lossless_controlled":"It preserves accounting nature, required reporting and reconciliation while moving identity to governed dimensions with usable forms.","smallest":"It has the fewest natural accounts.","largest":"It most closely reproduces legacy account count.","jev_confidence":"It maximizes model confidence without client testing."}},
+    "recommended_statement": {"type":"choice","instructions":"Which conclusion is most accurate now?","criteria":{"use_225_then_converge":"Implement the mapping framework with 225 working accounts; close evidence gates cluster by cluster; expect a final range near 130-170 with 142 as current center.","deploy_142":"Deploy 142 immediately as final.","stay_499":"Keep 499 permanently.","force_30":"Redesign to exactly 30."}}
+  }
+}

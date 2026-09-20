@@ -53,6 +53,7 @@ export function DockedFilters({
   model,
   table,
   kpis,
+  children,
   id = "orders",
   subject = "Purchase order",
   className,
@@ -70,6 +71,9 @@ export function DockedFilters({
   /// naming it here would lock the panel to one screen's columns.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly table?: any
+  /// Screen-specific view controls that belong above the generic filter rows.
+  /// They stay optional so the shared dock keeps the same shape everywhere else.
+  readonly children?: React.ReactNode
   /// A few figures about the list as it currently stands, above the controls
   /// that narrow it — so the number and the thing that changed it are read in
   /// one glance. Each carries its own `exact` flag: a sum over a page that is
@@ -148,6 +152,12 @@ export function DockedFilters({
             </div>
           ))}
         </dl>
+      )}
+
+      {children && (
+        <div className="-mx-1 border-b border-hairline px-1 pb-3">
+          {children}
+        </div>
       )}
 
       <div className="flex items-center justify-between gap-2">

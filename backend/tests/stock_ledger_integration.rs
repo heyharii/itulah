@@ -27,72 +27,13 @@ const ACTOR: &str = "ana";
 // A world small enough to read
 // ---------------------------------------------------------------------------
 
-/// A chart shaped like the client's: the ladder, then the postable leaves.
+/// The chart is the migrations' own, so there is nothing left to seed.
 ///
-/// The rungs matter and are not decoration. The client's codes ARE the tree, a
-/// balance rolls up by prefix, and a seed of leaves hanging off the roots would
-/// pass tests a real chart fails.
-async fn seed_chart(pool: &PgPool) {
-    let ladder: [(&str, &str, Option<&str>); 16] = [
-        ("1", "ASSET", None),
-        ("101", "CURRENT ASSET", Some("1")),
-        ("10112", "INVENTORY", Some("101")),
-        ("1011201", "Persediaan Barang Dagang", Some("10112")),
-        ("2", "LIABILITIES", None),
-        ("201", "HUTANG JANGKA PENDEK", Some("2")),
-        ("20120", "HUTANG DAGANG", Some("201")),
-        ("2012001", "HUTANG SUPPLIER", Some("20120")),
-        ("5", "BIAYA / BEBAN POKOK", None),
-        ("501", "HARGA POKOK PEMBELIAN", Some("5")),
-        ("50101", "HARGA POKOK PEMBELIAN", Some("501")),
-        ("5010110", "HARGA POKOK PEMBELIAN", Some("50101")),
-        ("8", "BEBAN  NON OPERASIONAL", None),
-        ("801", "PENDAPATAN DAN (BIAYA) LAIN - LAIN", Some("8")),
-        ("80101", "PENDAPATAN DAN (BIAYA) LAIN - LAIN", Some("801")),
-        ("8010110", "Pendapatan (Biaya) Lain-lain", Some("80101")),
-    ];
-    for (code, name, parent) in ladder {
-        sqlx::query(
-            "INSERT INTO ledger_account (account_code, name, parent_code, is_group)
-             VALUES ($1,$2,$3,true)
-             ON CONFLICT (account_code) DO NOTHING",
-        )
-        .bind(code)
-        .bind(name)
-        .bind(parent)
-        .execute(pool)
-        .await
-        .unwrap_or_else(|error| panic!("{code}: {error}"));
-    }
-    // The leaves this lane posts to, at head office. Twelve characters, which
-    // is what makes them postable rather than headings.
-    for (code, name, parent) in [
-        ("101120100100", "Persediaan Barang Dagangan HO", "1011201"),
-        (
-            "201200100100",
-            "Hutang Suppliers Barang Dagangan HO",
-            "2012001",
-        ),
-        ("501011000100", "Harga Pokok Pembelian HO", "5010110"),
-        (
-            "801011000600",
-            "Kehilangan Barang atau Selisih Stock Opname HO",
-            "8010110",
-        ),
-    ] {
-        sqlx::query(
-            "INSERT INTO ledger_account (account_code, name, parent_code, is_group, site_id)
-             VALUES ($1,$2,$3,false,'dc')
-             ON CONFLICT (account_code) DO NOTHING",
-        )
-        .bind(code)
-        .bind(name)
-        .bind(parent)
-        .execute(pool)
-        .await
-        .unwrap_or_else(|error| panic!("{code}: {error}"));
-    }
-}
+/// This used to build sixteen rungs of the client's ladder and four twelve-digit
+/// leaves, on the argument that the codes ARE the tree and a balance rolls up by
+/// prefix. 0289 replaced the ladder with forty accounts on the one-digit roots
+/// and 0244 had already refused a code that names a unit, so the fixture's own
+/// chart would now be a chart nobody has.
 
 async fn seed_article(pool: &PgPool, code: &str) -> Uuid {
     let id = Uuid::new_v4();
@@ -106,7 +47,7 @@ async fn seed_article(pool: &PgPool, code: &str) -> Uuid {
     id
 }
 
-async fn map(pool: &PgPool, key: &str, code: &str) {
+async fn map(pool: &PgPool, key: &str, code: &str, category: Option<&str>) {
     cloud::set_account_mapping(
         pool,
         &cloud::SetAccountMappingRequest {
@@ -114,6 +55,7 @@ async fn map(pool: &PgPool, key: &str, code: &str) {
             site_id: "dc".into(),
             qualifier: String::new(),
             account_code: code.into(),
+            category_code: category.map(str::to_string),
             note: None,
         },
         ACTOR,
@@ -128,14 +70,17 @@ async fn a_world(pool: &PgPool) -> Uuid {
     // thirteen stores with a floor each. Seeding our own would collide with
     // them, and using theirs is the more honest test anyway — these are the
     // pool identifiers the rest of the system actually passes around.
-    seed_chart(pool).await;
     cloud::open_period(pool, 2026, 9)
         .await
         .unwrap_or_else(|error| panic!("open period: {error}"));
-    map(pool, "inventory", "101120100100").await;
-    map(pool, "trade_payable", "201200100100").await;
-    map(pool, "cogs", "501011000100").await;
-    map(pool, "stock_loss", "801011000600").await;
+    map(pool, "inventory", "1301", Some("MERCHANDISE")).await;
+    map(pool, "trade_payable", "2101", None).await;
+    map(pool, "cogs", "5101", Some("COGS")).await;
+    // `8010110006 Kehilangan Barang atau Selisih Stock Opname` was filed under
+    // the client's root 8 as other income. It is `5102 Susut & selisih
+    // persediaan` now, which is where a shrinkage belongs: a cost of the goods,
+    // not a windfall.
+    map(pool, "stock_loss", "5102", Some("SHRINKAGE")).await;
     seed_article(pool, "ART-001").await
 }
 
@@ -255,7 +200,7 @@ async fn a_receipt_brings_in_quantity_and_value_at_what_was_paid(pool: PgPool) {
     // owner already in the supplier's bill, and a second one here would put the
     // same money into the asset twice with both entries balancing.
     assert_eq!(
-        balance(&pool, "101120100100").await,
+        balance(&pool, "1301").await,
         0,
         "the receipt posted an entry the supplier's bill had already posted"
     );
@@ -303,11 +248,18 @@ async fn an_invoice_discount_makes_the_goods_cheaper_and_not_the_company_richer(
         ]
     );
 
-    // `8010110003 Potongan Pembelian` is an income account and the client's
+    // `8010110003 Potongan Pembelian` was an income account and the client's
     // periodic habit is to book discounts there. Nothing in this lane touches
     // it: doing so overstates inventory and other income by the same amount.
+    //
+    // It is `5101 x PURCHASE_DISCOUNT` now — contra-COGS rather than income,
+    // which is the one row of the whole remap that moves a figure rather than
+    // relabelling it (`scripts/seed-finance.py`, and
+    // `docs/finance-client-decisions.md` SS14). The assertion is the same one:
+    // this lane must not book a discount anywhere.
     let income: i64 = sqlx::query(
-        "SELECT COUNT(*)::bigint AS n FROM journal_line WHERE account_code LIKE '8010110003%'",
+        "SELECT COUNT(*)::bigint AS n FROM journal_line
+          WHERE account_code = '5101' AND category_code = 'PURCHASE_DISCOUNT'",
     )
     .fetch_one(&pool)
     .await
@@ -347,8 +299,8 @@ async fn a_sale_takes_the_oldest_layer_and_posts_what_it_took(pool: PgPool) {
     );
 
     // Dr cost of sales, Cr inventory, both at the site of the sale.
-    assert_eq!(balance(&pool, "501011000100").await, 500_000);
-    assert_eq!(balance(&pool, "101120100100").await, -500_000);
+    assert_eq!(balance(&pool, "5101").await, 500_000);
+    assert_eq!(balance(&pool, "1301").await, -500_000);
 
     let entry = posting
         .journal_entry_id
@@ -434,7 +386,7 @@ async fn a_transfer_between_our_own_places_costs_nothing(pool: PgPool) {
         "the company still holds ten pieces worth 1,250,000; they are just elsewhere"
     );
     assert_eq!(
-        balance(&pool, "501011000100").await,
+        balance(&pool, "5101").await,
         0,
         "moving stock to a shop posted cost of goods sold"
     );
@@ -494,8 +446,8 @@ async fn goods_go_back_to_the_receipt_they_came_from(pool: PgPool) {
 
     // The debit belongs on the payable. Goods going back to a vendor are not a
     // cost of sales, whichever way the credit note eventually settles.
-    assert_eq!(balance(&pool, "201200100100").await, 420_000);
-    assert_eq!(balance(&pool, "501011000100").await, 0);
+    assert_eq!(balance(&pool, "2101").await, 420_000);
+    assert_eq!(balance(&pool, "5101").await, 0);
 }
 
 #[sqlx::test(migrations = "./migrations/postgres")]
@@ -599,9 +551,9 @@ async fn a_correction_on_a_half_sold_layer_lands_on_both_sides(pool: PgPool) {
     // to the pieces already gone. Inventory carries the other 30,000 — which is
     // the whole point: debiting the asset in full would strand the sold portion
     // there forever, because the pieces that would have carried it out are gone.
-    assert_eq!(balance(&pool, "501011000100").await, 400_000 + 20_000);
-    assert_eq!(balance(&pool, "101120100100").await, -400_000 + 30_000);
-    assert_eq!(balance(&pool, "201200100100").await, -50_000);
+    assert_eq!(balance(&pool, "5101").await, 400_000 + 20_000);
+    assert_eq!(balance(&pool, "1301").await, -400_000 + 30_000);
+    assert_eq!(balance(&pool, "2101").await, -50_000);
 
     // Only the on-hand half reaches the stock ledger. The other half is a cost
     // of goods already sold and is not in the stock.
@@ -796,7 +748,7 @@ async fn two_sales_racing_for_the_same_layer_do_not_both_get_it(pool: PgPool) {
         "four pieces and their money survived the race"
     );
     assert_eq!(
-        balance(&pool, "501011000100").await,
+        balance(&pool, "5101").await,
         750_000,
         "cost of sales carries more than the goods that actually left"
     );
@@ -854,7 +806,7 @@ async fn the_same_sale_delivered_twice_consumes_once(pool: PgPool) {
 
     assert_eq!(position(&pool, article).await, (6, 750_000));
     assert_eq!(
-        balance(&pool, "501011000100").await,
+        balance(&pool, "5101").await,
         500_000,
         "the redelivered sale cost the company twice"
     );
@@ -909,7 +861,7 @@ async fn the_stock_ledger_and_the_inventory_account_agree(pool: PgPool) {
     assert_eq!(agreed.stock_ledger_value_minor, 1_250_000);
     assert_eq!(agreed.ledger_balance_minor, 1_250_000);
     assert_eq!(agreed.difference_minor, 0, "{}", agreed.note);
-    assert_eq!(agreed.control_accounts, vec!["101120100100".to_string()]);
+    assert_eq!(agreed.control_accounts, vec!["1301".to_string()]);
 
     // A sale credits inventory and the stock ledger takes the same money out.
     // The two move together or the reconciliation is theatre.
@@ -946,7 +898,7 @@ async fn the_stock_ledger_and_the_inventory_account_agree(pool: PgPool) {
         .await
         .unwrap_or_else(|error| panic!("commit: {error}"));
 
-    assert_eq!(balance(&pool, "801011000600").await, 125_000);
+    assert_eq!(balance(&pool, "5102").await, 125_000);
     let after = cloud::stock_ledger_integrity(&pool, september(30))
         .await
         .unwrap_or_else(|error| panic!("integrity: {error}"));

@@ -23,109 +23,34 @@ use uuid::Uuid;
 
 const ACTOR: &str = "ana";
 
-type ChartRow = (
-    &'static str,
-    &'static str,
-    Option<&'static str>,
-    bool,
-    Option<&'static str>,
-);
-
-/// The client's own codes for the four accounts a giro touches, plus the two a
-/// bank rule proposes.
+/// Nothing is minted: the forty come with the migrations (0289), and 0244
+/// refuses an account that names a unit at all. This used to build eighteen
+/// rows of the client's own ladder down to twelve-digit per-unit leaves; what a
+/// fixture still owes is the map, because `account_map` is a decision.
 async fn seed(pool: &PgPool) {
-    let rows: [ChartRow; 18] = [
-        ("1", "ASSET", None, true, None),
-        ("101", "CURRENT ASSET", Some("1"), true, None),
-        ("10110", "KAS & SETARA KAS", Some("101"), true, None),
-        ("1011002", "CASH IN BANK GIRO", Some("10110"), true, None),
-        (
-            "101100200100",
-            "Cash In Bank Giro Bank BCA HO",
-            Some("1011002"),
-            false,
-            Some("dc"),
-        ),
-        (
-            "101100200200",
-            "Cash In Bank Giro Bank MANDIRI HO",
-            Some("1011002"),
-            false,
-            Some("dc"),
-        ),
-        ("10112", "INVENTORY", Some("101"), true, None),
-        (
-            "1011201",
-            "Persediaan Barang Dagang",
-            Some("10112"),
-            true,
-            None,
-        ),
-        (
-            "101120100100",
-            "Persediaan Barang Dagangan HO",
-            Some("1011201"),
-            false,
-            Some("dc"),
-        ),
-        ("2", "LIABILITIES", None, true, None),
-        ("201", "HUTANG JANGKA PENDEK", Some("2"), true, None),
-        ("20120", "HUTANG DAGANG", Some("201"), true, None),
-        ("2012001", "HUTANG SUPPLIER", Some("20120"), true, None),
-        (
-            "201200100100",
-            "Hutang Suppliers Barang Dagangan HO",
-            Some("2012001"),
-            false,
-            Some("dc"),
-        ),
-        ("2012002", "OUTSTANDING GIRO", Some("20120"), true, None),
-        (
-            "201200200100",
-            "Outstanding Giro Bank BCA HO",
-            Some("2012002"),
-            false,
-            Some("dc"),
-        ),
-        ("6", "BEBAN USAHA", None, true, None),
-        (
-            "601031000400",
-            "Biaya Bank HO",
-            Some("6"),
-            false,
-            Some("dc"),
-        ),
-    ];
-    for (code, name, parent, is_group, site) in rows {
-        sqlx::query(
-            "INSERT INTO ledger_account (account_code, name, parent_code, is_group, site_id)
-             VALUES ($1,$2,$3,$4,$5)
-             ON CONFLICT (account_code) DO NOTHING",
-        )
-        .bind(code)
-        .bind(name)
-        .bind(parent)
-        .bind(is_group)
-        .bind(site)
-        .execute(pool)
-        .await
-        .unwrap_or_else(|error| panic!("{code}: {error}"));
-    }
     for month in [9, 10, 11, 12] {
         cloud::open_period(pool, 2026, month)
             .await
             .unwrap_or_else(|error| panic!("period {month}: {error}"));
     }
-    map(pool, "bank_giro", "BCA", "101100200100").await;
-    map(pool, "bank_giro", "MANDIRI", "101100200200").await;
-    map(pool, "giro_outstanding", "BCA", "201200200100").await;
-    map(pool, "trade_payable", "", "201200100100").await;
-    map(pool, "inventory", "", "101120100100").await;
-    map(pool, "bank_admin_fee", "", "601031000400").await;
-    register_bank_account(pool, "101100200100", "dc").await;
+    map(pool, "bank_giro", "BCA", "1102", None).await;
+    // The Mandiri giro is deliberately NOT mapped, and that is a finding rather
+    // than a tidy-up. Every bank the client has folded into `1102`, and both
+    // `banking::statement_meaning` and `deposits::meaning_of` read the map
+    // BACKWARDS — account code in, meaning out — refusing when an account
+    // carries more than one. Mapping BCA and Mandiri here, which is what a
+    // seeded database does, makes `1102` at `dc` ambiguous and every statement
+    // import and every deposit is refused with "mapped by more than one
+    // meaning". Those two lookups need the bank account (or the category), not
+    // the code.
+    map(pool, "giro_outstanding", "BCA", "2103", None).await;
+    map(pool, "trade_payable", "", "2101", None).await;
+    map(pool, "inventory", "", "1301", Some("MERCHANDISE")).await;
+    map(pool, "bank_admin_fee", "", "6301", Some("BIAYA_BANK_HO")).await;
+    register_bank_account(pool, "1102", "dc").await;
 }
 
-async fn map(pool: &PgPool, key: &str, qualifier: &str, code: &str) {
+async fn map(pool: &PgPool, key: &str, qualifier: &str, code: &str, category: Option<&str>) {
     cloud::set_account_mapping(
         pool,
         &cloud::SetAccountMappingRequest {
@@ -133,6 +58,7 @@ async fn map(pool: &PgPool, key: &str, qualifier: &str, code: &str) {
             site_id: "dc".into(),
             qualifier: qualifier.into(),
             account_code: code.into(),
+            category_code: category.map(str::to_string),
             note: None,
         },
         ACTOR,
@@ -259,13 +185,13 @@ async fn issuing_a_giro_credits_the_instrument_and_leaves_the_bank_alone(pool: P
     // The bug, in one assertion: the bank has not moved, because the bank has
     // not seen this piece of paper and will not for three months.
     assert_eq!(
-        balance(&pool, "101100200100").await,
+        balance(&pool, "1102").await,
         0,
         "writing a giro must not move the bank balance"
     );
     // The debt has moved from the supplier to the instrument.
-    assert_eq!(balance(&pool, "201200200100").await, -40_000_000);
-    assert_eq!(balance(&pool, "201200100100").await, 0);
+    assert_eq!(balance(&pool, "2103").await, -40_000_000);
+    assert_eq!(balance(&pool, "2101").await, 0);
 
     let giros = cloud::giro_list(&pool, None, None, None, None, 50)
         .await
@@ -335,8 +261,8 @@ async fn clearing_moves_it_from_the_instrument_to_the_bank(pool: PgPool) {
     assert_eq!(cleared.status, "CLEARED");
 
     // NOW the bank moves, and the instrument comes off.
-    assert_eq!(balance(&pool, "101100200100").await, -40_000_000);
-    assert_eq!(balance(&pool, "201200200100").await, 0);
+    assert_eq!(balance(&pool, "1102").await, -40_000_000);
+    assert_eq!(balance(&pool, "2103").await, 0);
 
     let kind: String = sqlx::query("SELECT source_kind FROM journal_entry WHERE entry_id = $1")
         .bind(
@@ -359,7 +285,7 @@ async fn clearing_moves_it_from_the_instrument_to_the_bank(pool: PgPool) {
         Err(error) => error.to_string(),
     };
     assert!(message.contains("already cleared"), "said: {message}");
-    assert_eq!(balance(&pool, "101100200100").await, -40_000_000);
+    assert_eq!(balance(&pool, "1102").await, -40_000_000);
 }
 
 // ---------------------------------------------------------------------------
@@ -382,10 +308,10 @@ async fn a_rejected_giro_reverses_the_issue_and_gives_the_bill_back(pool: PgPool
     assert_eq!(rejected.status, "REJECTED");
 
     // The instrument is off the books and the supplier is owed again.
-    assert_eq!(balance(&pool, "201200200100").await, 0);
-    assert_eq!(balance(&pool, "201200100100").await, -40_000_000);
+    assert_eq!(balance(&pool, "2103").await, 0);
+    assert_eq!(balance(&pool, "2101").await, -40_000_000);
     // And the bank never moved at any point in the story.
-    assert_eq!(balance(&pool, "101100200100").await, 0);
+    assert_eq!(balance(&pool, "1102").await, 0);
 
     let payment = cloud::payment(&pool, payment_id)
         .await
@@ -488,7 +414,7 @@ async fn the_board_says_what_is_out_what_falls_due_and_what_has_fallen(pool: PgP
 
 fn statement(lines: Vec<ImportStatementLine>) -> ImportStatementRequest {
     ImportStatementRequest {
-        account_code: "101100200100".into(),
+        account_code: "1102".into(),
         site_id: "dc".into(),
         bank_account_id: None,
         period_start: day(9, 1),
@@ -531,7 +457,11 @@ async fn a_bank_line_becomes_a_document_and_a_match_in_one_transaction(pool: PgP
         &pool,
         line_id,
         &cloud::BookBankLineRequest {
-            account_code: "601031000400".into(),
+            account_code: "6301".into(),
+            // `6301` is every general and administrative expense the company
+            // pays, so the account no longer says a bank charge apart from a
+            // consultant's fee. Only the person reading the narration can.
+            category_code: Some("BIAYA_BANK_HO".into()),
             memo: "biaya administrasi September".into(),
             party_name: Some("Bank BCA".into()),
         },
@@ -641,8 +571,8 @@ async fn a_rule_proposes_and_only_a_person_makes_it_money(pool: PgPool) {
         .as_deref()
         .unwrap_or_default()
         .starts_with("KK-26-09-"));
-    assert_eq!(balance(&pool, "601031000400").await, 35_000);
-    assert_eq!(balance(&pool, "101100200100").await, -35_000);
+    assert_eq!(balance(&pool, "6301").await, 35_000);
+    assert_eq!(balance(&pool, "1102").await, -35_000);
 }
 
 #[sqlx::test(migrations = "./migrations/postgres")]

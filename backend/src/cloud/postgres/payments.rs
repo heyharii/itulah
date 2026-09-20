@@ -697,15 +697,15 @@ pub async fn record_payment(
     // Checked here as well as by the composite foreign key on the table, for
     // the same reason `set_account_mapping` checks the chart: a foreign-key
     // violation is SQLSTATE 23503 and reaches a person as "database operation
-    // failed". `resolve_account` names the key, the site and the qualifier —
+    // failed". `resolve_account_code` names the key, the site and the qualifier —
     // which is exactly what somebody has to go and fill in.
     let qualifier = request.account_qualifier.trim();
-    super::ledger::resolve_account(pool, &key, &request.site_id, qualifier).await?;
+    super::ledger::resolve_account_code(pool, &key, &request.site_id, qualifier).await?;
     // And the account the giro will actually be credited to. Checked here
     // rather than at posting, so a bank whose outstanding-giro leaf nobody
     // mapped is refused while somebody is still looking at the form.
     if giro.is_some() {
-        super::ledger::resolve_account(pool, "giro_outstanding", &request.site_id, qualifier)
+        super::ledger::resolve_account_code(pool, "giro_outstanding", &request.site_id, qualifier)
             .await?;
     }
 

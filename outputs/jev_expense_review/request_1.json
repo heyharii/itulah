@@ -1,0 +1,146 @@
+{
+  "model": "jev-latest",
+  "state": {
+    "objective": "Determine which client payroll and operating-expense COA repetitions are dimensions versus distinct natural expense natures. Preserve client reporting and do not compress merely to reach a target count.",
+    "confirmed_context": [
+      "Unit/site is already a site_id dimension. Finance is centralized at HO.",
+      "Cost center may default from a unit for store postings but must remain extensible for HO departments and shared costs.",
+      "No payroll reports, statutory mappings, tax treatment, budgets, management P&L, capitalization policy, transactions or balances have been supplied.",
+      "Asset depreciation and inventory loss accounts were reviewed separately and are outside this question except where explicit unresolved replacement-OE expenses appear.",
+      "The purpose is to identify defensible compression candidates, not to approve migration from account names alone."
+    ],
+    "actual_client_patterns": {
+      "payroll_26": "Two parallel sets of the same 13 labels: salary, overtime, meal, transport, health, employee insurance/BPJS, THR, uniform, sport/recreation, funeral contribution, manpower development, severance, commission/bonus/incentive. The two sets use different legacy prefixes but the supplied extract does not explain whether they mean selling/admin, store/HO, department, or another function.",
+      "maintenance_10": [
+        "Repair & Maintenance FFE", "Software Maintenance", "Computer Repair & Maintenance", "Building Repair & Maintenance", "Staff House Repair & Maintenance", "Vehicle Repair & Maintenance", "Air Conditioner & Refrigerator Repair & Maintenance", "Power Plant", "Painting", "Lift Repair & Maintenance"
+      ],
+      "replacement_oe_36": "36 Biaya Replacement OE accounts named by rack/display/table/mannequin/hanger and other OE item types.",
+      "other_operating_examples": [
+        "Cleaning", "Office supplies and printing", "Household", "Bank charges HO", "Telephone/fax/modem", "Electricity", "Water", "Business travel", "Local transport", "Permits", "Computer expenses", "Bad debt provision expense", "Store and office supplies", "Stock opname", "Electrical equipment", "Tires and tubes", "Fuel and oil", "Tools", "Lubrication/grease/genset fuel", "Telephone equipment", "Donation", "Consultant", "Vehicle licenses", "Mess supplies", "Miscellaneous", "Property/fire insurance", "PBB", "Advertising tax", "Management fee", "Vehicle insurance"
+      ],
+      "sales_operating_7": [
+        "Customer Supplies", "Credit Card Cost", "Promotion", "Decoration", "Advertising", "Loading/Unloading", "Delivery/Courier/Expedition"
+      ],
+      "lease_expense_4_unresolved": ["Land Rent", "Land Right Cost", "Store/Warehouse Building Rent", "Staff House Rent"]
+    }
+  },
+  "questions": {
+    "payroll_duplicate_axis": {
+      "type": "choice",
+      "instructions": "Before merging the two parallel sets of 13 payroll accounts, must the client identify what the different legacy prefixes represent?",
+      "criteria": {
+        "yes": "Determine function, department, location, employee class, or another accounting/reporting distinction first.",
+        "no": "Identical labels prove immediate duplication.",
+        "retain": "Parallel sets can never be merged."
+      }
+    },
+    "payroll_26_to_13": {
+      "type": "choice",
+      "instructions": "If the two prefixes only encode department/function that can be reported reliably through cost_center/function, can 26 payroll GLs become 13 payroll natural accounts?",
+      "criteria": {
+        "conditional_merge": "Yes, preserve the 13 component natures and move department/function to dimensions.",
+        "retain_26": "Keep both parallel sets even with reliable dimensional reporting.",
+        "one_payroll": "Merge all 26 into one payroll expense GL."
+      }
+    },
+    "all_payroll_one": {
+      "type": "choice",
+      "instructions": "Should salary, overtime, BPJS, THR, severance, bonuses and other payroll components all become one natural payroll expense account solely because payroll subledger has component detail?",
+      "criteria": {
+        "no": "Different statutory, tax, accrual, disclosure or management natures may justify separate natural accounts.",
+        "yes": "One payroll expense account is always sufficient.",
+        "target": "Choose based on desired COA count."
+      }
+    },
+    "employee_identity": {
+      "type": "choice",
+      "instructions": "Should employee identity appear in natural GL accounts?",
+      "criteria": {
+        "subledger": "Use employee_id/payroll run in payroll subledger; post summarized GL by natural component and dimensions.",
+        "gl": "Create a natural GL for every employee.",
+        "site": "Use site account suffix as employee identity."
+      }
+    },
+    "maintenance_assets": {
+      "type": "choice",
+      "instructions": "Can the ten maintenance/repair accounts be reduced to fewer Repairs & Maintenance GLs with asset_class/object detail when capitalization policy and management reporting are aligned?",
+      "criteria": {
+        "conditional": "Yes, asset/maintenance object belongs in asset_class or maintenance work order, subject to policy and reporting.",
+        "retain_10": "Every maintained object must remain a GL.",
+        "one_immediate": "Merge all immediately from names."
+      }
+    },
+    "software_maintenance": {
+      "type": "choice",
+      "instructions": "Should Software Maintenance automatically be merged with physical repairs solely because both contain maintenance?",
+      "criteria": {
+        "review": "Check service/subscription, capitalization and reporting treatment; it may warrant a separate nature.",
+        "merge": "Always combine software and physical maintenance.",
+        "capitalize": "Always capitalize software maintenance."
+      }
+    },
+    "replacement_oe_items": {
+      "type": "choice",
+      "instructions": "If 36 Replacement OE labels only identify replaced item types, can item identity move to asset_id/item_class/work_order beneath fewer expense GLs?",
+      "criteria": {
+        "conditional": "Yes, after confirming expense versus capitalization and the reserve-replacement posting mechanism.",
+        "retain_36": "Every OE item type must remain a natural expense GL.",
+        "merge_now": "Merge now without posting evidence."
+      }
+    },
+    "utilities": {
+      "type": "choice",
+      "instructions": "Should electricity, water and telecommunications be merged into one Utilities GL solely because they are recurring services?",
+      "criteria": {
+        "retain_or_policy": "Keep distinct unless client reporting and policy support a broader utility account with service_type detail.",
+        "one": "Always merge them.",
+        "expense_dimension_only": "Every expense type should be only a dimension under one expense GL."
+      }
+    },
+    "vehicle_costs": {
+      "type": "choice",
+      "instructions": "Can tires, fuel/oil, vehicle licenses, vehicle insurance and vehicle repairs be collapsed into one Vehicle Cost GL from names alone?",
+      "criteria": {
+        "no": "Different nature, tax, timing and reporting can require separation; vehicle_id may supplement but does not erase nature.",
+        "yes": "Vehicle object makes all costs the same nature.",
+        "capitalize": "All vehicle costs are assets."
+      }
+    },
+    "bank_charges": {
+      "type": "choice",
+      "instructions": "Does moving bank identity to bank_account_id justify merging Bank Charges HO into unrelated operating expenses?",
+      "criteria": {
+        "no": "Bank identity can be dimensional while bank charges remain a distinct natural expense nature.",
+        "yes": "Merge bank charges into miscellaneous expenses.",
+        "cash": "Post bank charges directly to bank asset cost."
+      }
+    },
+    "miscellaneous": {
+      "type": "choice",
+      "instructions": "Should Miscellaneous Expenses be used as the destination for many compressed expense accounts?",
+      "criteria": {
+        "no": "Use it narrowly with thresholds and review; preserve meaningful natures or controlled dimensions.",
+        "yes": "Use it as the primary compression account.",
+        "delete": "Delete all miscellaneous transactions."
+      }
+    },
+    "lease_four": {
+      "type": "choice",
+      "instructions": "Can four lease/rent expense accounts be compressed before reviewing lease contracts and land-right accounting?",
+      "criteria": {
+        "no": "First determine short-term/low-value expense, right-of-use accounting, land rights and disclosure/reporting.",
+        "yes": "All rent names can become one expense immediately.",
+        "asset": "Capitalize all four automatically."
+      }
+    },
+    "migration_gate": {
+      "type": "choice",
+      "instructions": "What evidence is needed before final expense/payroll compression?",
+      "criteria": {
+        "full": "Management P&L and budget mapping, payroll/statutory reporting, tax treatment, sample postings, capitalization policy, opening balances and dimension-to-GL reconciliation.",
+        "names": "COA labels alone.",
+        "jev": "Repeated Jev answers alone."
+      }
+    }
+  }
+}

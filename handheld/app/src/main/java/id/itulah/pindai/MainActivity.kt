@@ -1,6 +1,8 @@
 package id.itulah.pindai
 
 import android.os.Bundle
+import android.os.SystemClock
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedContent
@@ -22,6 +24,7 @@ import androidx.compose.material.icons.outlined.QrCodeScanner
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.MoveToInbox
 import androidx.compose.material.icons.outlined.Checklist
+import androidx.compose.material.icons.outlined.Science
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -43,6 +46,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.itulah.pindai.core.Reader
+import id.itulah.pindai.core.Trigger
+import id.itulah.pindai.data.CatalogStore
 import id.itulah.pindai.data.ConfigStore
 import id.itulah.pindai.screens.*
 import id.itulah.pindai.ui.kit.Chip
@@ -58,17 +63,81 @@ class MainActivity : ComponentActivity() {
     private val readerLifecycle = Executors.newSingleThreadExecutor { task ->
         Thread(task, "reader-lifecycle").apply { isDaemon = true }
     }
+    private lateinit var store: ConfigStore
+    private var catalog: CatalogStore? = null
+
+    /** Set by the sweep screen while it is on top; the trigger belongs to it. */
+    @Volatile var onTrigger: (() -> Unit)? = null
+
+    /** Set by Setelan while it is waiting for somebody to pull the trigger. */
+    @Volatile var onLearnKey: ((Int) -> Unit)? = null
+
+    private var lastTriggerAt = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         SweepViewModel.appContext = applicationContext
-        val store = ConfigStore(applicationContext)
-        setContent { ItulahTheme { Shell(reader, store) } }
+        store = ConfigStore(applicationContext)
+        val catalogStore = CatalogStore(applicationContext)
+        catalog = catalogStore
+
+        // Open the UART before the first pixel, not after the first frame.
+        //
+        // The vendor's `init()` costs about a second on this module and it is
+        // paid once — after it, a pull of the trigger reaches a live antenna in
+        // twenty milliseconds. That second used to start only once Compose had
+        // finished composing, which put it squarely in the window where an
+        // operator opens the app and immediately squeezes. Started here it runs
+        // beside the UI coming up, on a thread that is not the one drawing, and
+        // is finished before anybody can reach the trigger.
+        //
+        // It opens the radio and does not read: a handheld that inventories the
+        // office because somebody launched an app is worse than a slow one.
+        readerLifecycle.execute {
+            runCatching {
+                store.load().readerPower.takeIf { it > 0 }?.let { reader.setPower(it) }
+                reader.init(applicationContext)
+            }
+        }
+
+        setContent { ItulahTheme { Shell(this, reader, store, catalogStore) } }
+    }
+
+    /**
+     * The trigger, intercepted before anything else can have it.
+     *
+     * `dispatchKeyEvent` rather than `onKeyDown`: a focused text field consumes
+     * keys before the activity ever sees them, and the one place an operator is
+     * most likely to pull the trigger by reflex is the screen they just typed a
+     * session code into.
+     *
+     * Both DOWN and UP are swallowed for a key we claim. Letting the UP through
+     * is how a keycode that some firmware also maps to a character arrives in
+     * the field the operator was standing in.
+     */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        val learner = onLearnKey
+        if (learner != null && event.action == KeyEvent.ACTION_DOWN &&
+            event.repeatCount == 0 && !Trigger.isReserved(event.keyCode)
+        ) {
+            learner(event.keyCode)
+            return true
+        }
+        if (!Trigger.matches(event.keyCode, store.load().triggerKeyCode)) {
+            return super.dispatchKeyEvent(event)
+        }
+        val now = SystemClock.uptimeMillis()
+        if (Trigger.isFreshPull(event, lastTriggerAt, now)) {
+            lastTriggerAt = now
+            onTrigger?.invoke()
+        }
+        return true
     }
 
     override fun onDestroy() {
         readerLifecycle.execute { reader.close() }
         readerLifecycle.shutdown()
+        catalog?.close()
         super.onDestroy()
     }
 }
@@ -78,18 +147,31 @@ private enum class Tab(val label: String, val icon: ImageVector, val mode: Mode?
     PACKING("Packing", Icons.Outlined.Inventory2, Mode.PACKING),
     RECEIVING("Receive", Icons.Outlined.MoveToInbox, Mode.RECEIVING),
     COUNT("Count", Icons.Outlined.Checklist, Mode.COUNT),
+    // The bench gets a tab of its own, because an instrument that cannot be
+    // reached is an instrument that does not exist. See LabScreen.
+    LAB("Lab", Icons.Outlined.Science, null),
     SETTINGS("Settings", Icons.Outlined.Settings, null),
 }
 
 @Composable
-private fun Shell(reader: Reader, store: ConfigStore) {
+private fun Shell(
+    activity: MainActivity,
+    reader: Reader,
+    store: ConfigStore,
+    catalog: CatalogStore,
+) {
     val vm: SweepViewModel = viewModel(factory = object : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            SweepViewModel(reader, store) as T
+            SweepViewModel(reader, store, catalog) as T
     })
     val state by vm.state.collectAsStateWithLifecycle()
     val lifecycleOwner = LocalLifecycleOwner.current
+
+    // The local catalogue is opened once, and scanning is available the moment
+    // it is. Whether the node has a newer one is a separate question asked in
+    // the background, and its answer changes a line of text.
+    LaunchedEffect(Unit) { vm.openCatalogue() }
     var tab by remember { mutableStateOf(Tab.SCAN) }
     var previous by remember { mutableStateOf(Tab.SCAN) }
     // Sessions is a detour, not a destination: it opens over whatever mode you
@@ -109,6 +191,15 @@ private fun Shell(reader: Reader, store: ConfigStore) {
     LaunchedEffect(tab) {
         tab.mode?.let { vm.setMode(it) }
         if (tab == Tab.SETTINGS) vm.releaseReader()
+    }
+
+    // The trigger belongs to whichever sweep mode is on top, and to nothing
+    // else. In Setelan it is a key being taught, and over the session list it
+    // would start a sweep the operator cannot see.
+    val armed = tab.mode != null && !showSessions
+    DisposableEffect(armed, vm) {
+        activity.onTrigger = if (armed) ({ vm.toggleSweep() }) else null
+        onDispose { activity.onTrigger = null }
     }
 
     // One layer, not two rows: the tab bar FLOATS over the content rather than
@@ -141,7 +232,16 @@ private fun Shell(reader: Reader, store: ConfigStore) {
                     label = "tab",
                 ) { (current, _) ->
                     when {
-                        current == Tab.SETTINGS -> SettingsScreen(store, reader, onSaved = {})
+                        current == Tab.LAB && BuildConfig.BENCH -> LabScreen(vm, state)
+                        current == Tab.SETTINGS ->
+                            SettingsScreen(
+                                activity, store, reader, vm, state,
+                                // Pointing a handheld at a different node is
+                                // exactly when its catalogue is wrong, so the
+                                // check happens on Save rather than waiting for
+                                // the next launch to notice.
+                                onSaved = { vm.refreshCatalogue() },
+                            )
                         showSessions -> SessionsScreen(vm, state) { showSessions = false }
                         else -> SweepScreen(vm, state) { showSessions = true }
                     }
@@ -162,9 +262,18 @@ private fun Shell(reader: Reader, store: ConfigStore) {
         // The one action lives in the shell's foot rather than in the screen,
         // for the same reason the tab bar does: it has to sit ON the fade, and
         // it has to stay still while the four sweep modes slide past behind it.
-        if (tab.mode != null && !showSessions) {
-            SweepAction(vm, state, Modifier.align(Alignment.BottomCenter))
-        }
+        // Nothing floats over any sweep screen.
+        //
+        // The trigger is a physical button; a count and a product total on the
+        // glass duplicate what the screen above already says, and a Finish
+        // button is a step that already happened — the sweep records itself the
+        // moment the trigger is released.
+        //
+        // Packing, receiving and counting DO have a step after the sweep, and
+        // they have lost their control with this. That action belongs on the
+        // sweep's own result, where it can say what it is about; putting it
+        // back as furniture over every screen is not the answer.
+
         TabBar(tab, Modifier.align(Alignment.BottomCenter)) { next ->
             previous = tab; tab = next; showSessions = false
         }
@@ -227,7 +336,9 @@ private val TabGap = 14.dp
  */
 @Composable
 private fun TabBar(selected: Tab, modifier: Modifier = Modifier, onSelect: (Tab) -> Unit) {
-    val tabs = Tab.entries
+    // The Lab is a bench instrument: it retunes the radio mid-shift and can
+    // make foreign tags count as stock. It does not appear on a shop floor.
+    val tabs = Tab.entries.filter { BuildConfig.BENCH || it != Tab.LAB }
     val width = LocalConfiguration.current.screenWidthDp.dp
     val size = minOf(
         TabSquircle,

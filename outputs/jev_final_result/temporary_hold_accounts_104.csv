@@ -1,0 +1,105 @@
+﻿target_key,target_account_name,status,legacy_family_count,legacy_detail_rows,dimensions,evidence_required
+HOLD:1021501002,Hak Sewa Tanah / HGB,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, asset_class_id, associated_site_id",Legal right/policy and posting review.
+HOLD:1021601002,Akumulasi Penyusu - Hak  Pengelolaan Tanah (Land Right) / HGB,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, asset_class_id, associated_site_id",Legal right/policy and posting review.
+HOLD:1021607001,Reserve Replacement OE- Rak 1,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class","Entries, normal balance, counterpart, policy and roll-forward."
+HOLD:1021607002,Reserve Replacement OE- Rak 2,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class","Entries, normal balance, counterpart, policy and roll-forward."
+HOLD:1021607003,Reserve Replacement OE- Rak 3,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class","Entries, normal balance, counterpart, policy and roll-forward."
+HOLD:1021607004,Reserve Replacement OE- Rak 4,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class","Entries, normal balance, counterpart, policy and roll-forward."
+HOLD:1021607005,Reserve Replacement OE- Pajangan Gantungan 2,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class","Entries, normal balance, counterpart, policy and roll-forward."
+HOLD:1021607006,Reserve Replacement OE- Pajangan Gantungan 4,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class","Entries, normal balance, counterpart, policy and roll-forward."
+HOLD:1021607007,Reserve Replacement OE- Pajangan Gantungan 6,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class","Entries, normal balance, counterpart, policy and roll-forward."
+HOLD:1021607008,Reserve Replacement OE- Pajangan Gantungan Lain-lain,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class","Entries, normal balance, counterpart, policy and roll-forward."
+HOLD:1021607009,Reserve Replacement OE- Meja 1,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class","Entries, normal balance, counterpart, policy and roll-forward."
+HOLD:1021607010,Reserve Replacement OE- Meja 2,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class","Entries, normal balance, counterpart, policy and roll-forward."
+HOLD:1021607011,Reserve Replacement OE- Meja 3,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class","Entries, normal balance, counterpart, policy and roll-forward."
+HOLD:1021607012,Reserve Replacement OE- Box OB Kayu,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class","Entries, normal balance, counterpart, policy and roll-forward."
+HOLD:1021607013,Reserve Replacement OE- Box OB Besi,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class","Entries, normal balance, counterpart, policy and roll-forward."
+HOLD:1021607014,Reserve Replacement OE- Holo,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class","Entries, normal balance, counterpart, policy and roll-forward."
+HOLD:1021607015,Reserve Replacement OE- Breket,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class","Entries, normal balance, counterpart, policy and roll-forward."
+HOLD:1021607016,Reserve Replacement OE- Belalai,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class","Entries, normal balance, counterpart, policy and roll-forward."
+HOLD:1021607017,Reserve Replacement OE- Patung Full Body Dewasa,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class","Entries, normal balance, counterpart, policy and roll-forward."
+HOLD:1021607018,Reserve Replacement OE- Patung Full Body Anak,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class","Entries, normal balance, counterpart, policy and roll-forward."
+HOLD:1021607019,Reserve Replacement OE- Patung Setengah Badan Pria,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class","Entries, normal balance, counterpart, policy and roll-forward."
+HOLD:1021607020,Reserve Replacement OE- Patung Setengah Badan Wanita 1,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class","Entries, normal balance, counterpart, policy and roll-forward."
+HOLD:1021607021,Reserve Replacement OE- Patung Setengah Badan Wanita 2,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class","Entries, normal balance, counterpart, policy and roll-forward."
+HOLD:1021607022,Reserve Replacement OE- Patung Setengah Badan Anak,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class","Entries, normal balance, counterpart, policy and roll-forward."
+HOLD:1021607023,Reserve Replacement OE- Patung Kepala Dewasa,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class","Entries, normal balance, counterpart, policy and roll-forward."
+HOLD:1021607024,Reserve Replacement OE- Patung Kepala Anak,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class","Entries, normal balance, counterpart, policy and roll-forward."
+HOLD:1021607025,Reserve Replacement OE- Patung Kaki Dewasa,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class","Entries, normal balance, counterpart, policy and roll-forward."
+HOLD:1021607026,Reserve Replacement OE- Patung Kaki Anak,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class","Entries, normal balance, counterpart, policy and roll-forward."
+HOLD:1021607027,Reserve Replacement OE- Hanger Wanita / ABG,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class","Entries, normal balance, counterpart, policy and roll-forward."
+HOLD:1021607028,Reserve Replacement OE- Hanger Pria,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class","Entries, normal balance, counterpart, policy and roll-forward."
+HOLD:1021607029,Reserve Replacement OE- Hanger Jacket,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class","Entries, normal balance, counterpart, policy and roll-forward."
+HOLD:1021607030,Reserve Replacement OE- Hanger Kayu Anak,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class","Entries, normal balance, counterpart, policy and roll-forward."
+HOLD:1021607031,Reserve Replacement OE- Hanger Body / Stelan,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class","Entries, normal balance, counterpart, policy and roll-forward."
+HOLD:1021607032,Reserve Replacement OE- Hanger Jepit Dewasa,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class","Entries, normal balance, counterpart, policy and roll-forward."
+HOLD:1021607033,Reserve Replacement OE- Hanger Jepit Anak,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class","Entries, normal balance, counterpart, policy and roll-forward."
+HOLD:1021607034,Reserve Replacement OE- Hanger Gamis / Ibu,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class","Entries, normal balance, counterpart, policy and roll-forward."
+HOLD:1021607035,Reserve Replacement OE- PIN / Kawat Sensor,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class","Entries, normal balance, counterpart, policy and roll-forward."
+HOLD:1021607036,Reserve Replacement OE- Tas / Keranjang Belanja,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class","Entries, normal balance, counterpart, policy and roll-forward."
+HOLD:1031801001,Disposed Inventory,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"item_id, asset_id",Transaction and counterpart review.
+HOLD:1031802001,Pre Opening,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,project_id,Capitalization policy and transaction review.
+HOLD:1031802002,Akumulasi Amortisasi Pre Opening,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,project_id,Capitalization policy and transaction review.
+HOLD:1031803001,Contract In Progress (CIP),HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"project_id, contract_id",Contract and posting-flow review.
+HOLD:2012303001,Hutang Lain-lain Principal HEAD OFFICE,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"creditor_id, facility_id, site_id","Creditor identity, contract and settlement terms."
+HOLD:2012303002,Hutang Lain-lain Principal CIKUPA,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"creditor_id, facility_id, site_id","Creditor identity, contract and settlement terms."
+HOLD:2012303003,Hutang Lain-lain Principal MUARO BUNGO,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"creditor_id, facility_id, site_id","Creditor identity, contract and settlement terms."
+HOLD:2012303004,Hutang Lain-lain Principal PURBALINGGA,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"creditor_id, facility_id, site_id","Creditor identity, contract and settlement terms."
+HOLD:2012303005,Hutang Lain-lain Principal BUMIAYU,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"creditor_id, facility_id, site_id","Creditor identity, contract and settlement terms."
+HOLD:2012303006,Hutang Lain-lain Principal JAMBI,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"creditor_id, facility_id, site_id","Creditor identity, contract and settlement terms."
+HOLD:2012303007,Hutang Lain-lain Principal WIRAMODE,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"creditor_id, facility_id, site_id","Creditor identity, contract and settlement terms."
+HOLD:2012303008,Hutang Lain-lain Principal BREBES,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"creditor_id, facility_id, site_id","Creditor identity, contract and settlement terms."
+HOLD:2012303009,Hutang Lain-lain Principal PASURUAN,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"creditor_id, facility_id, site_id","Creditor identity, contract and settlement terms."
+HOLD:2012303010,Hutang Lain-lain Principal WMJB,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"creditor_id, facility_id, site_id","Creditor identity, contract and settlement terms."
+HOLD:2012303011,Hutang Lain-lain Principal WMBA,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"creditor_id, facility_id, site_id","Creditor identity, contract and settlement terms."
+HOLD:2012303012,Hutang Lain-lain Principal SIPIN,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"creditor_id, facility_id, site_id","Creditor identity, contract and settlement terms."
+HOLD:2012303013,Hutang Lain-lain Principal BANJARAN,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"creditor_id, facility_id, site_id","Creditor identity, contract and settlement terms."
+HOLD:2012303014,Hutang Lain-lain Principal WONOSOBO,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"creditor_id, facility_id, site_id","Creditor identity, contract and settlement terms."
+HOLD:2012501001,PJP Jatuh Tempo - Principal,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"creditor_id, facility_id",Contract and maturity schedule.
+HOLD:204001,Giro Keluar,HOLD_SEPARATE_PENDING_EVIDENCE,1,1,instrument_id,Posting lifecycle and counterpart accounts.
+HOLD:5010110001,Harga Pokok Pembelian,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"item_id, movement_type",Inventory method and closing-flow review.
+HOLD:6010110008,Biaya  Kerusakan Persediaan Barang Dagangan,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"item_id, variance_type",Allowance policy and postings.
+HOLD:7010110001,Biaya Sewa Tanah,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"contract_id, leased_object_id",Contract-by-contract ROU/short-term/service assessment.
+HOLD:7010110002,Biaya Land Right,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"contract_id, leased_object_id",Contract-by-contract ROU/short-term/service assessment.
+HOLD:7010110003,Biaya Sewa Bangunan Toko dan Gudang,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"contract_id, leased_object_id",Contract-by-contract ROU/short-term/service assessment.
+HOLD:7010110004,Biaya Sewa Rumah Dinas / Mess,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"contract_id, leased_object_id",Contract-by-contract ROU/short-term/service assessment.
+HOLD:7010215001,Biaya Replacement OE - Rack 1,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class, work_order_id",Capitalization policy and reserve posting mechanism.
+HOLD:7010215002,Biaya Replacement OE - Rack 2,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class, work_order_id",Capitalization policy and reserve posting mechanism.
+HOLD:7010215003,Biaya Replacement OE - Rack 3,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class, work_order_id",Capitalization policy and reserve posting mechanism.
+HOLD:7010215004,Biaya Replacement OE - Rack 4,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class, work_order_id",Capitalization policy and reserve posting mechanism.
+HOLD:7010215005,Biaya Replacement OE - Pajangan Gantungan 2,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class, work_order_id",Capitalization policy and reserve posting mechanism.
+HOLD:7010215006,Biaya Replacement OE - Pajangan Gantungan 4,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class, work_order_id",Capitalization policy and reserve posting mechanism.
+HOLD:7010215007,Biaya Replacement OE - Pajangan Gantungan 6,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class, work_order_id",Capitalization policy and reserve posting mechanism.
+HOLD:7010215008,Biaya Replacement OE - Pajangan Gantungan Lain-Lain,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class, work_order_id",Capitalization policy and reserve posting mechanism.
+HOLD:7010215009,Biaya Replacement OE - Meja 1,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class, work_order_id",Capitalization policy and reserve posting mechanism.
+HOLD:7010215010,Biaya Replacement OE - Meja 2,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class, work_order_id",Capitalization policy and reserve posting mechanism.
+HOLD:7010215011,Biaya Replacement OE - Meja 3,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class, work_order_id",Capitalization policy and reserve posting mechanism.
+HOLD:7010215012,Biaya Replacement OE - Box OB kayu,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class, work_order_id",Capitalization policy and reserve posting mechanism.
+HOLD:7010215013,Biaya Replacement OE - Box OB Besi,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class, work_order_id",Capitalization policy and reserve posting mechanism.
+HOLD:7010215014,Biaya Replacement OE - Holo,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class, work_order_id",Capitalization policy and reserve posting mechanism.
+HOLD:7010215015,Biaya Replacement OE - Breket,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class, work_order_id",Capitalization policy and reserve posting mechanism.
+HOLD:7010215016,Biaya Replacement OE - Belalai,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class, work_order_id",Capitalization policy and reserve posting mechanism.
+HOLD:7010215017,Biaya Replacement OE - Patung Full Bodi Dewasa,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class, work_order_id",Capitalization policy and reserve posting mechanism.
+HOLD:7010215018,Biaya Replacement OE - Patung Full Bodi Anak,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class, work_order_id",Capitalization policy and reserve posting mechanism.
+HOLD:7010215019,Biaya Replacement OE - Patung Setengah Badan Pria,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class, work_order_id",Capitalization policy and reserve posting mechanism.
+HOLD:7010215020,Biaya Replacement OE - Patung Setengah Badan Wanita 1,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class, work_order_id",Capitalization policy and reserve posting mechanism.
+HOLD:7010215021,Biaya Replacement OE - Patung Setengah Badan Wanita 2,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class, work_order_id",Capitalization policy and reserve posting mechanism.
+HOLD:7010215022,Biaya Replacement OE - Patung Setengah Badan Anak,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class, work_order_id",Capitalization policy and reserve posting mechanism.
+HOLD:7010215023,Biaya Replacement OE - Patung Kepala Dewasa,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class, work_order_id",Capitalization policy and reserve posting mechanism.
+HOLD:7010215024,Biaya Replacement OE - Patung Kepala Anak,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class, work_order_id",Capitalization policy and reserve posting mechanism.
+HOLD:7010215025,Biaya Replacement OE - Patung Kaki Dewasa,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class, work_order_id",Capitalization policy and reserve posting mechanism.
+HOLD:7010215026,Biaya Replacement OE - Patung Kaki Anak,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class, work_order_id",Capitalization policy and reserve posting mechanism.
+HOLD:7010215027,Biaya Replacement OE - Hanger Wanita / ABG,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class, work_order_id",Capitalization policy and reserve posting mechanism.
+HOLD:7010215028,Biaya Replacement OE - Hanger Pria,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class, work_order_id",Capitalization policy and reserve posting mechanism.
+HOLD:7010215029,Biaya Replacement OE - Hanger Jacket,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class, work_order_id",Capitalization policy and reserve posting mechanism.
+HOLD:7010215030,Biaya Replacement OE - Hanger Kayu Anak,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class, work_order_id",Capitalization policy and reserve posting mechanism.
+HOLD:7010215031,Biaya Replacement OE - Hanger Body / Stelan,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class, work_order_id",Capitalization policy and reserve posting mechanism.
+HOLD:7010215032,Biaya Replacement OE - Hanger Jepit Dewasa,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class, work_order_id",Capitalization policy and reserve posting mechanism.
+HOLD:7010215033,Biaya Replacement OE - Hanger Jepit Anak,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class, work_order_id",Capitalization policy and reserve posting mechanism.
+HOLD:7010215034,Biaya Replacement OE - Hanger Gamis / Ibu,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class, work_order_id",Capitalization policy and reserve posting mechanism.
+HOLD:7010215035,Biaya Replacement OE - PIN / Kawat Sensor,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class, work_order_id",Capitalization policy and reserve posting mechanism.
+HOLD:7010215036,Biaya Replacement OE - Tas / Keranjang Belanja,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, item_class, work_order_id",Capitalization policy and reserve posting mechanism.
+HOLD:7010216002,Biaya Amortisasi Biaya Pre Opening,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"asset_id, asset_class_id, associated_site_id",Legal right/policy and posting review.
+HOLD:8010110003,Potongan Pembelian,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"supplier_id, item_id",Inventory method and tax policy.
+HOLD:8010110007,Pendapatan (Biaya) Lain-Lain,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,transaction_type,Posting-by-posting nature review.
+HOLD:8030112001,Current Tax Inc/Exp PPH Pasal 25,HOLD_SEPARATE_PENDING_EVIDENCE,1,14,"tax_code, tax_period","Entries and tax returns separating expense, credit, payable and true-up."

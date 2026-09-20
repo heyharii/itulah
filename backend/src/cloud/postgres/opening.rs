@@ -47,14 +47,36 @@
 //! ## 1. The opening trial balance — `opening_import_balances`
 //!
 //! ```text
-//! site_id,account_code,debit,credit,document_no,memo
-//! dc,101120100100,4750000000,,TB-2026-08,Persediaan per 31 Agustus
-//! dc,201200100100,,4750000000,TB-2026-08,Hutang dagang
+//! site_id,account_code,category_code,counter_site_id,debit,credit,document_no,memo
+//! dc,1301,MERCHANDISE,,4750000000,,TB-2026-08,Persediaan per 31 Agustus
+//! dc,2101,,,,4750000000,TB-2026-08,Hutang dagang
+//! store-01,1501,FINANCING,dc,,910000000,TB-2026-08,Posisi toko terhadap HO
 //! ```
 //!
 //! * `site_id` — ours (`dc`, `store-01` …), not theirs. Which set of books.
-//! * `account_code` — THEIRS, out of their own chart. Refused if the chart
-//!   does not carry it, if it is a heading, or if it has been retired.
+//! * `account_code` — OURS now, one of the forty (0289), not the twelve-digit
+//!   code the trial balance was printed in. Their code is still how the file
+//!   arrives, so whoever prepares it translates once, with
+//!   `ledger_account_remap` and `docs/finance-legacy-codes.md` to hand.
+//!   Refused if the chart does not carry it, if it is a heading, or if it has
+//!   been retired — and all 190 of their codes are now retired, so pasting one
+//!   in stops with a message rather than landing somewhere plausible.
+//! * `category_code` — required when the account declares a category family,
+//!   forbidden when it does not. `1301 Persediaan` wants an `item_class`;
+//!   `2101 Hutang usaha` wants nothing, because which supplier is a column.
+//!   An opening balance is the one import where getting this wrong is
+//!   expensive: every later report reads off it.
+//! * `counter_site_id` — which unit is on the other side, required on the two
+//!   accounts that are a balance BETWEEN units (`1501` and `1302`) and empty on
+//!   the other thirty-eight.
+//!
+//!   It is what lets a shop's sheet balance at all. A shop's books close on a
+//!   net position against head office, and there is exactly one account in the
+//!   forty that can carry it: retained earnings `3201` is `company`-dimension
+//!   and refuses `store-01`, so the figure belongs on `1501 Rekening koran
+//!   antar-unit` — which `requires_counter_site` and is refused without one.
+//!   Before this column a shop's trial balance could not be imported at all:
+//!   its own side was fine and the balancing figure had nowhere to go.
 //! * `debit` / `credit` — one of the two per row, the other empty.
 //! * `document_no` — their reference for the report this came off, kept
 //!   because their auditors will ask for it by that number.
@@ -94,7 +116,7 @@
 //!   cutover date: every open item at a cutover is older than the cutover, and
 //!   half of them are already overdue.
 
-use super::ledger::{assert_postable, resolve_account, Intent};
+use super::ledger::{assert_category_for_account, assert_postable, resolve_account_code, Intent};
 use super::payment_ledger::{
     ple_open, PaymentLedgerItem, PaymentLedgerPartyType, PaymentLedgerSide,
 };
@@ -507,6 +529,24 @@ struct BalanceLine {
     line_number: usize,
     site_id: String,
     account_code: String,
+    /// What kind of thing the figure is, where the account is kept by kind.
+    ///
+    /// A column on the sheet, because only the client's accountant knows. The
+    /// forty-account chart is the reason it exists: their closing trial balance
+    /// has one line per kind of prepayment and one per cash pot, and all of
+    /// them arrive here as `1401` and `1101`. Without the category the opening
+    /// balance would land as one undifferentiated figure per account — and the
+    /// detail, which they have, would be lost at the one moment it is cheapest
+    /// to keep.
+    category_code: Option<String>,
+    /// The unit on the other side, on an inter-unit line and nowhere else.
+    ///
+    /// The one field on this row that a posting rule would normally supply
+    /// rather than a sheet: `poster::balanced_per_site` writes it onto the legs
+    /// it adds. An opening balance adds none — every figure on the sheet is
+    /// stated, not derived — so the only thing that can know which unit a
+    /// `1501` position is with is the accountant who printed it.
+    counter_site_id: Option<String>,
     debit_minor: i64,
     credit_minor: i64,
     document_no: String,
@@ -520,20 +560,29 @@ struct BalanceLine {
 /// `opening_balance_line`, and — the one that actually holds under a race —
 /// 0140's unique index on `(source_kind, source_id, purpose)`.
 ///
-/// It refuses four things, and each refusal names what is wrong rather than
+/// It refuses five things, and each refusal names what is wrong rather than
 /// dropping it:
 ///
 /// * a closed period, through the poster's own trigger;
 /// * a sheet whose debits and credits disagree, naming the site and the signed
 ///   difference;
-/// * an account the chart does not carry, is a heading, or has retired —
+/// * an account the chart does not carry, is a heading, or has retired, and a
+///   category that does not belong to the account it is beside —
 ///   **all of them at once**, because the person fixing it is in a spreadsheet;
+/// * a unit, on either end of a line, that is not one of ours;
 /// * a cutover already posted.
 pub async fn opening_import_balances(
     pool: &PgPool,
     request: &OpeningImportRequest,
     actor: &str,
 ) -> Result<OpeningBalanceOutcome, AppError> {
+    // `category_code` and `counter_site_id` are deliberately NOT required here.
+    // A sheet that has the column uses it; a sheet that does not gets a refusal
+    // per line naming the account and, for a category, the codes that would
+    // have worked — which is the message that tells somebody what to add.
+    // Requiring the header would refuse the whole import with one sentence
+    // about a column, and both are needed on a handful of the forty rather than
+    // on all of them.
     let rows = sheet(
         &request.csv,
         &["site_id", "account_code", "debit", "credit", "document_no"],
@@ -563,10 +612,21 @@ pub async fn opening_import_balances(
             )));
         }
         let memo = row.field("memo");
+        // Optional in the SHEET and not in the rule: a column nobody filled in
+        // is a column an old export did not have, and the refusal below names
+        // the account and the codes that would have worked — which is a better
+        // answer than "missing column".
+        let category = row.field("category_code").trim().to_string();
+        // Optional in the sheet for the same reason, and refused by the poster
+        // by name on the two accounts that need it: "1501 is a balance between
+        // two units and the line names only store-01".
+        let counter = row.field("counter_site_id").trim().to_string();
         lines.push(BalanceLine {
             line_number: row.line_number,
             site_id: required(row, "site_id")?,
             account_code: required(row, "account_code")?,
+            category_code: (!category.is_empty()).then_some(category),
+            counter_site_id: (!counter.is_empty()).then_some(counter),
             debit_minor: debit,
             credit_minor: credit,
             document_no: required(row, "document_no")?,
@@ -608,7 +668,17 @@ pub async fn opening_import_balances(
 
     assert_cutover_month_open(&mut tx, request.cutover_date).await?;
 
-    let sites: Vec<String> = totals.iter().map(|total| total.site_id.clone()).collect();
+    // Both ends of every line, because a counter-unit nobody has heard of
+    // arrives from the poster as a foreign-key violation naming a constraint,
+    // and from here as the misspelled shop it is.
+    let mut sites: Vec<String> = totals.iter().map(|total| total.site_id.clone()).collect();
+    for line in &lines {
+        if let Some(counter) = &line.counter_site_id {
+            if !sites.contains(counter) {
+                sites.push(counter.clone());
+            }
+        }
+    }
     assert_sites_exist(&mut tx, &sites).await?;
 
     // Every unknown account named together. `poster::post` would refuse the
@@ -617,6 +687,20 @@ pub async fn opening_import_balances(
     for line in &lines {
         if let Err(AppError::Validation(why)) =
             assert_postable(&mut *tx, &line.account_code, Intent::Post).await
+        {
+            unmapped.push(format!("line {}: {why}", line.line_number));
+            continue;
+        }
+        // The category, gathered into the same list for the same reason: the
+        // person fixing this is in a spreadsheet, and being told about one bad
+        // row at a time is being told to import six times.
+        if let Err(AppError::Validation(why)) = assert_category_for_account(
+            &mut *tx,
+            &line.account_code,
+            line.category_code.as_deref(),
+            Intent::Post,
+        )
+        .await
         {
             unmapped.push(format!("line {}: {why}", line.line_number));
         }
@@ -681,9 +765,15 @@ pub async fn opening_import_balances(
                     // depreciation, and the map has no meaning for any of them.
                     account: LineAccount::Account {
                         account_code: line.account_code.clone(),
+                        category_code: line.category_code.clone(),
                     },
                     site_id: line.site_id.clone(),
-                    counter_site_id: None,
+                    // Stated on the sheet rather than inferred. `1501` is one
+                    // account for fourteen positions and the poster refuses it
+                    // without a counter-unit, which is how a shop's own
+                    // balancing figure reaches the ledger as a position with
+                    // somebody named on the other side rather than as a number.
+                    counter_site_id: line.counter_site_id.clone(),
                     debit_minor: line.debit_minor,
                     credit_minor: line.credit_minor,
                     supplier_id: None,
@@ -701,14 +791,16 @@ pub async fn opening_import_balances(
         for line in &of_site {
             sqlx::query(
                 "INSERT INTO opening_balance_line
-                   (line_id, cutover_date, site_id, account_code, debit_minor, credit_minor,
+                   (line_id, cutover_date, site_id, account_code, category_code,
+                    debit_minor, credit_minor,
                     document_no, memo, journal_entry_id, imported_by)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
             )
             .bind(Uuid::new_v4())
             .bind(request.cutover_date)
             .bind(&line.site_id)
             .bind(&line.account_code)
+            .bind(line.category_code.as_deref())
             .bind(line.debit_minor)
             .bind(line.credit_minor)
             .bind(&line.document_no)
@@ -1017,7 +1109,7 @@ pub async fn opening_import_stock(
     let mut equations: Vec<OpeningEquation> = Vec::new();
     let mut disagrees: Vec<String> = Vec::new();
     for site in &mut per_site {
-        let code = resolve_account(&mut *tx, "inventory", &site.site_id, "").await?;
+        let code = resolve_account_code(&mut *tx, "inventory", &site.site_id, "").await?;
         let ledger =
             account_balance_at(&mut tx, &code, &site.site_id, request.cutover_date).await?;
         site.inventory_account = code.clone();
@@ -1355,7 +1447,7 @@ pub async fn opening_cutover_report(
         let site: String = row.try_get("site_id")?;
         let value: i64 = row.try_get("value_minor")?;
         stock_value += value;
-        let code = resolve_account(&mut *tx, "inventory", &site, "").await?;
+        let code = resolve_account_code(&mut *tx, "inventory", &site, "").await?;
         let ledger = account_balance_at(&mut tx, &code, &site, cutover_date).await?;
         let reconciliation = reconcile_opening(value, ledger);
         equations.push(OpeningEquation {

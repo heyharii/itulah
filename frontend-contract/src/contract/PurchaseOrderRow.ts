@@ -43,6 +43,11 @@ net_minor: number, expected_stock_units: number,
  */
 received_stock_units: number, outstanding_stock_units: number, 
 /**
+ * Quantity covered by active supplier bills linked to the order lines.
+ * Draft, matched, and posted bills count; rejected and void bills do not.
+ */
+invoiced_stock_units: number, 
+/**
  * Quantity that arrived beyond the order and is waiting for a buyer to
  * say whether the company is keeping it.
  */

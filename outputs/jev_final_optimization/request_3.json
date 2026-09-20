@@ -1,0 +1,31 @@
+{
+  "model": "jev-latest",
+  "state": {
+    "objective": "Resolve an explicit inconsistency in prior Jev outputs and produce the most honest count recommendation. Do not preserve a previous answer for consistency.",
+    "facts": [
+      "6,908 leaf rows deterministically reduce to 499 unit-free families.",
+      "Seventy internal affiliate families and one system-derived current-profit family are deactivate-after-reclassification, leaving a 428-family conservative ceiling.",
+      "A proposed design groups the 428 into 142 target placeholders: 58 retain, 63 conditional-merge, 21 unresolved-evidence.",
+      "The 21 unresolved placeholders currently stand in for 104 legacy families. Holding those 104 separately produces 225 working accounts.",
+      "Large unresolved clusters include 36 Reserve Replacement OE, 36 Replacement OE Expense and 14 Principal liabilities. Evidence may show more than one nature inside each cluster.",
+      "Round 1: 142 was defensible if every evidence gate passes (0.86); 225 was best today (0.98).",
+      "Round 2: likely range choice favored 200-250 (0.64) over 130-170 (0.36), but another question selected a statement saying use 225 then expect 130-170. These answers conflict on the likely final range.",
+      "The user wants the best permutation, but no balances, journals, contracts, policies or subledger reconciliations are available."
+    ],
+    "definitions": {
+      "142": "Optimistic conditional design if every proposed grouping, including exception placeholders, proves to be a single appropriate nature.",
+      "225": "Operational working design: supported merges applied, unresolved legacy families held separately.",
+      "428": "No-merger design after confirmed deactivations only."
+    }
+  },
+  "questions": {
+    "resolve_conflict": {"type":"choice","instructions":"Which prior count conclusion should control given the unresolved large clusters?","criteria":{"225_primary":"Treat 225 as the primary current recommendation; 142 is an upside compression case, not expected final until evidence supports it.","142_expected":"Treat 142 as the expected final despite evidence likely splitting large clusters.","428_primary":"Reject all supported merges and use 428.","30_primary":"Force approximately 30."}},
+    "likely_band": {"type":"choice","instructions":"Without transaction evidence, which band is the most defensible planning range rather than an exact promise?","criteria":{"180_250":"A broad 180-250 planning range centered near the 225 working design.","130_170":"A 130-170 range centered near the optimistic 142 design.","25_45":"Approximately 30.","400_450":"Near the conservative ceiling."}},
+    "lower_bound": {"type":"choice","instructions":"Can 142 be described as a proven lower bound?","criteria":{"no":"Evidence could support a few additional merges or require splits; it is an architecture scenario, not a mathematical bound.","yes":"No valid design can have fewer than 142."}},
+    "best_today": {"type":"choice","instructions":"If configuration work must start today, which account set should be loaded as the working natural-account design?","criteria":{"225":"Use the 225 working set and mark exception accounts for mandatory resolution before go-live.","142":"Load all 142 and resolve misclassification later.","428":"Load all remaining legacy families.","30":"Load a 30-account skeleton."}},
+    "convergence_rule": {"type":"choice","instructions":"When may 225 accounts be merged toward 142?","criteria":{"gate_by_gate":"Only cluster by cluster after nature, reporting, workflow, opening balance and reconciliation tests pass.","all_at_once":"Immediately because Jev previously called 142 defensible.","count_target":"Whenever needed to meet a target count."}},
+    "large_cluster_default": {"type":"choice","instructions":"Until evidence is available, how should the 36+36+14 large exception families be configured?","criteria":{"separate_or_blocked":"Keep separately mapped or block posting through controlled suspense/legacy transition; do not assume one nature.","one_each":"Use one account per cluster immediately.","delete":"Remove them and their balances."}},
+    "final_answer_language": {"type":"choice","instructions":"Which wording avoids overstating certainty?","criteria":{"225_recommended_142_conditional":"Recommended working COA is 225; 142 is a conditional optimization scenario; expected production range is currently 180-250 until evidence gates close.","142_final":"Final COA is exactly 142.","30_goal":"Best COA is approximately 30.","499_final":"Keep 499 forever."}},
+    "what_is_optimal": {"type":"choice","instructions":"Can the globally best permutation be proven from account labels and Jev judgments alone?","criteria":{"no":"Optimality requires transaction-level and reporting tests; current result is the best evidence-aware candidate set.","yes":"Model probabilities prove global optimality."}}
+  }
+}

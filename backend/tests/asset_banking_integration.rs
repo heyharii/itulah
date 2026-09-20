@@ -16,11 +16,12 @@ const ACTOR: &str = "ana";
 /// The months this file posts into.
 ///
 /// The chart itself is no longer seeded here. Since 0243 the migrations write
-/// the client's own 219-account chart, and 0244 collapsed the fourteen
-/// unit-suffixed copies of each account into one: `ledger_account` may not
-/// name a unit at all, and `102150400100 Mesin HO` is now `1021504001 Air
-/// Conditioner` with the unit carried by `journal_line.site_id`. A test that
-/// minted its own leaves would be testing a chart the books do not have — and
+/// the client's own chart, 0244 collapsed the fourteen unit-suffixed copies of
+/// each account into one, and 0289–0291 collapsed what was left onto forty:
+/// `102150400100 Mesin HO` became `1021504001 Air Conditioner` and is now
+/// `1601 Aset tetap`, with the unit on `journal_line.site_id` and the kind of
+/// thing on `fixed_asset.category_code` → `asset_class`. A test that minted its
+/// own leaves would be testing a chart the books do not have — and
 /// `ledger_account_carries_no_unit` would refuse it anyway.
 async fn seed(pool: &PgPool) {
     for (year, month) in [(2026, 1), (2026, 2), (2026, 3)] {
@@ -30,20 +31,29 @@ async fn seed(pool: &PgPool) {
     }
 }
 
-/// The category is the qualifier: `1021504 Machineries` resolves to the
-/// client's own expense and accumulated accounts.
+/// The class is the qualifier: `AIR_CONDITIONER` resolves to the expense and
+/// the accumulated account.
+///
+/// It used to be the client's seven-digit family `1021504`, which was an
+/// account code doing a second job. 0287 made the class a row of its own and
+/// 0291 moved every register row onto it, so the qualifier is drawn from
+/// `asset_class` now. `1609` takes no category — which asset is `asset_id` —
+/// and `7101` takes a `depreciation_kind`, because since 0294 that one account
+/// carries depreciation, amortisation and the replacement charge and the
+/// profit and loss has to keep them apart.
 async fn map_machinery(pool: &PgPool) {
-    for (key, code) in [
-        ("depreciation_expense", "7010212001"),
-        ("accumulated_depreciation", "1021604001"),
+    for (key, code, category) in [
+        ("depreciation_expense", "7101", "DEPRECIATION"),
+        ("accumulated_depreciation", "1609", ""),
     ] {
         cloud::set_account_mapping(
             pool,
             &cloud::SetAccountMappingRequest {
                 semantic_key: key.into(),
                 site_id: "ho".into(),
-                qualifier: "1021504".into(),
+                qualifier: "AIR_CONDITIONER".into(),
                 account_code: code.into(),
+                category_code: (!category.is_empty()).then(|| category.to_string()),
                 note: None,
             },
             ACTOR,
@@ -63,7 +73,7 @@ async fn a_machine(pool: &PgPool) -> Uuid {
         &cloud::RegisterAssetRequest {
             asset_number: "AST-000001".into(),
             name: "Mesin jahit Juki".into(),
-            category_code: "1021504".into(),
+            category_code: "AIR_CONDITIONER".into(),
             site_id: "ho".into(),
             acquired_on: date(2026, 1, 5),
             serial_number: Some("JK-99".into()),
@@ -266,10 +276,10 @@ async fn a_month_is_charged_once_however_often_it_is_run(pool: PgPool) {
 
     // The expense and the accumulated account both moved, and by the same
     // amount — the entry balances because the poster made it balance.
-    let expense = cloud::account_balance(&pool, "7010212001", None, None)
+    let expense = cloud::account_balance(&pool, "7101", None, None)
         .await
         .unwrap_or_else(|error| panic!("expense: {error}"));
-    let accumulated = cloud::account_balance(&pool, "1021604001", None, None)
+    let accumulated = cloud::account_balance(&pool, "1609", None, None)
         .await
         .unwrap_or_else(|error| panic!("accumulated: {error}"));
     assert_eq!(expense.balance_minor, 1_000_000);
@@ -317,7 +327,7 @@ async fn an_unmapped_category_is_named_before_the_run_not_during(pool: PgPool) {
         .unwrap_or_else(|error| panic!("check: {error}"));
     assert_eq!(missing.len(), 2, "both halves of the entry are unmapped");
     assert!(missing.iter().any(|m| m.contains("depreciation_expense")));
-    assert!(missing.iter().any(|m| m.contains("1021504")));
+    assert!(missing.iter().any(|m| m.contains("AIR_CONDITIONER")));
 }
 
 /// A BKK, as the client actually writes one: several lines, one document.
@@ -377,10 +387,15 @@ async fn a_bkk(pool: &PgPool, number: &str, lines: &[(&str, i64)]) -> Vec<Uuid> 
 
 /// The client's own air conditioner, paid for three times.
 ///
-///     KK-26-06-00276   102150400100   25,000,000   the unit
-///                      102150400100    1,390,000   installing it
-///                      101100300100        5,000   the bank's charge
-///     an earlier BKK   102150400100    7,000,000   paid at the start of June
+///     KK-26-06-00276   1601   25,000,000   the unit
+///                      1601    1,390,000   installing it
+///                      1102        5,000   the bank's charge
+///     an earlier BKK   1601    7,000,000   paid at the start of June
+///
+/// The client wrote `102150400100` on all three asset lines and `101100300100`
+/// on the fee. Those became `1021504001` and `1011003001` at 0244, and `1601`
+/// and `1102` at 0291 — which air conditioner and which bank account is on the
+/// line now, not in the code.
 ///
 /// Their words: "asset itu pengakuannya sekaligus (tidak bisa dicicil)
 /// sementara pembayaran ke suppliernya dipisah antara harga unit dan biaya
@@ -393,23 +408,23 @@ async fn a_purchase_paid_in_several_lines_is_still_one_asset(pool: PgPool) {
         &pool,
         "KK-26-06-00276",
         &[
-            ("1021504001", 25_000_000),
-            ("1021504001", 1_390_000),
+            ("1601", 25_000_000),
+            ("1601", 1_390_000),
             // The bank's administration fee, on the same document and not part
             // of the asset. This is why the split cannot be read off the
             // document total.
-            ("1011003001", 5_000),
+            ("1102", 5_000),
         ],
     )
     .await;
-    let earlier = a_bkk(&pool, "KK-26-06-00101", &[("1021504001", 7_000_000)]).await;
+    let earlier = a_bkk(&pool, "KK-26-06-00101", &[("1601", 7_000_000)]).await;
 
     let asset_id = cloud::register_asset(
         &pool,
         &cloud::RegisterAssetRequest {
             asset_number: "AST-000001".into(),
             name: "AC C4".into(),
-            category_code: "1021504".into(),
+            category_code: "AIR_CONDITIONER".into(),
             site_id: "ho".into(),
             acquired_on: date(2026, 6, 1),
             serial_number: None,
@@ -505,25 +520,27 @@ async fn a_purchase_paid_in_several_lines_is_still_one_asset(pool: PgPool) {
 /// `7010215` is *BIAYA REPLACEMENT*, not a depreciation expense. Racks and
 /// hangers are replaced rather than written down.
 ///
-/// The category is the rung-7 group `1021507 Operating Equipment`, which is
-/// what `account_map` is keyed on. It used to be the ten-character sub-kind
-/// (`1021507027 OE - Hanger Wanita / ABG`), because the client's imported
-/// chart was cut at that granularity; 0244's chart is cut at `1021507001`
-/// instead, and the qualifier the migrations seed is the group. Both the
-/// chart arrives with the database; the mapping does not, so the reserve pair
-/// is bound here.
+/// The class is the qualifier, and it is the client's own sub-kind again:
+/// `OE_HANGER_WANITA_ABG`. That spelling used to be an account code
+/// (`1021507027`) while the seed mapped the family (`1021507`), and the two
+/// never met — see `assets.rs`'s module note. 0287 ended the argument by making
+/// the class a table, so there is one spelling and it is this one.
 async fn map_operating_equipment(pool: &PgPool) {
-    for (key, code) in [
-        ("replacement_expense", "7010215001"),
-        ("replacement_reserve", "1021607001"),
+    // `7101` takes a `depreciation_kind` since 0294, and REPLACEMENT is what
+    // keeps a rack's charge off the depreciation line. `1610` takes none: it
+    // holds nothing but the reserve, and which equipment is `asset_id`.
+    for (key, code, category) in [
+        ("replacement_expense", "7101", "REPLACEMENT"),
+        ("replacement_reserve", "1610", ""),
     ] {
         cloud::set_account_mapping(
             pool,
             &cloud::SetAccountMappingRequest {
                 semantic_key: key.into(),
                 site_id: "ho".into(),
-                qualifier: "1021507".into(),
+                qualifier: "OE_HANGER_WANITA_ABG".into(),
                 account_code: code.into(),
+                category_code: (!category.is_empty()).then(|| category.to_string()),
                 note: None,
             },
             ACTOR,
@@ -540,7 +557,7 @@ async fn a_lot_of_hangers(pool: &PgPool) -> Uuid {
         &cloud::RegisterAssetRequest {
             asset_number: "AST-000426".into(),
             name: "Hanger wanita".into(),
-            category_code: "1021507".into(),
+            category_code: "OE_HANGER_WANITA_ABG".into(),
             site_id: "ho".into(),
             acquired_on: date(2026, 1, 1),
             serial_number: None,
@@ -602,27 +619,58 @@ async fn operating_equipment_accrues_a_reserve_and_leaves_depreciation_alone(poo
     assert_eq!(run.posted_total_minor, 1_000_000);
 
     // The replacement pair moved.
-    let expense = cloud::account_balance(&pool, "7010215001", None, None)
+    let expense = cloud::account_balance(&pool, "7101", None, None)
         .await
         .unwrap_or_else(|error| panic!("replacement expense: {error}"));
-    let reserve = cloud::account_balance(&pool, "1021607001", None, None)
+    let reserve = cloud::account_balance(&pool, "1610", None, None)
         .await
         .unwrap_or_else(|error| panic!("reserve: {error}"));
     assert_eq!(expense.balance_minor, 1_000_000);
     assert_eq!(reserve.balance_minor, -1_000_000);
 
-    // And the depreciation pair did not. This is the assertion the whole
-    // migration exists for: before 0159 both charges resolved through
+    // And accumulated depreciation did not. This is the assertion the whole of
+    // 0159 exists for: before it, both charges resolved through
     // `accumulated_depreciation`, so a reserve accrual and a write-down landed
     // in the same account and the balance sheet could not tell them apart.
-    let accumulated = cloud::account_balance(&pool, "1021604001", None, None)
+    let accumulated = cloud::account_balance(&pool, "1609", None, None)
         .await
         .unwrap_or_else(|error| panic!("accumulated: {error}"));
-    let depreciation = cloud::account_balance(&pool, "7010212001", None, None)
-        .await
-        .unwrap_or_else(|error| panic!("depreciation: {error}"));
     assert_eq!(accumulated.balance_minor, 0);
-    assert_eq!(depreciation.balance_minor, 0);
+
+    // And the OTHER half of 0159, which is the half that nearly went.
+    //
+    // `7010215001 Biaya Replacement Operating Equipment` and `7010212001 Biaya
+    // Depresiasi Mesin` both remap to `7101 Beban penyusutan & amortisasi`, so
+    // for a while the P&L could not show replacement apart from depreciation at
+    // all: the assertion that used to read `depreciation.balance_minor == 0`
+    // had nothing left to read, because `7101` is the account the replacement
+    // charge itself just hit. 0294 gave `7101` a `depreciation_kind`, so the
+    // distinction is back where a statement can read it — off the line's
+    // category rather than off the account code, which is the argument of the
+    // whole chart.
+    let depreciation: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(debit_minor - credit_minor), 0)::bigint
+           FROM journal_line WHERE account_code = '7101' AND category_code = 'DEPRECIATION'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("depreciation kind: {error}"));
+    assert_eq!(
+        depreciation, 0,
+        "a rack is replaced, never depreciated; nothing may land on the \
+         depreciation line of the profit and loss"
+    );
+    let replacement: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(debit_minor - credit_minor), 0)::bigint
+           FROM journal_line WHERE account_code = '7101' AND category_code = 'REPLACEMENT'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("replacement kind: {error}"));
+    assert_eq!(
+        replacement, 1_000_000,
+        "and the whole charge is a replacement"
+    );
 
     // What the entry calls itself, in the client's own word. An accountant
     // reading the journal should not be told this was depreciation.
@@ -763,7 +811,7 @@ async fn the_pair_reported_as_unmapped_is_the_pair_the_asset_actually_charges(po
 /// reason; see `docs/finance-bank-audit.md` §7.
 fn statement(lines: Vec<cloud::ImportStatementLine>) -> cloud::ImportStatementRequest {
     cloud::ImportStatementRequest {
-        account_code: "1011003001".into(),
+        account_code: "1102".into(),
         site_id: "ho".into(),
         bank_account_id: None,
         period_start: date(2026, 1, 1),
@@ -826,7 +874,8 @@ async fn a_bank_line_is_matched_against_our_own_ledger(pool: PgPool) {
             semantic_key: "bank_savings".into(),
             site_id: "ho".into(),
             qualifier: String::new(),
-            account_code: "1011003001".into(),
+            account_code: "1102".into(),
+            category_code: None,
             note: None,
         },
         ACTOR,
@@ -839,7 +888,8 @@ async fn a_bank_line_is_matched_against_our_own_ledger(pool: PgPool) {
             semantic_key: "trade_payable".into(),
             site_id: "ho".into(),
             qualifier: String::new(),
-            account_code: "2012001001".into(),
+            account_code: "2101".into(),
+            category_code: None,
             note: None,
         },
         ACTOR,
@@ -1068,7 +1118,7 @@ async fn an_asset_that_did_not_start_here_is_charged_from_where_it_left_off(pool
     // Only what this system posted is in the client's accounts. The nine
     // million carried in belongs to the ledger that charged it, and posting it
     // again here would double it.
-    let accumulated = cloud::account_balance(&pool, "1021604001", None, None)
+    let accumulated = cloud::account_balance(&pool, "1609", None, None)
         .await
         .unwrap_or_else(|error| panic!("accumulated: {error}"));
     assert_eq!(accumulated.balance_minor, -3_000_000);
@@ -1181,7 +1231,7 @@ async fn a_rehearsal_charges_nothing_and_names_what_would_refuse(pool: PgPool) {
         .as_deref()
         .unwrap_or_default();
     assert!(why.contains("depreciation_expense"), "{why}");
-    assert!(why.contains("1021504"), "{why}");
+    assert!(why.contains("AIR_CONDITIONER"), "{why}");
 
     // Map the pair and the same rehearsal changes its mind, still writing
     // nothing.
@@ -1215,18 +1265,30 @@ async fn a_rehearsal_charges_nothing_and_names_what_would_refuse(pool: PgPool) {
 // Finished work leaving Contract In Progress
 // ---------------------------------------------------------------------------
 
-/// The client's CIP account, which is one per unit and not one per family:
-/// work in progress has not become a kind of thing yet.
+/// Work in progress, which is a CLASS of asset now and no longer an account.
+///
+/// `1031803001 Contract In Progress (CIP)` was a posting account in the
+/// client's own chart — 0244 moved CIP to a code of ours, 0254 put it back
+/// where the client files it, and 0290 retired it into `1601 Aset tetap`. It
+/// survives as `asset_class CONTRACT_IN_PROGRESS`, which is what the qualifier
+/// names. The chart arrives with the migrations; `account_map` does not, so
+/// every meaning this test posts through is still bound here.
+///
+/// Note what the second and third columns say now: `work_in_progress` and
+/// `fixed_asset` resolve to the SAME account and differ only by the STAGE in
+/// the fourth. 0294 gave `1601` an `asset_stage` for exactly that reason —
+/// without it the two map rows are indistinguishable and capitalisation debits
+/// and credits one account for one asset.
 async fn seed_work_in_progress(pool: &PgPool) {
-    // `1031803001 Contract In Progress (CIP)` is a POSTING account in the
-    // client's own chart — 0244 moved CIP to a code of ours, and 0254 put it
-    // back where the client files it. The chart arrives with the migrations;
-    // `account_map` does not, so every meaning this test posts through is
-    // still bound here.
-    for (key, qualifier, code) in [
-        ("work_in_progress", "1031803001", "1031803001"),
-        ("fixed_asset", "1021504", "1021504001"),
-        ("trade_payable", "", "2012001001"),
+    for (key, qualifier, code, stage) in [
+        (
+            "work_in_progress",
+            "CONTRACT_IN_PROGRESS",
+            "1601",
+            "IN_PROGRESS",
+        ),
+        ("fixed_asset", "AIR_CONDITIONER", "1601", "IN_SERVICE"),
+        ("trade_payable", "", "2101", ""),
     ] {
         cloud::set_account_mapping(
             pool,
@@ -1235,6 +1297,7 @@ async fn seed_work_in_progress(pool: &PgPool) {
                 site_id: "ho".into(),
                 qualifier: qualifier.into(),
                 account_code: code.into(),
+                category_code: (!stage.is_empty()).then(|| stage.to_string()),
                 note: None,
             },
             ACTOR,
@@ -1255,7 +1318,7 @@ async fn finished_work_leaves_contract_in_progress_and_the_cost_moves_with_it(po
         &cloud::RegisterAssetRequest {
             asset_number: "AST-000009".into(),
             name: "Renovasi toko".into(),
-            category_code: "1031803001".into(),
+            category_code: "CONTRACT_IN_PROGRESS".into(),
             site_id: "ho".into(),
             acquired_on: date(2026, 1, 5),
             serial_number: None,
@@ -1298,7 +1361,7 @@ async fn finished_work_leaves_contract_in_progress_and_the_cost_moves_with_it(po
         charge_kind: Some("DEPRECIATION".into()),
         in_service_on: Some(date(2026, 2, 1)),
         reason: "toko dibuka".into(),
-        category_code: Some("1021504".into()),
+        category_code: Some("AIR_CONDITIONER".into()),
         rate_bps: None,
         opening_accumulated_minor: None,
         opening_through: None,
@@ -1313,7 +1376,7 @@ async fn finished_work_leaves_contract_in_progress_and_the_cost_moves_with_it(po
         .await
         .expect_err("capitalising out of an empty CIP account should be refused");
     assert!(
-        empty.to_string().contains("1031803001") && empty.to_string().contains("nothing to move"),
+        empty.to_string().contains("1601") && empty.to_string().contains("nothing to move"),
         "the refusal should name the account and the fix: {empty}"
     );
 
@@ -1327,7 +1390,7 @@ async fn finished_work_leaves_contract_in_progress_and_the_cost_moves_with_it(po
         memo: Some("termin kontraktor".into()),
         lines: vec![
             cloud::PostingLine::debit("work_in_progress", "ho", 5_000_000)
-                .with_qualifier("1031803001"),
+                .with_qualifier("CONTRACT_IN_PROGRESS"),
             cloud::PostingLine::credit("trade_payable", "ho", 5_000_000),
         ],
     };
@@ -1346,19 +1409,48 @@ async fn finished_work_leaves_contract_in_progress_and_the_cost_moves_with_it(po
     let capitalised = cloud::assess_asset(&pool, asset_id, &finished, ACTOR)
         .await
         .unwrap_or_else(|error| panic!("capitalise: {error}"));
-    assert_eq!(capitalised.category_code, "1021504");
+    assert_eq!(capitalised.category_code, "AIR_CONDITIONER");
     assert_eq!(capitalised.decision.as_deref(), Some("CAPITALIZE"));
 
-    let progress = cloud::account_balance(&pool, "1031803001", None, None)
-        .await
-        .unwrap_or_else(|error| panic!("cip: {error}"));
-    let fixed = cloud::account_balance(&pool, "1021504001", None, None)
+    // "Emptied" and "holds it" are one account and two stages.
+    //
+    // `1031803001 Contract In Progress` and `1021504001 Air Conditioner` both
+    // remap to `1601 Aset tetap`, so for a while this capitalisation debited
+    // `1601` and credited `1601` for the same asset and netted to nothing — a
+    // journal that says nothing, and a balance sheet on which unfinished work
+    // could not be told from finished. 0294 gave `1601` an `asset_stage`, so
+    // the account total is unchanged (the cost has not left the company) while
+    // the two stages move by the whole of it.
+    let held = cloud::account_balance(&pool, "1601", None, None)
         .await
         .unwrap_or_else(|error| panic!("fixed: {error}"));
-    assert_eq!(progress.balance_minor, 0, "work in progress is emptied");
     assert_eq!(
-        fixed.balance_minor, 5_000_000,
-        "and the family it became holds it"
+        held.balance_minor, 5_000_000,
+        "the contractor's cost is on the books once, before and after finishing"
+    );
+
+    let by_stage = |stage: &'static str| {
+        let pool = pool.clone();
+        async move {
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COALESCE(SUM(debit_minor - credit_minor), 0)::bigint
+                   FROM journal_line WHERE account_code = '1601' AND category_code = $1",
+            )
+            .bind(stage)
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("stage {stage}: {error}"))
+        }
+    };
+    assert_eq!(
+        by_stage("IN_PROGRESS").await,
+        0,
+        "the contract emptied when the work finished"
+    );
+    assert_eq!(
+        by_stage("IN_SERVICE").await,
+        5_000_000,
+        "and the cost arrived where the asset is depreciated from"
     );
 
     // And the move is nameable: its own source kind, pointing at the asset.

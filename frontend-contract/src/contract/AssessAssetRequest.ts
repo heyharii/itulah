@@ -12,13 +12,13 @@ export type AssessAssetRequest = {
  */
 decision: string, capitalized_cost_minor: number | null, salvage_value_minor: number | null, useful_life_months: number | null, 
 /**
- * The family this asset belongs in from now on.
+ * The class this asset belongs in from now on.
  *
  * Only ever used for one thing: a shop fit-out finishing. Work in
- * progress sits under `1031803`, and the day it is done it becomes a
+ * progress is its own class, and the day it is done it becomes a
  * building, an instalation, or furniture — so the assessment that
  * capitalises it also says which. Refused on anything else: an asset that
- * could be re-filed at will would let somebody move cost between families
+ * could be re-filed at will would let somebody move cost between classes
  * without a trace, and the client's own `REKLAS CIP` rows show this is
  * the one move they actually make.
  */

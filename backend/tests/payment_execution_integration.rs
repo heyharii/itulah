@@ -67,63 +67,11 @@ fn september(day: u32) -> NaiveDate {
 // ---------------------------------------------------------------------------
 
 async fn seed_chart(pool: &PgPool) {
-    let accounts: [(&str, &str, Option<&str>, Option<&str>); 14] = [
-        ("1", "ASSET", None, None),
-        ("101", "CURRENT ASSET", Some("1"), None),
-        ("10110", "CASH AND BANK", Some("101"), None),
-        ("1011001", "CASH ON HAND", Some("10110"), None),
-        ("10112", "INVENTORY", Some("101"), None),
-        ("1011201", "Persediaan Barang Dagang", Some("10112"), None),
-        ("2", "LIABILITIES", None, None),
-        ("201", "HUTANG JANGKA PENDEK", Some("2"), None),
-        ("20120", "HUTANG DAGANG", Some("201"), None),
-        ("2012001", "HUTANG SUPPLIER", Some("20120"), None),
-        ("6", "BIAYA OPERASIONAL", None, None),
-        ("601", "BIAYA UMUM", Some("6"), None),
-        ("60101", "BIAYA UMUM", Some("601"), None),
-        ("6010110", "Biaya Lain-lain", Some("60101"), None),
-    ];
-    for (code, name, parent, site) in accounts {
-        sqlx::query(
-            "INSERT INTO ledger_account (account_code, name, parent_code, is_group, site_id)
-             VALUES ($1,$2,$3,true,$4)
-             ON CONFLICT (account_code) DO NOTHING",
-        )
-        .bind(code)
-        .bind(name)
-        .bind(parent)
-        .bind(site)
-        .execute(pool)
-        .await
-        .unwrap_or_else(|error| panic!("{code}: {error}"));
-    }
-    for (code, name, parent) in [
-        ("101100100100", "Cash On Hand HO", "1011001"),
-        ("101120100100", "Persediaan Barang Dagangan HO", "1011201"),
-        (
-            "201200100100",
-            "Hutang Suppliers Barang Dagangan HO",
-            "2012001",
-        ),
-        ("601011000100", "Biaya Lain-lain HO", "6010110"),
-    ] {
-        sqlx::query(
-            "INSERT INTO ledger_account (account_code, name, parent_code, is_group, site_id)
-             VALUES ($1,$2,$3,false,'dc')
-             ON CONFLICT (account_code) DO NOTHING",
-        )
-        .bind(code)
-        .bind(name)
-        .bind(parent)
-        .execute(pool)
-        .await
-        .unwrap_or_else(|error| panic!("{code}: {error}"));
-    }
-
-    for (key, code) in [
-        ("cash", "101100100100"),
-        ("inventory", "101120100100"),
-        ("trade_payable", "201200100100"),
+    // Nothing to mint: 0289 installs the forty, so what is left is the map.
+    for (key, code, category) in [
+        ("cash", "1101", Some("DRAWER")),
+        ("inventory", "1301", Some("MERCHANDISE")),
+        ("trade_payable", "2101", None),
     ] {
         cloud::set_account_mapping(
             pool,
@@ -132,6 +80,7 @@ async fn seed_chart(pool: &PgPool) {
                 site_id: "dc".into(),
                 qualifier: String::new(),
                 account_code: code.into(),
+                category_code: category.map(str::to_string),
                 note: None,
             },
             ACTOR,
@@ -259,15 +208,14 @@ async fn a_recipient_account_is_never_one_of_our_own(pool: PgPool) {
 
     // The company's own cash account, keyed into the account-number box.
     let refused =
-        cloud::payment_destination_create(&pool, &a_destination("SUP01", "101100100100"), ACTOR)
-            .await;
+        cloud::payment_destination_create(&pool, &a_destination("SUP01", "1101"), ACTOR).await;
     let message = match refused {
         Err(AppError::Database(sqlx::Error::Database(db))) => db.message().to_string(),
         Err(other) => other.to_string(),
         Ok(_) => panic!("one of our own ledger accounts was accepted as a bank account"),
     };
     assert!(
-        message.contains("101100100100") && message.contains("our own ledger accounts"),
+        message.contains("1101") && message.contains("our own ledger accounts"),
         "the refusal did not say which account it was: {message}"
     );
 
@@ -394,6 +342,9 @@ fn a_batch(items: Vec<PaymentBatchItemInput>, policy: &str) -> CreatePaymentBatc
         counter_key: Some("trade_payable".into()),
         counter_qualifier: String::new(),
         counter_account_code: None,
+        // Empty beside a meaning: the map already chose `2101` and no category
+        // with it, and a second answer here could only disagree.
+        counter_category_code: None,
         method: "BANK_TRANSFER".into(),
         doc_date: september(15),
         unverified_policy: policy.into(),

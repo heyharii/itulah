@@ -1,0 +1,2215 @@
+[
+ {
+  "code": "1101",
+  "name": "CASH ON HAND",
+  "root": "1",
+  "group": "KAS & SETARA KAS",
+  "g5": "10110",
+  "legacy": [
+   "1011001001"
+  ],
+  "note": "",
+  "mode": "AUTO",
+  "custody": "UNIT"
+ },
+ {
+  "code": "1102",
+  "name": "PETTY CASH",
+  "root": "1",
+  "group": "KAS & SETARA KAS",
+  "g5": "10110",
+  "legacy": [
+   "1011001002"
+  ],
+  "note": "",
+  "mode": "AUTO",
+  "custody": "UNIT"
+ },
+ {
+  "code": "1103",
+  "name": "MODAL KASIR",
+  "root": "1",
+  "group": "KAS & SETARA KAS",
+  "g5": "10110",
+  "legacy": [
+   "1011001003"
+  ],
+  "note": "",
+  "mode": "AUTO",
+  "custody": "UNIT"
+ },
+ {
+  "code": "1104",
+  "name": "Bank - Giro",
+  "root": "1",
+  "group": "KAS & SETARA KAS",
+  "g5": "10110",
+  "legacy": [
+   "1011002001",
+   "1011002002",
+   "1011002003",
+   "1011002004",
+   "1011002005"
+  ],
+  "note": "",
+  "mode": "SEMI",
+  "custody": "HO"
+ },
+ {
+  "code": "1105",
+  "name": "Bank - Tabungan",
+  "root": "1",
+  "group": "KAS & SETARA KAS",
+  "g5": "10110",
+  "legacy": [
+   "1011003001",
+   "1011003002",
+   "1011003003",
+   "1011003004",
+   "1011003005"
+  ],
+  "note": "",
+  "mode": "SEMI",
+  "custody": "HO"
+ },
+ {
+  "code": "1106",
+  "name": "Deposito Berjangka",
+  "root": "1",
+  "group": "KAS & SETARA KAS",
+  "g5": "10110",
+  "legacy": [
+   "1011004001",
+   "1011004002",
+   "1011004003",
+   "1011004004"
+  ],
+  "note": "",
+  "mode": "SEMI",
+  "custody": "HO"
+ },
+ {
+  "code": "1201",
+  "name": "Piutang Acquirer Kartu",
+  "root": "1",
+  "group": "PIUTANG",
+  "g5": "10111",
+  "legacy": [
+   "1011101001",
+   "1011101002"
+  ],
+  "note": "",
+  "mode": "AUTO",
+  "custody": ""
+ },
+ {
+  "code": "1202",
+  "name": "Piutang Pegawai dan Manajemen",
+  "root": "1",
+  "group": "PIUTANG",
+  "g5": "10111",
+  "legacy": [
+   "1011102001",
+   "1011102002",
+   "1011102003"
+  ],
+  "note": "",
+  "mode": "SEMI",
+  "custody": ""
+ },
+ {
+  "code": "1203",
+  "name": "Cadangan Piutang Acquirer Kartu",
+  "root": "1",
+  "group": "PIUTANG",
+  "g5": "10111",
+  "legacy": [
+   "1011103001",
+   "1011103002"
+  ],
+  "note": "",
+  "mode": "AUTO",
+  "custody": ""
+ },
+ {
+  "code": "1204",
+  "name": "Cadangan Piutang Pegawai",
+  "root": "1",
+  "group": "PIUTANG",
+  "g5": "10111",
+  "legacy": [
+   "1011103003"
+  ],
+  "note": "",
+  "mode": "SEMI",
+  "custody": ""
+ },
+ {
+  "code": "1301",
+  "name": "Persediaan Barang Dagangan",
+  "root": "1",
+  "group": "INVENTORY",
+  "g5": "10112",
+  "legacy": [
+   "1011201001"
+  ],
+  "note": "",
+  "mode": "AUTO",
+  "custody": ""
+ },
+ {
+  "code": "1302",
+  "name": "Persediaan Kantong Belanja",
+  "root": "1",
+  "group": "INVENTORY",
+  "g5": "10112",
+  "legacy": [
+   "1011202001",
+   "1011202002",
+   "1011202003",
+   "1011202004",
+   "1011202005",
+   "1011202006",
+   "1011202007",
+   "1011202008",
+   "1011202009",
+   "1011202010"
+  ],
+  "note": "",
+  "mode": "AUTO",
+  "custody": ""
+ },
+ {
+  "code": "1303",
+  "name": "Barang Dagangan dalam Perjalanan",
+  "root": "1",
+  "group": "INVENTORY",
+  "g5": "10112",
+  "legacy": [
+   "1011203001",
+   "1011203002",
+   "1011203003",
+   "1011203004",
+   "1011203005",
+   "1011203006",
+   "1011203007",
+   "1011203008",
+   "1011203009",
+   "1011203010",
+   "1011203011",
+   "1011203012",
+   "1011203013",
+   "1011203014"
+  ],
+  "note": "",
+  "mode": "AUTO",
+  "custody": ""
+ },
+ {
+  "code": "1304",
+  "name": "Kantong Belanja dalam Perjalanan",
+  "root": "1",
+  "group": "INVENTORY",
+  "g5": "10112",
+  "legacy": [
+   "1011204001",
+   "1011204002",
+   "1011204003",
+   "1011204004",
+   "1011204005",
+   "1011204006",
+   "1011204007",
+   "1011204008",
+   "1011204009",
+   "1011204010",
+   "1011204011",
+   "1011204012",
+   "1011204013",
+   "1011204014"
+  ],
+  "note": "",
+  "mode": "AUTO",
+  "custody": ""
+ },
+ {
+  "code": "1305",
+  "name": "Cadangan Kerusakan/Kehilangan Persediaan",
+  "root": "1",
+  "group": "INVENTORY",
+  "g5": "10112",
+  "legacy": [
+   "1011299001",
+   "1011299002"
+  ],
+  "note": "",
+  "mode": "AUTO",
+  "custody": ""
+ },
+ {
+  "code": "1401",
+  "name": "Biaya Dibayar Dimuka",
+  "root": "1",
+  "group": "PREPAID",
+  "g5": "10113",
+  "legacy": [
+   "1011301001",
+   "1011301005",
+   "1011301007",
+   "1011301008",
+   "1011301009"
+  ],
+  "note": "",
+  "mode": "SEMI",
+  "custody": ""
+ },
+ {
+  "code": "1402",
+  "name": "Sewa Dibayar Dimuka",
+  "root": "1",
+  "group": "PREPAID",
+  "g5": "10113",
+  "legacy": [
+   "1011301002",
+   "1011301003",
+   "1011301004",
+   "1011301006"
+  ],
+  "note": "",
+  "mode": "SEMI",
+  "custody": ""
+ },
+ {
+  "code": "1403",
+  "name": "Kredit/Pajak Penghasilan Dibayar Dimuka",
+  "root": "1",
+  "group": "PREPAID",
+  "g5": "10113",
+  "legacy": [
+   "1011302001",
+   "1011302002",
+   "1011302003"
+  ],
+  "note": "",
+  "mode": "SEMI",
+  "custody": ""
+ },
+ {
+  "code": "1404",
+  "name": "PPN Masukan",
+  "root": "1",
+  "group": "PREPAID",
+  "g5": "10113",
+  "legacy": [
+   "1011302004"
+  ],
+  "note": "",
+  "mode": "SEMI",
+  "custody": ""
+ },
+ {
+  "code": "1405",
+  "name": "PBB Dibayar Dimuka",
+  "root": "1",
+  "group": "PREPAID",
+  "g5": "10113",
+  "legacy": [
+   "1011302005"
+  ],
+  "note": "",
+  "mode": "SEMI",
+  "custody": ""
+ },
+ {
+  "code": "1406",
+  "name": "Pajak Lain Dibayar Dimuka",
+  "root": "1",
+  "group": "PREPAID",
+  "g5": "10113",
+  "legacy": [
+   "1011302006"
+  ],
+  "note": "",
+  "mode": "SEMI",
+  "custody": ""
+ },
+ {
+  "code": "1407",
+  "name": "Uang Muka Karyawan/Perjalanan",
+  "root": "1",
+  "group": "PREPAID",
+  "g5": "10113",
+  "legacy": [
+   "1011303001"
+  ],
+  "note": "",
+  "mode": "SEMI",
+  "custody": ""
+ },
+ {
+  "code": "1408",
+  "name": "Uang Muka Supplier/Kontraktor",
+  "root": "1",
+  "group": "PREPAID",
+  "g5": "10113",
+  "legacy": [
+   "1011303002",
+   "1011303003"
+  ],
+  "note": "",
+  "mode": "SEMI",
+  "custody": ""
+ },
+ {
+  "code": "1409",
+  "name": "Uang Muka Lainnya",
+  "root": "1",
+  "group": "PREPAID",
+  "g5": "10113",
+  "legacy": [
+   "1011303004"
+  ],
+  "note": "",
+  "mode": "SEMI",
+  "custody": ""
+ },
+ {
+  "code": "1501",
+  "name": "Saldo Affiliasi Pembiayaan",
+  "root": "1",
+  "group": "PIUTANG  AFFILIASI ANTAR UNIT",
+  "g5": "10214",
+  "legacy": [
+   "1021401001",
+   "1021401002",
+   "1021401003",
+   "1021401004",
+   "1021401005",
+   "1021401006",
+   "1021401007",
+   "1021401008",
+   "1021401009",
+   "1021401010",
+   "1021401011",
+   "1021401012",
+   "1021401013",
+   "1021401014",
+   "2012301001",
+   "2012301002",
+   "2012301003",
+   "2012301004",
+   "2012301005",
+   "2012301006",
+   "2012301007",
+   "2012301008",
+   "2012301009",
+   "2012301010",
+   "2012301011",
+   "2012301012",
+   "2012301013",
+   "2012301014"
+  ],
+  "note": "",
+  "mode": "AUTO",
+  "custody": ""
+ },
+ {
+  "code": "1502",
+  "name": "Saldo Affiliasi Atas Barang",
+  "root": "1",
+  "group": "PIUTANG  AFFILIASI ANTAR UNIT",
+  "g5": "10214",
+  "legacy": [
+   "1021402001",
+   "1021402002",
+   "1021402003",
+   "1021402004",
+   "1021402005",
+   "1021402006",
+   "1021402007",
+   "1021402008",
+   "1021402009",
+   "1021402010",
+   "1021402011",
+   "1021402012",
+   "1021402013",
+   "1021402014",
+   "2012302001",
+   "2012302002",
+   "2012302003",
+   "2012302004",
+   "2012302005",
+   "2012302006",
+   "2012302007",
+   "2012302008",
+   "2012302009",
+   "2012302010",
+   "2012302011",
+   "2012302012",
+   "2012302013",
+   "2012302014"
+  ],
+  "note": "",
+  "mode": "AUTO",
+  "custody": ""
+ },
+ {
+  "code": "1503",
+  "name": "Saldo Affiliasi Lain-lain",
+  "root": "1",
+  "group": "PIUTANG  AFFILIASI ANTAR UNIT",
+  "g5": "10214",
+  "legacy": [
+   "1021403001",
+   "1021403002",
+   "1021403003",
+   "1021403004",
+   "1021403005",
+   "1021403006",
+   "1021403007",
+   "1021403008",
+   "1021403009",
+   "1021403010",
+   "1021403011",
+   "1021403012",
+   "1021403013",
+   "1021403014"
+  ],
+  "note": "",
+  "mode": "AUTO",
+  "custody": ""
+ },
+ {
+  "code": "1601",
+  "name": "Tanah Hak Milik",
+  "root": "1",
+  "group": "AKTIVA TETAP",
+  "g5": "10215",
+  "legacy": [
+   "1021501001"
+  ],
+  "note": "",
+  "mode": "SEMI",
+  "custody": ""
+ },
+ {
+  "code": "1602",
+  "name": "Hak Sewa Tanah / HGB",
+  "root": "1",
+  "group": "AKTIVA TETAP",
+  "g5": "10215",
+  "legacy": [
+   "1021501002"
+  ],
+  "note": "",
+  "mode": "SEMI",
+  "custody": ""
+ },
+ {
+  "code": "1603",
+  "name": "Bangunan",
+  "root": "1",
+  "group": "AKTIVA TETAP",
+  "g5": "10215",
+  "legacy": [
+   "1021502001",
+   "1021502002",
+   "1021502003",
+   "1021506005"
+  ],
+  "note": "",
+  "mode": "SEMI",
+  "custody": ""
+ },
+ {
+  "code": "1604",
+  "name": "Instalasi Mekanikal dan Elektrikal",
+  "root": "1",
+  "group": "AKTIVA TETAP",
+  "g5": "10215",
+  "legacy": [
+   "1021503001"
+  ],
+  "note": "",
+  "mode": "SEMI",
+  "custody": ""
+ },
+ {
+  "code": "1605",
+  "name": "Mesin dan Peralatan",
+  "root": "1",
+  "group": "AKTIVA TETAP",
+  "g5": "10215",
+  "legacy": [
+   "1021504001",
+   "1021504002",
+   "1021504003",
+   "1021504004"
+  ],
+  "note": "",
+  "mode": "SEMI",
+  "custody": ""
+ },
+ {
+  "code": "1606",
+  "name": "Kendaraan",
+  "root": "1",
+  "group": "AKTIVA TETAP",
+  "g5": "10215",
+  "legacy": [
+   "1021505001",
+   "1021505002"
+  ],
+  "note": "",
+  "mode": "SEMI",
+  "custody": ""
+ },
+ {
+  "code": "1607",
+  "name": "Furniture, Fixture and Equipment",
+  "root": "1",
+  "group": "AKTIVA TETAP",
+  "g5": "10215",
+  "legacy": [
+   "1021506001",
+   "1021506002",
+   "1021506003",
+   "1021506004",
+   "1021506006",
+   "1021506007"
+  ],
+  "note": "",
+  "mode": "SEMI",
+  "custody": ""
+ },
+ {
+  "code": "1608",
+  "name": "Operating Equipment",
+  "root": "1",
+  "group": "AKTIVA TETAP",
+  "g5": "10215",
+  "legacy": [
+   "1021507001",
+   "1021507002",
+   "1021507003",
+   "1021507004",
+   "1021507005",
+   "1021507006",
+   "1021507007",
+   "1021507008",
+   "1021507009",
+   "1021507010",
+   "1021507011",
+   "1021507012",
+   "1021507013",
+   "1021507014",
+   "1021507015",
+   "1021507016",
+   "1021507017",
+   "1021507018",
+   "1021507019",
+   "1021507020",
+   "1021507021",
+   "1021507022",
+   "1021507023",
+   "1021507024",
+   "1021507025",
+   "1021507026",
+   "1021507027",
+   "1021507028",
+   "1021507029",
+   "1021507030",
+   "1021507031",
+   "1021507032",
+   "1021507033",
+   "1021507034",
+   "1021507035",
+   "1021507036"
+  ],
+  "note": "",
+  "mode": "SEMI",
+  "custody": ""
+ },
+ {
+  "code": "1701",
+  "name": "Akumulasi Amortisasi Land Right / HGB",
+  "root": "1",
+  "group": "AKUMULASI PENYUSUTAN AKTIVA TETAP",
+  "g5": "10216",
+  "legacy": [
+   "1021601002"
+  ],
+  "note": "",
+  "mode": "AUTO",
+  "custody": ""
+ },
+ {
+  "code": "1702",
+  "name": "Akumulasi Bangunan",
+  "root": "1",
+  "group": "AKUMULASI PENYUSUTAN AKTIVA TETAP",
+  "g5": "10216",
+  "legacy": [
+   "1021602001",
+   "1021602002",
+   "1021602003",
+   "1021606005"
+  ],
+  "note": "",
+  "mode": "AUTO",
+  "custody": ""
+ },
+ {
+  "code": "1703",
+  "name": "Akumulasi Instalasi Mekanikal dan Elektrikal",
+  "root": "1",
+  "group": "AKUMULASI PENYUSUTAN AKTIVA TETAP",
+  "g5": "10216",
+  "legacy": [
+   "1021603001"
+  ],
+  "note": "",
+  "mode": "AUTO",
+  "custody": ""
+ },
+ {
+  "code": "1704",
+  "name": "Akumulasi Mesin dan Peralatan",
+  "root": "1",
+  "group": "AKUMULASI PENYUSUTAN AKTIVA TETAP",
+  "g5": "10216",
+  "legacy": [
+   "1021604001",
+   "1021604002",
+   "1021604004"
+  ],
+  "note": "",
+  "mode": "AUTO",
+  "custody": ""
+ },
+ {
+  "code": "1705",
+  "name": "Akumulasi Aset Lainnya",
+  "root": "1",
+  "group": "AKUMULASI PENYUSUTAN AKTIVA TETAP",
+  "g5": "10216",
+  "legacy": [
+   "1021604003"
+  ],
+  "note": "",
+  "mode": "AUTO",
+  "custody": ""
+ },
+ {
+  "code": "1706",
+  "name": "Akumulasi Kendaraan",
+  "root": "1",
+  "group": "AKUMULASI PENYUSUTAN AKTIVA TETAP",
+  "g5": "10216",
+  "legacy": [
+   "1021605001",
+   "1021605002"
+  ],
+  "note": "",
+  "mode": "AUTO",
+  "custody": ""
+ },
+ {
+  "code": "1707",
+  "name": "Akumulasi Furniture, Fixture and Equipment",
+  "root": "1",
+  "group": "AKUMULASI PENYUSUTAN AKTIVA TETAP",
+  "g5": "10216",
+  "legacy": [
+   "1021606001",
+   "1021606002",
+   "1021606003",
+   "1021606004",
+   "1021606006",
+   "1021606007"
+  ],
+  "note": "",
+  "mode": "AUTO",
+  "custody": ""
+ },
+ {
+  "code": "1708",
+  "name": "Biaya Replacement OE",
+  "root": "1",
+  "group": "AKUMULASI PENYUSUTAN AKTIVA TETAP",
+  "g5": "10216",
+  "legacy": [
+   "1021607001",
+   "1021607002",
+   "1021607003",
+   "1021607004",
+   "1021607005",
+   "1021607006",
+   "1021607007",
+   "1021607008",
+   "1021607009",
+   "1021607010",
+   "1021607011",
+   "1021607012",
+   "1021607013",
+   "1021607014",
+   "1021607015",
+   "1021607016",
+   "1021607017",
+   "1021607018",
+   "1021607019",
+   "1021607020",
+   "1021607021",
+   "1021607022",
+   "1021607023",
+   "1021607024",
+   "1021607025",
+   "1021607026",
+   "1021607027",
+   "1021607028",
+   "1021607029",
+   "1021607030",
+   "1021607031",
+   "1021607032",
+   "1021607033",
+   "1021607034",
+   "1021607035",
+   "1021607036",
+   "7010215001",
+   "7010215002",
+   "7010215003",
+   "7010215004",
+   "7010215005",
+   "7010215006",
+   "7010215007",
+   "7010215008",
+   "7010215009",
+   "7010215010",
+   "7010215011",
+   "7010215012",
+   "7010215013",
+   "7010215014",
+   "7010215015",
+   "7010215016",
+   "7010215017",
+   "7010215018",
+   "7010215019",
+   "7010215020",
+   "7010215021",
+   "7010215022",
+   "7010215023",
+   "7010215024",
+   "7010215025",
+   "7010215026",
+   "7010215027",
+   "7010215028",
+   "7010215029",
+   "7010215030",
+   "7010215031",
+   "7010215032",
+   "7010215033",
+   "7010215034",
+   "7010215035",
+   "7010215036"
+  ],
+  "note": "",
+  "mode": "SEMI",
+  "custody": ""
+ },
+ {
+  "code": "1801",
+  "name": "Software / Intangible Asset",
+  "root": "1",
+  "group": "INTANGIBLE ASSET",
+  "g5": "10217",
+  "legacy": [
+   "1021701001",
+   "1021701002"
+  ],
+  "note": "",
+  "mode": "SEMI",
+  "custody": ""
+ },
+ {
+  "code": "1802",
+  "name": "Akumulasi Amortisasi Software",
+  "root": "1",
+  "group": "INTANGIBLE ASSET",
+  "g5": "10217",
+  "legacy": [
+   "1021702001",
+   "1021702002"
+  ],
+  "note": "",
+  "mode": "AUTO",
+  "custody": ""
+ },
+ {
+  "code": "1901",
+  "name": "Disposed Inventory",
+  "root": "1",
+  "group": "Other Asset",
+  "g5": "10318",
+  "legacy": [
+   "1031801001"
+  ],
+  "note": "",
+  "mode": "SEMI",
+  "custody": ""
+ },
+ {
+  "code": "1902",
+  "name": "Pre Opening",
+  "root": "1",
+  "group": "Other Asset",
+  "g5": "10318",
+  "legacy": [
+   "1031802001"
+  ],
+  "note": "",
+  "mode": "SEMI",
+  "custody": ""
+ },
+ {
+  "code": "1903",
+  "name": "Akumulasi Amortisasi Pre Opening",
+  "root": "1",
+  "group": "Other Asset",
+  "g5": "10318",
+  "legacy": [
+   "1031802002"
+  ],
+  "note": "",
+  "mode": "AUTO",
+  "custody": ""
+ },
+ {
+  "code": "1904",
+  "name": "Contract in Progress (CIP)",
+  "root": "1",
+  "group": "Other Asset",
+  "g5": "10318",
+  "legacy": [
+   "1031803001"
+  ],
+  "note": "",
+  "mode": "SEMI",
+  "custody": ""
+ },
+ {
+  "code": "2101",
+  "name": "Hutang Suppliers  Barang Dagangan",
+  "root": "2",
+  "group": "HUTANG DAGANG",
+  "g5": "20120",
+  "legacy": [
+   "2012001001"
+  ],
+  "note": "",
+  "mode": "SEMI",
+  "custody": ""
+ },
+ {
+  "code": "2102",
+  "name": "Hutang Supplier  Non Barang Dagang",
+  "root": "2",
+  "group": "HUTANG DAGANG",
+  "g5": "20120",
+  "legacy": [
+   "2012001003"
+  ],
+  "note": "",
+  "mode": "SEMI",
+  "custody": ""
+ },
+ {
+  "code": "2103",
+  "name": "Outstanding Giro",
+  "root": "2",
+  "group": "HUTANG DAGANG",
+  "g5": "20120",
+  "legacy": [
+   "2012002001",
+   "2012002002",
+   "2012002003",
+   "2012002004",
+   "2012002005",
+   "204001"
+  ],
+  "note": "",
+  "mode": "SEMI",
+  "custody": ""
+ },
+ {
+  "code": "2201",
+  "name": "Hutang Pajak",
+  "root": "2",
+  "group": "HUTANG PAJAK",
+  "g5": "20121",
+  "legacy": [
+   "2012101001",
+   "2012101002",
+   "2012101003",
+   "2012101004",
+   "2012101005"
+  ],
+  "note": "",
+  "mode": "SEMI",
+  "custody": ""
+ },
+ {
+  "code": "2301",
+  "name": "Akrual Pegawai dan Imbalan Kerja",
+  "root": "2",
+  "group": "ACCRUED EXPENSE (BIAYA YANG MASIH HARUS DIBAYAR)",
+  "g5": "20122",
+  "legacy": [
+   "2012201001",
+   "2012201002",
+   "2012201004",
+   "2012201005"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "2302",
+  "name": "Akrual Bunga Pinjaman",
+  "root": "2",
+  "group": "ACCRUED EXPENSE (BIAYA YANG MASIH HARUS DIBAYAR)",
+  "g5": "20122",
+  "legacy": [
+   "2012201003"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "2303",
+  "name": "Akrual Utilitas",
+  "root": "2",
+  "group": "ACCRUED EXPENSE (BIAYA YANG MASIH HARUS DIBAYAR)",
+  "g5": "20122",
+  "legacy": [
+   "2012201006",
+   "2012201007",
+   "2012201008"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "2304",
+  "name": "Akrual Sewa",
+  "root": "2",
+  "group": "ACCRUED EXPENSE (BIAYA YANG MASIH HARUS DIBAYAR)",
+  "g5": "20122",
+  "legacy": [
+   "2012201009",
+   "2012201010"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "2401",
+  "name": "Hutang Principal / Pihak Berelasi",
+  "root": "2",
+  "group": "HUTANG LAIN-LAIN",
+  "g5": "20123",
+  "legacy": [
+   "2012303001",
+   "2012303002",
+   "2012303003",
+   "2012303004",
+   "2012303005",
+   "2012303006",
+   "2012303007",
+   "2012303008",
+   "2012303009",
+   "2012303010",
+   "2012303011",
+   "2012303012",
+   "2012303013",
+   "2012303014"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "2402",
+  "name": "Hutang Voucher",
+  "root": "2",
+  "group": "HUTANG LAIN-LAIN",
+  "g5": "20123",
+  "legacy": [
+   "2012305001"
+  ],
+  "note": "akun yang kita cetak sendiri (0277)",
+  "mode": "AUTO",
+  "custody": ""
+ },
+ {
+  "code": "2501",
+  "name": "Pinjaman Principal",
+  "root": "2",
+  "group": "PINJAMAN JANGKA PANJANG JATUH TEMPO",
+  "g5": "20125",
+  "legacy": [
+   "2012501001",
+   "2022401001"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "2502",
+  "name": "Pinjaman Bank",
+  "root": "2",
+  "group": "PINJAMAN JANGKA PANJANG JATUH TEMPO",
+  "g5": "20125",
+  "legacy": [
+   "2012502001",
+   "2012502002",
+   "2012502003",
+   "2012502004",
+   "2012502005",
+   "2022402001",
+   "2022402002",
+   "2022402003",
+   "2022402004",
+   "2022402005"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "2601",
+  "name": "Uang Muka Penjualan",
+  "root": "2",
+  "group": "(tanpa nama)",
+  "g5": "20500",
+  "legacy": [
+   "205001"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "3101",
+  "name": "Modal Disetor",
+  "root": "3",
+  "group": "MODAL",
+  "g5": "30130",
+  "legacy": [
+   "3013001001"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "3102",
+  "name": "Saldo Laba",
+  "root": "3",
+  "group": "MODAL",
+  "g5": "30130",
+  "legacy": [
+   "3013001002"
+  ],
+  "note": "",
+  "mode": "AUTO",
+  "custody": ""
+ },
+ {
+  "code": "3103",
+  "name": "Prive/Penarikan Pemilik",
+  "root": "3",
+  "group": "MODAL",
+  "g5": "30130",
+  "legacy": [
+   "3013001004"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "4101",
+  "name": "Penjualan Barang Dagangan",
+  "root": "4",
+  "group": "PENJUALAN",
+  "g5": "40101",
+  "legacy": [
+   "4010110001",
+   "4010111001",
+   "4010111002",
+   "4010111003",
+   "4010111004",
+   "4010112001",
+   "4010112002",
+   "4010113001",
+   "4010113002"
+  ],
+  "note": "",
+  "mode": "AUTO",
+  "custody": ""
+ },
+ {
+  "code": "4201",
+  "name": "Discount / Potongan Penjualan",
+  "root": "4",
+  "group": "DISCOUNT / POTONGAN DAN RETURN PENJUALAN",
+  "g5": "40102",
+  "legacy": [
+   "4010213001"
+  ],
+  "note": "",
+  "mode": "AUTO",
+  "custody": ""
+ },
+ {
+  "code": "4202",
+  "name": "Retur Penjualan",
+  "root": "4",
+  "group": "DISCOUNT / POTONGAN DAN RETURN PENJUALAN",
+  "g5": "40102",
+  "legacy": [
+   "4010214001"
+  ],
+  "note": "",
+  "mode": "AUTO",
+  "custody": ""
+ },
+ {
+  "code": "4301",
+  "name": "Management  Fee",
+  "root": "4",
+  "group": "MANAGEMENT FEE",
+  "g5": "40201",
+  "legacy": [
+   "4020110001"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "5101",
+  "name": "Harga Pokok Pembelian / HPP",
+  "root": "5",
+  "group": "HARGA POKOK PEMBELIAN",
+  "g5": "50101",
+  "legacy": [
+   "5010110001"
+  ],
+  "note": "",
+  "mode": "AUTO",
+  "custody": ""
+ },
+ {
+  "code": "6101",
+  "name": "Pendapatan lain-lain",
+  "root": "6",
+  "group": "(tanpa nama)",
+  "g5": "60010",
+  "legacy": [
+   "600104"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6201",
+  "name": "Biaya Customer Supplies",
+  "root": "6",
+  "group": "BEBAN PENJUALAN",
+  "g5": "60101",
+  "legacy": [
+   "6010110001"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6202",
+  "name": "Biaya Credit Card",
+  "root": "6",
+  "group": "BEBAN PENJUALAN",
+  "g5": "60101",
+  "legacy": [
+   "6010110002"
+  ],
+  "note": "",
+  "mode": "SEMI",
+  "custody": ""
+ },
+ {
+  "code": "6203",
+  "name": "Biaya Promosi",
+  "root": "6",
+  "group": "BEBAN PENJUALAN",
+  "g5": "60101",
+  "legacy": [
+   "6010110003"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6204",
+  "name": "Biaya Dekorasi",
+  "root": "6",
+  "group": "BEBAN PENJUALAN",
+  "g5": "60101",
+  "legacy": [
+   "6010110004"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6205",
+  "name": "Biaya Advertising / Iklan",
+  "root": "6",
+  "group": "BEBAN PENJUALAN",
+  "g5": "60101",
+  "legacy": [
+   "6010110005"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6206",
+  "name": "Biaya Bongkar Muat Barang",
+  "root": "6",
+  "group": "BEBAN PENJUALAN",
+  "g5": "60101",
+  "legacy": [
+   "6010110006"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6207",
+  "name": "Biaya Pengiriman Barang/kurir/Ekspedisi",
+  "root": "6",
+  "group": "BEBAN PENJUALAN",
+  "g5": "60101",
+  "legacy": [
+   "6010110007"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6208",
+  "name": "Biaya Kerusakan/Kehilangan Persediaan",
+  "root": "6",
+  "group": "BEBAN PENJUALAN",
+  "g5": "60101",
+  "legacy": [
+   "6010110008",
+   "8010110006"
+  ],
+  "note": "",
+  "mode": "SEMI",
+  "custody": ""
+ },
+ {
+  "code": "6209",
+  "name": "Beban Gaji",
+  "root": "6",
+  "group": "BEBAN PENJUALAN",
+  "g5": "60101",
+  "legacy": [
+   "6010111001",
+   "6010210001"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6210",
+  "name": "Beban Lembur",
+  "root": "6",
+  "group": "BEBAN PENJUALAN",
+  "g5": "60101",
+  "legacy": [
+   "6010111002",
+   "6010210002"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6211",
+  "name": "Beban Uang Makan",
+  "root": "6",
+  "group": "BEBAN PENJUALAN",
+  "g5": "60101",
+  "legacy": [
+   "6010111003",
+   "6010210003"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6212",
+  "name": "Beban Transport",
+  "root": "6",
+  "group": "BEBAN PENJUALAN",
+  "g5": "60101",
+  "legacy": [
+   "6010111004",
+   "6010210004"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6213",
+  "name": "Beban Kesehatan dan Pengobatan",
+  "root": "6",
+  "group": "BEBAN PENJUALAN",
+  "g5": "60101",
+  "legacy": [
+   "6010111005",
+   "6010210005"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6214",
+  "name": "Beban Asuransi Pegawai / BPJS",
+  "root": "6",
+  "group": "BEBAN PENJUALAN",
+  "g5": "60101",
+  "legacy": [
+   "6010111006",
+   "6010210006"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6215",
+  "name": "Beban THR",
+  "root": "6",
+  "group": "BEBAN PENJUALAN",
+  "g5": "60101",
+  "legacy": [
+   "6010111007",
+   "6010210007"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6216",
+  "name": "Beban Seragam Kerja",
+  "root": "6",
+  "group": "BEBAN PENJUALAN",
+  "g5": "60101",
+  "legacy": [
+   "6010111008",
+   "6010210008"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6217",
+  "name": "Beban Sport dan Rekreasi",
+  "root": "6",
+  "group": "BEBAN PENJUALAN",
+  "g5": "60101",
+  "legacy": [
+   "6010111009",
+   "6010210009"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6218",
+  "name": "Beban Funeral Contribution",
+  "root": "6",
+  "group": "BEBAN PENJUALAN",
+  "g5": "60101",
+  "legacy": [
+   "6010111010",
+   "6010210010"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6219",
+  "name": "Beban Pengembangan SDM",
+  "root": "6",
+  "group": "BEBAN PENJUALAN",
+  "g5": "60101",
+  "legacy": [
+   "6010111011",
+   "6010210011"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6220",
+  "name": "Beban Pesangon",
+  "root": "6",
+  "group": "BEBAN PENJUALAN",
+  "g5": "60101",
+  "legacy": [
+   "6010111012",
+   "6010210012"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6221",
+  "name": "Beban Komisi / Bonus / Insentif",
+  "root": "6",
+  "group": "BEBAN PENJUALAN",
+  "g5": "60101",
+  "legacy": [
+   "6010111013",
+   "6010210013"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6301",
+  "name": "Biaya Kebersihan (Cleaning)",
+  "root": "6",
+  "group": "BEBAN ADMINISTRASI DAN UMUM",
+  "g5": "60103",
+  "legacy": [
+   "6010310001"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6302",
+  "name": "Alat Tulis Kantor & Barang Cetakan",
+  "root": "6",
+  "group": "BEBAN ADMINISTRASI DAN UMUM",
+  "g5": "60103",
+  "legacy": [
+   "6010310002"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6303",
+  "name": "Biaya Rumah Tangga",
+  "root": "6",
+  "group": "BEBAN ADMINISTRASI DAN UMUM",
+  "g5": "60103",
+  "legacy": [
+   "6010310003"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6304",
+  "name": "Biaya Bank HO",
+  "root": "6",
+  "group": "BEBAN ADMINISTRASI DAN UMUM",
+  "g5": "60103",
+  "legacy": [
+   "6010310004"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6305",
+  "name": "Biaya Telephone,Facsimile, Modem",
+  "root": "6",
+  "group": "BEBAN ADMINISTRASI DAN UMUM",
+  "g5": "60103",
+  "legacy": [
+   "6010310005"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6306",
+  "name": "Biaya Pemakaian Listrik",
+  "root": "6",
+  "group": "BEBAN ADMINISTRASI DAN UMUM",
+  "g5": "60103",
+  "legacy": [
+   "6010310006"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6307",
+  "name": "Biaya Pemakaian Air Bersih (PDAM)",
+  "root": "6",
+  "group": "BEBAN ADMINISTRASI DAN UMUM",
+  "g5": "60103",
+  "legacy": [
+   "6010310007"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6308",
+  "name": "Biaya Perjalanan Dinas",
+  "root": "6",
+  "group": "BEBAN ADMINISTRASI DAN UMUM",
+  "g5": "60103",
+  "legacy": [
+   "6010310008"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6309",
+  "name": "Biaya Lokal Transport",
+  "root": "6",
+  "group": "BEBAN ADMINISTRASI DAN UMUM",
+  "g5": "60103",
+  "legacy": [
+   "6010310009"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6310",
+  "name": "Biaya Perijinan",
+  "root": "6",
+  "group": "BEBAN ADMINISTRASI DAN UMUM",
+  "g5": "60103",
+  "legacy": [
+   "6010310010"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6311",
+  "name": "Computer Expenses",
+  "root": "6",
+  "group": "BEBAN ADMINISTRASI DAN UMUM",
+  "g5": "60103",
+  "legacy": [
+   "6010310011"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6312",
+  "name": "Biaya Penyisihan Kerugian Piutang",
+  "root": "6",
+  "group": "BEBAN ADMINISTRASI DAN UMUM",
+  "g5": "60103",
+  "legacy": [
+   "6010310012"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6313",
+  "name": "Biaya Perlengkapan Toko dan Kantor",
+  "root": "6",
+  "group": "BEBAN ADMINISTRASI DAN UMUM",
+  "g5": "60103",
+  "legacy": [
+   "6010310013"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6314",
+  "name": "Biaya Stock Opname",
+  "root": "6",
+  "group": "BEBAN ADMINISTRASI DAN UMUM",
+  "g5": "60103",
+  "legacy": [
+   "6010310014"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6315",
+  "name": "Biaya Peralatan Listrik",
+  "root": "6",
+  "group": "BEBAN ADMINISTRASI DAN UMUM",
+  "g5": "60103",
+  "legacy": [
+   "6010310015"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6316",
+  "name": "Tire & Tubes  Expences",
+  "root": "6",
+  "group": "BEBAN ADMINISTRASI DAN UMUM",
+  "g5": "60103",
+  "legacy": [
+   "6010310016"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6317",
+  "name": "F u e l  & O I l  Expences",
+  "root": "6",
+  "group": "BEBAN ADMINISTRASI DAN UMUM",
+  "g5": "60103",
+  "legacy": [
+   "6010310017"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6318",
+  "name": "T o o l s (Peralatan) Ekspences",
+  "root": "6",
+  "group": "BEBAN ADMINISTRASI DAN UMUM",
+  "g5": "60103",
+  "legacy": [
+   "6010310018"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6319",
+  "name": "Biaya Lubrication & Grease, Bahan Bakar Genset",
+  "root": "6",
+  "group": "BEBAN ADMINISTRASI DAN UMUM",
+  "g5": "60103",
+  "legacy": [
+   "6010310019"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6320",
+  "name": "Biaya Telephone Equipment",
+  "root": "6",
+  "group": "BEBAN ADMINISTRASI DAN UMUM",
+  "g5": "60103",
+  "legacy": [
+   "6010310020"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6321",
+  "name": "Biaya Donasi (CSR, Zakat)",
+  "root": "6",
+  "group": "BEBAN ADMINISTRASI DAN UMUM",
+  "g5": "60103",
+  "legacy": [
+   "6010310021"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6322",
+  "name": "Biaya Konsultan",
+  "root": "6",
+  "group": "BEBAN ADMINISTRASI DAN UMUM",
+  "g5": "60103",
+  "legacy": [
+   "6010310022"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6323",
+  "name": "Biaya Lisensi Kendaraan ( STNK, Uji Kir)",
+  "root": "6",
+  "group": "BEBAN ADMINISTRASI DAN UMUM",
+  "g5": "60103",
+  "legacy": [
+   "6010310023"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6324",
+  "name": "Biaya Perlengkapan Mess atau Rumah Dinas",
+  "root": "6",
+  "group": "BEBAN ADMINISTRASI DAN UMUM",
+  "g5": "60103",
+  "legacy": [
+   "6010310024"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6325",
+  "name": "Miscellaneous Expences",
+  "root": "6",
+  "group": "BEBAN ADMINISTRASI DAN UMUM",
+  "g5": "60103",
+  "legacy": [
+   "6010310099"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6326",
+  "name": "Biaya Pajak Reklame",
+  "root": "6",
+  "group": "BEBAN ADMINISTRASI DAN UMUM",
+  "g5": "60103",
+  "legacy": [
+   "7020310003"
+  ],
+  "note": "dipindah dari 7020310",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6327",
+  "name": "Biaya Management FEE",
+  "root": "6",
+  "group": "BEBAN ADMINISTRASI DAN UMUM",
+  "g5": "60103",
+  "legacy": [
+   "7020310004"
+  ],
+  "note": "dipindah dari 7020310",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6328",
+  "name": "Biaya Asuransi Kendaraan",
+  "root": "6",
+  "group": "BEBAN ADMINISTRASI DAN UMUM",
+  "g5": "60103",
+  "legacy": [
+   "7020310005"
+  ],
+  "note": "dipindah dari 7020310",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6401",
+  "name": "Beban Perbaikan dan Pemeliharaan",
+  "root": "6",
+  "group": "BEBAN PERAWATAN DAN PEMELIHARAAN",
+  "g5": "60104",
+  "legacy": [
+   "6010410001",
+   "6010410003",
+   "6010410004",
+   "6010410005",
+   "6010410006",
+   "6010410007",
+   "6010410008",
+   "6010410009",
+   "6010410010"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "6402",
+  "name": "Beban Pemeliharaan Software",
+  "root": "6",
+  "group": "BEBAN PERAWATAN DAN PEMELIHARAAN",
+  "g5": "60104",
+  "legacy": [
+   "6010410002"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "7101",
+  "name": "Biaya Sewa Tanah",
+  "root": "7",
+  "group": "BIAYA SEWA",
+  "g5": "70101",
+  "legacy": [
+   "7010110001"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "7102",
+  "name": "Biaya Land Right",
+  "root": "7",
+  "group": "BIAYA SEWA",
+  "g5": "70101",
+  "legacy": [
+   "7010110002"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "7103",
+  "name": "Biaya Sewa Bangunan Toko dan Gudang",
+  "root": "7",
+  "group": "BIAYA SEWA",
+  "g5": "70101",
+  "legacy": [
+   "7010110003"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "7104",
+  "name": "Biaya Sewa Rumah Dinas / Mess",
+  "root": "7",
+  "group": "BIAYA SEWA",
+  "g5": "70101",
+  "legacy": [
+   "7010110004"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "7201",
+  "name": "Beban Penyusutan/Amortisasi Bangunan",
+  "root": "7",
+  "group": "BIAYA DEPRESIASI DAN AMORTISASI",
+  "g5": "70102",
+  "legacy": [
+   "7010210001",
+   "7010210002",
+   "7010210003",
+   "7010214005"
+  ],
+  "note": "",
+  "mode": "SEMI",
+  "custody": ""
+ },
+ {
+  "code": "7202",
+  "name": "Beban Penyusutan/Amortisasi Instalasi Mekanikal dan Elektrikal",
+  "root": "7",
+  "group": "BIAYA DEPRESIASI DAN AMORTISASI",
+  "g5": "70102",
+  "legacy": [
+   "7010211001"
+  ],
+  "note": "",
+  "mode": "SEMI",
+  "custody": ""
+ },
+ {
+  "code": "7203",
+  "name": "Beban Penyusutan/Amortisasi Mesin dan Peralatan",
+  "root": "7",
+  "group": "BIAYA DEPRESIASI DAN AMORTISASI",
+  "g5": "70102",
+  "legacy": [
+   "7010212001",
+   "7010212002",
+   "7010212003",
+   "7010212004"
+  ],
+  "note": "",
+  "mode": "SEMI",
+  "custody": ""
+ },
+ {
+  "code": "7204",
+  "name": "Beban Penyusutan/Amortisasi Kendaraan",
+  "root": "7",
+  "group": "BIAYA DEPRESIASI DAN AMORTISASI",
+  "g5": "70102",
+  "legacy": [
+   "7010213001",
+   "7010213002"
+  ],
+  "note": "",
+  "mode": "SEMI",
+  "custody": ""
+ },
+ {
+  "code": "7205",
+  "name": "Beban Penyusutan/Amortisasi Furniture, Fixture and Equipment",
+  "root": "7",
+  "group": "BIAYA DEPRESIASI DAN AMORTISASI",
+  "g5": "70102",
+  "legacy": [
+   "7010214001",
+   "7010214002",
+   "7010214003",
+   "7010214004",
+   "7010214006",
+   "7010214007"
+  ],
+  "note": "",
+  "mode": "SEMI",
+  "custody": ""
+ },
+ {
+  "code": "7206",
+  "name": "Beban Penyusutan/Amortisasi Software",
+  "root": "7",
+  "group": "BIAYA DEPRESIASI DAN AMORTISASI",
+  "g5": "70102",
+  "legacy": [
+   "7010216001",
+   "7010216003"
+  ],
+  "note": "",
+  "mode": "SEMI",
+  "custody": ""
+ },
+ {
+  "code": "7207",
+  "name": "Biaya Amortisasi Pre Opening",
+  "root": "7",
+  "group": "BIAYA DEPRESIASI DAN AMORTISASI",
+  "g5": "70102",
+  "legacy": [
+   "7010216002"
+  ],
+  "note": "",
+  "mode": "SEMI",
+  "custody": ""
+ },
+ {
+  "code": "7301",
+  "name": "Property All Risk & Fire Insurance",
+  "root": "7",
+  "group": "BIAYA USAHA LAINNYA",
+  "g5": "70103",
+  "legacy": [
+   "7010310001"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "7302",
+  "name": "Biaya Pajak Bumi Dan Bangunan  (PBB)",
+  "root": "7",
+  "group": "BIAYA USAHA LAINNYA",
+  "g5": "70103",
+  "legacy": [
+   "7010310002"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "8101",
+  "name": "Pendapatan Bunga Bank",
+  "root": "8",
+  "group": "PENDAPATAN DAN (BIAYA) LAIN - LAIN",
+  "g5": "80101",
+  "legacy": [
+   "8010110001"
+  ],
+  "note": "",
+  "mode": "SEMI",
+  "custody": ""
+ },
+ {
+  "code": "8102",
+  "name": "Selisih Pembulatan",
+  "root": "8",
+  "group": "PENDAPATAN DAN (BIAYA) LAIN - LAIN",
+  "g5": "80101",
+  "legacy": [
+   "8010110002"
+  ],
+  "note": "",
+  "mode": "SEMI",
+  "custody": ""
+ },
+ {
+  "code": "8103",
+  "name": "Potongan Pembelian",
+  "root": "8",
+  "group": "PENDAPATAN DAN (BIAYA) LAIN - LAIN",
+  "g5": "80101",
+  "legacy": [
+   "8010110003"
+  ],
+  "note": "",
+  "mode": "AUTO",
+  "custody": ""
+ },
+ {
+  "code": "8104",
+  "name": "Pendapatan Sewa",
+  "root": "8",
+  "group": "PENDAPATAN DAN (BIAYA) LAIN - LAIN",
+  "g5": "80101",
+  "legacy": [
+   "8010110004",
+   "8010110005"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "8105",
+  "name": "Pendapatan (Biaya) Lain-lain",
+  "root": "8",
+  "group": "PENDAPATAN DAN (BIAYA) LAIN - LAIN",
+  "g5": "80101",
+  "legacy": [
+   "8010110007"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "8106",
+  "name": "Biaya Lain-lain",
+  "root": "8",
+  "group": "PENDAPATAN DAN (BIAYA) LAIN - LAIN",
+  "g5": "80101",
+  "legacy": [
+   "8010110007"
+  ],
+  "note": "pecahan dari Pendapatan (Biaya) Lain-Lain",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "8201",
+  "name": "Beban Bunga Pinjaman Bank",
+  "root": "8",
+  "group": "BIAYA BUNGA",
+  "g5": "80201",
+  "legacy": [
+   "8020111001"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "8202",
+  "name": "Beban Bunga Leasing",
+  "root": "8",
+  "group": "BIAYA BUNGA",
+  "g5": "80201",
+  "legacy": [
+   "8020111002"
+  ],
+  "note": "",
+  "mode": "MANUAL",
+  "custody": ""
+ },
+ {
+  "code": "8301",
+  "name": "Pajak Penghasilan / Beban Pajak Kini",
+  "root": "8",
+  "group": "PAJAK PENGHASILAN",
+  "g5": "80301",
+  "legacy": [
+   "8030112001"
+  ],
+  "note": "",
+  "mode": "SEMI",
+  "custody": ""
+ }
+]

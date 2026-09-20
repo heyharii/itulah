@@ -5,9 +5,10 @@
 //!
 //! The heaviest is the fund equation. `sent = settled + direct expenses +
 //! returned + outstanding` is checked three ways over — the funds table, the
-//! Payment Ledger, and the general ledger balance of `1011102002 PIUTANG KEPALA
-//! TOKO` — because a system where two of those agree and nobody ever asks the
-//! third is a system that has a wrong number in it and does not know.
+//! Payment Ledger, and the general ledger balance of `1202 × STORE_MANAGER`
+//! (the client's `1011102002 PIUTANG KEPALA TOKO`) — because a system where two
+//! of those agree and nobody ever asks the third is a system that has a wrong
+//! number in it and does not know.
 //!
 //! The Payment Ledger is lane P's and is not merged into this branch. The shim
 //! it stands in for is written and read through functions whose arguments
@@ -31,170 +32,93 @@ const BANK: &str = "BCA-9001";
 // A chart the size of what this lane touches
 // ---------------------------------------------------------------------------
 
-/// The headings and postable leaves these tests post to.
+/// The meanings these tests post through, pointed at the forty.
 ///
-/// Real codes from the client's export wherever the client has one. The two
-/// PROPOSED accounts — `1011005001` cash in transit and `8010110008` the
-/// drawer's difference — are here in the shape the seed creates them, so the
-/// tests exercise exactly what production will have rather than a stand-in.
+/// This used to mint its own chart — eighteen headings, ten ten-digit rungs and
+/// fourteen twelve-digit per-location leaves, "real codes from the client's
+/// export wherever the client has one". None of that is minted now. 0243 took
+/// the unit off the code, 0244 refused an account that names one at all
+/// (`ledger_account_carries_no_unit`), and 0289 put the forty in the chart with
+/// the migrations. What a fixture still has to do is the part the migrations
+/// deliberately do NOT do: bind the meanings, because `account_map` is a
+/// decision and not a schema.
+///
+/// The two accounts this file used to describe as PROPOSED are gone as
+/// accounts and kept as categories: money out of the drawer and not yet at the
+/// bank is `1101 × TRANSIT`, and a drawer count's difference is
+/// `4301 × CASH_VARIANCE` when the drawer held more and `8301 × CASH_SHORTAGE`
+/// when it held less (0296). One fewer invented code, twice.
 async fn chart(pool: &PgPool) {
-    let headings: &[(&str, &str, Option<&str>)] = &[
-        ("1", "ASSETS", None),
-        ("101", "AKTIVA LANCAR", Some("1")),
-        ("10110", "KAS & SETARA KAS", Some("101")),
-        ("1011001", "CASH ON HAND", Some("10110")),
-        ("1011002", "CASH IN BANK GIRO", Some("10110")),
-        // PROPOSED: the next free rung, after TIME DEPOSIT.
-        ("1011005", "KAS DALAM PERJALANAN", Some("10110")),
-        ("10111", "PIUTANG USAHA", Some("101")),
-        ("1011102", "PIUTANG LAIN-LAIN", Some("10111")),
-        // What the two units owe each other, asset side. A shop banking its
-        // takings and a shop paying head office's supplier both move money
-        // across the boundary, so the balancer books the pair of affiliate legs
-        // that leaves each set of books balanced on its own.
-        ("102", "AKTIVA TIDAK LANCAR", None),
-        ("10214", "PIUTANG  AFFILIASI ANTAR UNIT", Some("102")),
-        ("1021401", "PIUTANG  AFFILIASI PEMBIAYAAN", Some("10214")),
-        ("1021402", "PIUTANG  AFFILIASI ATAS BARANG", Some("10214")),
-        ("2", "LIABILITIES", None),
-        ("201", "HUTANG JANGKA PENDEK", Some("2")),
-        ("20120", "HUTANG DAGANG", Some("201")),
-        ("2012001", "HUTANG SUPPLIER", Some("20120")),
-        // And the liability side of the same pair, at the shop.
-        ("20123", "HUTANG LAIN-LAIN", Some("201")),
-        ("2012301", "HUTANG AFFILIASI PEMBIAYAAN", Some("20123")),
-        ("2012302", "HUTANG AFFILIASI ATAS BARANG", Some("20123")),
-        ("20122", "BIAYA YANG MASIH HARUS DIBAYAR", Some("201")),
-        ("2012201", "BIAYA YMHD", Some("20122")),
-        ("6", "BIAYA OPERASIONAL", None),
-        ("601", "BIAYA UMUM DAN ADMINISTRASI", Some("6")),
-        ("60103", "BIAYA KANTOR", Some("601")),
-        ("6010310", "BIAYA KANTOR", Some("60103")),
-        ("8", "BEBAN NON OPERASIONAL", None),
-        ("801", "PENDAPATAN DAN (BIAYA) LAIN - LAIN", Some("8")),
-        ("80101", "PENDAPATAN DAN (BIAYA) LAIN - LAIN", Some("801")),
-        ("8010110", "Pendapatan (Biaya) Lain-lain", Some("80101")),
-    ];
-    // The ten-digit rungs, still headings.
-    let rungs: &[(&str, &str, &str)] = &[
-        ("1011001001", "CASH ON HAND", "1011001"),
-        ("1011001002", "PETTY CASH", "1011001"),
-        ("1011001003", "MODAL KASIR", "1011001"),
-        ("1011002001", "CASH IN BANK GIRO", "1011002"),
-        ("1011005001", "KAS DALAM PERJALANAN", "1011005"),
-        ("1011102002", "PIUTANG KEPALA TOKO", "1011102"),
-        ("2012001001", "Hutang Suppliers Barang Dagangan", "2012001"),
-        ("2012201001", "Biaya Gaji dan Upah YMHD", "2012201"),
-        ("6010310006", "Biaya Pemakaian Listrik", "6010310"),
-        ("8010110008", "Selisih Kas", "8010110"),
-    ];
-    // The postable twelve-digit leaves, per location. `07` is store-07's
-    // suffix in the client's numbering; `00` is head office.
-    let leaves: &[(&str, &str, &str, &str)] = &[
-        ("101100100107", "Cash on Hand C007", "1011001001", SHOP),
-        ("101100100207", "Petty Cash C007", "1011001002", SHOP),
-        ("101100100307", "Modal Kasir C007", "1011001003", SHOP),
+    for (key, code, category, site, qualifier) in [
+        ("cash", "1101", Some("DRAWER"), SHOP, ""),
+        ("petty_cash", "1101", Some("PETTY"), SHOP, ""),
+        ("cashier_float", "1101", Some("FLOAT"), SHOP, ""),
+        ("cash_in_transit", "1101", Some("TRANSIT"), SHOP, ""),
         (
-            "101100500107",
-            "Kas Dalam Perjalanan C007",
-            "1011005001",
+            "store_manager_receivable",
+            "1202",
+            Some("STORE_MANAGER"),
             SHOP,
+            "",
         ),
         (
-            "101110200207",
-            "Piutang Kepala Toko C007",
-            "1011102002",
+            "payroll_payable",
+            "2301",
+            Some("BIAYA_GAJI_DAN_UPAH_YMHD"),
             SHOP,
+            "",
         ),
         (
-            "201220100107",
-            "Biaya Gaji dan Upah YMHD C007",
-            "2012201001",
+            "expense_electricity",
+            "6301",
+            Some("BIAYA_PEMAKAIAN_LISTRIK"),
             SHOP,
+            "",
         ),
-        (
-            "601031000607",
-            "Biaya Pemakaian Listrik C007",
-            "6010310006",
-            SHOP,
-        ),
-        ("801011000807", "Selisih Kas C007", "8010110008", SHOP),
-        (
-            "102140100207",
-            "Piutang Affiliasi Pembiayaan C007 - HO",
-            "1021401",
-            "dc",
-        ),
-        (
-            "201230100107",
-            "Hutang Affiliasi Pembiayaan HEAD OFFICE - C007",
-            "2012301",
-            SHOP,
-        ),
-        (
-            "102140200207",
-            "Piutang Affiliasi Atas Barang C007 - HO",
-            "1021402",
-            "dc",
-        ),
-        (
-            "201230200107",
-            "Hutang Affiliasi Atas Barang HEAD OFFICE - C007",
-            "2012302",
-            SHOP,
-        ),
-        ("101100200100", "Cash In Bank Giro HO", "1011002001", "dc"),
-        (
-            "201200100100",
-            "Hutang Suppliers Barang Dagangan HO",
-            "2012001001",
-            "dc",
-        ),
-    ];
-
-    for (code, name, parent) in headings {
-        insert_account(pool, code, name, *parent, true, None).await;
-    }
-    for (code, name, parent) in rungs {
-        insert_account(pool, code, name, Some(parent), true, None).await;
-    }
-    for (code, name, parent, site) in leaves {
-        insert_account(pool, code, name, Some(parent), false, Some(site)).await;
-    }
-
-    for (key, code, site, qualifier) in [
-        ("cash", "101100100107", SHOP, ""),
-        ("petty_cash", "101100100207", SHOP, ""),
-        ("cashier_float", "101100100307", SHOP, ""),
-        ("cash_in_transit", "101100500107", SHOP, ""),
-        ("store_manager_receivable", "101110200207", SHOP, ""),
-        ("payroll_payable", "201220100107", SHOP, ""),
-        ("expense_electricity", "601031000607", SHOP, ""),
-        ("cash_variance", "801011000807", SHOP, ""),
-        ("bank_giro", "101100200100", "dc", BANK),
-        ("trade_payable", "201200100100", "dc", ""),
-        // Qualified by the unit on the other side, which is how one account per
-        // pair stays separate from one account per counterparty. BARANG rather
-        // than PEMBIAYAAN because a shop's banking answers what it owes for
-        // stock — the balancer's own reading of STORE_DEPOSIT and REMITTANCE.
-        // Two families, because the balancer picks one from the source kind:
-        // BARANG for a shop's banking and its remittances — money that answers
-        // what it owes for stock — and PEMBIAYAAN for everything else, which is
-        // the column head office reconciles by hand.
+        ("cash_variance", "4301", Some("CASH_VARIANCE"), SHOP, ""),
+        ("cash_shortage", "8301", Some("CASH_SHORTAGE"), SHOP, ""),
+        ("bank_giro", "1102", None, "dc", BANK),
+        ("trade_payable", "2101", None, "dc", ""),
+        // Qualified by the unit on the other side, and two families because the
+        // balancer picks one from the source kind: BARANG for a shop's banking
+        // and its remittances — money that answers what it owes for stock — and
+        // PEMBIAYAAN for everything else, which is the column head office
+        // reconciles by hand.
+        //
+        // Both directions of both families land on `1501`, and that is the
+        // whole of the interunit change: inside one legal entity a balance
+        // between two of our own units is a clearing line, not an asset at one
+        // end and a liability at the other. Which unit is `site_id`, which
+        // counterparty is `counter_site_id` (required on `1501`), why is the
+        // category, and the SIGN is what says receivable or payable.
         (
             "affiliate_receivable",
-            "102140200207",
+            "1501",
+            Some("GOODS"),
             "dc",
             "BARANG:store-07",
         ),
-        ("affiliate_payable", "201230200107", SHOP, "BARANG:dc"),
+        (
+            "affiliate_payable",
+            "1501",
+            Some("GOODS"),
+            SHOP,
+            "BARANG:dc",
+        ),
         (
             "affiliate_receivable",
-            "102140100207",
+            "1501",
+            Some("FINANCING"),
             "dc",
             "PEMBIAYAAN:store-07",
         ),
-        ("affiliate_payable", "201230100107", SHOP, "PEMBIAYAAN:dc"),
+        (
+            "affiliate_payable",
+            "1501",
+            Some("FINANCING"),
+            SHOP,
+            "PEMBIAYAAN:dc",
+        ),
     ] {
         cloud::set_account_mapping(
             pool,
@@ -203,6 +127,7 @@ async fn chart(pool: &PgPool) {
                 site_id: site.into(),
                 qualifier: qualifier.into(),
                 account_code: code.into(),
+                category_code: category.map(str::to_string),
                 note: None,
             },
             ACTOR,
@@ -214,28 +139,6 @@ async fn chart(pool: &PgPool) {
     cloud::open_period(pool, 2026, 9)
         .await
         .unwrap_or_else(|error| panic!("open period: {error}"));
-}
-
-async fn insert_account(
-    pool: &PgPool,
-    code: &str,
-    name: &str,
-    parent: Option<&str>,
-    is_group: bool,
-    site: Option<&str>,
-) {
-    sqlx::query(
-        "INSERT INTO ledger_account (account_code, name, parent_code, is_group, site_id)
-         VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING",
-    )
-    .bind(code)
-    .bind(name)
-    .bind(parent)
-    .bind(is_group)
-    .bind(site)
-    .execute(pool)
-    .await
-    .unwrap_or_else(|error| panic!("{code}: {error}"));
 }
 
 /// Somebody who can hold money. Written straight in, because employment is a
@@ -259,12 +162,21 @@ fn date(day: u32) -> chrono::NaiveDate {
 }
 
 /// Every entry the books hold balances, and the balance of one account.
-async fn account_balance(pool: &PgPool, code: &str) -> i64 {
+/// What one account holds under one category, debit less credit.
+///
+/// The category is not optional here. A shop's three pots and its money in
+/// transit are all `1101` now, so an assertion on the account alone would read
+/// the drawer, the petty tin, the float and the deposit bag added together —
+/// and pass while every one of them was wrong.
+async fn account_balance(pool: &PgPool, code: &str, category: Option<&str>) -> i64 {
     sqlx::query_scalar::<_, i64>(
         "SELECT COALESCE(SUM(debit_minor - credit_minor), 0)::bigint
-           FROM journal_line WHERE account_code = $1",
+           FROM journal_line
+          WHERE account_code = $1
+            AND ($2::text IS NULL OR category_code = $2)",
     )
     .bind(code)
+    .bind(category)
     .fetch_one(pool)
     .await
     .unwrap_or_else(|error| panic!("balance {code}: {error}"))
@@ -406,7 +318,7 @@ async fn the_cashier_equation_holds(pool: PgPool) {
     cloud::cash_shift_post_float(&pool, shift_id, ACTOR)
         .await
         .unwrap_or_else(|error| panic!("float: {error}"));
-    assert_eq!(account_balance(&pool, "101100100307").await, 500_000);
+    assert_eq!(account_balance(&pool, "1101", Some("FLOAT")).await, 500_000);
 
     let approved = cloud::cash_shift_approve_variance(
         &pool,
@@ -420,8 +332,17 @@ async fn the_cashier_equation_holds(pool: PgPool) {
     .await
     .unwrap_or_else(|error| panic!("approve: {error}"));
     assert_eq!(approved["posted"], true);
-    // Short, so the difference is a cost.
-    assert_eq!(account_balance(&pool, "801011000807").await, 40_000);
+    // Short, so the difference is a cost — on the other-expense account, not a
+    // debit hiding inside other income (0296).
+    assert_eq!(
+        account_balance(&pool, "8301", Some("CASH_SHORTAGE")).await,
+        40_000
+    );
+    assert_eq!(
+        account_balance(&pool, "4301", Some("CASH_VARIANCE")).await,
+        0,
+        "a shortage never touches the income-side meaning"
+    );
     every_entry_balances(&pool).await;
 }
 
@@ -456,7 +377,7 @@ async fn a_deposit_posts_twice_and_balances(pool: PgPool) {
         .unwrap_or_else(|error| panic!("deposit id: {error}"));
     assert_eq!(prepared["status"], "PREPARED");
     // Preparing moves nothing.
-    assert_eq!(account_balance(&pool, "101100100107").await, 0);
+    assert_eq!(account_balance(&pool, "1101", Some("DRAWER")).await, 0);
 
     cloud::store_deposit_hand_over(
         &pool,
@@ -469,10 +390,16 @@ async fn a_deposit_posts_twice_and_balances(pool: PgPool) {
     )
     .await
     .unwrap_or_else(|error| panic!("hand over: {error}"));
-    assert_eq!(account_balance(&pool, "101100100107").await, -12_000_000);
-    assert_eq!(account_balance(&pool, "101100500107").await, 12_000_000);
+    assert_eq!(
+        account_balance(&pool, "1101", Some("DRAWER")).await,
+        -12_000_000
+    );
+    assert_eq!(
+        account_balance(&pool, "1101", Some("TRANSIT")).await,
+        12_000_000
+    );
     // The bank has not seen it yet.
-    assert_eq!(account_balance(&pool, "101100200100").await, 0);
+    assert_eq!(account_balance(&pool, "1102", None).await, 0);
 
     cloud::store_deposit_confirm(
         &pool,
@@ -484,11 +411,11 @@ async fn a_deposit_posts_twice_and_balances(pool: PgPool) {
     .unwrap_or_else(|error| panic!("confirm: {error}"));
 
     assert_eq!(
-        account_balance(&pool, "101100500107").await,
+        account_balance(&pool, "1101", Some("TRANSIT")).await,
         0,
         "cash in transit empties when the bank agrees"
     );
-    assert_eq!(account_balance(&pool, "101100200100").await, 12_000_000);
+    assert_eq!(account_balance(&pool, "1102", None).await, 12_000_000);
     assert_eq!(
         entries_for(&pool, "STORE_DEPOSIT", &deposit_id.to_string())
             .await
@@ -621,7 +548,7 @@ async fn an_expense_above_the_limit_needs_head_office(pool: PgPool) {
     assert!(own.is_err(), "the claimant approved their own expense");
 
     assert_eq!(
-        account_balance(&pool, "101100100207").await,
+        account_balance(&pool, "1101", Some("PETTY")).await,
         -(STORE_EXPENSE_MANAGER_LIMIT_MINOR * 2 + 1),
         "petty cash falls by exactly what was approved"
     );
@@ -668,8 +595,11 @@ async fn a_fund_is_owed_until_it_is_accounted_for(pool: PgPool) {
         .unwrap_or_else(|error| panic!("fund id: {error}"));
 
     // Dr Piutang Kepala Toko at the shop / Cr the bank at head office.
-    assert_eq!(account_balance(&pool, "101110200207").await, 10_000_000);
-    assert_eq!(account_balance(&pool, "101100200100").await, -10_000_000);
+    assert_eq!(
+        account_balance(&pool, "1202", Some("STORE_MANAGER")).await,
+        10_000_000
+    );
+    assert_eq!(account_balance(&pool, "1102", None).await, -10_000_000);
     // And a payment ledger item against the CUSTODIAN, not the shop.
     assert!(
         !sent["payment_ledger_entry_id"].is_null(),
@@ -721,14 +651,17 @@ async fn a_fund_is_owed_until_it_is_accounted_for(pool: PgPool) {
         cloud::store_ledger_outstanding(&pool, "store_manager_receivable", Some(SHOP))
             .await
             .unwrap_or_else(|error| panic!("ledger: {error}"));
-    let from_books = account_balance(&pool, "101110200207").await;
+    let from_books = account_balance(&pool, "1202", Some("STORE_MANAGER")).await;
 
     assert_eq!(from_funds, 1_500_000, "the funds table");
     assert_eq!(from_ledger, 1_500_000, "the payment ledger");
-    assert_eq!(from_books, 1_500_000, "1011102002 PIUTANG KEPALA TOKO");
+    assert_eq!(
+        from_books, 1_500_000,
+        "1202 x STORE_MANAGER, the client's PIUTANG KEPALA TOKO"
+    );
 
     // Paying a bill discharges the payable rather than making an expense.
-    assert_eq!(account_balance(&pool, "201200100100").await, 4_000_000);
+    assert_eq!(account_balance(&pool, "2101", None).await, 4_000_000);
     every_entry_balances(&pool).await;
 
     // Over-accounting is refused rather than producing a negative balance.
@@ -800,7 +733,7 @@ async fn a_handover_moves_the_balance_to_the_new_person(pool: PgPool) {
         .await
         .unwrap_or_else(|error| panic!("send: {error}"));
 
-    let before = account_balance(&pool, "101110200207").await;
+    let before = account_balance(&pool, "1202", Some("STORE_MANAGER")).await;
     assert_eq!(before, 6_000_000);
     assert_eq!(open_against(&pool, &budi).await, 6_000_000);
     assert_eq!(open_against(&pool, &sari).await, 0);
@@ -850,7 +783,7 @@ async fn a_handover_moves_the_balance_to_the_new_person(pool: PgPool) {
 
     // The GL balance has NOT moved: it is the same account at the same shop.
     assert_eq!(
-        account_balance(&pool, "101110200207").await,
+        account_balance(&pool, "1202", Some("STORE_MANAGER")).await,
         before,
         "a handover must not change what the shop owes"
     );
@@ -977,15 +910,18 @@ async fn payroll_paid_through_the_manager_posts_no_second_salary_expense(pool: P
     let paid: i64 = serde_json::from_value(tasks[0]["net_minor"].clone())
         .unwrap_or_else(|error| panic!("net: {error}"));
     // The payable falls; nothing was charged to an expense account.
-    assert_eq!(account_balance(&pool, "201220100107").await, paid);
     assert_eq!(
-        account_balance(&pool, "601031000607").await,
+        account_balance(&pool, "2301", Some("BIAYA_GAJI_DAN_UPAH_YMHD")).await,
+        paid
+    );
+    assert_eq!(
+        account_balance(&pool, "6301", Some("BIAYA_PEMAKAIAN_LISTRIK")).await,
         0,
         "handing over wages must not recognise the salary a second time"
     );
     // And the manager owes that much less.
     assert_eq!(
-        account_balance(&pool, "101110200207").await,
+        account_balance(&pool, "1202", Some("STORE_MANAGER")).await,
         9_000_000 - paid
     );
     every_entry_balances(&pool).await;

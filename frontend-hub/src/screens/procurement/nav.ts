@@ -1,6 +1,7 @@
 import {
   Building2,
   ClipboardList,
+  FileUp,
   Hourglass,
   Package,
   PackageSearch,
@@ -91,6 +92,14 @@ export const procurementNav: AppModule = {
           path: "/procurement/sourcing",
           label: "Sourcing",
           icon: PackageSearch,
+        },
+        {
+          // Raising orders from documents — Excel, PDF, photographs — instead
+          // of walking the catalogue. Its own screen because its own verb:
+          // this reads files and drafts orders, and nothing else here does.
+          path: "/procurement/import",
+          label: "Import PO",
+          icon: FileUp,
         },
         {
           path: "/procurement/outstanding",

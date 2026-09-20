@@ -73,6 +73,20 @@ pub struct ProfitAndLoss {
     pub lines: Vec<FinancialStatementLine>,
 }
 
+/// Which part of a statement a root class belongs to.
+///
+/// Class 8 is the one that needed rereading when the chart collapsed to forty
+/// accounts. The client's root 8 is *Pendapatan & Biaya Lain-lain* — income AND
+/// expense in one branch — so the sign of "OTHER" was ambiguous by
+/// construction, and the reports treated it as income because the first thing
+/// anybody looked at there was bank interest.
+///
+/// It is not ambiguous any more. 0289 put every other-INCOME meaning on
+/// `4301 Pendapatan lain-lain` under root 4, where it belongs, and left root 8
+/// holding exactly two accounts: `8101 Beban bunga` and `8201 Pajak
+/// penghasilan`. Both are costs. So OTHER is now a section that is presented
+/// separately — below operating profit, which is where interest and tax belong
+/// on a profit and loss — and subtracted, not added.
 fn section_of(root_class: &str) -> &'static str {
     match root_class {
         "1" => "ASSET",
@@ -163,10 +177,12 @@ pub async fn balance_sheet(
         .map(|line| line.amount_minor)
         .sum();
     // Revenue positive, costs negative: the result is what the period earned.
+    // OTHER is a cost — see `section_of`; root 8 carries interest and income
+    // tax and nothing else now.
     let result: i64 = result_lines
         .iter()
         .map(|line| match line.section.as_str() {
-            "REVENUE" | "OTHER" => line.amount_minor,
+            "REVENUE" => line.amount_minor,
             _ => -line.amount_minor,
         })
         .sum();
@@ -213,7 +229,10 @@ pub async fn profit_and_loss(
         gross_profit_minor: revenue - cost,
         expenses_minor: expenses,
         other_minor: other,
-        net_minor: revenue - cost - expenses + other,
+        // Interest and income tax are subtracted like any other cost. They are
+        // reported on their own line because a reader wants operating profit
+        // separately, not because they add to it.
+        net_minor: revenue - cost - expenses - other,
         lines,
     })
 }
@@ -275,12 +294,14 @@ pub async fn unit_results(
             "4" => slot.revenue_minor += credit_side,
             "5" => slot.cost_of_sales_minor += -credit_side,
             "6" | "7" => slot.expenses_minor += -credit_side,
-            _ => slot.other_minor += credit_side,
+            // Root 8 is interest and income tax: costs, carried on their own
+            // line. See `section_of`.
+            _ => slot.other_minor += -credit_side,
         }
     }
     for unit in &mut out {
         unit.net_minor =
-            unit.revenue_minor - unit.cost_of_sales_minor - unit.expenses_minor + unit.other_minor;
+            unit.revenue_minor - unit.cost_of_sales_minor - unit.expenses_minor - unit.other_minor;
     }
     Ok(out)
 }

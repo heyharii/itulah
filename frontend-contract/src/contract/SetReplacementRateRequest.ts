@@ -2,8 +2,9 @@
 
 export type SetReplacementRateRequest = { 
 /**
- * One of the client's asset classes — `1021507001 OE - Rak 1` and the
- * thirty-five beside it.
+ * One of the register's asset classes — `OE_RAK_1` and the thirty-five
+ * beside it. A code from `asset_class`, not an account code: the client's
+ * own name for the class is on that row.
  */
 class_code: string, site_id: string, 
 /**

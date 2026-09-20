@@ -1,0 +1,20 @@
+{
+  "name": "@itulah/po-import-service",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "description": "PO import ingest: multi-file (Excel / PDF / photo) to PO drafts, with Jev deciding OCR and field confidence.",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.14.0",
+    "ai": "^7.0.107",
+    "hono": "^4.7.0",
+    "pdfjs-dist": "^4.10.38",
+    "xlsx": "^0.18.5"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

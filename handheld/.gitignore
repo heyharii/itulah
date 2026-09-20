@@ -5,3 +5,7 @@ local.properties
 .idea
 *.iml
 __pycache__/
+
+# Release signing material — never committed.
+keystore.properties
+*.jks

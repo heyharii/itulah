@@ -24,7 +24,7 @@ use super::cash::{
     cash_document_approve_in, cash_document_insert, cash_document_post_in, side_from_account,
     side_from_meaning, CashDraft,
 };
-use super::ledger::{assert_postable, resolve_account, Intent};
+use super::ledger::{assert_category_for_account, assert_postable, resolve_account, Intent};
 use crate::cloud::application::AppError;
 use crate::cloud::domain::{
     cash_direction, resolve, suggest, BankLine, Candidate, Ruleset, Suggestion,
@@ -1254,6 +1254,15 @@ pub struct BookBankLineRequest {
     /// account, interest to interest income. A postable, active account, chosen
     /// by the person reading the statement.
     pub account_code: String,
+    /// And what kind of thing it is, on the accounts that are kept by kind.
+    ///
+    /// The forty-account chart made this the question: `6301` is every general
+    /// and administrative expense the company pays, so "which account" no
+    /// longer distinguishes a bank charge from a consultant's fee. Only the
+    /// person reading the narration can say, which is why it arrives with the
+    /// account and not from a rule.
+    #[serde(default)]
+    pub category_code: Option<String>,
     /// Why this line is that account. Required, and for the same reason a
     /// reversal's reason is: it is the only record of the judgement somebody
     /// made, and a bank line booked with no explanation is the entry an auditor
@@ -1277,26 +1286,56 @@ pub struct BookBankLineRequest {
 /// the same account cannot be both the BCA giro and the Mandiri one — and
 /// picking either would post correctly today and wrongly the day one of them
 /// moves.
+///
+/// # Which one it is, is on the statement
+///
+/// That last paragraph stopped being true when fourteen accounts landed on
+/// `1102 Bank`. The same natural account IS the BCA giro and the Mandiri one
+/// now, and the BTN savings besides, so looking `1102` up by itself finds three
+/// meanings at every site and refuses every booking — not because anything is
+/// ambiguous, but because the question was asked without the part of it that
+/// answers.
+///
+/// The part that answers is `bank_statement.bank_account_id` (0271): a
+/// statement is a statement of ONE real account, and that account knows its
+/// bank and whether it is a giro, a savings account or a time deposit. Those
+/// two facts are exactly what a map row for a money meaning carries — the
+/// qualifier is the institution's code (0269) and the key is the product — so
+/// the pairing picks one row and picks it exactly. A statement that names no
+/// account is history from before 0271 and falls back to the old lookup, which
+/// is the right answer for a row nothing new can be booked against anyway.
 pub(super) async fn statement_meaning(
     executor: impl sqlx::PgExecutor<'_>,
     account_code: &str,
     site_id: &str,
+    bank_account_id: Option<Uuid>,
 ) -> Result<(String, String), AppError> {
     let rows = sqlx::query(
-        "SELECT semantic_key, qualifier FROM account_map
-          WHERE account_code = $1 AND site_id = $2 AND semantic_key = ANY($3)
-          ORDER BY semantic_key, qualifier",
+        "SELECT m.semantic_key, m.qualifier FROM account_map m
+          WHERE m.account_code = $1 AND m.site_id = $2 AND m.semantic_key = ANY($3)
+            AND ($4::uuid IS NULL OR EXISTS (
+                    SELECT 1 FROM company_bank_account c
+                      JOIN bank b ON b.bank_id = c.bank_id
+                     WHERE c.account_id = $4
+                       AND m.qualifier = b.code
+                       AND m.semantic_key = CASE c.kind
+                               WHEN 'GIRO'    THEN 'bank_giro'
+                               WHEN 'SAVINGS' THEN 'bank_savings'
+                               ELSE 'time_deposit' END))
+          ORDER BY m.semantic_key, m.qualifier",
     )
     .bind(account_code)
     .bind(site_id)
     .bind(&STATEMENT_MEANINGS[..])
+    .bind(bank_account_id)
     .fetch_all(executor)
     .await?;
 
     match rows.len() {
         0 => Err(AppError::Validation(format!(
-            "no money account is mapped to {account_code} at {site_id}; point one of {} at it on \
-             the Account Map screen before booking anything against this statement",
+            "no money account is mapped to {account_code} at {site_id} for the account this \
+             statement is of; point one of {} at it on the Account Map screen — under this \
+             bank's own code — before booking anything against this statement",
             STATEMENT_MEANINGS.join(", ")
         ))),
         1 => Ok((
@@ -1304,8 +1343,9 @@ pub(super) async fn statement_meaning(
             rows[0].try_get("qualifier")?,
         )),
         _ => Err(AppError::Validation(format!(
-            "{account_code} at {site_id} is mapped by more than one meaning; one account carries \
-             one meaning, so fix the Account Map before booking against it"
+            "{account_code} at {site_id} is mapped by more than one meaning for one bank account; \
+             a giro and a savings account cannot be the same account at the same bank, so fix the \
+             Account Map before booking against it"
         ))),
     }
 }
@@ -1335,6 +1375,11 @@ pub(super) enum OtherSide {
     },
     Account {
         account_code: String,
+        /// Required when the account declares a category family. Only the
+        /// person reading the statement can say which: a bank charge on `6301`
+        /// is bank charges, consultancy or postage, and the narration rarely
+        /// says which.
+        category_code: Option<String>,
     },
 }
 
@@ -1370,7 +1415,7 @@ pub(super) async fn bank_line_to_document(
 
     let line = sqlx::query(
         "SELECT l.value_date, l.description, l.debit_minor, l.credit_minor,
-                l.account_code, s.site_id,
+                l.account_code, s.site_id, s.bank_account_id,
                 EXISTS (SELECT 1 FROM bank_line_match m WHERE m.line_id = l.line_id) AS matched
            FROM bank_statement_line l
            JOIN bank_statement s USING (statement_id)
@@ -1395,16 +1440,37 @@ pub(super) async fn bank_line_to_document(
 
     let bank_account: String = line.try_get("account_code")?;
     let site_id: String = line.try_get("site_id")?;
+    // Which of our real accounts the statement is of. The one fact that tells
+    // `1102`'s fourteen apart, and it has been on the statement since 0271.
+    let bank_account_id: Option<Uuid> = line.try_get("bank_account_id")?;
     let value_date: NaiveDate = line.try_get("value_date")?;
     let description: String = line.try_get("description")?;
     let debit: i64 = line.try_get("debit_minor")?;
     let credit: i64 = line.try_get("credit_minor")?;
 
-    let (key, qualifier) = statement_meaning(&mut **tx, &bank_account, &site_id).await?;
-    let money = side_from_meaning(&key, &qualifier, &site_id, bank_account.clone());
+    let (key, qualifier) =
+        statement_meaning(&mut **tx, &bank_account, &site_id, bank_account_id).await?;
+    // The bank leg's category comes from the map, like every other leg built
+    // from a meaning. `1102 Bank` declares no family — which account of ours it
+    // is, is `bank_account_id` — so this is `None` today; it is read rather
+    // than assumed so that the day a money account does declare one, the slip
+    // and the entry already agree.
+    let money_category = resolve_account(&mut **tx, &key, &site_id, &qualifier)
+        .await?
+        .category_code;
+    let money = side_from_meaning(
+        &key,
+        &qualifier,
+        &site_id,
+        bank_account.clone(),
+        money_category,
+    );
 
     let chosen = match other {
-        OtherSide::Account { account_code } => {
+        OtherSide::Account {
+            account_code,
+            category_code,
+        } => {
             let code = account_code.trim();
             if code == bank_account {
                 return Err(AppError::Validation(format!(
@@ -1417,16 +1483,24 @@ pub(super) async fn bank_line_to_document(
             // attached. The composite foreign key on `journal_line` remains the
             // guarantee.
             assert_postable(&mut **tx, code, Intent::Post).await?;
-            side_from_account(code, &site_id)
+            assert_category_for_account(&mut **tx, code, category_code.as_deref(), Intent::Post)
+                .await?;
+            side_from_account(code, &site_id, category_code.clone())
         }
         OtherSide::Meaning {
             semantic_key,
             qualifier,
             site_id: other_site,
         } => {
-            let code = resolve_account(&mut **tx, semantic_key, other_site, qualifier).await?;
-            assert_postable(&mut **tx, &code, Intent::Post).await?;
-            side_from_meaning(semantic_key, qualifier, other_site, code)
+            let resolved = resolve_account(&mut **tx, semantic_key, other_site, qualifier).await?;
+            assert_postable(&mut **tx, &resolved.account_code, Intent::Post).await?;
+            side_from_meaning(
+                semantic_key,
+                qualifier,
+                other_site,
+                resolved.account_code,
+                resolved.category_code,
+            )
         }
     };
 
@@ -1529,6 +1603,12 @@ pub async fn book_bank_line(
     actor: &str,
 ) -> Result<BookedBankLine, AppError> {
     let chosen = request.account_code.trim().to_string();
+    let category = request
+        .category_code
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
     let memo = request.memo.trim().to_string();
     let mut tx = pool.begin().await?;
     let booked = bank_line_to_document(
@@ -1536,6 +1616,7 @@ pub async fn book_bank_line(
         line_id,
         &OtherSide::Account {
             account_code: chosen.clone(),
+            category_code: category,
         },
         request.party_name.as_deref().unwrap_or(""),
         &memo,

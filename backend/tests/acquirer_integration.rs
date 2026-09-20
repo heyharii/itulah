@@ -42,115 +42,25 @@ fn midday() -> DateTime<Utc> {
 // The chart, and the meanings pointed at it
 // ---------------------------------------------------------------------------
 
-/// A chart shaped like the client's: root → ten-digit rung → location leaf.
+/// The bank account a settlement lands in. The chart is the migrations' own.
 ///
-/// Two locations, because that is the whole shape of a settlement. The
-/// receivable and the fee belong to the shop that made the sale; the bank
-/// account the money lands in belongs to head office. An entry that could only
-/// touch one of them would be an entry this module cannot write.
+/// This used to mint root → ten-digit rung → per-location leaf, and the two
+/// locations were the whole shape of a settlement: the receivable and the fee
+/// belong to the shop that made the sale, the bank account to head office. That
+/// is still true and it is `journal_line.site_id` that says so — the accounts
+/// themselves stopped naming a unit at 0244 and stopped naming a tender at 0289.
 async fn seed_chart(pool: &PgPool) {
-    for (code, name) in [
-        ("1", "ASSET"),
-        ("2", "LIABILITIES"),
-        ("4", "PENDAPATAN"),
-        ("6", "BEBAN PENJUALAN"),
-        ("8", "BEBAN NON OPERASIONAL"),
-    ] {
-        sqlx::query(
-            "INSERT INTO ledger_account (account_code, name, parent_code, is_group)
-             VALUES ($1,$2,NULL,true)
-             ON CONFLICT (account_code) DO NOTHING",
-        )
-        .bind(code)
-        .bind(name)
-        .execute(pool)
-        .await
-        .unwrap_or_else(|error| panic!("{code}: {error}"));
-    }
-
-    // (rung, leaf, name, which location's books the leaf belongs to).
-    let accounts: [(&str, &str, &str, &str); 13] = [
-        ("1011001001", "101100100101", "Cash On Hand C001", SITE),
-        (
-            "1011101001",
-            "101110100101",
-            "Piutang kartu Kredit C001",
-            SITE,
-        ),
-        (
-            "1011101002",
-            "101110100201",
-            "Piutang Debit Card C001",
-            SITE,
-        ),
-        ("1011101003", "101110100301", "Piutang QRIS C001", SITE),
-        ("1011002001", "101100200100", "Cash In Bank Giro BCA HO", HQ),
-        (
-            "2012101003",
-            "201210100301",
-            "Hutang PPN Keluaran C001",
-            SITE,
-        ),
-        ("4010110001", "401011000101", "Penjualan Tunai C001", SITE),
-        (
-            "4010111001",
-            "401011100101",
-            "Penjualan Debit BCA C001",
-            SITE,
-        ),
-        ("4010214001", "401021400101", "Retur Penjualan C001", SITE),
-        ("6010110002", "601011000201", "Biaya Credit Card C001", SITE),
-        (
-            "8010110002",
-            "801011000201",
-            "Selisih pembulatan C001",
-            SITE,
-        ),
-        // The two sides of what head office and the shop owe each other. A
-        // settlement puts money in head office's bank against a debt carried in
-        // the shop's books, which is an inter-unit entry — so the balancer adds
-        // the affiliate legs and they need somewhere to land.
-        (
-            "1021401",
-            "102140100200",
-            "Piutang Affiliasi Pembiayaan CIKUPA - HO",
-            HQ,
-        ),
-        (
-            "2012301",
-            "201230100101",
-            "Hutang Affiliasi Pembiayaan HEAD OFFICE - C001",
-            SITE,
-        ),
-    ];
-    for (rung, leaf, name, site) in accounts {
-        sqlx::query(
-            "INSERT INTO ledger_account (account_code, name, parent_code, is_group)
-             VALUES ($1,$2,$3,true) ON CONFLICT DO NOTHING",
-        )
-        .bind(rung)
-        .bind(name)
-        .bind(&rung[..1])
-        .execute(pool)
-        .await
-        .unwrap_or_else(|error| panic!("{rung}: {error}"));
-        sqlx::query(
-            "INSERT INTO ledger_account (account_code, name, parent_code, is_group, site_id)
-             VALUES ($1,$2,$3,false,$4)
-             ON CONFLICT (account_code) DO NOTHING",
-        )
-        .bind(leaf)
-        .bind(name)
-        .bind(rung)
-        .bind(site)
-        .execute(pool)
-        .await
-        .unwrap_or_else(|error| panic!("{leaf}: {error}"));
-    }
-    register_bank_account(pool, "101100200100", "dc").await;
+    register_bank_account(pool, "1102", "dc").await;
 }
 
-async fn map(pool: &PgPool, key: &str, site: &str, qualifier: &str, code: &str) {
+async fn map(
+    pool: &PgPool,
+    key: &str,
+    site: &str,
+    qualifier: &str,
+    code: &str,
+    category: Option<&str>,
+) {
     cloud::set_account_mapping(
         pool,
         &cloud::SetAccountMappingRequest {
@@ -158,6 +68,7 @@ async fn map(pool: &PgPool, key: &str, site: &str, qualifier: &str, code: &str) 
             site_id: site.into(),
             qualifier: qualifier.into(),
             account_code: code.into(),
+            category_code: category.map(str::to_string),
             note: None,
         },
         ACTOR,
@@ -169,42 +80,113 @@ async fn map(pool: &PgPool, key: &str, site: &str, qualifier: &str, code: &str) 
 /// Every meaning a settlement can touch, at the location that carries it.
 ///
 /// `card_fee` is qualified by the acquirer even though the client keeps one
-/// `Biaya Credit Card` — every qualifier points at the same leaf, which is what
+/// `Biaya Credit Card` — every qualifier points at the same pair, which is what
 /// lets the fee be split by acquirer in a report without a posting rule
 /// changing. `sales_return` is qualified the same way because a chargeback
 /// residual is booked with the acquirer's name on it.
+///
+/// Since 0289 that is the shape of nearly every row here: one account, and the
+/// qualifier choosing the CATEGORY. Three tenders share `1201`, three share
+/// `4101`, and both halves of the inter-unit pair are `1501`.
 async fn map_everything(pool: &PgPool) {
-    map(pool, "cash", SITE, "", "101100100101").await;
-    map(pool, "vat_out", SITE, "", "201210100301").await;
-    map(pool, "revenue_cash", SITE, "", "401011000101").await;
-    map(pool, "rounding", SITE, "", "801011000201").await;
-    map(pool, "revenue_debit", SITE, "BCA", "401011100101").await;
-    map(pool, "revenue_debit", SITE, "MANDIRI", "401011100101").await;
-    map(pool, "card_receivable_debit", SITE, "BCA", "101110100201").await;
+    map(pool, "cash", SITE, "", "1101", Some("DRAWER")).await;
+    map(pool, "vat_out", SITE, "", "2201", Some("PPN_OUT")).await;
+    map(pool, "revenue_cash", SITE, "", "4101", Some("CASH")).await;
+    map(pool, "rounding", SITE, "", "4301", Some("ROUNDING")).await;
+    map(
+        pool,
+        "rounding_loss",
+        SITE,
+        "",
+        "8301",
+        Some("ROUNDING_LOSS"),
+    )
+    .await;
+    map(
+        pool,
+        "revenue_debit",
+        SITE,
+        "BCA",
+        "4101",
+        Some("DEBIT_BCA"),
+    )
+    .await;
+    map(
+        pool,
+        "revenue_debit",
+        SITE,
+        "MANDIRI",
+        "4101",
+        Some("DEBIT_MANDIRI"),
+    )
+    .await;
+    map(
+        pool,
+        "card_receivable_debit",
+        SITE,
+        "BCA",
+        "1201",
+        Some("DEBIT_BCA"),
+    )
+    .await;
     map(
         pool,
         "card_receivable_debit",
         SITE,
         "MANDIRI",
-        "101110100201",
+        "1201",
+        Some("DEBIT_MANDIRI"),
     )
     .await;
-    map(pool, "card_receivable_credit", SITE, "VISA", "101110100101").await;
-    map(pool, "qris_receivable", SITE, "GOPAY", "101110100301").await;
-    map(pool, "card_fee", SITE, "BCA", "601011000201").await;
-    map(pool, "card_fee", SITE, "MANDIRI", "601011000201").await;
-    map(pool, "card_fee", HQ, "BCA", "601011000201").await;
-    map(pool, "sales_return", SITE, "BCA", "401021400101").await;
-    map(pool, "bank_giro", HQ, "BCA", "101100200100").await;
+    map(
+        pool,
+        "card_receivable_credit",
+        SITE,
+        "VISA",
+        "1201",
+        Some("CREDIT_VISA"),
+    )
+    .await;
+    map(pool, "qris_receivable", SITE, "GOPAY", "1201", Some("QRIS")).await;
+    map(
+        pool,
+        "card_fee",
+        SITE,
+        "BCA",
+        "6101",
+        Some("BIAYA_CREDIT_CARD"),
+    )
+    .await;
+    map(
+        pool,
+        "card_fee",
+        SITE,
+        "MANDIRI",
+        "6101",
+        Some("BIAYA_CREDIT_CARD"),
+    )
+    .await;
+    map(
+        pool,
+        "card_fee",
+        HQ,
+        "BCA",
+        "6101",
+        Some("BIAYA_CREDIT_CARD"),
+    )
+    .await;
+    map(pool, "sales_return", SITE, "BCA", "4201", Some("RETURN")).await;
+    map(pool, "bank_giro", HQ, "BCA", "1102", None).await;
     // What the balancer needs to book the two halves of an inter-unit entry.
-    // Qualified by the other unit, which is how one account per pair is kept
-    // apart from one account per counterparty.
+    // Qualified by the other unit, which is how one clearing account is kept
+    // apart per counterparty now that the pair is not two codes.
     map(
         pool,
         "affiliate_receivable",
         HQ,
         &format!("PEMBIAYAAN:{SITE}"),
-        "102140100200",
+        "1501",
+        Some("FINANCING"),
     )
     .await;
     map(
@@ -212,7 +194,8 @@ async fn map_everything(pool: &PgPool) {
         "affiliate_payable",
         SITE,
         &format!("PEMBIAYAAN:{HQ}"),
-        "201230100101",
+        "1501",
+        Some("FINANCING"),
     )
     .await;
 }
@@ -296,13 +279,19 @@ async fn key_in_slip(pool: &PgPool, recon_id: Uuid, auth: &str, acquirer: &str, 
 }
 
 /// What one account holds, over everything posted.
-async fn balance(pool: &PgPool, code: &str) -> (i64, i64) {
+/// What one account holds, and — when a category is named — only the part of it
+/// that answers to that category. Three tenders share `1201` now, so an
+/// assertion on the account alone would read them added together.
+async fn balance(pool: &PgPool, code: &str, category: Option<&str>) -> (i64, i64) {
     let row = sqlx::query(
         "SELECT COALESCE(SUM(debit_minor),0)::bigint AS d,
                 COALESCE(SUM(credit_minor),0)::bigint AS c
-           FROM journal_line WHERE account_code = $1",
+           FROM journal_line
+          WHERE account_code = $1
+            AND ($2::text IS NULL OR category_code = $2)",
     )
     .bind(code)
+    .bind(category)
     .fetch_one(pool)
     .await
     .unwrap_or_else(|error| panic!("balance {code}: {error}"));
@@ -530,9 +519,15 @@ async fn a_curated_settlement_posts_balanced_with_the_fee(pool: PgPool) {
     // shop's receivable is discharged at gross. The entry balances in total and
     // deliberately not per location: the money genuinely moved between two sets
     // of books.
-    assert_eq!(balance(&pool, "101100200100").await, (985_000, 0));
-    assert_eq!(balance(&pool, "601011000201").await, (15_000, 0));
-    assert_eq!(balance(&pool, "101110100201").await, (0, 1_000_000));
+    assert_eq!(balance(&pool, "1102", None).await, (985_000, 0));
+    assert_eq!(
+        balance(&pool, "6101", Some("BIAYA_CREDIT_CARD")).await,
+        (15_000, 0)
+    );
+    assert_eq!(
+        balance(&pool, "1201", Some("DEBIT_BCA")).await,
+        (0, 1_000_000)
+    );
 
     let row = sqlx::query(
         "SELECT source_kind, COUNT(l.line_id)::bigint AS lines,
@@ -575,7 +570,7 @@ async fn bank_credit(pool: &PgPool, amount: i64) -> Uuid {
     cloud::import_statement(
         pool,
         &cloud::ImportStatementRequest {
-            account_code: "101100200100".into(),
+            account_code: "1102".into(),
             site_id: HQ.into(),
             bank_account_id: None,
             period_start: date(2026, 9, 1),
@@ -672,7 +667,7 @@ async fn a_net_the_bank_disagrees_with_becomes_an_exception_that_can_be_posted(p
     assert_eq!(flagged.status, "EXCEPTION");
     assert_eq!(flagged.difference_minor, Some(40_000));
 
-    let bank_before = balance(&pool, "101100200100").await;
+    let bank_before = balance(&pool, "1102", None).await;
     let explained = cloud::acq_settlement_explain(
         &pool,
         settlement_id,
@@ -690,8 +685,11 @@ async fn a_net_the_bank_disagrees_with_becomes_an_exception_that_can_be_posted(p
     // The residual is a cost the shop wears and money the bank never sent, so
     // the fee account grows by exactly the difference and the bank leg shrinks
     // by the same.
-    assert_eq!(balance(&pool, "601011000201").await, (55_000, 0));
-    let bank_after = balance(&pool, "101100200100").await;
+    assert_eq!(
+        balance(&pool, "6101", Some("BIAYA_CREDIT_CARD")).await,
+        (55_000, 0)
+    );
+    let bank_after = balance(&pool, "1102", None).await;
     assert_eq!(bank_after.0, bank_before.0);
     assert_eq!(bank_after.1 - bank_before.1, 40_000);
 
@@ -730,7 +728,7 @@ async fn an_unexplained_difference_records_that_nobody_knows_yet(pool: PgPool) {
     .await
     .unwrap_or_else(|error| panic!("match: {error}"));
 
-    let before = balance(&pool, "601011000201").await;
+    let before = balance(&pool, "6101", Some("BIAYA_CREDIT_CARD")).await;
     cloud::acq_settlement_explain(
         &pool,
         settlement_id,
@@ -747,7 +745,10 @@ async fn an_unexplained_difference_records_that_nobody_knows_yet(pool: PgPool) {
     // Nothing is booked. An unexplained difference is not a cost until somebody
     // has decided it is one, and booking it would put a number in the books
     // whose only evidence is that nobody had time to chase it.
-    assert_eq!(balance(&pool, "601011000201").await, before);
+    assert_eq!(
+        balance(&pool, "6101", Some("BIAYA_CREDIT_CARD")).await,
+        before
+    );
     let unposted: i64 = sqlx::query(
         "SELECT COUNT(*)::bigint AS n FROM acquirer_settlement_exception
           WHERE settlement_id = $1 AND journal_entry_id IS NULL",
@@ -902,7 +903,7 @@ async fn what_the_acquirer_owes_reads_the_same_in_the_ledger_and_in_the_books(po
     a_posted_day(&pool).await;
 
     let owed = receivable_control(&pool, "BCA").await;
-    assert_eq!(owed.account_code.as_deref(), Some("101110100201"));
+    assert_eq!(owed.account_code.as_deref(), Some("1201"));
     assert_eq!(owed.side, "RECEIVABLE");
     assert_eq!(owed.ledger_outstanding_minor, 1_000_000);
     assert_eq!(owed.gl_balance_minor, 1_000_000);
@@ -920,7 +921,7 @@ async fn what_the_acquirer_owes_reads_the_same_in_the_ledger_and_in_the_books(po
     assert_eq!(settled.gl_balance_minor, 0);
     assert_eq!(settled.open_items, 0);
     assert_eq!(
-        balance(&pool, "601011000201").await.0,
+        balance(&pool, "6101", Some("BIAYA_CREDIT_CARD")).await.0,
         15_000,
         "the MDR is its own expense line and not a smaller receivable"
     );
@@ -993,7 +994,7 @@ async fn ageing_splits_by_acquirer_even_when_they_share_one_account(pool: PgPool
     for row in &aged.rows {
         assert_eq!(row.site_id, SITE);
         assert_eq!(row.semantic_key, "card_receivable_debit");
-        assert_eq!(row.account_code.as_deref(), Some("101110100201"));
+        assert_eq!(row.account_code.as_deref(), Some("1201"));
         assert_eq!(row.buckets.days_31_60_minor, row.buckets.total_minor);
         assert_eq!(row.buckets.not_due_minor, 0);
     }
@@ -1071,7 +1072,7 @@ async fn an_exception_is_a_cost_and_not_a_smaller_debt(pool: PgPool) {
     assert_eq!(owed.gl_balance_minor, 600_000);
     assert_eq!(owed.difference_minor, 0);
     assert_eq!(
-        balance(&pool, "601011000201").await.0,
+        balance(&pool, "6101", Some("BIAYA_CREDIT_CARD")).await.0,
         15_000 + 40_000,
         "the stated MDR and the charge that was not stated, both costs"
     );

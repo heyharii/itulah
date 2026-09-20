@@ -53,7 +53,7 @@
 //! commit or rollback and serialises every writer of that article's history,
 //! whether or not there is a row in common to lock.
 
-use super::ledger::resolve_account;
+use super::ledger::resolve_account_code;
 use super::poster::{post, PostingIntent, PostingLine};
 use crate::cloud::application::AppError;
 use crate::cloud::domain::{
@@ -118,10 +118,16 @@ pub struct NewCostLayer {
     pub quantity: i64,
     /// What the supplier charged for the goods, before any discount.
     pub gross_cost_minor: i64,
-    /// What came off on the invoice. Positive; it is subtracted here. This
-    /// reduces what the goods cost and is never booked to
-    /// `8010110003 Potongan Pembelian`, which is an income account: doing that
-    /// overstates inventory and other income by the same amount.
+    /// What came off on the invoice. Positive; it is subtracted here, from the
+    /// cost of the goods, and it is never booked as a separate credit.
+    ///
+    /// The client's chart filed `8010110003 Potongan Pembelian` under other
+    /// income, and booking a purchase discount there overstates inventory and
+    /// income by the same amount. 0289 moved it to `5101 Harga pokok
+    /// penjualan` carrying `PURCHASE_DISCOUNT`, so it now reduces cost where it
+    /// belongs — but that is about where a discount somebody DID book belongs,
+    /// not a licence to book one here. A discount on a receipt is a smaller
+    /// cost, not a separate event.
     #[serde(default)]
     pub discount_minor: i64,
     /// When the goods were economically accepted. Not when this was recorded.
@@ -1737,5 +1743,5 @@ pub async fn stock_ledger_control_account(
     pool: &PgPool,
     site_id: &str,
 ) -> Result<String, AppError> {
-    resolve_account(pool, "inventory", site_id, "").await
+    resolve_account_code(pool, "inventory", site_id, "").await
 }

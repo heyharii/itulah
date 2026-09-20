@@ -92,6 +92,10 @@ ITULAH_DB="$db" ITULAH_API="$api" \
   bash "$here/seed-everything.sh"
 
 step "5/5  the chart holds nothing the client does not have"
+# Reads the 190 retired accounts name for name against the client's export, and
+# lists the forty live ones as declared exceptions — their codes are ours (0289).
+# It does NOT check the forty names, because each stands for several of the
+# client's accounts at once; see the note in the script.
 python3 "$here/audit-chart-against-client.py" --db "$db" --loops 1 || true
 
 echo

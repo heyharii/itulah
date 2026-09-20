@@ -1,0 +1,54 @@
+{
+  "model":"jev-latest",
+  "state":{
+    "objective":"Determine which of 104 held legacy accounts can be resolved using only five client files now available, and which must remain provisional.",
+    "available_files":[
+      "Current MASTER ASSET: 1,342 asset rows through 2026 with asset name, value, depreciation rate/life, purchase date, period, asset GL, debit/credit depreciation GL, department, depreciation method, asset type and status.",
+      "Older asset list: asset classes and indicative depreciation lives.",
+      "December 2025 balance sheet by HO and 13 units.",
+      "2025 versus 2024 profit and loss report.",
+      "September 2026 sales summary by division with quantity, gross sales, discount, returns, net sales and average-cost COGS."
+    ],
+    "missing_files":[
+      "Transaction-level general ledger and opening-item detail.",
+      "Owner/principal funding agreements and repayment terms.",
+      "Lease/HGB contracts and schedules.",
+      "Inventory write-off/disposal documents and movement ledger.",
+      "Cheque/giro lifecycle register and bank statements.",
+      "Tax returns and tax reconciliation."
+    ],
+    "observed_evidence":{
+      "replacement_oe":"All 36 Reserve Replacement OE balance-sheet detail lines are zero in the December 2025 report, and all 36 corresponding Replacement OE expense lines are zero in the 2025/2024 P&L. The current asset register nevertheless contains underlying OE items such as racks, hangers, mannequins, tables, boxes, sensors and shopping baskets with asset value and site-specific asset accounts.",
+      "principal":"Principal balances are material. The balance sheet contains 14 site-named Principal accounts, PJP current Principal, and long-term Principal. Reports show balances but no counterparty agreements or repayment substance.",
+      "hgb":"HGB/land-right cost, accumulated amortization and land-right expense lines shown are zero. The older asset-class list includes Hak Pengelolaan Tanah with a 3-year life, but no legal right contract is available.",
+      "rent":"Land rent expense is zero, but store/warehouse rent and staff-house/mess rent have activity in the 2025/2024 P&L. Contracts are unavailable.",
+      "preopening":"Pre-opening cost and accumulated amortization have non-zero balances; pre-opening amortization expense is zero in the 2025/2024 P&L. No cost detail or opening-date schedule is available.",
+      "cip":"Current asset register has 668 rows classified Contract in Progress across HO and units. Balance sheet CIP is non-zero. Project status and placed-in-service documents are unavailable.",
+      "disposed_inventory":"Disposed Inventory has a non-zero balance. Movement/write-off documents are unavailable.",
+      "inventory_damage":"Inventory Damage Expense is zero in the 2025/2024 P&L.",
+      "purchase_discount":"Purchase Discount has activity in both comparative years. Inventory posting policy and transaction detail are unavailable.",
+      "mixed_other":"Mixed Other Income/Expense has activity and changes sign across the comparative data; transaction detail is unavailable.",
+      "current_tax":"Current Tax Income/Expense PPh 25 is zero, while PPh 25 payable/prepaid-related lines exist elsewhere. Tax returns and reconciliation are unavailable.",
+      "sales":"Sales file demonstrates that division, discount, return, net sales and COGS analysis exists outside the GL account code."
+    },
+    "control_rule":"Zero balance supports retirement only when historical activity, open items and posting-rule references have also been checked. Where those are unavailable, the decision may be approved for future posting design while legacy migration remains provisional."
+  },
+  "questions":{
+    "files_sufficient_all":{"type":"choice","instructions":"Are the five files sufficient to finalize all 104 hold accounts?","criteria":{"no":"They provide strong structural evidence but lack transaction, contract, tax and reconciliation evidence for all groups.","yes":"They are sufficient for every classification and migration decision."}},
+    "replacement_future_design":{"type":"choice","instructions":"Are the files sufficient to remove the 72 item-specific Replacement OE accounts from the future posting COA?","criteria":{"yes":"The register holds item/site identity and both report families show zero; use governed OE/asset and expense accounts instead.","no":"Keep all 72 item-specific accounts for future posting."}},
+    "replacement_migration_close":{"type":"choice","instructions":"Are the files alone sufficient to certify that all 72 legacy Replacement OE accounts have no open migration items?","criteria":{"provisional":"No; future design can remove them, but confirm opening balances, historical activity and posting-rule references before final deactivation.","yes":"The two summary reports alone certify every migration item.","keep":"Keep all 72 active permanently."}},
+    "principal_resolution":{"type":"choice","instructions":"Can the Principal accounts be finalized from the reports alone?","criteria":{"no":"Keep provisional until counterparty, agreement, maturity, repayment and owner-equity substance are documented.","liability":"Classify all as one payable immediately.","equity":"Classify all as equity immediately."}},
+    "principal_site_dimension":{"type":"choice","instructions":"Regardless of liability-versus-equity classification, should 14 site names remain separate natural accounts?","criteria":{"no":"Units are sites of one entity; use a single proper nature account plus site/document analysis where needed.","yes":"Retain one Principal GL per unit."}},
+    "hgb_resolution":{"type":"choice","instructions":"Can the zero HGB lines be fully retired from these files alone?","criteria":{"provisional":"Future posting may avoid unused item-specific lines, but legal right and opening/activity checks are still required before migration closure.","yes":"Zero summary values prove no right exists.","keep":"Keep all lines permanently without contract review."}},
+    "rent_resolution":{"type":"choice","instructions":"How should active store/warehouse and mess rent accounts be treated with no contracts?","criteria":{"retain_pending":"Retain appropriate rent expense/prepaid capability and defer lease/HGB classification until contracts are reviewed.","merge_all":"Merge immediately into one general OPEX account.","delete":"Delete because contracts are unavailable."}},
+    "preopening_resolution":{"type":"choice","instructions":"Can non-zero pre-opening balances be finalized from these files?","criteria":{"no":"Require cost composition, opening dates, policy and roll-forward before expense/reclass/retirement.","asset":"Keep permanently as asset.","expense":"Expense immediately without detail."}},
+    "cip_resolution":{"type":"choice","instructions":"What do the register and non-zero balance establish for CIP?","criteria":{"retain_one":"A governed CIP account/subledger is required now; consolidate site-specific identity into project/site dimensions, but reconcile projects before capitalization.","delete":"CIP can be removed.","keep_site_accounts":"One CIP natural account per unit is required."}},
+    "disposed_resolution":{"type":"choice","instructions":"Can non-zero Disposed Inventory be finalized without movement/write-off evidence?","criteria":{"no":"Require quantity/value movements, approvals, proceeds and reconciliation.","expense":"Expense entire balance immediately.","asset":"Keep permanently as inventory asset."}},
+    "damage_zero":{"type":"choice","instructions":"Can zero Inventory Damage Expense be removed from future posting design?","criteria":{"map":"Yes as an item-specific legacy name; future damage/loss events map to the governed inventory-loss account and reason codes, while migration deactivation still checks references.","keep":"Keep a separate permanent damage account.","ignore":"No inventory-loss capability is needed."}},
+    "purchase_discount_resolution":{"type":"choice","instructions":"Can active Purchase Discount be finalized from summary reports alone?","criteria":{"no":"Require purchasing/inventory posting policy and transactions to decide inventory cost, AP settlement or separate presentation.","revenue":"Classify as revenue immediately.","delete":"Delete despite activity."}},
+    "mixed_other_resolution":{"type":"choice","instructions":"What can be concluded about mixed Other Income/Expense from comparative activity?","criteria":{"split_required":"The future design must prohibit a mixed-sign account and split transactions by nature; actual migration mapping needs transaction detail.","keep_mixed":"Retain the mixed account permanently.","net":"Net the existing balance without analysis."}},
+    "tax_resolution":{"type":"choice","instructions":"Can zero Current Tax PPh 25 expense be finalized without returns/reconciliation?","criteria":{"provisional":"Remove the ambiguous legacy label from future posting and use governed tax accounts, but verify old balances/mappings against tax returns before closure.","yes":"Zero P&L proves no tax exposure.","keep":"Keep the ambiguous mixed tax account permanently."}},
+    "sales_dimensions":{"type":"choice","instructions":"Does the sales summary support keeping division and product mix outside natural accounts?","criteria":{"yes":"Division, discounts, returns and COGS analysis are already source/subledger attributes and reports; retain only appropriate natural account distinctions.","no":"Create separate GL accounts per division."}},
+    "resolved_design_count":{"type":"choice","instructions":"How should results be reported with these files?","criteria":{"two_layers":"Separate future-COA design decisions from migration-close decisions: several accounts can be removed from future posting even while legacy balances/references remain provisional.","all_or_none":"No decision is allowed until every missing document arrives.","all_done":"Declare all 104 fully solved."}}
+  }
+}

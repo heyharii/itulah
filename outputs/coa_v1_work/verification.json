@@ -1,0 +1,58 @@
+{
+  "accounts": 158,
+  "legacyRows": 7528,
+  "mappingPrefixRules": 499,
+  "withTarget": 5534,
+  "withoutTarget": 1374,
+  "sheets": [
+    {
+      "name": "COA 158",
+      "end": 162,
+      "last": "Q",
+      "cols": 17
+    },
+    {
+      "name": "Aturan Posting",
+      "end": 36,
+      "last": "I",
+      "cols": 9
+    },
+    {
+      "name": "Mapping Legacy",
+      "end": 7532,
+      "last": "V",
+      "cols": 22
+    },
+    {
+      "name": "Keputusan",
+      "end": 21,
+      "last": "G",
+      "cols": 7
+    },
+    {
+      "name": "Migrasi",
+      "end": 13,
+      "last": "H",
+      "cols": 8
+    },
+    {
+      "name": "Rekonsiliasi",
+      "end": 16,
+      "last": "I",
+      "cols": 9
+    },
+    {
+      "name": "Sumber",
+      "end": 12,
+      "last": "G",
+      "cols": 7
+    },
+    {
+      "name": "Panduan",
+      "end": 28,
+      "last": "C",
+      "cols": 3
+    }
+  ],
+  "invalidTargets": []
+}

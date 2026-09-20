@@ -18,191 +18,22 @@ use uuid::Uuid;
 
 const ACTOR: &str = "ana";
 
-/// One row of the seeded chart: code, name, parent, heading, location.
-type ChartRow = (
-    &'static str,
-    &'static str,
-    Option<&'static str>,
-    bool,
-    Option<&'static str>,
-);
-
-/// Enough of the client's chart to move a machine between two shops and to
-/// carry the affiliate balances that follow it.
+/// Two open months. The chart is the migrations' own.
 ///
-/// The affiliate codes are the client's own, and the shape of them is the whole
-/// reason this fixture is worth reading: `102140100200` is
-/// `Piutang Affiliasi Pembiayaan CIKUPA - HO` — CIKUPA in the ten-digit rung is
-/// the COUNTERPARTY, `00` in the suffix is the OWNER, which is head office. The
-/// mirror is `201230100101`, the same balance in CIKUPA's own books.
+/// This used to mint twenty-nine rows, and the shape of the affiliate codes was
+/// the whole reason it was worth reading: `102140100200` was
+/// `Piutang Affiliasi Pembiayaan CIKUPA - HO` — CIKUPA in the ten-digit rung
+/// was the COUNTERPARTY, `00` in the suffix the OWNER — and `201230100101` was
+/// the same balance in CIKUPA's own books.
+///
+/// All 1,176 of those leaves are `1501 Rekening koran antar-unit` now. Nothing
+/// about the identity is lost and nothing is decoded from digits: the owner is
+/// `journal_line.site_id`, the counterparty is `counter_site_id` (which `1501`
+/// REQUIRES), and financing-or-goods is the `interunit_reason` category. What
+/// changes for a reader is that a receivable and a payable are one account told
+/// apart by sign — inside one legal entity an interunit balance is a clearing
+/// line, and its company-wide total is zero.
 async fn seed_chart(pool: &PgPool) {
-    let rows: [ChartRow; 29] = [
-        ("1", "ASSET", None, true, None),
-        ("102", "NON CURRENT ASSET", Some("1"), true, None),
-        ("10215", "AKTIVA TETAP", Some("102"), true, None),
-        ("1021504", "Machineries", Some("10215"), true, None),
-        (
-            "102150400101",
-            "Mesin CIKUPA",
-            Some("1021504"),
-            false,
-            Some("store-01"),
-        ),
-        (
-            "102150400102",
-            "Mesin MUARO BUNGO",
-            Some("1021504"),
-            false,
-            Some("store-02"),
-        ),
-        // The inter-unit families, both sides.
-        (
-            "10214",
-            "PIUTANG  AFFILIASI ANTAR UNIT",
-            Some("102"),
-            true,
-            None,
-        ),
-        (
-            "1021401",
-            "PIUTANG  AFFILIASI PEMBIAYAAN",
-            Some("10214"),
-            true,
-            None,
-        ),
-        (
-            "102140100200",
-            "Piutang Affiliasi Pembiayaan CIKUPA - HO",
-            Some("1021401"),
-            false,
-            Some("dc"),
-        ),
-        (
-            "102140100300",
-            "Piutang Affiliasi Pembiayaan MUARO BUNGO - HO",
-            Some("1021401"),
-            false,
-            Some("dc"),
-        ),
-        (
-            "102140100400",
-            "Piutang Affiliasi Pembiayaan PURBALINGGA - HO",
-            Some("1021401"),
-            false,
-            Some("dc"),
-        ),
-        (
-            "1021402",
-            "PIUTANG  AFFILIASI ATAS BARANG",
-            Some("10214"),
-            true,
-            None,
-        ),
-        (
-            "102140200200",
-            "Piutang Affiliasi Atas Barang CIKUPA - HO",
-            Some("1021402"),
-            false,
-            Some("dc"),
-        ),
-        (
-            "102140200300",
-            "Piutang Affiliasi Atas Barang MUARO BUNGO - HO",
-            Some("1021402"),
-            false,
-            Some("dc"),
-        ),
-        ("2", "LIABILITIES", None, true, None),
-        ("201", "HUTANG JANGKA PENDEK", Some("2"), true, None),
-        ("20123", "HUTANG LAIN-LAIN", Some("201"), true, None),
-        (
-            "2012301",
-            "HUTANG AFFILIASI PEMBIAYAAN",
-            Some("20123"),
-            true,
-            None,
-        ),
-        (
-            "201230100101",
-            "Hutang Affiliasi Pembiayaan HEAD OFFICE - C001",
-            Some("2012301"),
-            false,
-            Some("store-01"),
-        ),
-        (
-            "201230100102",
-            "Hutang Affiliasi Pembiayaan HEAD OFFICE - C002",
-            Some("2012301"),
-            false,
-            Some("store-02"),
-        ),
-        (
-            "201230100103",
-            "Hutang Affiliasi Pembiayaan HEAD OFFICE - C003",
-            Some("2012301"),
-            false,
-            Some("store-03"),
-        ),
-        (
-            "2012302",
-            "HUTANG AFFILIASI ATAS BARANG",
-            Some("20123"),
-            true,
-            None,
-        ),
-        (
-            "201230200101",
-            "Hutang Affiliasi Atas Barang HEAD OFFICE - C001",
-            Some("2012302"),
-            false,
-            Some("store-01"),
-        ),
-        (
-            "201230200102",
-            "Hutang Affiliasi Atas Barang HEAD OFFICE - C002",
-            Some("2012302"),
-            false,
-            Some("store-02"),
-        ),
-        // What head office pays a shop's electricity out of, and what it owes
-        // the supplier meanwhile.
-        ("101", "CURRENT ASSET", Some("1"), true, None),
-        ("20120", "HUTANG DAGANG", Some("201"), true, None),
-        ("2012001", "HUTANG SUPPLIER", Some("20120"), true, None),
-        (
-            "201200100100",
-            "Hutang Suppliers HO",
-            Some("2012001"),
-            false,
-            Some("dc"),
-        ),
-        (
-            "601011000103",
-            "Biaya Listrik PURBALINGGA",
-            Some("6010110"),
-            false,
-            Some("store-03"),
-        ),
-    ];
-    // The expense family the electricity leaf hangs under, first: a child
-    // cannot be inserted before its parent.
-    for (code, name, parent, is_group, site) in [
-        ("6", "BIAYA OPERASIONAL", None, true, None::<&str>),
-        ("601", "BIAYA UMUM & ADMINISTRASI", Some("6"), true, None),
-        ("60101", "BIAYA UMUM", Some("601"), true, None),
-        (
-            "6010110",
-            "Biaya Listrik, Air & Telepon",
-            Some("60101"),
-            true,
-            None,
-        ),
-    ] {
-        insert_account(pool, code, name, parent, is_group, site).await;
-    }
-    for (code, name, parent, is_group, site) in rows {
-        insert_account(pool, code, name, parent, is_group, site).await;
-    }
     for (year, month) in [(2026, 8), (2026, 9)] {
         cloud::open_period(pool, year, month)
             .await
@@ -210,30 +41,14 @@ async fn seed_chart(pool: &PgPool) {
     }
 }
 
-async fn insert_account(
+async fn map(
     pool: &PgPool,
+    key: &str,
+    site: &str,
+    qualifier: &str,
     code: &str,
-    name: &str,
-    parent: Option<&str>,
-    is_group: bool,
-    site: Option<&str>,
+    category: Option<&str>,
 ) {
-    sqlx::query(
-        "INSERT INTO ledger_account (account_code, name, parent_code, is_group, site_id)
-         VALUES ($1,$2,$3,$4,$5)
-         ON CONFLICT (account_code) DO NOTHING",
-    )
-    .bind(code)
-    .bind(name)
-    .bind(parent)
-    .bind(is_group)
-    .bind(site)
-    .execute(pool)
-    .await
-    .unwrap_or_else(|error| panic!("{code}: {error}"));
-}
-
-async fn map(pool: &PgPool, key: &str, site: &str, qualifier: &str, code: &str) {
     cloud::set_account_mapping(
         pool,
         &cloud::SetAccountMappingRequest {
@@ -241,6 +56,7 @@ async fn map(pool: &PgPool, key: &str, site: &str, qualifier: &str, code: &str) 
             site_id: site.into(),
             qualifier: qualifier.into(),
             account_code: code.into(),
+            category_code: category.map(str::to_string),
             note: None,
         },
         ACTOR,
@@ -255,20 +71,25 @@ async fn map(pool: &PgPool, key: &str, site: &str, qualifier: &str, code: &str) 
 /// `domain::interunit` builds — so if these two ever stopped agreeing, every
 /// inter-unit posting would be refused, and that is what these tests would say.
 async fn map_affiliates(pool: &PgPool) {
-    for (store, receivable, payable) in [
-        ("store-01", "102140100200", "201230100101"),
-        ("store-02", "102140100300", "201230100102"),
-        ("store-03", "102140100400", "201230100103"),
-    ] {
+    for store in ["store-01", "store-02", "store-03"] {
         map(
             pool,
             "affiliate_receivable",
             "dc",
             &format!("PEMBIAYAAN:{store}"),
-            receivable,
+            "1501",
+            Some("FINANCING"),
         )
         .await;
-        map(pool, "affiliate_payable", store, "PEMBIAYAAN:dc", payable).await;
+        map(
+            pool,
+            "affiliate_payable",
+            store,
+            "PEMBIAYAAN:dc",
+            "1501",
+            Some("FINANCING"),
+        )
+        .await;
     }
 }
 
@@ -279,19 +100,25 @@ async fn map_affiliates(pool: &PgPool) {
 /// balance neither side could agree. `kind_for_source` is what decides, and
 /// mapping only these two here is what lets a test prove it decided right.
 async fn map_affiliates_for_goods(pool: &PgPool) {
-    for (store, receivable, payable) in [
-        ("store-01", "102140200200", "201230200101"),
-        ("store-02", "102140200300", "201230200102"),
-    ] {
+    for store in ["store-01", "store-02"] {
         map(
             pool,
             "affiliate_receivable",
             "dc",
             &format!("BARANG:{store}"),
-            receivable,
+            "1501",
+            Some("GOODS"),
         )
         .await;
-        map(pool, "affiliate_payable", store, "BARANG:dc", payable).await;
+        map(
+            pool,
+            "affiliate_payable",
+            store,
+            "BARANG:dc",
+            "1501",
+            Some("GOODS"),
+        )
+        .await;
     }
 }
 
@@ -352,7 +179,7 @@ async fn a_machine_at(pool: &PgPool, site: &str) -> Uuid {
         &cloud::RegisterAssetRequest {
             asset_number: "AST-000001".into(),
             name: "Mesin jahit Juki".into(),
-            category_code: "1021504".into(),
+            category_code: "AIR_CONDITIONER".into(),
             site_id: site.into(),
             acquired_on: date(2026, 8, 1),
             serial_number: None,
@@ -404,8 +231,24 @@ async fn a_machine_at(pool: &PgPool, site: &str) -> Uuid {
 async fn an_asset_moving_between_two_shops_leaves_both_of_them_balanced(pool: PgPool) {
     seed_chart(&pool).await;
     map_affiliates(&pool).await;
-    map(&pool, "fixed_asset", "store-01", "1021504", "102150400101").await;
-    map(&pool, "fixed_asset", "store-02", "1021504", "102150400102").await;
+    map(
+        &pool,
+        "fixed_asset",
+        "store-01",
+        "AIR_CONDITIONER",
+        "1601",
+        Some("IN_SERVICE"),
+    )
+    .await;
+    map(
+        &pool,
+        "fixed_asset",
+        "store-02",
+        "AIR_CONDITIONER",
+        "1601",
+        Some("IN_SERVICE"),
+    )
+    .await;
 
     let asset_id = a_machine_at(&pool, "store-01").await;
     let moved = cloud::transfer_asset(
@@ -463,7 +306,10 @@ async fn an_asset_moving_between_two_shops_leaves_both_of_them_balanced(pool: Pg
         .find(|leg| leg.0 == "store-01")
         .unwrap_or_else(|| panic!("no leg for store-01: {legs:?}"));
     assert_eq!(store_01.1, "dc");
-    assert_eq!(store_01.2, "201230100101");
+    assert_eq!(
+        store_01.2, "1501",
+        "one clearing account; the sign and the counterparty say the rest"
+    );
     assert_eq!((store_01.3, store_01.4), (24_000_000, 0));
 
     let store_02 = legs
@@ -500,7 +346,7 @@ async fn an_asset_moving_between_two_shops_leaves_both_of_them_balanced(pool: Pg
 async fn a_cost_may_sit_where_it_belongs_and_the_shop_still_balances(pool: PgPool) {
     seed_chart(&pool).await;
     map_affiliates(&pool).await;
-    map(&pool, "non_merchandise_payable", "dc", "", "201200100100").await;
+    map(&pool, "non_merchandise_payable", "dc", "", "2101", None).await;
 
     let recorded = cloud::record_bill(
         &pool,
@@ -517,13 +363,17 @@ async fn a_cost_may_sit_where_it_belongs_and_the_shop_still_balances(pool: PgPoo
             note: None,
             kind: Some("EXPENSE".into()),
             lines: Some(vec![cloud::RecordBillLine {
-                account_code: "601011000103".into(),
-                // PURBALINGGA's electricity, on head office's bill.
+                account_code: "6301".into(),
+                // PURBALINGGA's electricity, on head office's bill. The account
+                // was `601011000103 Biaya Listrik PURBALINGGA`, which said both
+                // what the cost was and whose it was; `6301` says neither, so
+                // the category says the first and `site_id` the second.
                 site_id: "store-03".into(),
                 amount_minor: 1_000_000,
                 memo: Some("listrik September".into()),
                 asset_class_code: None,
                 draws_reserve: false,
+                category_code: Some("BIAYA_PEMAKAIAN_LISTRIK".into()),
             }]),
             matching: None,
             withholding_code: None,
@@ -568,8 +418,24 @@ async fn a_cost_may_sit_where_it_belongs_and_the_shop_still_balances(pool: PgPoo
 async fn a_document_posts_once_for_each_step_and_no_more(pool: PgPool) {
     seed_chart(&pool).await;
     map_affiliates_for_goods(&pool).await;
-    map(&pool, "fixed_asset", "store-01", "1021504", "102150400101").await;
-    map(&pool, "fixed_asset", "store-02", "1021504", "102150400102").await;
+    map(
+        &pool,
+        "fixed_asset",
+        "store-01",
+        "AIR_CONDITIONER",
+        "1601",
+        Some("IN_SERVICE"),
+    )
+    .await;
+    map(
+        &pool,
+        "fixed_asset",
+        "store-02",
+        "AIR_CONDITIONER",
+        "1601",
+        Some("IN_SERVICE"),
+    )
+    .await;
 
     let intent = |amount: i64| PostingIntent {
         posting_date: date(2026, 9, 3),
@@ -579,8 +445,9 @@ async fn a_document_posts_once_for_each_step_and_no_more(pool: PgPool) {
         currency: "IDR".into(),
         memo: Some("kirim barang".into()),
         lines: vec![
-            PostingLine::credit("fixed_asset", "store-01", amount).with_qualifier("1021504"),
-            PostingLine::debit("fixed_asset", "store-02", amount).with_qualifier("1021504"),
+            PostingLine::credit("fixed_asset", "store-01", amount)
+                .with_qualifier("AIR_CONDITIONER"),
+            PostingLine::debit("fixed_asset", "store-02", amount).with_qualifier("AIR_CONDITIONER"),
         ],
     };
 
@@ -647,12 +514,25 @@ async fn a_document_posts_once_for_each_step_and_no_more(pool: PgPool) {
     .collect();
     assert_eq!(
         accounts,
-        vec![
-            "102140200200".to_string(),
-            "102140200300".to_string(),
-            "201230200101".to_string(),
-            "201230200102".to_string()
-        ],
+        vec!["1501".to_string()],
+        "the legs of a TRANSFER are interunit legs"
+    );
+
+    // And they are in the GOODS column, which is the assertion the four codes
+    // above used to make by being four codes. Only BARANG is mapped in this
+    // test, so a rule that had classed TRANSFER as financing would not have
+    // posted at all — which is the strongest form this takes.
+    let reasons: Vec<String> = sqlx::query_scalar(
+        "SELECT DISTINCT category_code FROM journal_line
+          WHERE counter_site_id IS NOT NULL AND account_code = '1501'
+          ORDER BY 1",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("reasons: {error}"));
+    assert_eq!(
+        reasons,
+        vec!["GOODS".to_string()],
         "the legs of a TRANSFER belong in Affiliasi Atas Barang"
     );
 }
@@ -682,21 +562,30 @@ async fn an_entry_balanced_only_in_total_is_refused_by_the_database(pool: PgPool
     .await
     .unwrap_or_else(|error| panic!("header: {error}"));
 
+    // `1501` declares `interunit_reason` and requires a counterparty; `1601`
+    // declares `asset_stage` since 0294, and a machine that is in use is
+    // `IN_SERVICE`. The raw rows carry both correctly, because what is under
+    // test is the PER-SITE balance trigger and a row refused by 0288's category
+    // trigger never reaches it.
     for (line, site, debit, credit) in [(1, "store-01", 700, 0), (2, "dc", 0, 700)] {
+        let (code, category, counter) = if site == "dc" {
+            ("1501", Some("FINANCING"), Some("store-01"))
+        } else {
+            ("1601", Some("IN_SERVICE"), None)
+        };
         sqlx::query(
             "INSERT INTO journal_line
-               (line_id, entry_id, line_number, account_code, site_id, debit_minor, credit_minor)
-             VALUES ($1,$2,$3,$4,$5,$6,$7)",
+               (line_id, entry_id, line_number, account_code, site_id, category_code,
+                counter_site_id, debit_minor, credit_minor)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
         )
         .bind(Uuid::new_v4())
         .bind(entry_id)
         .bind(line)
-        .bind(if site == "dc" {
-            "102140100200"
-        } else {
-            "102150400101"
-        })
+        .bind(code)
         .bind(site)
+        .bind(category)
+        .bind(counter)
         .bind(debit as i64)
         .bind(credit as i64)
         .execute(&mut *tx)

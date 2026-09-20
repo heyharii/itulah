@@ -1,0 +1,47 @@
+{
+  "model": "jev-1.13.0",
+  "answers": {
+    "conservative_boundary": {
+      "type": "choice",
+      "choice": "provisional",
+      "confidence": 0.51,
+      "probabilities": {
+        "final": 0.0,
+        "wrong": 0.32,
+        "provisional": 0.68
+      }
+    },
+    "additional_merge": {
+      "type": "choice",
+      "choice": "defer",
+      "confidence": 0.94,
+      "probabilities": {
+        "defer": 0.96,
+        "merge": 0.04,
+        "all": 0.0
+      }
+    },
+    "bank_records": {
+      "type": "choice",
+      "choice": "no",
+      "confidence": 1.0,
+      "probabilities": {
+        "no": 1.0,
+        "yes": 0.0
+      }
+    },
+    "access": {
+      "type": "choice",
+      "choice": "no",
+      "confidence": 1.0,
+      "probabilities": {
+        "no": 1.0,
+        "yes": 0.0
+      }
+    }
+  },
+  "usage": {
+    "input_tokens": 1432,
+    "output_tokens": 140
+  }
+}

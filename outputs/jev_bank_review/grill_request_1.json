@@ -1,0 +1,325 @@
+{
+  "model": "jev-latest",
+  "state": {
+    "facts": [
+      "499 families after stripping unit suffix. Bank accounts associated with individual units; only HO personnel have access and operational authority. No direct unit-to-unit transactions.",
+      "Bank access authorization is separate from unit attribution. Original COA retained.",
+      "No balances, transaction examples, deposit original maturities/restrictions, loan contracts or cheque posting policy supplied."
+    ],
+    "source_families": [
+      {
+        "code": "1011002001",
+        "name": "Cash In Bank Giro Bank BCA"
+      },
+      {
+        "code": "1011002002",
+        "name": "Cash In Bank Giro Bank MANDIRI"
+      },
+      {
+        "code": "1011002003",
+        "name": "Cash In Bank Giro Bank BRI"
+      },
+      {
+        "code": "1011002004",
+        "name": "Cash In Bank Giro Bank BNI"
+      },
+      {
+        "code": "1011002005",
+        "name": "Cash In Bank Giro Bank DANAMON"
+      },
+      {
+        "code": "1011003001",
+        "name": "Cash In Bank Tabungan Bank BCA"
+      },
+      {
+        "code": "1011003002",
+        "name": "Cash In Bank Tabungan Bank Mandiri"
+      },
+      {
+        "code": "1011003003",
+        "name": "Cash In Bank Tabungan Bank BRI"
+      },
+      {
+        "code": "1011003004",
+        "name": "Cash In Bank Tabungan Bank BNI"
+      },
+      {
+        "code": "1011003005",
+        "name": "Cash In Bank Tabungan Bank BTN"
+      },
+      {
+        "code": "1011004001",
+        "name": "TIME DEPOSIT BANK BCA"
+      },
+      {
+        "code": "1011004002",
+        "name": "TIME DEPOSIT BANK MANDIRI"
+      },
+      {
+        "code": "1011004003",
+        "name": "TIME DEPOSIT BANK BRI"
+      },
+      {
+        "code": "1011004004",
+        "name": "TIME DEPOSIT BANK BNI"
+      },
+      {
+        "code": "2012002001",
+        "name": "Outstanding Giro Bank BCA"
+      },
+      {
+        "code": "2012002002",
+        "name": "Outstanding Giro Bank Mandiri"
+      },
+      {
+        "code": "2012002003",
+        "name": "Outstanding Giro Bank BRI"
+      },
+      {
+        "code": "2012002004",
+        "name": "Outstanding Giro Bank BNI"
+      },
+      {
+        "code": "2012002005",
+        "name": "Outstanding Giro Bank DANAMON"
+      },
+      {
+        "code": "2012303001",
+        "name": "Hutang Lain-lain Principal HEAD OFFICE"
+      },
+      {
+        "code": "2012303002",
+        "name": "Hutang Lain-lain Principal CIKUPA"
+      },
+      {
+        "code": "2012303003",
+        "name": "Hutang Lain-lain Principal MUARO BUNGO"
+      },
+      {
+        "code": "2012303004",
+        "name": "Hutang Lain-lain Principal PURBALINGGA"
+      },
+      {
+        "code": "2012303005",
+        "name": "Hutang Lain-lain Principal BUMIAYU"
+      },
+      {
+        "code": "2012303006",
+        "name": "Hutang Lain-lain Principal JAMBI"
+      },
+      {
+        "code": "2012303007",
+        "name": "Hutang Lain-lain Principal WIRAMODE"
+      },
+      {
+        "code": "2012303008",
+        "name": "Hutang Lain-lain Principal BREBES"
+      },
+      {
+        "code": "2012303009",
+        "name": "Hutang Lain-lain Principal PASURUAN"
+      },
+      {
+        "code": "2012303010",
+        "name": "Hutang Lain-lain Principal WMJB"
+      },
+      {
+        "code": "2012303011",
+        "name": "Hutang Lain-lain Principal WMBA"
+      },
+      {
+        "code": "2012303012",
+        "name": "Hutang Lain-lain Principal SIPIN"
+      },
+      {
+        "code": "2012303013",
+        "name": "Hutang Lain-lain Principal BANJARAN"
+      },
+      {
+        "code": "2012303014",
+        "name": "Hutang Lain-lain Principal WONOSOBO"
+      },
+      {
+        "code": "2012501001",
+        "name": "PJP Jatuh Tempo - Principal"
+      },
+      {
+        "code": "2012502001",
+        "name": "PJP Jatuh Tempo  Bank BCA"
+      },
+      {
+        "code": "2012502002",
+        "name": "PJP Jatuh Tempo  Bank Mandiri"
+      },
+      {
+        "code": "2012502003",
+        "name": "PJP Jatuh Tempo  Bank BRI"
+      },
+      {
+        "code": "2012502004",
+        "name": "PJP Jatuh Tempo  Bank BNI"
+      },
+      {
+        "code": "2012502005",
+        "name": "PJP Jatuh Tempo  Bank Danamon"
+      },
+      {
+        "code": "2022401001",
+        "name": "Pinjaman Jangka Panjang  Principal"
+      },
+      {
+        "code": "2022402001",
+        "name": "Pinjaman Jangka Panjang  Bank BCA"
+      },
+      {
+        "code": "2022402002",
+        "name": "Pinjaman Jangka Panjang  Bank Mandiri"
+      },
+      {
+        "code": "2022402003",
+        "name": "Pinjaman Jangka Panjang  Bank BRI"
+      },
+      {
+        "code": "2022402004",
+        "name": "Pinjaman Jangka Panjang  Bank BNI"
+      },
+      {
+        "code": "2022402005",
+        "name": "Pinjaman Jangka Panjang  Bank Danamon"
+      },
+      {
+        "code": "204001",
+        "name": "Giro Keluar"
+      }
+    ],
+    "count_scope": "14 asset families: 5 Giro, 5 savings, 4 deposits. 5 named Outstanding Giro plus separate legacy Giro Keluar. 5 bank current-maturity loan families and 5 bank long-term loan families. Principal loans are excluded from bank-name compression.",
+    "previous_inconsistency": "Previous Jev supported one savings GL in overall 488 count but chose retain five savings GL on a specific question. Resolve conditions, do not accept an earlier model answer as evidence."
+  },
+  "questions": {
+    "savings_controlled": {
+      "type": "choice",
+      "instructions": "Assume five savings families differ ONLY by bank name, have identical accounting treatment, mandatory actual bank_account_id, per-account reconciliation and preserved unit attribution. Is bank-name-only GL duplication necessary?",
+      "criteria": {
+        "merge": "No: one savings GL with separate bank records preserves these controls.",
+        "keep": "Yes: retain five GLs even under stated assumptions.",
+        "unknown": "Cannot decide."
+      }
+    },
+    "savings_evidence": {
+      "type": "choice",
+      "instructions": "Does the actual COA alone establish that all five savings accounts satisfy those identical-treatment assumptions?",
+      "criteria": {
+        "no": "No: account names alone do not establish restrictions/control differences.",
+        "yes": "Yes."
+      }
+    },
+    "outstanding_nature": {
+      "type": "choice",
+      "instructions": "Can Outstanding Giro be merged into bank cash or loan GL merely because the bank name matches?",
+      "criteria": {
+        "no": "No; distinguish issued uncleared instruments and their posting lifecycle from cash balances and loans.",
+        "yes": "Yes bank identity is enough."
+      }
+    },
+    "outstanding_bank_names": {
+      "type": "choice",
+      "instructions": "If the five named Outstanding Giro families follow identical posting and clearing rules, with cheque register and bank_account_id, may bank-name variants share one clearing GL?",
+      "criteria": {
+        "conditional_merge": "Yes under these conditions; retain instrument-level reconciliation.",
+        "keep_names": "No bank-name variants must always remain five GLs.",
+        "unknown": "Unknown."
+      }
+    },
+    "giro_keluar": {
+      "type": "choice",
+      "instructions": "Can legacy Giro Keluar be merged with Outstanding Giro without inspecting transactions and posting policy?",
+      "criteria": {
+        "review": "No: determine whether it is duplicate clearing, a different liability, or another lifecycle account.",
+        "merge": "Yes names prove equivalence."
+      }
+    },
+    "cheque_policy": {
+      "type": "choice",
+      "instructions": "Do the names prove whether bank cash is reduced on issue or only on clearing and whether a clearing GL is needed?",
+      "criteria": {
+        "unknown": "No: inspect actual journal lifecycle and reconciliation practice.",
+        "known": "Yes."
+      }
+    },
+    "loan_identity": {
+      "type": "choice",
+      "instructions": "Can five bank-name variants of current maturities be grouped into one current bank-loan GL, and five long-term variants into one long-term GL, with mandatory loan_facility_id and schedules, assuming equivalent accounting classes?",
+      "criteria": {
+        "two": "Yes two distinct provisional GL groups, separate facility records.",
+        "one": "One GL for all current and long-term loans.",
+        "ten": "Always retain ten bank-name GLs."
+      }
+    },
+    "loan_keys": {
+      "type": "choice",
+      "instructions": "Is bank_account_id alone sufficient to identify loan obligations?",
+      "criteria": {
+        "facility": "No: separate loan_facility_id/contract, lender and schedules; payment bank is only a linked source.",
+        "bank_only": "Yes."
+      }
+    },
+    "principal": {
+      "type": "choice",
+      "instructions": "Can Principal loans be assumed bank loans because an earlier mapping grouped them together?",
+      "criteria": {
+        "no": "No: identify creditor and contractual nature first; exclude them from bank-name-only merges.",
+        "yes": "Yes."
+      }
+    },
+    "deposit_identity": {
+      "type": "choice",
+      "instructions": "Can bank-name variants of deposits share a GL when original maturity, restriction, liquidity and accounting treatment are equivalent, with individual deposit records?",
+      "criteria": {
+        "conditional": "Yes within the same verified classification; preserve deposit_id and schedules.",
+        "all": "All deposits may share cash-equivalent GL regardless of restrictions.",
+        "names": "Each bank must always have a separate deposit GL."
+      }
+    },
+    "deposit_classification": {
+      "type": "choice",
+      "instructions": "Can four Time Deposit names alone establish one final cash-equivalent/current/noncurrent/restricted GL classification?",
+      "criteria": {
+        "no": "No: need original maturity, purpose, liquidity, risk and restrictions plus applicable reporting policy.",
+        "yes": "Yes."
+      }
+    },
+    "deposit_key": {
+      "type": "choice",
+      "instructions": "Which key preserves multiple placements at the same bank with different terms?",
+      "criteria": {
+        "instrument": "deposit_id per placement linked to bank and unit, with original term, maturity, restrictions and rollover history.",
+        "bank": "Bank name alone."
+      }
+    },
+    "count_488": {
+      "type": "choice",
+      "instructions": "What does 499-14+3=488 establish?",
+      "criteria": {
+        "scenario": "Arithmetic for retaining three provisional asset families, not proof of final classifications.",
+        "final": "Final approved GL count."
+      }
+    },
+    "count_476": {
+      "type": "choice",
+      "instructions": "If asset families14->3, named Outstanding Giro5->1 (Giro Keluar remains separate), current bank loans5->1 and long-term bank loans5->1, what count follows?",
+      "criteria": {
+        "476": "499-11-4-4-4=476 provisional families.",
+        "475": "475 despite retaining Giro Keluar.",
+        "488": "488."
+      }
+    },
+    "count_deposit_splits": {
+      "type": "choice",
+      "instructions": "If deposits require k verified GL classes, under the same other reductions, how should count change?",
+      "criteria": {
+        "formula": "475+k: 476 if k=1,477 if k=2,etc.; legacy Giro Keluar still separate.",
+        "fixed": "Always476 irrespective of deposit splits."
+      }
+    }
+  }
+}

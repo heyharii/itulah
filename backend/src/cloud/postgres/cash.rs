@@ -32,7 +32,7 @@
 //! third, "diperiksa", is a wet signature and this module does not pretend
 //! otherwise.
 
-use super::ledger::{assert_postable, resolve_account, Intent};
+use super::ledger::{assert_category_for_account, assert_postable, resolve_account, Intent};
 use super::poster::{post, reverse, LineAccount, PostingIntent, PostingLine};
 use crate::cloud::application::AppError;
 use crate::cloud::domain::{
@@ -57,6 +57,15 @@ pub struct CashSide {
     #[serde(default)]
     pub qualifier: String,
     pub account_code: Option<String>,
+    /// What kind of thing this side is, on the accounts that are kept by kind.
+    ///
+    /// Sent only with `account_code`, and required there whenever the account
+    /// declares a family: `6301` is every general and administrative expense
+    /// the company has, and a document naming it without saying which cannot
+    /// post. Refused beside `semantic_key`, because the map already chose the
+    /// pair and a second answer could only disagree with it.
+    #[serde(default)]
+    pub category_code: Option<String>,
     pub site_id: String,
 }
 
@@ -66,6 +75,11 @@ pub(super) struct ResolvedSide {
     pub key: Option<String>,
     pub qualifier: String,
     pub account_code: Option<String>,
+    /// The category this side posts under: the map's, when the side named a
+    /// meaning; the person's, when they named a code. Stored on the document
+    /// either way, so that posting it a second time — a reversal, a re-post
+    /// after a correction — files it exactly where the first one did.
+    pub category_code: Option<String>,
     pub site_id: String,
     /// Whether this side is one of the seven meanings that hold money.
     pub money: bool,
@@ -108,10 +122,16 @@ pub struct CashDocumentRow {
     pub from_key: Option<String>,
     pub from_qualifier: String,
     pub from_account_code: Option<String>,
+    /// What the FROM side is filed as. Stored on the document rather than
+    /// re-derived at posting time: the document is the record of what somebody
+    /// decided, and a category worked out afresh months later could file a
+    /// reversal somewhere the original never went.
+    pub from_category_code: Option<String>,
     pub from_site: String,
     pub to_key: Option<String>,
     pub to_qualifier: String,
     pub to_account_code: Option<String>,
+    pub to_category_code: Option<String>,
     pub to_site: String,
 
     pub amount_minor: i64,
@@ -139,8 +159,8 @@ pub struct CashDocumentRow {
 }
 
 const DOCUMENT_COLUMNS: &str = "d.document_id, d.kind, d.number, d.doc_date,
-     d.from_key, d.from_qualifier, d.from_account_code, d.from_site,
-     d.to_key, d.to_qualifier, d.to_account_code, d.to_site,
+     d.from_key, d.from_qualifier, d.from_account_code, d.from_category_code, d.from_site,
+     d.to_key, d.to_qualifier, d.to_account_code, d.to_category_code, d.to_site,
      d.amount_minor, d.currency, d.party_kind, d.supplier_id, d.employee_id,
      d.party_name, d.memo, d.attachment_file_id, d.statement_line_id,
      d.status, d.journal_entry_id, d.reversal_entry_id,
@@ -158,10 +178,12 @@ fn to_document(row: &sqlx::postgres::PgRow) -> Result<CashDocumentRow, AppError>
         from_key: row.try_get("from_key")?,
         from_qualifier: row.try_get("from_qualifier")?,
         from_account_code: row.try_get("from_account_code")?,
+        from_category_code: row.try_get("from_category_code")?,
         from_site: row.try_get("from_site")?,
         to_key: row.try_get("to_key")?,
         to_qualifier: row.try_get("to_qualifier")?,
         to_account_code: row.try_get("to_account_code")?,
+        to_category_code: row.try_get("to_category_code")?,
         to_site: row.try_get("to_site")?,
         amount_minor: row.try_get("amount_minor")?,
         currency: row.try_get("currency")?,
@@ -277,21 +299,41 @@ async fn resolve_side(
         )));
     }
 
+    let named_category = side
+        .category_code
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
     match (key, code) {
         (Some(key), None) => {
+            if let Some(named) = named_category {
+                return Err(AppError::Validation(format!(
+                    "the {which} side names the meaning '{key}' and the category {named}; the \
+                     Account Map already chose a category for that meaning here, and a second \
+                     answer could only disagree with it. Send the meaning, or send an account \
+                     code and a category."
+                )));
+            }
             let resolved = resolve_account(pool, key, site, side.qualifier.trim()).await?;
-            assert_postable(pool, &resolved, Intent::Post).await?;
+            assert_postable(pool, &resolved.account_code, Intent::Post).await?;
             Ok(ResolvedSide {
                 key: Some(key.to_string()),
                 qualifier: side.qualifier.trim().to_string(),
                 account_code: None,
+                category_code: resolved.category_code,
                 site_id: site.to_string(),
                 money: holds_money(key),
-                resolved_code: resolved,
+                resolved_code: resolved.account_code,
             })
         }
         (None, Some(code)) => {
             assert_postable(pool, code, Intent::Post).await?;
+            // Checked here and not left to the poster, for the reason the
+            // refusal above is checked here: the person keying the document is
+            // still on the screen, and a category refused at approval time
+            // names a choice somebody else made days ago.
+            assert_category_for_account(pool, code, named_category, Intent::Post).await?;
             // A person who names a bank account by its code is describing a
             // transfer, and the document would call it a payment. Refused, and
             // the refusal says which word to use instead — the alternative is a
@@ -308,6 +350,7 @@ async fn resolve_side(
                 key: None,
                 qualifier: String::new(),
                 account_code: Some(code.to_string()),
+                category_code: named_category.map(str::to_string),
                 site_id: site.to_string(),
                 money: false,
                 resolved_code: code.to_string(),
@@ -334,23 +377,36 @@ pub(super) fn side_from_meaning(
     qualifier: &str,
     site_id: &str,
     resolved_code: String,
+    category_code: Option<String>,
 ) -> ResolvedSide {
     ResolvedSide {
         key: Some(semantic_key.to_string()),
         qualifier: qualifier.to_string(),
         account_code: None,
+        category_code,
         site_id: site_id.to_string(),
         money: holds_money(semantic_key),
         resolved_code,
     }
 }
 
-/// A side named by a client account code a person chose.
-pub(super) fn side_from_account(account_code: &str, site_id: &str) -> ResolvedSide {
+/// A side named by a client account code a person chose, and the category they
+/// chose with it.
+///
+/// The two travel together for the same reason `ledger::Resolved` carries both:
+/// with forty accounts the code alone does not say what the line is about, and
+/// a caller free to pass one without the other is a caller free to build a line
+/// the ledger will refuse.
+pub(super) fn side_from_account(
+    account_code: &str,
+    site_id: &str,
+    category_code: Option<String>,
+) -> ResolvedSide {
     ResolvedSide {
         key: None,
         qualifier: String::new(),
         account_code: Some(account_code.to_string()),
+        category_code,
         site_id: site_id.to_string(),
         money: false,
         resolved_code: account_code.to_string(),
@@ -528,11 +584,12 @@ pub(super) async fn cash_document_insert(
     sqlx::query(
         "INSERT INTO cash_document
            (document_id, kind, doc_date,
-            from_key, from_qualifier, from_account_code, from_site,
-            to_key, to_qualifier, to_account_code, to_site,
+            from_key, from_qualifier, from_account_code, from_category_code, from_site,
+            to_key, to_qualifier, to_account_code, to_category_code, to_site,
             amount_minor, currency, party_kind, supplier_id, employee_id, party_name,
             memo, attachment_file_id, statement_line_id, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'IDR',$13,$14,$15,$16,$17,$18,$19,$20)",
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'IDR',
+                 $15,$16,$17,$18,$19,$20,$21,$22)",
     )
     .bind(document_id)
     .bind(draft.direction.kind())
@@ -540,10 +597,12 @@ pub(super) async fn cash_document_insert(
     .bind(draft.from.key.as_deref())
     .bind(&draft.from.qualifier)
     .bind(draft.from.account_code.as_deref())
+    .bind(draft.from.category_code.as_deref())
     .bind(&draft.from.site_id)
     .bind(draft.to.key.as_deref())
     .bind(&draft.to.qualifier)
     .bind(draft.to.account_code.as_deref())
+    .bind(draft.to.category_code.as_deref())
     .bind(&draft.to.site_id)
     .bind(draft.amount_minor)
     .bind(&draft.party_kind)
@@ -663,26 +722,34 @@ pub async fn cash_document_approve(
 // Posting
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 fn side_line(
     key: Option<&str>,
     qualifier: &str,
     account_code: Option<&str>,
+    category_code: Option<&str>,
     site_id: &str,
     debit: i64,
     credit: i64,
     memo: &str,
 ) -> PostingLine {
     let account = match (key, account_code) {
+        // The map chooses the category for a meaning, so nothing is carried
+        // here: the poster resolves the pair together and a category attached
+        // to a meaning would be a second, staler answer.
         (Some(key), _) => LineAccount::Meaning {
             semantic_key: key.to_string(),
             qualifier: qualifier.to_string(),
         },
+        // The person's, stored on the document when they keyed it.
         (None, Some(code)) => LineAccount::Account {
             account_code: code.to_string(),
+            category_code: category_code.map(str::to_string),
         },
         // Unreachable: the table's CHECK refuses a side that names neither.
         (None, None) => LineAccount::Account {
             account_code: String::new(),
+            category_code: None,
         },
     };
     PostingLine {
@@ -715,8 +782,8 @@ pub(super) async fn cash_document_post_in(
     let row = sqlx::query(
         "SELECT kind, number, status, doc_date, amount_minor, currency, memo,
                 party_name, party_kind, supplier_id,
-                from_key, from_qualifier, from_account_code, from_site,
-                to_key, to_qualifier, to_account_code, to_site
+                from_key, from_qualifier, from_account_code, from_category_code, from_site,
+                to_key, to_qualifier, to_account_code, to_category_code, to_site
            FROM cash_document WHERE document_id = $1 FOR UPDATE",
     )
     .bind(document_id)
@@ -750,6 +817,8 @@ pub(super) async fn cash_document_post_in(
             &row.try_get::<String, _>("to_qualifier")?,
             row.try_get::<Option<String>, _>("to_account_code")?
                 .as_deref(),
+            row.try_get::<Option<String>, _>("to_category_code")?
+                .as_deref(),
             &row.try_get::<String, _>("to_site")?,
             amount,
             0,
@@ -759,6 +828,8 @@ pub(super) async fn cash_document_post_in(
             row.try_get::<Option<String>, _>("from_key")?.as_deref(),
             &row.try_get::<String, _>("from_qualifier")?,
             row.try_get::<Option<String>, _>("from_account_code")?
+                .as_deref(),
+            row.try_get::<Option<String>, _>("from_category_code")?
                 .as_deref(),
             &row.try_get::<String, _>("from_site")?,
             0,
@@ -993,6 +1064,15 @@ pub struct SlipAccount {
     /// "Cash In Bank Giro Bank BCA HO" and anything else is a different account
     /// as far as they are concerned.
     pub account_name: String,
+    /// What kind of thing it is, where the account is kept by kind, and the
+    /// client's own word for that kind.
+    ///
+    /// Printed because the slip has to be readable as paper: with forty
+    /// accounts, "6301 Beban Umum & Administrasi" is what every general
+    /// expense says, and the person filing it needs to see "Listrik" beside it
+    /// to know which slip they are holding.
+    pub category_code: Option<String>,
+    pub category_name: Option<String>,
     pub site_id: String,
 }
 
@@ -1046,25 +1126,53 @@ async fn account_name_of(pool: &PgPool, code: &str) -> Result<String, AppError> 
         .unwrap_or_else(|| code.to_string()))
 }
 
+/// The client's word for a category, or the code itself when the row is gone.
+///
+/// Falls back rather than refusing, exactly as `account_name_of` does: a slip
+/// is a reprint of something that already posted, and a category retired since
+/// then must still print the paper it is on.
+async fn category_name_of(pool: &PgPool, code: &str) -> Result<String, AppError> {
+    let row = sqlx::query("SELECT name FROM line_category WHERE category_code = $1")
+        .bind(code)
+        .fetch_optional(pool)
+        .await?;
+    Ok(row
+        .map(|row| row.try_get::<String, _>("name"))
+        .transpose()?
+        .unwrap_or_else(|| code.to_string()))
+}
+
 async fn slip_side(
     pool: &PgPool,
     key: Option<&str>,
     qualifier: &str,
     account_code: Option<&str>,
+    category_code: Option<&str>,
     site_id: &str,
 ) -> Result<SlipAccount, AppError> {
     // Resolved through the map on every read rather than remembered, so the
     // slip follows a remapping instead of printing where the account used to
-    // be.
-    let code = match (key, account_code) {
-        (Some(key), _) => resolve_account(pool, key, site_id, qualifier).await?,
-        (None, Some(code)) => code.to_string(),
-        (None, None) => String::new(),
+    // be. The category comes back with the account for the meaning side, and
+    // off the document for the side a person coded — the same split the
+    // posting makes, so the paper and the entry cannot say different things.
+    let (code, category) = match (key, account_code) {
+        (Some(key), _) => {
+            let resolved = resolve_account(pool, key, site_id, qualifier).await?;
+            (resolved.account_code, resolved.category_code)
+        }
+        (None, Some(code)) => (code.to_string(), category_code.map(str::to_string)),
+        (None, None) => (String::new(), None),
     };
     let account_name = account_name_of(pool, &code).await?;
+    let category_name = match &category {
+        Some(category) => Some(category_name_of(pool, category).await?),
+        None => None,
+    };
     Ok(SlipAccount {
         account_code: code,
         account_name,
+        category_code: category,
+        category_name,
         site_id: site_id.to_string(),
     })
 }
@@ -1097,6 +1205,7 @@ pub async fn cash_document_slip(
         document.from_key.as_deref(),
         &document.from_qualifier,
         document.from_account_code.as_deref(),
+        document.from_category_code.as_deref(),
         &document.from_site,
     )
     .await?;
@@ -1105,6 +1214,7 @@ pub async fn cash_document_slip(
         document.to_key.as_deref(),
         &document.to_qualifier,
         document.to_account_code.as_deref(),
+        document.to_category_code.as_deref(),
         &document.to_site,
     )
     .await?;

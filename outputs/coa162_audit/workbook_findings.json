@@ -1,0 +1,973 @@
+{
+  "unknown_decision_refs": [
+    {
+      "code": "1104199",
+      "row": 32,
+      "decision": "D13"
+    },
+    {
+      "code": "1105102",
+      "row": 35,
+      "decision": "D15"
+    },
+    {
+      "code": "1105103",
+      "row": 36,
+      "decision": "D15"
+    },
+    {
+      "code": "1105104",
+      "row": 37,
+      "decision": "D15"
+    },
+    {
+      "code": "1105109",
+      "row": 38,
+      "decision": "D15"
+    },
+    {
+      "code": "1202001",
+      "row": 46,
+      "decision": "D16"
+    },
+    {
+      "code": "1202101",
+      "row": 49,
+      "decision": "D16"
+    },
+    {
+      "code": "1202191",
+      "row": 50,
+      "decision": "D16"
+    },
+    {
+      "code": "1202201",
+      "row": 51,
+      "decision": "D16"
+    },
+    {
+      "code": "1202291",
+      "row": 52,
+      "decision": "D16"
+    },
+    {
+      "code": "1202301",
+      "row": 53,
+      "decision": "D16"
+    },
+    {
+      "code": "1202391",
+      "row": 54,
+      "decision": "D16"
+    },
+    {
+      "code": "1202401",
+      "row": 55,
+      "decision": "D16"
+    },
+    {
+      "code": "1202491",
+      "row": 56,
+      "decision": "D16"
+    },
+    {
+      "code": "1202501",
+      "row": 57,
+      "decision": "D16"
+    },
+    {
+      "code": "1202591",
+      "row": 58,
+      "decision": "D16"
+    },
+    {
+      "code": "1202601",
+      "row": 59,
+      "decision": "D16"
+    },
+    {
+      "code": "1202701",
+      "row": 61,
+      "decision": "D16"
+    },
+    {
+      "code": "1202791",
+      "row": 62,
+      "decision": "D16"
+    },
+    {
+      "code": "1202901",
+      "row": 66,
+      "decision": "D16"
+    },
+    {
+      "code": "2103001",
+      "row": 75,
+      "decision": "D15"
+    },
+    {
+      "code": "2103002",
+      "row": 76,
+      "decision": "D15"
+    },
+    {
+      "code": "2103003",
+      "row": 77,
+      "decision": "D15"
+    },
+    {
+      "code": "2103004",
+      "row": 78,
+      "decision": "D15"
+    },
+    {
+      "code": "2103005",
+      "row": 79,
+      "decision": "D15"
+    },
+    {
+      "code": "2103006",
+      "row": 80,
+      "decision": "D15"
+    },
+    {
+      "code": "3101001",
+      "row": 93,
+      "decision": "D11"
+    },
+    {
+      "code": "3101002",
+      "row": 94,
+      "decision": "D11"
+    },
+    {
+      "code": "3101003",
+      "row": 95,
+      "decision": "D11"
+    },
+    {
+      "code": "5101001",
+      "row": 100,
+      "decision": "D14"
+    },
+    {
+      "code": "6101004",
+      "row": 105,
+      "decision": "D17"
+    },
+    {
+      "code": "6102006",
+      "row": 120,
+      "decision": "D14"
+    },
+    {
+      "code": "6102007",
+      "row": 121,
+      "decision": "D14"
+    },
+    {
+      "code": "6102008",
+      "row": 122,
+      "decision": "D13"
+    },
+    {
+      "code": "6103001",
+      "row": 123,
+      "decision": "D17"
+    },
+    {
+      "code": "6103002",
+      "row": 124,
+      "decision": "D17"
+    },
+    {
+      "code": "6103003",
+      "row": 125,
+      "decision": "D17"
+    },
+    {
+      "code": "6103009",
+      "row": 131,
+      "decision": "D17"
+    },
+    {
+      "code": "6103013",
+      "row": 135,
+      "decision": "D17"
+    },
+    {
+      "code": "6103015",
+      "row": 137,
+      "decision": "D17"
+    },
+    {
+      "code": "8101004",
+      "row": 162,
+      "decision": "D13"
+    },
+    {
+      "code": "8101005",
+      "row": 163,
+      "decision": "D17"
+    },
+    {
+      "code": "8301001",
+      "row": 166,
+      "decision": "D15"
+    }
+  ],
+  "name_differences": [
+    {
+      "code": "1103101",
+      "coa_row": 24,
+      "config_row": 21,
+      "coa_name": "Piutang Karyawan",
+      "config_name": "PIUTANG PEGAWAI"
+    },
+    {
+      "code": "1103102",
+      "coa_row": 25,
+      "config_row": 22,
+      "coa_name": "Piutang Kepala Toko",
+      "config_name": "PIUTANG KEPALA TOKO"
+    },
+    {
+      "code": "1103103",
+      "coa_row": 26,
+      "config_row": 23,
+      "coa_name": "Piutang Manajemen",
+      "config_name": "PIUTANG MANAJEMEN"
+    },
+    {
+      "code": "1104199",
+      "coa_row": 32,
+      "config_row": 29,
+      "coa_name": "Cadangan Kerusakan / Kehilangan Persediaan",
+      "config_name": "Cadangan Kerusakan atau Kehilangan Barang"
+    },
+    {
+      "code": "1105001",
+      "coa_row": 33,
+      "config_row": 30,
+      "coa_name": "Biaya Dibayar Dimuka",
+      "config_name": "Biaya Bayar Dimuka"
+    },
+    {
+      "code": "1105109",
+      "coa_row": 38,
+      "config_row": 35,
+      "coa_name": "Pajak Dibayar Dimuka Lain-lain",
+      "config_name": "Prepaid - Other Tax"
+    },
+    {
+      "code": "1105201",
+      "coa_row": 39,
+      "config_row": 36,
+      "coa_name": "Uang Muka Perjalanan Dinas",
+      "config_name": "Advanced - Travelling"
+    },
+    {
+      "code": "1105202",
+      "coa_row": 40,
+      "config_row": 37,
+      "coa_name": "Uang Muka Pembelian",
+      "config_name": "Advanced - Purchase"
+    },
+    {
+      "code": "1105203",
+      "coa_row": 41,
+      "config_row": 38,
+      "coa_name": "Uang Muka Kontraktor",
+      "config_name": "Advanced - To Contractors"
+    },
+    {
+      "code": "1105209",
+      "coa_row": 42,
+      "config_row": 39,
+      "coa_name": "Uang Muka Lain-lain",
+      "config_name": "Advanced - Others"
+    },
+    {
+      "code": "1202001",
+      "coa_row": 46,
+      "config_row": 43,
+      "coa_name": "Tanah",
+      "config_name": "Tanah Hak Milik"
+    },
+    {
+      "code": "1202002",
+      "coa_row": 47,
+      "config_row": 44,
+      "coa_name": "Hak Atas Tanah / HGB",
+      "config_name": "Hak Sewa Tanah / HGB"
+    },
+    {
+      "code": "1202092",
+      "coa_row": 48,
+      "config_row": 45,
+      "coa_name": "Akumulasi Amortisasi Hak Atas Tanah",
+      "config_name": "Akumulasi Amortisasi Hak Sewa Tanah / HGB"
+    },
+    {
+      "code": "1202201",
+      "coa_row": 51,
+      "config_row": 48,
+      "coa_name": "Mechanical & Electrical",
+      "config_name": "Instalasi Mekanikal Elektrikal"
+    },
+    {
+      "code": "1202291",
+      "coa_row": 52,
+      "config_row": 49,
+      "coa_name": "Akumulasi Penyusutan Mechanical & Electrical",
+      "config_name": "Akumulasi Penyusutan Instalasi Mekanikal Elektrikal"
+    },
+    {
+      "code": "1202691",
+      "coa_row": 60,
+      "config_row": 57,
+      "coa_name": "Cadangan Replacement Operating Equipment",
+      "config_name": "Reserve Replacement Operating Equipment"
+    },
+    {
+      "code": "1202901",
+      "coa_row": 66,
+      "config_row": 63,
+      "coa_name": "Aset Dalam Penyelesaian",
+      "config_name": "Contract In Progress (CIP)"
+    },
+    {
+      "code": "2101001",
+      "coa_row": 67,
+      "config_row": 64,
+      "coa_name": "Hutang Dagang Barang Dagangan",
+      "config_name": "Hutang Suppliers Barang Dagangan"
+    },
+    {
+      "code": "2101002",
+      "coa_row": 68,
+      "config_row": 65,
+      "coa_name": "Hutang Dagang Barang Dagangan Suspense",
+      "config_name": "Hutang Supplier Barang Dagang - Suspend"
+    },
+    {
+      "code": "2101003",
+      "coa_row": 69,
+      "config_row": 66,
+      "coa_name": "Hutang Dagang Non Barang Dagangan",
+      "config_name": "Hutang Supplier Non Barang Dagang"
+    },
+    {
+      "code": "2102001",
+      "coa_row": 70,
+      "config_row": 67,
+      "coa_name": "Giro Keluar Bank BCA",
+      "config_name": "Outstanding Giro Bank BCA"
+    },
+    {
+      "code": "2102002",
+      "coa_row": 71,
+      "config_row": 68,
+      "coa_name": "Giro Keluar Bank MANDIRI",
+      "config_name": "Outstanding Giro Bank Mandiri"
+    },
+    {
+      "code": "2102003",
+      "coa_row": 72,
+      "config_row": 69,
+      "coa_name": "Giro Keluar Bank BRI",
+      "config_name": "Outstanding Giro Bank BRI"
+    },
+    {
+      "code": "2102004",
+      "coa_row": 73,
+      "config_row": 70,
+      "coa_name": "Giro Keluar Bank BNI",
+      "config_name": "Outstanding Giro Bank BNI"
+    },
+    {
+      "code": "2102005",
+      "coa_row": 74,
+      "config_row": 71,
+      "coa_name": "Giro Keluar Bank DANAMON",
+      "config_name": "Outstanding Giro Bank DANAMON"
+    },
+    {
+      "code": "2103001",
+      "coa_row": 75,
+      "config_row": 72,
+      "coa_name": "Hutang PPh Pasal 21",
+      "config_name": "Hutang Pajak PPh Pasal 21"
+    },
+    {
+      "code": "2103002",
+      "coa_row": 76,
+      "config_row": 73,
+      "coa_name": "Hutang PPh Pasal 23",
+      "config_name": "Hutang Pajak PPh Pasal 23"
+    },
+    {
+      "code": "2103004",
+      "coa_row": 78,
+      "config_row": 75,
+      "coa_name": "Hutang PBB",
+      "config_name": "Hutang Pajak Bumi & Bangunan"
+    },
+    {
+      "code": "2103005",
+      "coa_row": 79,
+      "config_row": 76,
+      "coa_name": "Hutang PPh Pasal 25",
+      "config_name": "Hutang Pajak PPh Pasal 25"
+    },
+    {
+      "code": "2104001",
+      "coa_row": 81,
+      "config_row": 78,
+      "coa_name": "Biaya Gaji Yang Masih Harus Dibayar",
+      "config_name": "Biaya Gaji dan Upah YMHD"
+    },
+    {
+      "code": "2104002",
+      "coa_row": 82,
+      "config_row": 79,
+      "coa_name": "Biaya Pegawai Yang Masih Harus Dibayar",
+      "config_name": "Biaya Pegawai Lain-lain YMHD"
+    },
+    {
+      "code": "2104003",
+      "coa_row": 83,
+      "config_row": 80,
+      "coa_name": "Bunga Yang Masih Harus Dibayar",
+      "config_name": "Biaya Bunga Pinjaman YMHD"
+    },
+    {
+      "code": "2104004",
+      "coa_row": 84,
+      "config_row": 81,
+      "coa_name": "Biaya Utility Yang Masih Harus Dibayar",
+      "config_name": "Biaya Utility YMHD"
+    },
+    {
+      "code": "2104005",
+      "coa_row": 85,
+      "config_row": 82,
+      "coa_name": "Biaya Sewa & Operasional Yang Masih Harus Dibayar",
+      "config_name": "Biaya Sewa YMHD"
+    },
+    {
+      "code": "2106001",
+      "coa_row": 90,
+      "config_row": 87,
+      "coa_name": "Bagian Lancar Pinjaman Jangka Panjang",
+      "config_name": "PJP Jatuh Tempo"
+    },
+    {
+      "code": "3101002",
+      "coa_row": 94,
+      "config_row": 91,
+      "coa_name": "Laba Ditahan",
+      "config_name": "Laba (Rugi) Ditahan"
+    },
+    {
+      "code": "4102001",
+      "coa_row": 97,
+      "config_row": 94,
+      "coa_name": "Potongan Penjualan",
+      "config_name": "Discount / Potongan Penjualan"
+    },
+    {
+      "code": "4201001",
+      "coa_row": 99,
+      "config_row": 96,
+      "coa_name": "Pendapatan Management Fee",
+      "config_name": "Management Fee"
+    },
+    {
+      "code": "6101003",
+      "coa_row": 104,
+      "config_row": 101,
+      "coa_name": "Biaya Uang Makan",
+      "config_name": "Uang Makan"
+    },
+    {
+      "code": "6101004",
+      "coa_row": 105,
+      "config_row": 102,
+      "coa_name": "Biaya Transport",
+      "config_name": "Uang Transport"
+    },
+    {
+      "code": "6101005",
+      "coa_row": 106,
+      "config_row": 103,
+      "coa_name": "Biaya Pengobatan",
+      "config_name": "Biaya Kesehatan & Pengobatan"
+    },
+    {
+      "code": "6101006",
+      "coa_row": 107,
+      "config_row": 104,
+      "coa_name": "Biaya Asuransi / BPJS Karyawan",
+      "config_name": "Biaya Asuransi Pegawai / BPJS"
+    },
+    {
+      "code": "6101007",
+      "coa_row": 108,
+      "config_row": 105,
+      "coa_name": "Biaya THR",
+      "config_name": "Tunjangan Hari Raya (THR)"
+    },
+    {
+      "code": "6101008",
+      "coa_row": 109,
+      "config_row": 106,
+      "coa_name": "Biaya Seragam",
+      "config_name": "Biaya Uniform / Seragam Kerja"
+    },
+    {
+      "code": "6101009",
+      "coa_row": 110,
+      "config_row": 107,
+      "coa_name": "Biaya Olahraga & Rekreasi",
+      "config_name": "Biaya Sport & Recreation"
+    },
+    {
+      "code": "6101010",
+      "coa_row": 111,
+      "config_row": 108,
+      "coa_name": "Biaya Sumbangan Duka",
+      "config_name": "Funeral Contribution"
+    },
+    {
+      "code": "6101011",
+      "coa_row": 112,
+      "config_row": 109,
+      "coa_name": "Biaya Training",
+      "config_name": "Biaya Manpower Development"
+    },
+    {
+      "code": "6101013",
+      "coa_row": 114,
+      "config_row": 111,
+      "coa_name": "Biaya Komisi, Bonus & Insentif",
+      "config_name": "Komisi / Bonus / Insentif"
+    },
+    {
+      "code": "6102001",
+      "coa_row": 115,
+      "config_row": 112,
+      "coa_name": "Biaya Supplies Customer",
+      "config_name": "Biaya Customer Supplies"
+    },
+    {
+      "code": "6102002",
+      "coa_row": 116,
+      "config_row": 113,
+      "coa_name": "Biaya Merchant / Kartu",
+      "config_name": "Biaya Credit Card / Merchant"
+    },
+    {
+      "code": "6102005",
+      "coa_row": 119,
+      "config_row": 116,
+      "coa_name": "Biaya Iklan",
+      "config_name": "Biaya Advertising / Iklan"
+    },
+    {
+      "code": "6102006",
+      "coa_row": 120,
+      "config_row": 117,
+      "coa_name": "Biaya Bongkar Muat",
+      "config_name": "Biaya Bongkar Muat Barang"
+    },
+    {
+      "code": "6102007",
+      "coa_row": 121,
+      "config_row": 118,
+      "coa_name": "Biaya Expedisi / Courier",
+      "config_name": "Biaya Pengiriman Barang/kurir/Ekspedisi"
+    },
+    {
+      "code": "6103001",
+      "coa_row": 123,
+      "config_row": 120,
+      "coa_name": "Biaya Cleaning",
+      "config_name": "Biaya Kebersihan (Cleaning)"
+    },
+    {
+      "code": "6103002",
+      "coa_row": 124,
+      "config_row": 121,
+      "coa_name": "Biaya ATK & Printing",
+      "config_name": "Alat Tulis Kantor & Barang Cetakan"
+    },
+    {
+      "code": "6103003",
+      "coa_row": 125,
+      "config_row": 122,
+      "coa_name": "Biaya Rumah Tangga / Pantry",
+      "config_name": "Biaya Rumah Tangga"
+    },
+    {
+      "code": "6103005",
+      "coa_row": 127,
+      "config_row": 124,
+      "coa_name": "Biaya Telepon & Internet",
+      "config_name": "Biaya Telephone,Facsimile, Modem"
+    },
+    {
+      "code": "6103006",
+      "coa_row": 128,
+      "config_row": 125,
+      "coa_name": "Biaya Listrik",
+      "config_name": "Biaya Pemakaian Listrik"
+    },
+    {
+      "code": "6103007",
+      "coa_row": 129,
+      "config_row": 126,
+      "coa_name": "Biaya Air",
+      "config_name": "Biaya Pemakaian Air Bersih (PDAM)"
+    },
+    {
+      "code": "6103009",
+      "coa_row": 131,
+      "config_row": 128,
+      "coa_name": "Biaya Transport Lokal",
+      "config_name": "Biaya Lokal Transport"
+    },
+    {
+      "code": "6103010",
+      "coa_row": 132,
+      "config_row": 129,
+      "coa_name": "Biaya Perizinan",
+      "config_name": "Biaya Perijinan"
+    },
+    {
+      "code": "6103011",
+      "coa_row": 133,
+      "config_row": 130,
+      "coa_name": "Biaya Computer & IT",
+      "config_name": "Computer Expenses"
+    },
+    {
+      "code": "6103013",
+      "coa_row": 135,
+      "config_row": 132,
+      "coa_name": "Biaya Supplies Toko & Kantor",
+      "config_name": "Biaya Perlengkapan Toko dan Kantor"
+    },
+    {
+      "code": "6103015",
+      "coa_row": 137,
+      "config_row": 134,
+      "coa_name": "Biaya Supplies Electrical",
+      "config_name": "Biaya Peralatan Listrik"
+    },
+    {
+      "code": "6103017",
+      "coa_row": 139,
+      "config_row": 136,
+      "coa_name": "Biaya Sumbangan / CSR / Zakat",
+      "config_name": "Biaya Donasi (CSR, Zakat)"
+    },
+    {
+      "code": "6103018",
+      "coa_row": 140,
+      "config_row": 137,
+      "coa_name": "Biaya Professional / Consultant",
+      "config_name": "Biaya Konsultan"
+    },
+    {
+      "code": "6103019",
+      "coa_row": 141,
+      "config_row": 138,
+      "coa_name": "Biaya STNK / Perizinan Kendaraan",
+      "config_name": "Biaya Lisensi Kendaraan (STNK, Uji Kir)"
+    },
+    {
+      "code": "6103099",
+      "coa_row": 142,
+      "config_row": 139,
+      "coa_name": "Biaya Operasional Lain-lain",
+      "config_name": "Miscellaneous Expences"
+    },
+    {
+      "code": "6104001",
+      "coa_row": 143,
+      "config_row": 140,
+      "coa_name": "Biaya Repair & Maintenance Bangunan",
+      "config_name": "BIAYA PERBAIKAN DAN PERAWATAN BANGUNAN"
+    },
+    {
+      "code": "6104002",
+      "coa_row": 144,
+      "config_row": 141,
+      "coa_name": "Biaya Repair & Maintenance FFE / Peralatan Toko",
+      "config_name": "BIAYA PERBAIKAN DAN PERAWATAN FFE / PERALATAN TOKO"
+    },
+    {
+      "code": "6104003",
+      "coa_row": 145,
+      "config_row": 142,
+      "coa_name": "Biaya Repair & Maintenance Computer & Software",
+      "config_name": "BIAYA PERBAIKAN DAN PERAWATAN KOMPUTER & SOFTWARE"
+    },
+    {
+      "code": "6104004",
+      "coa_row": 146,
+      "config_row": 143,
+      "coa_name": "Biaya Repair & Maintenance Kendaraan",
+      "config_name": "BIAYA PERBAIKAN DAN PERAWATAN KENDARAAN"
+    },
+    {
+      "code": "6104005",
+      "coa_row": 147,
+      "config_row": 144,
+      "coa_name": "Biaya Repair & Maintenance AC, Lift & Escalator",
+      "config_name": "BIAYA PERBAIKAN DAN PERAWATAN AC, LIFT & ESKALATOR"
+    },
+    {
+      "code": "6104006",
+      "coa_row": 148,
+      "config_row": 145,
+      "coa_name": "Biaya Repair & Maintenance Genset / Power Plant",
+      "config_name": "BIAYA POWER PLANT / GENSET"
+    },
+    {
+      "code": "7101002",
+      "coa_row": 150,
+      "config_row": 147,
+      "coa_name": "Biaya Hak Atas Tanah / Amortisasi HGB",
+      "config_name": "Biaya Land Right"
+    },
+    {
+      "code": "7102001",
+      "coa_row": 151,
+      "config_row": 148,
+      "coa_name": "Biaya Penyusutan",
+      "config_name": "Biaya Depresiasi"
+    },
+    {
+      "code": "7105001",
+      "coa_row": 154,
+      "config_row": 151,
+      "coa_name": "Biaya Asuransi Gedung / Kebakaran",
+      "config_name": "Property All Risk & Fire Insurance"
+    },
+    {
+      "code": "7106001",
+      "coa_row": 156,
+      "config_row": 153,
+      "coa_name": "Biaya PBB",
+      "config_name": "Biaya Pajak Bumi Dan Bangunan (PBB)"
+    },
+    {
+      "code": "7107001",
+      "coa_row": 158,
+      "config_row": 155,
+      "coa_name": "Biaya Management Fee",
+      "config_name": "Biaya Management FEE"
+    },
+    {
+      "code": "8101002",
+      "coa_row": 160,
+      "config_row": 157,
+      "coa_name": "Selisih Pembulatan",
+      "config_name": "Selisih pembulatan"
+    },
+    {
+      "code": "8101004",
+      "coa_row": 162,
+      "config_row": 159,
+      "coa_name": "Selisih Stock Opname",
+      "config_name": "Kehilangan Barang atau Selisih Stock Opname"
+    },
+    {
+      "code": "8101005",
+      "coa_row": 163,
+      "config_row": 160,
+      "coa_name": "Pendapatan / Biaya Lain-lain",
+      "config_name": "Pendapatan (Biaya) Lain-Lain"
+    }
+  ],
+  "manual_permission_review": [
+    {
+      "code": "1101003",
+      "coa_row": 7,
+      "config_row": 4,
+      "coa_manual": "Terbatas: koreksi disetujui",
+      "config_manual": "NO"
+    },
+    {
+      "code": "1105103",
+      "coa_row": 36,
+      "config_row": 33,
+      "coa_manual": "Terbatas: koreksi pajak disetujui",
+      "config_manual": "NO"
+    },
+    {
+      "code": "1201001",
+      "coa_row": 43,
+      "config_row": 40,
+      "coa_manual": "Terbatas: jurnal berpasangan",
+      "config_manual": "NO"
+    },
+    {
+      "code": "1201002",
+      "coa_row": 44,
+      "config_row": 41,
+      "coa_manual": "Terbatas: jurnal berpasangan",
+      "config_manual": "NO"
+    },
+    {
+      "code": "1201009",
+      "coa_row": 45,
+      "config_row": 42,
+      "coa_manual": "Terbatas: jurnal berpasangan",
+      "config_manual": "NO"
+    },
+    {
+      "code": "2101002",
+      "coa_row": 68,
+      "config_row": 65,
+      "coa_manual": "Terbatas: koreksi clearing",
+      "config_manual": "NO"
+    },
+    {
+      "code": "2104001",
+      "coa_row": 81,
+      "config_row": 78,
+      "coa_manual": "Ya, perhitungan dan reversal terkontrol",
+      "config_manual": "NO"
+    },
+    {
+      "code": "2104002",
+      "coa_row": 82,
+      "config_row": 79,
+      "coa_manual": "Ya, perhitungan dan reversal terkontrol",
+      "config_manual": "NO"
+    },
+    {
+      "code": "2104003",
+      "coa_row": 83,
+      "config_row": 80,
+      "coa_manual": "Ya, perhitungan dan reversal terkontrol",
+      "config_manual": "NO"
+    },
+    {
+      "code": "2105001",
+      "coa_row": 86,
+      "config_row": 83,
+      "coa_manual": "Terbatas: jurnal berpasangan",
+      "config_manual": "NO"
+    },
+    {
+      "code": "2105002",
+      "coa_row": 87,
+      "config_row": 84,
+      "coa_manual": "Terbatas: jurnal berpasangan",
+      "config_manual": "NO"
+    },
+    {
+      "code": "2106001",
+      "coa_row": 90,
+      "config_row": 87,
+      "coa_manual": "Terbatas dengan kontrak pinjaman",
+      "config_manual": "NO"
+    },
+    {
+      "code": "2201001",
+      "coa_row": 92,
+      "config_row": 88,
+      "coa_manual": "Terbatas dengan kontrak pinjaman",
+      "config_manual": "NO"
+    },
+    {
+      "code": "3101002",
+      "coa_row": 94,
+      "config_row": 91,
+      "coa_manual": "Terbatas: dokumen pemilik dan approval finance",
+      "config_manual": "NO"
+    },
+    {
+      "code": "8101002",
+      "coa_row": 160,
+      "config_row": 157,
+      "coa_manual": "Terbatas dengan dasar",
+      "config_manual": "NO"
+    }
+  ],
+  "parent_targets": [
+    {
+      "row": 3611,
+      "code": 1031801001,
+      "target": 1202801
+    },
+    {
+      "row": 3627,
+      "code": 1031802001,
+      "target": 1202802
+    },
+    {
+      "row": 3642,
+      "code": 1031802002,
+      "target": 1202892
+    },
+    {
+      "row": 7407,
+      "code": 8010110003,
+      "target": 5101002
+    }
+  ],
+  "closed_topic_blank_mappings": [
+    {
+      "prefix": "1011302001",
+      "topic": "Prepaid PPh21",
+      "candidate": "1105101",
+      "count": 14,
+      "first_row": 1109,
+      "last_row": 1122
+    },
+    {
+      "prefix": "2012303",
+      "topic": "Principal",
+      "candidate": "2105003",
+      "count": 196,
+      "first_row": 4452,
+      "last_row": 4660
+    },
+    {
+      "prefix": "7010215",
+      "topic": "Replacement OE expense",
+      "candidate": "7103001",
+      "count": 504,
+      "first_row": 6711,
+      "last_row": 7249
+    },
+    {
+      "prefix": "7010216002",
+      "topic": "Amortisasi Pre Opening",
+      "candidate": "7104001",
+      "count": 14,
+      "first_row": 7267,
+      "last_row": 7280
+    }
+  ],
+  "counts": {
+    "accounts": 162,
+    "config_accounts": 162,
+    "legacy_rows": 7528,
+    "legacy_leaves": 6908,
+    "leaf_mapped": 5590,
+    "leaf_unmapped": 1318,
+    "parent_rows": 620,
+    "invalid_targets": 0,
+    "status_counts": {
+      "Siap konfigurasi": 91,
+      "Bersyarat": 70,
+      "Ditahan": 1
+    }
+  }
+}

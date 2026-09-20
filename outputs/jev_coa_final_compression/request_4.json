@@ -1,0 +1,50 @@
+{
+  "model":"jev-latest",
+  "state":{
+    "objective":"Choose a practical account-count decision when the client has only summary financial reports and asset registers, distinguishing the permanent production COA from migration-only legacy accounts.",
+    "fixed_facts":[
+      "Jev approved 121 core accounts as a reasonable production baseline with confidence 1.0.",
+      "Jev rejected treating all 225 working accounts as permanent with confidence 1.0.",
+      "The 225 working set equals 121 core plus 104 legacy holds.",
+      "Available evidence consists of a current 1,342-row asset register, an older asset list, December 2025 balance sheet by site, 2025/2024 P&L and a sales/COGS summary by division.",
+      "Transaction-level GL, contracts, owner-funding agreements, inventory movements, giro register and tax returns are unavailable.",
+      "All units are sites in one legal entity; bank and Finance are centralized at HO.",
+      "Future forms and subledgers capture site, asset, project, bank, party, division and document identities."
+    ],
+    "hold_evidence":[
+      "72 Replacement OE legacy accounts: 36 reserve/balance-sheet names and 36 matching expense names. Their summary report lines are zero. Underlying OE assets are recorded by item/site in the asset register. Historical GL activity and posting-rule references are unavailable.",
+      "15 Principal accounts: material balances exist in site-named, current and long-term sections. Agreements and liability-versus-equity substance are unavailable.",
+      "6 HGB/rent accounts: HGB/land-right lines and land rent are zero; store/warehouse rent and mess rent have comparative activity. Contracts unavailable.",
+      "3 pre-opening accounts: non-zero cost and accumulated amortization balances; detailed roll-forward unavailable.",
+      "2 purchase/COGS accounts: purchase discount has activity; posting policy unavailable.",
+      "CIP: 668 asset-register rows and non-zero balance; one governed CIP account with project/site detail is supported.",
+      "Disposed Inventory: non-zero balance without movement/write-off support.",
+      "Inventory Damage Expense: zero; future events can use the approved inventory-loss account and reason code.",
+      "Mixed Other Income/Expense: active and must be split by nature, but transaction mapping is unavailable.",
+      "Current Tax PPh 25 legacy expense: zero; governed tax accounts exist in the core, but tax reconciliation unavailable.",
+      "Giro Keluar: lifecycle evidence unavailable."
+    ],
+    "proposed_two_layer_model":{
+      "production":"Approved core plus only additional natural accounts proven necessary for future business events. No new postings allowed to migration-only accounts.",
+      "migration_only":"Legacy accounts with opening balances or uncertain classification remain read-only/frozen until reclassification evidence becomes available.",
+      "reporting":"Both layers remain visible in ledger/reconciliation during migration, but UI transaction forms search only production accounts."
+    }
+  },
+  "questions":{
+    "make_225_permanent":{"type":"choice","instructions":"Given the missing evidence, should 225 become the permanent posting COA?","criteria":{"no":"Keep a smaller production COA and isolate unresolved balances as migration-only.","yes":"Allow all 225 for ongoing posting permanently."}},
+    "two_layer_model":{"type":"choice","instructions":"Is the proposed production plus migration-only model appropriate?","criteria":{"yes":"It preserves balances without embedding unresolved legacy detail into future operations.","no":"Every migration account must remain available for new transactions."}},
+    "core_count_start":{"type":"choice","instructions":"What is the correct starting point for the permanent production COA?","criteria":{"core121":"The approved 121 core accounts.","working225":"All 225 working accounts.","target142":"The unverified 142 target accounts."}},
+    "cip_addition":{"type":"choice","instructions":"Should one governed CIP natural account be included in production based on 668 register rows and a non-zero balance?","criteria":{"yes_one":"Add or retain one CIP account with project_id and site_id.","no":"Do not support CIP.","per_site":"Use one CIP natural account per site."}},
+    "active_rent_addition":{"type":"choice","instructions":"Should production preserve distinct active rent-expense capability pending contracts?","criteria":{"two_natures":"Retain store/warehouse rent and staff-house/mess rent as two natures; land rent remains inactive unless evidence emerges.","one_rent":"Use one general rent expense account now.","none":"Remove all rent expense accounts despite activity."}},
+    "replacement_production":{"type":"choice","instructions":"How many of the 72 item-specific Replacement OE legacy accounts should be enabled for new production posting?","criteria":{"zero":"Enable none; use governed asset/OE and maintenance/loss accounts while keeping unresolved legacy balances/references migration-only.","all72":"Enable all 72 permanently.","two":"Create one replacement reserve and one replacement expense account for routine future posting."}},
+    "principal_production":{"type":"choice","instructions":"How should new Principal transactions be handled until legal substance is documented?","criteria":{"blocked":"Do not allow new posting to the 15 legacy accounts; require Finance Manager classification into approved liability/equity/financing accounts.","all15":"Continue new posting to all unit-specific accounts.","one_ambiguous":"Create one unrestricted ambiguous Principal account."}},
+    "preopening_production":{"type":"choice","instructions":"Should new postings be allowed to the three legacy pre-opening accounts?","criteria":{"blocked":"No; retain balances migration-only and require explicit approved accounting treatment for any new-store costs.","yes":"Continue using all three legacy accounts."}},
+    "disposed_production":{"type":"choice","instructions":"Should new postings be allowed to legacy Disposed Inventory?","criteria":{"blocked":"No; future write-offs use controlled inventory-loss/allowance flows; old balance remains migration-only.","yes":"Continue posting to the legacy asset account."}},
+    "mixed_production":{"type":"choice","instructions":"Should new postings be allowed to mixed Other Income/Expense?","criteria":{"blocked_split":"No; require separate approved income or expense nature.","yes":"Continue mixed-sign posting."}},
+    "legacy_zero_accounts":{"type":"choice","instructions":"How should zero-balance legacy accounts with incomplete history be treated?","criteria":{"frozen":"Freeze from new posting and retain temporarily for audit/history until reference checks are complete.","delete":"Physically delete immediately.","active":"Keep available for routine use."}},
+    "production_count":{"type":"choice","instructions":"Based on currently proven future needs, what production count is the most defensible immediate target?","criteria":{"121":"Use only the approved 121; treat CIP/rent as mappings already accommodated or pending configuration.","122":"Use 121 plus one governed CIP account.","124":"Use 121 plus one CIP and two active rent-expense natures.","142":"Use all conditional target groups.","225":"Use all working accounts."}},
+    "migration_count_policy":{"type":"choice","instructions":"How should the unresolved migration-only account count be reported?","criteria":{"up_to104":"Up to 104 frozen legacy accounts initially, declining as balances and references are cleared; this is not the production COA count.","zero":"Claim no migration accounts despite unresolved balances.","permanent104":"Add 104 permanently to production."}},
+    "final_wording":{"type":"choice","instructions":"Which statement is accurate for stakeholders?","criteria":{"separate_counts":"The production COA is approximately 121-124 accounts; up to 104 legacy accounts remain frozen for migration and do not appear in normal transaction forms.","final225":"The final permanent COA is 225 accounts.","final142":"The final permanent COA is exactly 142 despite missing evidence."}},
+    "can_proceed":{"type":"choice","instructions":"Can system design and implementation proceed without resolving every migration balance first?","criteria":{"yes":"Yes, implement production accounts and dimensions, freeze legacy posting, and complete opening-balance reclassification as a controlled migration workstream.","no":"Stop all product work until every old balance is fully classified."}}
+  }
+}

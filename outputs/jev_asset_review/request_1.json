@@ -1,0 +1,164 @@
+{
+  "model": "jev-latest",
+  "state": {
+    "objective": "Reduce this client's chart of accounts by moving asset identity and operational detail into dimensions while preserving distinct accounting natures and the full legacy COA mapping.",
+    "confirmed_context": [
+      "Client is a centralized retail company. Unit/site has already been removed from the natural account and is stored as site_id.",
+      "Working family baseline before bank compression is 499. The current bank proposal reduces this to 488; this arithmetic is calculated outside Jev.",
+      "Only client account names listed here are in scope. Do not invent foreign currency, overdraft, pledged deposits, or other accounts.",
+      "The asset register can hold asset_id, asset_class_id, associated_site_id, acquisition date, cost, useful life, residual value, depreciation method, accumulated depreciation, status, disposal date, and project/CIP reference.",
+      "Moving detail to a register does not permit netting asset cost, accumulated depreciation, depreciation expense, amortization, CIP, or disposal into one natural account."
+    ],
+    "client_asset_families": {
+      "cost_57": {
+        "land": ["Tanah Hak Milik", "Hak Sewa Tanah / HGB"],
+        "buildings": ["Bangunan Utama", "Bangunan Tambahan", "Staff House/Mess"],
+        "mechanical_electrical": ["Instalasi Mekanikal Elektrikal"],
+        "machines": ["AC", "Lift", "Eskalator", "Genset"],
+        "vehicles": ["Mobil", "Sepeda Motor"],
+        "ffe_7": ["Furniture Fixture Equipment Office", "Furniture Fixture Equipment Toko/Gudang", "Furniture Fixture Equipment Komputer", "Furniture Fixture Equipment Music", "Furniture Fixture Equipment Staff House", "Furniture Fixture Equipment Interior", "Furniture Fixture Equipment Exterior"],
+        "operating_equipment_36": "36 named OE items such as rack/display/hanger/mannequin items",
+        "software": ["Software Application Seventh Soft", "Software Application Opti Tex"]
+      },
+      "accumulated_20": "Accumulated depreciation/amortization counterparts for HGB, 3 buildings, M&E, 4 machines, 2 vehicles, 7 FFE classes, and 2 software applications. There are no accumulated depreciation accounts for the 36 OE items.",
+      "expense_20": "Depreciation expense for 3 buildings, M&E, 4 machines, 2 vehicles, 7 FFE; amortization expense for SeventhSoft, Pre Opening, and OptiTex.",
+      "unresolved": [
+        "36 Reserve Replacement OE accounts, one for each named OE item",
+        "Contract In Progress",
+        "Pre Opening and Akumulasi Amortisasi Pre Opening",
+        "Disposed Inventory",
+        "Hak Sewa Tanah / HGB and its accumulated amortization/depreciation account"
+      ]
+    }
+  },
+  "questions": {
+    "asset_identity_dimension": {
+      "type": "choice",
+      "instructions": "Should individual physical asset identity and associated site be removed from natural GL accounts when a controlled asset register supports subledger-to-GL reconciliation?",
+      "criteria": {
+        "yes": "Use asset_id and associated_site_id in the asset register; GL keeps accounting nature/class only.",
+        "no": "Keep each individual asset or site as a natural GL account.",
+        "insufficient": "The stated controls are insufficient even as a conditional target design."
+      }
+    },
+    "cost_class_granularity": {
+      "type": "choice",
+      "instructions": "For the 57 acquisition-cost families, what is the safest target granularity supported by the names alone?",
+      "criteria": {
+        "one_fixed_asset": "One fixed-asset-cost GL for all 57 families.",
+        "broad_classes": "Keep broad accounting classes such as land, land rights, buildings, M&E/machinery, vehicles, FFE/OE, and software; item identity sits in asset_class_id/asset_id.",
+        "all_57": "Retain every current named cost family as a GL.",
+        "insufficient": "No target granularity can be proposed from these names."
+      }
+    },
+    "oe_item_names": {
+      "type": "choice",
+      "instructions": "Can the 36 OE item names be moved from separate acquisition-cost GLs into asset_class_id/item type, subject to a common accounting policy and useful-life treatment?",
+      "criteria": {
+        "merge": "One or a small number of OE cost GLs plus asset class/item detail.",
+        "retain": "Keep 36 OE cost GLs.",
+        "review": "Conditional only; require policy/useful-life evidence."
+      }
+    },
+    "ffe_names": {
+      "type": "choice",
+      "instructions": "Can the seven FFE names be represented as asset classes beneath fewer natural cost GLs if reporting and useful-life policies are aligned?",
+      "criteria": {
+        "merge": "Compress to fewer FFE cost GLs with asset_class_id.",
+        "retain": "Keep all seven natural GLs.",
+        "review": "Require policy evidence before choosing."
+      }
+    },
+    "contra_separation": {
+      "type": "choice",
+      "instructions": "Must accumulated depreciation remain a separate natural-account nature from asset acquisition cost even when both use the same asset_class_id?",
+      "criteria": {
+        "separate": "Separate cost and accumulated depreciation natural accounts.",
+        "net": "Use one net asset GL.",
+        "case_by_case": "Net only selected classes."
+      }
+    },
+    "expense_separation": {
+      "type": "choice",
+      "instructions": "Must depreciation/amortization expense remain separate from balance-sheet cost and accumulated depreciation accounts?",
+      "criteria": {
+        "separate": "Keep expense as a distinct natural-account nature.",
+        "combine": "Combine expense with accumulated depreciation or asset cost.",
+        "review": "Cannot decide from the state."
+      }
+    },
+    "expense_class_detail": {
+      "type": "choice",
+      "instructions": "Where cost and accumulated depreciation are compressed by broad class, can depreciation expense use the same broad asset_class_id rather than retaining every named asset type as a natural GL?",
+      "criteria": {
+        "yes": "Use fewer expense GLs plus asset_class_id.",
+        "no": "Keep all existing expense families.",
+        "review": "Conditional on management-reporting requirements and policy."
+      }
+    },
+    "land": {
+      "type": "choice",
+      "instructions": "Should Tanah Hak Milik remain its own non-depreciable natural asset class rather than merge into depreciable buildings or equipment?",
+      "criteria": {
+        "separate": "Retain separate land cost natural account.",
+        "merge": "Merge land into another depreciable class.",
+        "review": "Cannot infer."
+      }
+    },
+    "hgb": {
+      "type": "choice",
+      "instructions": "Can Hak Sewa Tanah / HGB be assigned conclusively to a target natural account from its name and current accumulated amortization/depreciation account alone?",
+      "criteria": {
+        "no": "Review legal rights, term, renewal, ownership and accounting policy before classifying.",
+        "land": "Treat as owned land.",
+        "intangible": "Treat as an intangible/right account immediately.",
+        "rou": "Treat as a lease right-of-use asset immediately."
+      }
+    },
+    "cip": {
+      "type": "choice",
+      "instructions": "Should Contract In Progress remain a separate natural-account nature until completion and capitalization, even if project_id is used?",
+      "criteria": {
+        "separate": "Retain CIP separately; project detail is dimensional.",
+        "merge": "Merge directly into completed fixed assets.",
+        "review": "Name is insufficient to know whether this is CIP."
+      }
+    },
+    "preopening": {
+      "type": "choice",
+      "instructions": "Can Pre Opening, Akumulasi Amortisasi Pre Opening, and its amortization expense be retained as a valid amortizable asset structure solely from these account names?",
+      "criteria": {
+        "no": "Require capitalization policy and transaction review; names alone do not validate an asset.",
+        "yes": "Retain as an amortizable asset without more evidence.",
+        "expense": "Reclassify all balances immediately to expense solely from the names."
+      }
+    },
+    "reserve_oe": {
+      "type": "choice",
+      "instructions": "Can the 36 Reserve Replacement OE accounts be classified or compressed solely because they repeat the 36 OE item names?",
+      "criteria": {
+        "no": "First determine whether each is a contra asset, provision, internal reserve, or expense/accrual mechanism.",
+        "one_reserve": "Compress all 36 immediately into one reserve GL.",
+        "accumulated_depreciation": "Treat all 36 immediately as accumulated depreciation."
+      }
+    },
+    "disposed_inventory": {
+      "type": "choice",
+      "instructions": "Should Disposed Inventory be included automatically in the fixed-asset compression merely because it contains the word disposed?",
+      "criteria": {
+        "no": "Keep outside fixed-asset scope until transaction nature is verified.",
+        "yes": "Treat it as fixed-asset disposal now.",
+        "merge_oe": "Merge it into OE asset cost."
+      }
+    },
+    "minimum_controls": {
+      "type": "choice",
+      "instructions": "What is the minimum safe migration gate for compressing asset-name GLs?",
+      "criteria": {
+        "register_reconciliation": "Complete asset register, opening-balance mapping, class policy/useful lives, and subledger-to-GL reconciliation.",
+        "names_only": "Matching account names are sufficient.",
+        "jev_votes": "Repeated model answers are sufficient without accounting evidence."
+      }
+    }
+  }
+}

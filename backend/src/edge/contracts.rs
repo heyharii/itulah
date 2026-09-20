@@ -126,6 +126,13 @@ pub enum EdgeError {
     Forbidden(String),
     #[error("unauthorized: {0}")]
     Unauthorized(String),
+    /// Head office was asked and could not be reached, or answered that it
+    /// could not. Its own variant because the remedy is different from every
+    /// other failure here: nothing is wrong with the request or the node, the
+    /// line is down, and the honest answer to the cashier is "this needs the
+    /// connection".
+    #[error("head office could not be reached: {0}")]
+    Upstream(String),
     #[error("persistence failed: {0}")]
     Persistence(String),
 }
