@@ -56,10 +56,14 @@ jobs:
           & $sevenZip.Source x $archive "-o$extract" -y | Out-Null
           if ($LASTEXITCODE -ne 0) { throw "7-Zip extraction failed: $LASTEXITCODE" }
 
-          $api = Get-ChildItem -Path $extract -Filter UHFAPI.dll -Recurse |
-            Where-Object { $_.Directory.Name -ieq 'x64' } |
+          $apiCandidates = Get-ChildItem -Path $extract -Filter UHFAPI.dll -Recurse -File
+          $api = $apiCandidates |
+            Where-Object { (Get-FileHash -Algorithm SHA256 $_.FullName).Hash -ieq '25c044a8f0160d3365df4bb31608f645074f13cf153eaa1476bb91c42e1cdef8' } |
             Select-Object -First 1
-          if (-not $api) { throw 'The verified Chainway SDK archive has no x64 UHFAPI.dll.' }
+          if (-not $api) {
+            $found = ($apiCandidates | ForEach-Object { $_.FullName }) -join "`n"
+            throw "The verified Chainway SDK archive has no expected x64 UHFAPI.dll. Candidates: $found"
+          }
           $usb = Join-Path $api.DirectoryName 'libusb-1.0.dll'
           if (-not (Test-Path $usb)) { throw 'The verified Chainway SDK archive has no matching x64 libusb DLL.' }
 
