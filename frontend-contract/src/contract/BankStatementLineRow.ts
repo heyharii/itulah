@@ -6,11 +6,11 @@ import type { LineAllocation } from "./LineAllocation";
  */
 export type BankStatementLineRow = { line_id: string, line_number: number, value_date: string, description: string, reference: string | null, debit_minor: number, credit_minor: number, 
 /**
- * Who the other side was, as far as anybody has said (0214). `counterparty_kind`
+ * Who the other side was, as far as anybody has said (0214). `party_type`
  * null means nobody has looked yet; `OTHER` means somebody looked and
  * decided it is nobody we keep a register of.
  */
-counterparty_kind: string | null, counterparty_id: string | null, counterparty_name: string, 
+party_type: string | null, party_id: string | null, party_name: string, 
 /**
  * What the BANK called them. Never overwritten by the field above.
  */

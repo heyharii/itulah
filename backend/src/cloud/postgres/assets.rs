@@ -102,6 +102,15 @@ pub struct AssetRow {
     pub category_code: String,
     /// The client's own name for the category family.
     pub category_name: String,
+    /// Which of the eleven forms this class is filled in on — `LAND`,
+    /// `BUILDING`, `TECH`, `VEHICLE`, `FFE`, `IT`, `AUDIO`, `OE`, `SOFTWARE`,
+    /// `DEFERRED` or `CIP`.
+    ///
+    /// Travels with every row because it is what the register draws its icon
+    /// from, and because the build views filter on it. It is NOT a second class
+    /// list: the class decides the accounts, this decides the form. See
+    /// migration 0356.
+    pub build: String,
     pub site_id: String,
     pub status: String,
     pub serial_number: Option<String>,
@@ -282,7 +291,12 @@ pub struct AssessAssetRequest {
 ///
 /// `a` is the `fixed_asset` alias, `c` the category account, `k` the
 /// assessment in force.
+///
+/// `c.kind` travels with the row so a `group` filter can narrow the `kept`
+/// CTE — which sees only the searched columns, and no base-table aliases —
+/// without this file spelling a second join.
 const ASSET_BASE: &str = "a.asset_id, a.asset_number, a.name, a.category_code,
+     c.kind AS class_kind, c.build AS class_build,
      c.name AS category_name, a.site_id, a.status, a.serial_number, a.acquired_on,
      a.quantity,
      a.disposed_on, a.disposal_method, a.disposal_proceeds_minor, a.disposal_journal_entry_id,
@@ -325,6 +339,7 @@ fn to_asset(row: &sqlx::postgres::PgRow) -> Result<AssetRow, AppError> {
         name: row.try_get("name")?,
         category_code: row.try_get("category_code")?,
         category_name: row.try_get("category_name")?,
+        build: row.try_get("class_build")?,
         site_id: row.try_get("site_id")?,
         status: row.try_get("status")?,
         serial_number: row.try_get("serial_number")?,
@@ -395,6 +410,30 @@ pub struct AssetScope {
     /// `REGISTERED`, `CAPITALIZED`, `DISPOSED`. The asset's own lifecycle,
     /// which is not the same question as what Finance decided about it.
     pub statuses: Vec<String>,
+    /// The register's three readings, as the GA menu splits it: `register`
+    /// (plant and operating equipment, less work in progress), `software`
+    /// (intangibles) and `projects` (deferred cost and work in progress).
+    ///
+    /// A group rather than a `kind` list because the third reading does not
+    /// follow `kind` alone: `CONTRACT_IN_PROGRESS` is `kind = PPE` in
+    /// `asset_class` (0288), yet it is a cost for a thing not built — its
+    /// chart parent (1109) is neither 1060 nor 1103 — so it reads as neither
+    /// Register nor Software. Stating the grouping here keeps its one
+    /// exception beside the data it interprets, instead of in every caller's
+    /// URL. Absent means the whole register, as before.
+    pub group: Option<String>,
+    /// The eleven forms a thing can come in, as `asset_class.build`.
+    ///
+    /// The register's other reading of the same rows, and the one a facilities
+    /// person uses: "show me the machines", "show me the vehicles". It is not a
+    /// second grouping of the classes — `group` answers *plant, intangible,
+    /// still being built*, which is how the money is filed; this answers *what
+    /// does somebody have to write down about it*, which is how the FORM is
+    /// chosen. Four classes are one build (migration 0356), so a category
+    /// filter could not express it without the caller knowing all four.
+    ///
+    /// Empty means every build, like every other filter here.
+    pub builds: Vec<String>,
     /// `number`, `name`, `acquired`, `cost` or `book`. Anything else is the
     /// house order, by asset number — see [`asset_page`].
     pub sort: Option<String>,
@@ -431,6 +470,11 @@ pub struct AssetFacets {
     /// anything" and "everything is assessed" look the same.
     pub decisions: Vec<AssetFacet>,
     pub statuses: Vec<AssetFacet>,
+    /// The eleven builds, with how many assets are filed under each — the
+    /// counts behind the register's build chips. A build nobody has anything
+    /// in is absent rather than zero, like every other facet here: the chips
+    /// are drawn from the server's own list of the eleven, not from this.
+    pub builds: Vec<AssetFacet>,
 }
 
 /// A page of the register, and the shape of everything it was drawn from.
@@ -521,13 +565,47 @@ fn asset_rows() -> String {
 
 /// The filters, spelled once so the page and the counts narrow identically.
 ///
-/// Binds from `$2`: sites, categories, decisions, statuses.
+/// Binds from `$2`: sites, categories, decisions, statuses, builds.
 const ASSET_FILTERS: &str = "
     ($2::text[] IS NULL OR site_id = ANY($2))
     AND ($3::text[] IS NULL OR category_code = ANY($3))
     AND ($4::text[] IS NULL OR decision_key = ANY($4))
     AND ($5::text[] IS NULL OR status = ANY($5))
+    AND ($6::text[] IS NULL OR class_build = ANY($6))
 ";
+
+/// The predicate a `group` filter adds, chosen by name and refused loudly
+/// rather than quietly matching nothing.
+///
+/// Column names, not aliases: the predicate runs inside `kept`, which sees
+/// only the searched CTE's output. The class kind rides that output as
+/// `class_kind` (see [`ASSET_BASE`]); `category_code` is the class code.
+///
+/// The literals are the kinds 0288 seeded and the one class this file already
+/// names a constant for — `WORK_IN_PROGRESS_CLASS`, whose comment explains why
+/// the string has to be exactly the one 0288 slugged. Interpolated rather than
+/// bound because it is a constant of our own, and a fragment with no new bind
+/// slots keeps the page and the counts narrowing identically.
+fn asset_group_predicate(group: Option<&str>) -> Result<Option<String>, AppError> {
+    let cip = WORK_IN_PROGRESS_CLASS;
+    let predicate = match group {
+        None => return Ok(None),
+        Some("register") => {
+            format!("class_kind IN ('PPE', 'OE') AND category_code <> '{cip}'")
+        }
+        Some("software") => "class_kind = 'INTANGIBLE'".to_string(),
+        // Work in progress belongs here by CLASS and not by kind, which is
+        // the whole reason this is a group and not a kind list.
+        Some("projects") => format!("(class_kind = 'DEFERRED' OR category_code = '{cip}')"),
+        Some(other) => {
+            return Err(AppError::Validation(format!(
+                "unknown asset group '{other}' — the register reads as \
+                 'register', 'software' or 'projects'"
+            )))
+        }
+    };
+    Ok(Some(predicate))
+}
 
 /// The register, one page at a time, beside how big the whole answer is.
 pub async fn asset_page(pool: &PgPool, scope: AssetScope) -> Result<AssetPage, AppError> {
@@ -543,6 +621,7 @@ pub async fn asset_page(pool: &PgPool, scope: AssetScope) -> Result<AssetPage, A
     let categories = (!scope.categories.is_empty()).then(|| scope.categories.clone());
     let decisions = (!scope.decisions.is_empty()).then(|| scope.decisions.clone());
     let statuses = (!scope.statuses.is_empty()).then(|| scope.statuses.clone());
+    let builds = (!scope.builds.is_empty()).then(|| scope.builds.clone());
 
     // The sort, and the tie-break that makes it total. Every order ends in the
     // asset id, which is the primary key, so no two rows can compare equal —
@@ -579,6 +658,9 @@ pub async fn asset_page(pool: &PgPool, scope: AssetScope) -> Result<AssetPage, A
         .clamp(1, MAX_ASSET_LIMIT);
 
     let rows_sql = asset_rows();
+    let group_and = asset_group_predicate(scope.group.as_deref())?
+        .map(|predicate| format!(" AND {predicate}"))
+        .unwrap_or_default();
     // The acquisition trail is joined onto the PAGE and onto nothing else —
     // see [`ACQUIRED_VIA`]. `a` is the alias it expects, which is why `kept` is
     // aliased to it here.
@@ -591,13 +673,13 @@ pub async fn asset_page(pool: &PgPool, scope: AssetScope) -> Result<AssetPage, A
     let sql = format!(
         "WITH searched AS NOT MATERIALIZED ({rows_sql}),
               kept AS NOT MATERIALIZED (
-             SELECT * FROM searched WHERE {ASSET_FILTERS}
+             SELECT * FROM searched WHERE {ASSET_FILTERS}{group_and}
          )
          SELECT a.*, {ACQUIRED_VIA} FROM kept a
-          WHERE $6::uuid IS NULL
-             OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE asset_id = $6)
+          WHERE $7::uuid IS NULL
+             OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE asset_id = $7)
           ORDER BY {order}
-          LIMIT $7"
+          LIMIT $8"
     );
     let rows = sqlx::query(&sql)
         .bind(&needle)
@@ -605,6 +687,7 @@ pub async fn asset_page(pool: &PgPool, scope: AssetScope) -> Result<AssetPage, A
         .bind(&categories)
         .bind(&decisions)
         .bind(&statuses)
+        .bind(&builds)
         .bind(cursor.as_ref().map(|c| c.asset_id))
         .bind(limit)
         .fetch_all(pool)
@@ -652,9 +735,16 @@ async fn asset_facets(
     needle: Option<&str>,
 ) -> Result<(i64, i64, i64, AssetFacets), AppError> {
     let rows_sql = asset_rows();
+    // The total and the money describe the list on screen, so the group
+    // narrows them exactly as it narrows the page — while the per-value
+    // facets below still read the searched set, because "how many of these
+    // there are" is asked about the register, not about one reading of it.
+    let group_and = asset_group_predicate(scope.group.as_deref())?
+        .map(|predicate| format!(" AND {predicate}"))
+        .unwrap_or_default();
     let sql = format!(
         "WITH searched AS ({rows_sql}), kept AS (
-             SELECT * FROM searched WHERE {ASSET_FILTERS}
+             SELECT * FROM searched WHERE {ASSET_FILTERS}{group_and}
          )
          SELECT 'site' AS kind, s.site_id AS value,
                 (SELECT p.name FROM site p WHERE p.id = s.site_id) AS label,
@@ -673,6 +763,10 @@ async fn asset_facets(
                 COUNT(*)::bigint, 0::bigint, 0::bigint
            FROM searched s GROUP BY s.status
           UNION ALL
+         SELECT 'build', s.class_build, NULL::text,
+                COUNT(*)::bigint, 0::bigint, 0::bigint
+           FROM searched s GROUP BY s.class_build
+          UNION ALL
          SELECT 'all', '', NULL::text, COUNT(*)::bigint,
                 COALESCE(SUM(cost_key), 0)::bigint,
                 COALESCE(SUM(book_key), 0)::bigint
@@ -682,12 +776,14 @@ async fn asset_facets(
     let categories = (!scope.categories.is_empty()).then(|| scope.categories.clone());
     let decisions = (!scope.decisions.is_empty()).then(|| scope.decisions.clone());
     let statuses = (!scope.statuses.is_empty()).then(|| scope.statuses.clone());
+    let builds = (!scope.builds.is_empty()).then(|| scope.builds.clone());
     let rows = sqlx::query(&sql)
         .bind(needle)
         .bind(&sites)
         .bind(&categories)
         .bind(&decisions)
         .bind(&statuses)
+        .bind(&builds)
         .fetch_all(pool)
         .await?;
 
@@ -699,6 +795,7 @@ async fn asset_facets(
         categories: Vec::new(),
         decisions: Vec::new(),
         statuses: Vec::new(),
+        builds: Vec::new(),
     };
     for row in &rows {
         let kind: String = row.try_get("kind")?;
@@ -715,6 +812,7 @@ async fn asset_facets(
             "category" => facets.categories.push(facet),
             "decision" => facets.decisions.push(facet),
             "status" => facets.statuses.push(facet),
+            "build" => facets.builds.push(facet),
             _ => {
                 total = n;
                 cost = row.try_get("cost")?;
@@ -729,6 +827,7 @@ async fn asset_facets(
         &mut facets.categories,
         &mut facets.decisions,
         &mut facets.statuses,
+        &mut facets.builds,
     ] {
         list.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.value.cmp(&b.value)));
     }
@@ -1452,8 +1551,8 @@ pub struct DepreciationLine {
     /// a run report that says "nothing" without saying why is a report somebody
     /// has to re-derive by hand.
     pub skipped_because: Option<String>,
-    /// Only ever set by a preview: this asset has a charge to make and no
-    /// account to make it into.
+    /// Only ever set by a preview: this asset has a charge to make, but a
+    /// required account mapping or Finance's source-posting control blocks it.
     ///
     /// A real run cannot report this, because it stops at the first asset it
     /// cannot resolve — which is why the preview exists. Absent in a run, and
@@ -1470,8 +1569,8 @@ pub struct DepreciationRun {
     pub posted_count: i64,
     pub posted_total_minor: i64,
     pub skipped_count: i64,
-    /// Assets a preview found with a charge to make and no account to make it
-    /// into. Always zero in a run.
+    /// Assets a preview found with a charge that cannot post under the current
+    /// account mappings and Finance posting control. Always zero in a run.
     pub blocked_count: i64,
     pub lines: Vec<DepreciationLine>,
 }
@@ -1515,8 +1614,9 @@ pub async fn run_depreciation(
 /// The run it previews posts asset by asset and stops at the first account it
 /// cannot resolve, which is the right behaviour for a run and useless for
 /// looking ahead: the operator learns about one refusal and nothing about the
-/// other four hundred. So a preview resolves both legs per asset and REPORTS
-/// what would refuse instead of raising it.
+/// other four hundred. So a preview resolves both legs per asset and reports
+/// account-mapping refusals, as well as Finance's global posting pause, instead
+/// of raising either before the operator can review the month.
 ///
 /// It writes nothing, which is the whole point on a register carrying 683
 /// capitalised assets whose first real run posts into the client's books.
@@ -1525,7 +1625,33 @@ pub async fn preview_depreciation(
     year: i32,
     month: u32,
 ) -> Result<DepreciationRun, AppError> {
-    charge_month(pool, year, month, None).await
+    let mut preview = charge_month(pool, year, month, None).await?;
+    let automatic_posting_enabled = sqlx::query_scalar::<_, bool>(
+        "SELECT automatic_posting_enabled
+           FROM finance_posting_control
+          WHERE singleton = true",
+    )
+    .fetch_optional(pool)
+    .await?
+    .unwrap_or(false);
+
+    if !automatic_posting_enabled {
+        let reason = "automatic posting is paused while Finance reviews the chart and posting maps; submit a manual Finance journal instead";
+        for line in &mut preview.lines {
+            let Some(amount) = line.amount_minor else {
+                continue;
+            };
+            if line.blocked_because.is_some() {
+                continue;
+            }
+            line.blocked_because = Some(reason.into());
+            preview.posted_count -= 1;
+            preview.posted_total_minor -= amount;
+            preview.blocked_count += 1;
+        }
+    }
+
+    Ok(preview)
 }
 
 /// One month, posted when an actor is given and rehearsed when none is.
@@ -1538,28 +1664,10 @@ async fn charge_month(
     let period = NaiveDate::from_ymd_opt(year, month, 1)
         .ok_or_else(|| AppError::Validation("not a month".into()))?;
 
-    let rows = sqlx::query(
-        "SELECT a.asset_id, a.asset_number, a.name, a.category_code, a.site_id,
-                k.capitalized_cost_minor, k.salvage_value_minor, k.useful_life_months,
-                k.method, k.charge_kind, k.in_service_on, k.opening_through,
-                (COALESCE(k.opening_accumulated_minor, 0)
-                 + COALESCE((SELECT SUM(d.amount_minor) FROM asset_depreciation_entry d
-                              WHERE d.asset_id = a.asset_id), 0))::bigint AS accumulated,
-                EXISTS (SELECT 1 FROM asset_depreciation_entry d
-                         WHERE d.asset_id = a.asset_id AND d.period_month = $1) AS already
-           FROM fixed_asset a
-           JOIN LATERAL (
-               SELECT * FROM asset_capitalization x
-                WHERE x.asset_id = a.asset_id ORDER BY x.sequence DESC LIMIT 1
-           ) k ON true
-          WHERE k.decision = 'CAPITALIZE'
-            AND a.status <> 'DISPOSED'
-            AND k.in_service_on <= ($1::date + interval '1 month' - interval '1 day')
-          ORDER BY a.asset_number",
-    )
-    .bind(period)
-    .fetch_all(pool)
-    .await?;
+    let rows = sqlx::query(DUE_CANDIDATES)
+        .bind(period)
+        .fetch_all(pool)
+        .await?;
 
     let mut lines = Vec::with_capacity(rows.len());
     let mut posted_count = 0i64;
@@ -2720,6 +2828,10 @@ pub async fn asset_drafts_for_bill(
 /// fields this does not need, and building one per asset to answer a boolean is
 /// a query per asset on a list that draws a hundred.
 fn row_is_owed_a_charge(row: &sqlx::postgres::PgRow, period: NaiveDate) -> Result<bool, AppError> {
+    let opening_through: Option<NaiveDate> = row.try_get("opening_through")?;
+    if matches!(opening_through, Some(through) if period <= through) {
+        return Ok(false);
+    }
     let in_service: NaiveDate = row.try_get("in_service_on")?;
     if month_of(in_service) > period {
         return Ok(false);
@@ -2807,9 +2919,10 @@ pub struct AssetDepreciationStatus {
 const DUE_CANDIDATES: &str =
     "SELECT a.asset_id, a.asset_number, a.name, a.site_id, a.category_code,
                 k.capitalized_cost_minor, k.salvage_value_minor, k.useful_life_months,
-                k.method, k.in_service_on,
-                COALESCE((SELECT SUM(d.amount_minor) FROM asset_depreciation_entry d
-                           WHERE d.asset_id = a.asset_id), 0)::bigint AS accumulated,
+                k.method, k.charge_kind, k.in_service_on, k.opening_through,
+                (COALESCE(k.opening_accumulated_minor, 0)
+                 + COALESCE((SELECT SUM(d.amount_minor) FROM asset_depreciation_entry d
+                              WHERE d.asset_id = a.asset_id), 0))::bigint AS accumulated,
                 EXISTS (SELECT 1 FROM asset_depreciation_entry d
                          WHERE d.asset_id = a.asset_id AND d.period_month = $1) AS already
            FROM fixed_asset a

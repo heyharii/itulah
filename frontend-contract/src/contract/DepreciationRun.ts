@@ -8,7 +8,7 @@ export type DepreciationRun = { period_month: string,
  */
 posted_count: number, posted_total_minor: number, skipped_count: number, 
 /**
- * Assets a preview found with a charge to make and no account to make it
- * into. Always zero in a run.
+ * Assets a preview found with a charge that cannot post under the current
+ * account mappings and Finance posting control. Always zero in a run.
  */
 blocked_count: number, lines: Array<DepreciationLine>, };

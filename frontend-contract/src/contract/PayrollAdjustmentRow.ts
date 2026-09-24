@@ -15,7 +15,11 @@ period: string, employee_id: string, employee_code: string, full_name: string | 
  * `EARNING` or `DEDUCTION`, from the component. A *kasbon* instalment is a
  * positive amount under a deduction; nothing here is signed.
  */
-kind: string, amount_minor: number, filed_by: string, filed_at: string, 
+kind: string, amount_minor: number, 
+/**
+ * The advance the figure repays, when the figure is a recovery (0347).
+ */
+advance_id: string | null, filed_by: string, filed_at: string, 
 /**
  * Why. Not decoration: this is the one figure on a payslip head office did
  * not agree in advance, so the reason is the whole of what it approves.

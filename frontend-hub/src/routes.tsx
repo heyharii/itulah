@@ -28,6 +28,7 @@ import { screens as reports } from "@/screens/reports"
 import { screens as sales } from "@/screens/sales"
 import { screens as system } from "@/screens/system"
 import { screens as gaAssets } from "@/screens/assets"
+import { screens as gaOverview } from "@/screens/ga"
 import { screens as vendors } from "@/screens/vendors"
 import { screens as workplace } from "@/screens/workplace"
 
@@ -76,6 +77,7 @@ const screens: Readonly<Record<string, () => React.ReactNode>> = {
   ...letters,
   ...vendors,
   ...gaAssets,
+  ...gaOverview,
   ...workplace,
   ...reports,
   ...system,

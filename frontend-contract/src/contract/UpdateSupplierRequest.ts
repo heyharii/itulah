@@ -9,4 +9,19 @@ category?: string | null,
  * The account its bills usually debit; `null` clears it, which is what a
  * party moving back to merchandise has to be able to do.
  */
-expense_account_code?: string | null, };
+expense_account_code?: string | null, 
+/**
+ * The tax number; `null` clears it, for the supplier whose NPWP was
+ * typed off the wrong line of a faktur.
+ */
+npwp?: string | null, 
+/**
+ * Whether they are PKP. Not nullable — it is a yes or a no, and the
+ * column's default says which one an unanswered supplier is.
+ */
+is_pkp?: boolean | null, 
+/**
+ * The standing terms; `null` clears them, which is what a supplier who
+ * has gone back to paying on delivery needs.
+ */
+default_payment_terms_code?: string | null, };

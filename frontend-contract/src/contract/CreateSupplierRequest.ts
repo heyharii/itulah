@@ -15,4 +15,11 @@ category?: string | null,
  * The account this party's bills usually debit. Refused on a merchandise
  * supplier by the constraint, not by this code.
  */
-expense_account_code?: string | null, };
+expense_account_code?: string | null, 
+/**
+ * The tax identity, and the standing arrangement. All three optional on
+ * the wire for the reason `category` is: a supplier is regularly
+ * registered from a delivery note that carries none of them, and they
+ * arrive on the day Finance asks.
+ */
+npwp?: string | null, is_pkp?: boolean | null, default_payment_terms_code?: string | null, };

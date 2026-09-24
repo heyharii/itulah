@@ -63,6 +63,16 @@ pub struct AssetClass {
     pub name_en: Option<String>,
     /// `PPE`, `OE`, `INTANGIBLE` or `DEFERRED`.
     pub kind: String,
+    /// Which of the eleven forms this class is filled in on — `LAND`,
+    /// `BUILDING`, `TECH`, `VEHICLE`, `FFE`, `IT`, `AUDIO`, `OE`, `SOFTWARE`,
+    /// `DEFERRED` or `CIP`.
+    ///
+    /// Separate from `kind` and separate from the accounts, because it answers
+    /// a third question: what does somebody have to WRITE DOWN about one of
+    /// these. `AIR_CONDITIONER` and `LIFT` are two classes — two sets of
+    /// accounts, two depreciation lives — and one form, a machine with a
+    /// capacity and a warranty. See migration 0356.
+    pub build: String,
     /// The client's own ten-digit template this class came from —
     /// `1021507001` for *OE - Rak 1*. Never NULL: every class here was a
     /// family in their chart, and this is the number their register is
@@ -97,7 +107,7 @@ pub async fn asset_classes(pool: &PgPool, kind: Option<&str>) -> Result<AssetCla
         .filter(|value| !value.is_empty())
         .map(str::to_ascii_uppercase);
     let rows = sqlx::query(
-        "SELECT c.class_code, c.name, c.name_en, c.kind, c.legacy_code, c.is_active,
+        "SELECT c.class_code, c.name, c.name_en, c.kind, c.build, c.legacy_code, c.is_active,
                 (SELECT count(*) FROM fixed_asset a
                   WHERE a.category_code = c.class_code)::bigint AS asset_count
            FROM asset_class c
@@ -115,6 +125,7 @@ pub async fn asset_classes(pool: &PgPool, kind: Option<&str>) -> Result<AssetCla
                 name: row.try_get("name")?,
                 name_en: row.try_get("name_en")?,
                 kind: row.try_get("kind")?,
+                build: row.try_get("build")?,
                 legacy_code: row.try_get("legacy_code")?,
                 is_active: row.try_get("is_active")?,
                 asset_count: row.try_get("asset_count")?,

@@ -71,37 +71,50 @@ export function Sidebar({
       className={cn(
         "flex shrink-0 flex-col border-r border-hairline bg-soft px-[0.6875rem] py-[0.8125rem]",
         "min-h-0",
-        // Collapsed is GONE, not a narrower column. It used to shrink to a
-        // 58px strip of icons, because a sidebar that slid away entirely left
-        // ⌘B as the only way back to navigation with nothing on screen saying
-        // so. The rail answers that now — navigation never leaves — and two
-        // columns of icons side by side would have been one column too many.
-        !drawer && "transition-[width] duration-200",
-        !drawer &&
-          (open ? "w-[15.5rem]" : "w-0 overflow-hidden border-r-0 px-0"),
-        // A drawer is never the icon strip. It is over the content, so it has
-        // no width to save, and it is opened by a thumb — so it takes the
-        // labelled width plus a little, and scrolls its own height. `max-w`
-        // keeps the veil reachable on the narrowest phone: a drawer with no
-        // screen showing beside it is a page, and a page needs a back button
-        // rather than a tap-outside.
-        drawer && "h-full w-[15.5rem] max-w-[calc(85vw-3.5rem)] overflow-y-auto"
+        // Docked, the column is always its full width: folding it away is the
+        // shell's job, done by sliding it rather than by narrowing it — see
+        // `DockedSidebar` in `app-shell.tsx` for why the width never animates.
+        !drawer && (open ? "h-full w-[15.5rem]" : "hidden"),
+        // A drawer is opened by a thumb, so it takes the labelled width and
+        // scrolls its own height. `max-w` keeps the veil reachable on the
+        // narrowest phone: a drawer with no screen showing beside it is a
+        // page, and a page needs a back button rather than a tap-outside.
+        drawer && "h-full w-[15.5rem] max-w-[calc(85vw-5rem)] overflow-y-auto"
       )}
     >
-      <div
-        className={cn(
-          "mb-2.5 flex items-center gap-1.5",
-          !open && "flex-col gap-1.5"
-        )}
-      >
-        {open && (
-          <b className="min-w-0 flex-1 truncate text-card-title font-semibold">
-            {where.data?.node_id ?? "cloud"}
-          </b>
-        )}
-        {/* Only the drawer closes itself. The docked column's switch is on the
-            rail — see `rail.tsx` — because a control that vanishes with the
-            panel it controls is a one-way door. */}
+      {/* The workspace: whose books these are, and which node is answering.
+          At the bar's height, so its lower edge and the bar's are one line
+          across the window. It is the way Home was always reached — the mark
+          — and it says which node you are on, which the bar used to leave to
+          a tooltip on an avatar. */}
+      <div className="-mx-[0.1875rem] -mt-[0.8125rem] flex h-13 shrink-0 items-center gap-1 border-b border-hairline">
+        <Link
+          to="/"
+          aria-label="Wira Makmur — home"
+          className="flex min-w-0 flex-1 items-center gap-2.5 rounded-inner px-1.5 py-1 transition-colors hover:bg-soft-2"
+        >
+          <span className="grid size-7 shrink-0 place-items-center rounded-[0.4375rem] bg-dark text-[0.625rem] font-semibold tracking-[0.02em] text-on-dark shadow-[inset_0_0_0_1px_rgb(255_255_255/8%)]">
+            WM
+          </span>
+          <span className="min-w-0 flex-1 leading-tight">
+            <b className="block truncate text-[0.8125rem] font-semibold tracking-[-0.01em] text-ink">
+              Wira Makmur
+            </b>
+            <small className="flex items-center gap-1 truncate text-[0.6875rem] text-mute">
+              <span
+                aria-hidden
+                className={cn(
+                  "size-1.5 shrink-0 rounded-full",
+                  where.data ? "bg-ok" : "bg-faint"
+                )}
+              />
+              {where.data?.node_id ?? "connecting…"}
+            </small>
+          </span>
+        </Link>
+        {/* Only the drawer closes itself here. The docked column's switch is
+            on the rail — a control that vanishes with the panel it controls
+            is a one-way door. */}
         {drawer && (
           <button
             type="button"
@@ -115,14 +128,28 @@ export function Sidebar({
         )}
       </div>
 
+      {/* The domain the column is listing, as its title. Home belongs to no
+          domain and says so. Keyed like the list so it swaps with it — but
+          NOT with the list's key: two siblings under one key is how every
+          domain visited left its title behind, stacked above the rows. */}
+      <b
+        key={`title:${domain?.id ?? active.id}`}
+        className="nav-swap mt-3.5 mb-1.5 block truncate px-[0.5625rem] text-card-title font-semibold tracking-[-0.01em] text-ink"
+      >
+        {domain?.label ?? active.label}
+      </b>
+
       {/* Quick actions and Ask used to sit here, above the modules. They were
           removed from the column on the owner's instruction; the ⌘K palette and
           the assistant are still reachable by their shortcuts, which is where
           the people who use them were reaching for them anyway. */}
 
+      {/* Keyed on the domain, so the list is replaced — and plays `nav-swap`
+          — when the rail moves, and is left alone when a row is clicked. */}
       <nav
+        key={`list:${domain?.id ?? active.id}`}
         aria-label="Navigation"
-        className="flex min-h-0 [scrollbar-width:none] flex-col gap-px overflow-y-auto [&::-webkit-scrollbar]:hidden"
+        className="nav-swap flex min-h-0 [scrollbar-width:none] flex-col gap-px overflow-y-auto [&::-webkit-scrollbar]:hidden"
       >
         {/* The drawer says what the rail says: the screens of the DOMAIN, not
             of one module inside it. Selling holds three modules, and a drawer
@@ -217,6 +244,10 @@ function ModuleScreens({ module }: { module: AppModule }) {
   // module id keeps the default stable for the life of the instance.
   const useAudience = module.useAudience ?? noAudience
   const audience = useAudience()
+  // One subscription for the whole column rather than one per row: a row that
+  // needs to know where the reader is already asks Router, and sixty rows
+  // asking is sixty subscriptions to answer one question.
+  const pathname = useRouterState({ select: (s) => s.location.pathname })
   const visible = module.sections
     .map((section) => ({
       label: section.label,
@@ -245,6 +276,10 @@ function ModuleScreens({ module }: { module: AppModule }) {
               // is a prefix of every other path in the module, so a loose
               // match would light it on all of them.
               exact={item.path === module.home}
+              // A row whose child is not under its own path — Utilities under
+              // Langganan — says so itself, because Router cannot know it.
+              lit={litByHand(pathname, item)}
+              soon={module.soon ?? false}
             />
           ))}
         </div>
@@ -263,21 +298,73 @@ function ModuleScreens({ module }: { module: AppModule }) {
 /// The active row is a FILL, and it is the only fill in the column: the rail
 /// tile says which module, this says which screen, and neither has to compete
 /// with a second highlighted thing above it.
-function ScreenRow({ item, exact }: { item: NavItem; exact: boolean }) {
+///
+/// A `soon` module's rows keep their place but open nothing — a link into
+/// `Placeholder` would promise a screen that is not there.
+function ScreenRow({
+  item,
+  exact,
+  lit = false,
+  soon = false,
+}: {
+  item: NavItem
+  exact: boolean
+  /// Whether this row is the parent of where the reader is, for a child Router
+  /// cannot see from here. See `NavItem.alsoLights`.
+  lit?: boolean
+  soon?: boolean
+}) {
   const Icon = item.icon
   const useCount = item.useCount ?? noCount
   const badge = useCount()
+
+  if (soon) {
+    return (
+      <span
+        title={`${item.label} — not built yet`}
+        aria-disabled="true"
+        className="group flex cursor-default items-center gap-2.5 rounded-lg px-[0.5625rem] py-[0.4375rem] text-nav font-medium text-mute"
+      >
+        <Icon className="size-[1.0625rem] shrink-0 stroke-[1.55] text-line-ico" />
+        <span className="min-w-0 flex-1 truncate">{item.label}</span>
+        <Badge value={badge} tint={item.badge} />
+      </span>
+    )
+  }
 
   return (
     <Link
       to={item.path}
       activeOptions={{ exact }}
-      className="group flex items-center gap-2.5 rounded-lg px-[0.5625rem] py-[0.4375rem] text-nav font-medium text-text transition-colors hover:bg-soft-2 hover:text-ink data-[status=active]:bg-soft-2 data-[status=active]:font-semibold data-[status=active]:text-ink pointer-coarse:min-h-tap"
+      aria-current={lit ? "page" : undefined}
+      className={cn(
+        "group flex items-center gap-2.5 rounded-lg px-[0.5625rem] py-[0.4375rem] text-nav font-medium text-text transition-colors hover:bg-soft-2 hover:text-ink data-[status=active]:bg-soft-2 data-[status=active]:font-semibold data-[status=active]:text-ink pointer-coarse:min-h-tap",
+        lit && "bg-soft-2 font-semibold text-ink"
+      )}
     >
-      <Icon className="size-[1.0625rem] shrink-0 stroke-[1.55] text-line-ico group-data-[status=active]:text-ink" />
+      <Icon
+        className={cn(
+          "size-[1.0625rem] shrink-0 stroke-[1.55] text-line-ico group-data-[status=active]:text-ink",
+          lit && "text-ink"
+        )}
+      />
       <span className="min-w-0 flex-1 truncate">{item.label}</span>
       <Badge value={badge} tint={item.badge} />
     </Link>
+  )
+}
+
+/// Whether where the reader is belongs to this row, by the row's own
+/// declaration rather than by Router's prefix matching.
+///
+/// A whole path or anything under it, so `/contracts/utilities/anything` still
+/// lights Langganan — the rule Router applies to a row's own path, applied to
+/// the paths a row has adopted.
+function litByHand(pathname: string, item: NavItem): boolean {
+  return (
+    item.alsoLights?.some(
+      (path) => pathname === path || pathname.startsWith(`${path}/`)
+    ) ?? false
   )
 }
 

@@ -2,8 +2,7 @@
 
 export type FinancialStatementLine = { account_code: string, account_name: string, 
 /**
- * The section this line belongs to: `ASSET`, `LIABILITY`, `EQUITY`,
- * `REVENUE`, `COST_OF_SALES`, `EXPENSE`, `OTHER`.
+ * The section assigned to the account in the chart.
  */
 section: string, 
 /**

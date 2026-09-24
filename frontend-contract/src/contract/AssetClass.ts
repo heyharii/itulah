@@ -13,6 +13,18 @@ name: string, name_en: string | null,
  */
 kind: string, 
 /**
+ * Which of the eleven forms this class is filled in on — `LAND`,
+ * `BUILDING`, `TECH`, `VEHICLE`, `FFE`, `IT`, `AUDIO`, `OE`, `SOFTWARE`,
+ * `DEFERRED` or `CIP`.
+ *
+ * Separate from `kind` and separate from the accounts, because it answers
+ * a third question: what does somebody have to WRITE DOWN about one of
+ * these. `AIR_CONDITIONER` and `LIFT` are two classes — two sets of
+ * accounts, two depreciation lives — and one form, a machine with a
+ * capacity and a warranty. See migration 0356.
+ */
+build: string, 
+/**
  * The client's own ten-digit template this class came from —
  * `1021507001` for *OE - Rak 1*. Never NULL: every class here was a
  * family in their chart, and this is the number their register is

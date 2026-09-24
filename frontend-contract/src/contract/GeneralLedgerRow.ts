@@ -54,12 +54,12 @@ counter_site_id: string | null,
 /**
  * Who the other side was, when the posting named one.
  *
- * `journal_line.supplier_id` is the sub-ledger dimension the payables
+ * `journal_line.party_type` + `party_id` (0300) are the sub-ledger dimension the payables
  * ageing is projected over (0051), so it is the party on every bill and
  * every payment line. Null on a sales entry, a depreciation charge or a
  * hand-written correction, which have no party and must not pretend to.
  */
-supplier_id: string | null, 
+party_type: string | null, party_id: string | null, 
 /**
  * The supplier's name, looked up best-effort. Null when the line carries
  * no party, and also when it names one no longer in the register — the id

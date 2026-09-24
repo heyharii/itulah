@@ -15,4 +15,27 @@ category: string,
  * The account this party's bills usually debit. Only a non-merchandise
  * party has one — merchandise debits inventory by rule.
  */
-expense_account_code: string | null, version: number, created_by: string, created_at: string, updated_by: string, updated_at: string, };
+expense_account_code: string | null, 
+/**
+ * Nomor Pokok Wajib Pajak, as printed on the faktur — punctuation and
+ * all. Stored as typed because it is copied onto documents rather than
+ * matched on, and one company has exactly one. See migration 0302.
+ */
+npwp: string | null, 
+/**
+ * Whether this supplier is a Pengusaha Kena Pajak, and so whether their
+ * bills carry PPN and a faktur number.
+ *
+ * A separate fact from holding an NPWP, deliberately: a supplier can hold
+ * one and not be a taxable enterprise, and a form that infers one from
+ * the other cannot record that.
+ */
+is_pkp: boolean, 
+/**
+ * The `payment_terms_template` an order to this supplier is raised with
+ * unless the buyer says otherwise.
+ *
+ * A DEFAULT and only that. The composer copies it onto the order the
+ * moment a supplier is chosen; from there it is the order's own schedule.
+ */
+default_payment_terms_code: string | null, version: number, created_by: string, created_at: string, updated_by: string, updated_at: string, };

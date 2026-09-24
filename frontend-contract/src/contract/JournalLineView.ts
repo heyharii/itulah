@@ -13,7 +13,7 @@ account_name: string, site_id: string,
  * electricity shows two lines called "Hutang Affiliasi Pembiayaan" and a
  * reader has to decode a twelve-digit code to find out which is whose.
  */
-counter_site_id: string | null, debit_minor: number, credit_minor: number, supplier_id: string | null, 
+counter_site_id: string | null, debit_minor: number, credit_minor: number, party_type: string | null, party_id: string | null, 
 /**
  * What kind of thing this line is, on the accounts that are kept by kind.
  *

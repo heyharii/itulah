@@ -5,7 +5,7 @@ export type RecordCashDocumentRequest = { doc_date: string, from: CashSide, to: 
 /**
  * `SUPPLIER`, `EMPLOYEE` or `OTHER`.
  */
-party_kind: string | null, supplier_id: string | null, employee_id: string | null, 
+party_type: string | null, supplier_id: string | null, employee_id: string | null, 
 /**
  * What the slip prints on the "dibayarkan kepada" line. Required, whatever
  * the party's shape: a slip that printed an id would be a slip nobody

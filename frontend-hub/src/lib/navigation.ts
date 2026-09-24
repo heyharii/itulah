@@ -8,6 +8,7 @@ import {
   Store,
   Truck,
   Users,
+  Wallet,
   type LucideIcon,
 } from "lucide-react"
 
@@ -30,8 +31,13 @@ import { salesNav } from "@/screens/sales/nav"
 import { systemNav } from "@/screens/system/nav"
 import { lettersNav } from "@/screens/letters/nav"
 import { assetsNav } from "@/screens/assets/nav"
+import { contractsNav } from "@/screens/contracts/nav"
+import { maintenanceNav } from "@/screens/maintenance/nav"
 import { vendorsNav } from "@/screens/vendors/nav"
 import { chatNav, discussionsNav, libraryNav } from "@/screens/workplace/nav"
+import { gaOverviewNav } from "@/screens/ga/nav"
+import { gaLocationsNav } from "@/screens/locations/nav"
+import { gaSuppliesNav } from "@/screens/supplies/nav"
 
 /// The navigation registry — one declaration the whole app reads.
 ///
@@ -114,6 +120,21 @@ export interface NavItem {
   /// accept it and what puts it in ⌘K — but a sidebar is a list of places
   /// somebody sets out for, and these are places somebody arrives at.
   readonly hidden?: boolean
+  /// Other paths this row is the parent of, so opening one lights this row.
+  ///
+  /// Router's own matching already lights a row whose path is a PREFIX of where
+  /// you are — `/assets/software` keeps `/assets` lit only because Register is
+  /// the module's home and matches exactly, so the hidden register views need
+  /// this and the two visible ones do not. It exists for the case where the
+  /// child is NOT under the parent's path at all: Utilities and Cleaning are
+  /// views over the same table as Langganan and Jasa, and the brief keeps them
+  /// at `/contracts/utilities` and `/contracts/cleaning`, which share no prefix
+  /// with the group they belong to.
+  ///
+  /// Without it, arriving at `/contracts/utilities` from a shop's shortcut
+  /// leaves every row in the column unlit — and a sidebar with nothing lit
+  /// reads as a screen that does not belong to anything.
+  readonly alsoLights?: readonly string[]
 }
 
 export interface NavSection {
@@ -226,8 +247,13 @@ export const modules: readonly AppModule[] = [
   financeFinalNav,
   peopleNav,
   lettersNav,
+  gaOverviewNav,
   vendorsNav,
+  gaLocationsNav,
+  contractsNav,
   assetsNav,
+  maintenanceNav,
+  gaSuppliesNav,
   systemNav,
 ]
 
@@ -355,18 +381,43 @@ export const domains: readonly AppDomain[] = [
     icon: Landmark,
     modules: ["finance", "finance-lab", "finance-final"],
   },
+  // Its own chip rather than a fourth module under Finance, because it is not
+  // a fourth view of the same money: `finance-lab-2` is Cash & Bank rebuilt to
+  // ERPNext's shape against the live node, and it is the one being worked on.
+  //
+  // It was also the only finance module in the registry with no chip at all —
+  // routed, in the sidebar's list, reachable by ⌘K, and absent from the bar. A
+  // module belongs to the FIRST domain that names it, so putting it here as
+  // well as under Finance would have drawn a chip that never lights; this is
+  // the reason it stands alone rather than being appended above.
+  {
+    id: "finance-new",
+    label: "Finance New",
+    icon: Wallet,
+    modules: ["finance-lab-2"],
+  },
   { id: "hr", label: "HR", icon: Users, modules: ["people"] },
   {
     id: "ga",
     label: "GA",
     icon: MessagesSquare,
+    // The register of the company's own things and deals, read in the order
+    // the department works: what wants looking at, who we deal with, where we
+    // operate from, what we own, what we have agreed, what we keep working,
+    // what the places run out of, and the letters that go out.
+    //
+    // Conversations and files are ways of talking about the work, not work of
+    // this domain — they stay on the icon strip (`asides`) with their routes
+    // untouched.
     modules: [
+      "ga-overview",
       "vendors",
+      "ga-locations",
       "ga-assets",
+      "contracts",
+      "maintenance",
+      "ga-supplies",
       "letters",
-      "discussions",
-      "chat",
-      "library",
     ],
   },
 ]
@@ -382,18 +433,18 @@ export function modulesOfDomain(domain: AppDomain): readonly AppModule[] {
 /// Whether a domain's modules are one flat list of screens rather than several
 /// labelled groups.
 ///
-/// The heading above a group says which module its rows belong to. GA's six
-/// modules contribute one screen each, and that screen already carries the
-/// module's own label and icon — so the heading was the same word twice, six
-/// times down the column, and the owner asked for it gone on 2026-09-13.
+/// The heading above a group says which module its rows belong to. When GA
+/// was six modules of one screen each, that heading was the same word twice,
+/// six times down the column, and the owner asked for it gone on
+/// 2026-09-13 — the day it read flat. It stopped being flat when Assets grew
+/// its three doors and Maintenance its two, which is the commit the comment
+/// is read on: the question is asked of the modules, so the headings came
+/// back by themselves.
 ///
 /// Read off the modules rather than declared on the domain, so the heading
-/// comes back on the commit that gives one of them a second screen — a flag
-/// would have to be remembered then, and would be remembered late. The
-/// question is asked of the WHOLE domain, never module by module: a domain
-/// where one module has four screens and its neighbour has one still needs
-/// every heading, or the neighbour's lone row reads as a fifth screen of the
-/// module above it.
+/// is never a flag to remember — a domain where one module has four screens
+/// and its neighbour has one still needs every heading, or the neighbour's
+/// lone row reads as a fifth screen of the module above it.
 export function flatDomain(modules: readonly AppModule[]): boolean {
   return modules.every((module) => visibleItems(module).length <= 1)
 }

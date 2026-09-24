@@ -5,6 +5,7 @@ import type {
   AccountMapping,
   AccountPage,
   AcquisitionGap,
+  AssetDepreciationStatus,
   AllocateToBill,
   AssessAssetRequest,
   AssetPage,
@@ -62,12 +63,12 @@ import type {
 /// The finance wire, and the keys its answers are held under.
 ///
 /// Almost every type here is generated from the Rust struct the server
-/// serialises, so there is nothing to keep in step by hand. The four
-/// exceptions are marked where they appear: `/account-map`, `/periods/close`,
-/// `/journal` (POST) and `/journal/{id}/reverse` answer with `json!()`
-/// literals in `cloud/http/finance.rs` rather than with a struct, so ts-rs has
-/// nothing to generate from and those shapes are transcribed. If one of them
-/// starts reading `undefined`, this file is where it went stale.
+/// serialises, so there is nothing to keep in step by hand. The exceptions
+/// are marked where they appear: `/account-map`, `/periods/close`,
+/// the period checklist, `/journal` (POST) and `/journal/{id}/reverse` answer
+/// with JSON values rather than generated DTOs, so their shapes are
+/// transcribed here. If one of them starts reading `undefined`, this file is
+/// where it went stale.
 ///
 /// One thing to know before reading any screen built on this: an account
 /// `name` is the client's own, in Indonesian, and is never translated
@@ -218,6 +219,10 @@ export const financeKeys = {
 
   assets: (unassessed: boolean, site: string | null) =>
     ["finance", "assets", unassessed, site] as const,
+  depreciationStatus: (year: number, month: number) =>
+    ["finance", "assets", "depreciation-status", year, month] as const,
+  closeChecklist: (period: string | null) =>
+    ["finance", "period-checklist", period] as const,
   /// What has actually been charged against one asset, month by month.
   assetSchedule: (id: string) => ["finance", "assets", "schedule", id] as const,
   /// The two halves of "what the books bought and what the register holds".
@@ -672,6 +677,65 @@ export function listJournal(
   })
 }
 
+/// What a manual journal entry sends.
+///
+/// Mirrors `ManualEntryRequest` on the server, which wraps the same
+/// `PostingLine` every posting rule builds. Two things about it are easy to
+/// get wrong from the browser and are spelled out here because the server's
+/// refusal arrives after the typing, not during it:
+///
+///   * `account` is a TAGGED union. `kind: "account"` names a client code a
+///     person chose; `kind: "meaning"` resolves through the account map. A
+///     manual entry is always the first — the person is reading a code off a
+///     document — so the form never offers the second.
+///   * `category_code` is required on an account that declares a category
+///     family and refused on one that does not. The server names the codes
+///     that would have worked, which is what the form shows.
+export interface ManualJournalLine {
+  readonly account: {
+    readonly kind: "account"
+    readonly account_code: string
+    readonly category_code?: string | null
+  }
+  readonly site_id: string
+  readonly debit_minor: number
+  readonly credit_minor: number
+  readonly memo?: string | null
+}
+
+export interface ManualJournalRequest {
+  readonly posting_date: string
+  readonly currency?: string
+  readonly memo?: string | null
+  readonly lines: readonly ManualJournalLine[]
+}
+
+/// What it answers with. A `json!()` literal on the server rather than a
+/// struct, so ts-rs has nothing to generate from — transcribed, and this is
+/// where it goes stale if a field moves.
+export interface PostedEntry {
+  readonly entry_id: string
+  readonly entry_number: string
+  readonly total_minor: number
+}
+
+/// Post a journal entry by hand.
+///
+/// There is no draft: `poster::post` writes a balanced entry or refuses, so
+/// what this sends is final. Everything the entry has to satisfy — the two
+/// sides agreeing, the month being open, the account accepting a manual
+/// journal at all — is checked there and comes back as a sentence.
+export function recordJournal(
+  request: ManualJournalRequest,
+  idempotencyKey: string,
+  signal?: AbortSignal
+): Promise<PostedEntry> {
+  return node.post<PostedEntry>("/api/v1/finance/journal", request, {
+    signal,
+    headers: { "Idempotency-Key": idempotencyKey },
+  })
+}
+
 export function journalEntry(
   id: string,
   signal?: AbortSignal
@@ -1024,8 +1088,80 @@ export type { AllocateToBill }
 // Fixed assets
 // ---------------------------------------------------------------------------
 
+/// The server's close checklist. This is the same verdict the close endpoint
+/// evaluates, so the screen does not keep a second, drifting set of gates.
+export interface PeriodCheckPointer {
+  readonly kind: string
+  readonly id: string
+  readonly label: string
+}
+
+export type PeriodCheckOutcome =
+  | { readonly state: "PASS" }
+  | {
+      readonly state: "FAIL"
+      readonly count: number
+      readonly where: readonly PeriodCheckPointer[]
+    }
+  | { readonly state: "PENDING" | "BLOCKED"; readonly reason: string }
+
+export interface PeriodCheckResult {
+  readonly key: string
+  readonly title: string
+  readonly critical: boolean
+  readonly outcome: PeriodCheckOutcome
+}
+
+export interface PeriodChecklist {
+  readonly period: { readonly year: number; readonly month: number }
+  readonly may_close: boolean
+  readonly blocked_by: readonly string[]
+  readonly checks: readonly PeriodCheckResult[]
+}
+
+export function periodChecklist(
+  period: string,
+  signal?: AbortSignal
+): Promise<PeriodChecklist> {
+  return node.get<PeriodChecklist>(
+    `/api/v1/finance/periods/${encodeURIComponent(period)}/checklist`,
+    { signal }
+  )
+}
+
+/// Whether a month's asset charges are actually complete, asked of the
+/// register rather than inferred from a depreciation run receipt.
+export function assetDepreciationStatus(
+  year: number,
+  month: number,
+  signal?: AbortSignal
+): Promise<AssetDepreciationStatus> {
+  const period = `${year}-${String(month).padStart(2, "0")}`
+  return node.get<AssetDepreciationStatus>(
+    `/api/v1/finance/assets/depreciation/status?period=${period}`,
+    { signal }
+  )
+}
+
+/// Rehearse a month's depreciation without writing journals or ledger rows.
+export function previewDepreciation(
+  year: number,
+  month: number,
+  signal?: AbortSignal
+): Promise<DepreciationRun> {
+  return node.post<DepreciationRun>(
+    "/api/v1/finance/depreciation/preview",
+    { year, month },
+    { signal }
+  )
+}
+
 /// The register. `unassessed` asks for the open control gap directly — assets
 /// Operations has registered that Finance has not yet decided a treatment for.
+///
+/// `group` reads one of the register's three views — `register`, `software`,
+/// `projects` — so the GA menu's three doors ask the server for the rows each
+/// means, and the screen never spells a class list of its own.
 export function listAssets(
   options: {
     site?: string
@@ -1034,6 +1170,10 @@ export function listAssets(
     q?: string
     decision?: string
     status?: string
+    group?: string
+    /// The eleven forms a thing can come in, comma-separated when a view means
+    /// more than one — Property is land and buildings. See `lib/builds.ts`.
+    build?: string
     sort?: string
     dir?: string
     cursor?: string
@@ -1151,9 +1291,10 @@ export function runDepreciation(
   month: number,
   signal?: AbortSignal
 ): Promise<DepreciationRun> {
+  const period = `${year}-${String(month).padStart(2, "0")}`
   return node.post<DepreciationRun>(
-    "/api/v1/finance/depreciation/run",
-    { year, month },
+    `/api/v1/finance/assets/depreciation/run?period=${period}`,
+    {},
     { signal }
   )
 }

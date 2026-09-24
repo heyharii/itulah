@@ -3,8 +3,10 @@ import type {
   CustomerTransactionDetail,
   CustomerTransactionPage,
   IssuedPairingCode,
+  IssuedRedeemRequest,
   MemberIdentity,
   MemberSessionResponse,
+  RedeemRequest,
 } from "../index";
 import { Node } from "./node";
 
@@ -140,6 +142,32 @@ export class Member {
   ): Promise<CustomerTransactionDetail> {
     return this.node.get<CustomerTransactionDetail>(
       `/api/v1/member/transactions/${encodeURIComponent(saleId)}`,
+      { signal },
+    );
+  }
+
+  // ── the shopper's points ──────────────────────────────────────────────
+
+  /// Ask to turn points into a voucher. The code in the response is the
+  /// shopper's own version of what [`Member.issuePairingCode`] hands a
+  /// cashier: shown once, large, meant to be read out — the same
+  /// conversation as pairing, with the two roles swapped.
+  createRedeemRequest(
+    points: number,
+    signal?: AbortSignal,
+  ): Promise<IssuedRedeemRequest> {
+    return this.node.post<IssuedRedeemRequest>(
+      "/api/v1/member/points/redeem-requests",
+      { points },
+      { signal },
+    );
+  }
+
+  /// What a shopper has asked to redeem, newest first, and what became of
+  /// each ask.
+  redeemRequests(signal?: AbortSignal): Promise<RedeemRequest[]> {
+    return this.node.get<RedeemRequest[]>(
+      "/api/v1/member/points/redeem-requests",
       { signal },
     );
   }

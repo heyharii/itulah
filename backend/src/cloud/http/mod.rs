@@ -26,10 +26,15 @@ pub mod attendance;
 pub mod audit;
 pub mod auth;
 pub mod basket;
+pub mod bill_template;
 pub mod campaigns;
 pub mod catalogue;
 pub mod categories;
 pub mod chat;
+/// Expense claims: filed here, sanctioned by somebody else, paid from petty
+/// cash. See `domain::claim`.
+pub mod claims;
+pub mod clock;
 pub mod colours;
 /// The payroll component catalogue, its ratified rates, and the one-off
 /// figures a place files. See `domain::component`.
@@ -39,9 +44,14 @@ pub mod customer;
 pub mod discussion;
 pub mod documents;
 pub mod employment;
+/// The end of employment, on the wire: exit interviews and the Full & Final
+/// statement. See `domain::exit`.
+pub mod exit;
 pub mod files;
+pub mod ga;
 pub mod finance;
 pub mod giro_print;
+pub mod grievance;
 pub mod hire;
 pub mod holiday;
 pub mod integrity;
@@ -54,11 +64,13 @@ pub mod money;
 pub mod notifications;
 pub mod opening;
 pub mod overtime;
+pub mod party;
 pub mod pay;
 pub mod payables_flow;
 pub mod payment_ledger;
 pub mod payments_lane;
 pub mod performance;
+pub mod po_import;
 pub mod punch;
 pub mod records;
 pub mod reports;
@@ -74,6 +86,7 @@ pub mod statement_intake;
 pub mod stock_ledger;
 pub mod store_money;
 pub mod supplier_banks;
+pub mod supplier_contacts;
 pub mod suppliers;
 pub mod sync_generation;
 pub mod sync_health;
@@ -175,6 +188,10 @@ pub fn router(state: AppState) -> Router {
     .route("/api/v1/inventory/replay", post(replay))
     .route("/api/v1/inventory/repost", post(repost))
     .route("/api/v1/inventory/control", get(control))
+    .route(
+        "/api/v1/inventory/control/clock",
+        get(crate::cloud::http::clock::clock_status).post(crate::cloud::http::clock::clock_control),
+    )
     .route(
         "/api/v1/inventory/control/corrupt-projection",
         post(corrupt_projection),
@@ -470,6 +487,11 @@ pub fn router(state: AppState) -> Router {
         "/api/v1/member/transactions/{sale_id}",
         get(member::transaction),
     )
+    .route("/api/v1/member/points", get(member::points))
+    .route(
+        "/api/v1/member/points/redeem-requests",
+        get(member::redeem_requests).post(member::create_redeem_request),
+    )
     .route("/api/v1/auth/login", post(auth::login))
     .route("/api/v1/auth/me", get(auth::me))
     .route("/api/v1/auth/logout", post(auth::logout))
@@ -530,6 +552,18 @@ pub fn router(state: AppState) -> Router {
         "/api/v1/sync/vouchers/{code}/release",
         post(sync_voucher_release),
     )
+    // The other call a till cannot answer on its own — a points balance lives
+    // centrally for the same reason a voucher's does, and for the same reason
+    // these two are machine-authenticated rather than session-gated. See
+    // `relay_points_redeem_request_*` in `edge/http.rs`.
+    .route(
+        "/api/v1/sync/points/redeem-requests/lookup",
+        post(sync_redeem_request_lookup),
+    )
+    .route(
+        "/api/v1/sync/points/redeem-requests/{request_id}/confirm",
+        post(sync_redeem_request_confirm),
+    )
     .route("/api/v1/sync/dead-letters", get(sync_dead_letters))
     .route("/api/v1/sync/trigger", post(sync_trigger))
     .route("/api/v1/sync/breaker/reset", post(sync_breaker_reset))
@@ -558,6 +592,22 @@ pub fn router(state: AppState) -> Router {
         get(suppliers::list_purchase_destinations),
     )
     .route("/api/v1/purchase-orders/{id}", get(purchase_order_detail))
+    // PO intake: uploads become drafts; the order book is only touched by
+    // the order route, pressed by a buyer in the review summary. The body
+    // limit is raised on the upload route alone, like `/api/v1/files`: a
+    // packet of scans is a real thing a buyer uploads.
+    .route(
+        "/api/v1/purchase-orders/import",
+        post(po_import::import_files).layer(DefaultBodyLimit::max(po_import::MAX_IMPORT_BYTES)),
+    )
+    .route(
+        "/api/v1/purchase-orders/import/health",
+        get(po_import::health),
+    )
+    .route(
+        "/api/v1/purchase-orders/import/validate",
+        post(po_import::validate),
+    )
     .route(
         "/api/v1/purchase-order-lines/{id}/close-short",
         post(close_purchase_line_short),
@@ -839,6 +889,22 @@ pub fn router(state: AppState) -> Router {
         "/api/v1/finance/journal",
         get(finance::journal).post(finance::post_manual_entry),
     )
+    .route(
+        "/api/v1/finance/journal/drafts",
+        get(finance::manual_journal_drafts).post(finance::create_manual_journal_draft),
+    )
+    .route(
+        "/api/v1/finance/journal/drafts/{id}",
+        get(finance::manual_journal_draft).put(finance::update_manual_journal_draft),
+    )
+    .route(
+        "/api/v1/finance/journal/drafts/{id}/submit",
+        post(finance::submit_manual_journal_draft),
+    )
+    .route(
+        "/api/v1/finance/journal/drafts/{id}/cancel",
+        post(finance::cancel_manual_journal_draft),
+    )
     .route("/api/v1/finance/journal/{id}", get(finance::journal_entry))
     .route(
         "/api/v1/finance/journal/{id}/reverse",
@@ -848,12 +914,17 @@ pub fn router(state: AppState) -> Router {
     // agrees with the books. Read-only — an open balance is opened by the
     // posting rule that created the document, never by a screen.
     .merge(payment_ledger::lane_p_routes(Router::new()))
+    .merge(party::lane_routes(Router::new()))
     // lane-A routes: a day of takings, and moving a settled tender.
     .merge(advance::routes(Router::new()))
+    .merge(bill_template::routes(Router::new()))
     .merge(finance_control::routes(Router::new()))
     .merge(principal::routes(Router::new()))
     .merge(financing::routes(Router::new()))
     .merge(prepaid::routes(Router::new()))
+    // GA: the register and its upkeep, which is a department of its own and
+    // not a corner of the books. See `http/ga.rs`.
+    .merge(ga::routes(Router::new()))
     .merge(tax::routes(Router::new()))
     // The two lists the forty-account chart made necessary: what a line may
     // be categorised as, and what an asset may be filed as. Read-only — both
@@ -1344,6 +1415,14 @@ pub fn router(state: AppState) -> Router {
         get(supplier_banks::list_supplier_bank_accounts)
             .post(supplier_banks::create_supplier_bank_account),
     )
+    // The people at a supplier, nested for the same two reasons: nobody
+    // looks a contact up on its own, and the id in the path is what files
+    // these writes against the supplier in the activity log.
+    .route(
+        "/api/v1/suppliers/{id}/contacts",
+        get(supplier_contacts::list_supplier_contacts)
+            .post(supplier_contacts::create_supplier_contact),
+    )
     // Where the words go on a bank's own giro leaf. Under finance because
     // that is who calibrates it and who prints from it; the coordinates
     // themselves are per bank, not per site — HO writes the giro.
@@ -1358,6 +1437,10 @@ pub fn router(state: AppState) -> Router {
     .route(
         "/api/v1/suppliers/{id}/bank-accounts/{account_id}",
         patch(supplier_banks::update_supplier_bank_account),
+    )
+    .route(
+        "/api/v1/suppliers/{id}/contacts/{contact_id}",
+        patch(supplier_contacts::update_supplier_contact),
     )
     // What the company has agreed it can agree. Read by the order
     // composer, which carried these four arrangements in a `const` until
@@ -1425,6 +1508,21 @@ pub fn router(state: AppState) -> Router {
     .route(
         "/api/v1/finance/bank-lines/{id}",
         patch(finance::update_bank_line),
+    )
+    .route("/api/v1/finance/ledger-health", get(finance::ledger_health))
+    // The matcher proposes; a person decides (0304). The same guarded write a
+    // hand-typed party uses, once somebody accepted.
+    .route(
+        "/api/v1/finance/bank-lines/{id}/propose-party",
+        post(finance::propose_bank_line_party),
+    )
+    .route(
+        "/api/v1/finance/party-proposals/{id}/accept",
+        post(finance::accept_party_proposal),
+    )
+    .route(
+        "/api/v1/finance/party-proposals/{id}/ignore",
+        post(finance::ignore_party_proposal),
     )
     // Cash's answer to reconciliation: no statement arrives, so a person
     // counts, and the difference is a separate decision to post.
@@ -1752,6 +1850,120 @@ pub fn router(state: AppState) -> Router {
     // answers, each needing a reason. Three routes would be three places
     // to forget to ask for one.
     .route("/api/v1/hire-proposals/{id}/decision", post(hire::decide))
+    // Expense claims: the catalogue reads for free (somebody filing a claim
+    // has to know which types exist), defines and retires at head office.
+    // The queue and the list answer to `people.employee.read` plus the
+    // caller's reach; filing picks its key by whose money it was — own, or
+    // a manager on a colleague's behalf; deciding and paying are bounded
+    // supervisor keys, and the rule a rung cannot express — the filer may
+    // not sanction their own claim — is enforced on the actor in
+    // `domain::claim`. The decision and its posting share one transaction,
+    // and so do the payout and its own.
+    .route(
+        "/api/v1/expense-claim-types",
+        get(claims::list_types).post(claims::define_type),
+    )
+    .route(
+        "/api/v1/expense-claim-types/{code}/retirement",
+        post(claims::retire_type),
+    )
+    .route(
+        "/api/v1/expense-claims",
+        get(claims::list_claims).post(claims::file),
+    )
+    // The filer's two acts: sending it up, and taking it back. Both are
+    // recorded under the filing key that applied, and the domain checks the
+    // actor really is the filer.
+    .route(
+        "/api/v1/expense-claims/{id}/submission",
+        post(claims::submit),
+    )
+    .route(
+        "/api/v1/expense-claims/{id}/withdrawal",
+        post(claims::withdraw),
+    )
+    .route("/api/v1/expense-claims/{id}/decision", post(claims::decide))
+    .route(
+        "/api/v1/expense-claims/{id}/returnal",
+        post(claims::returnal),
+    )
+    .route("/api/v1/expense-claims/{id}/payout", post(claims::payout))
+    .route(
+        "/api/v1/employees/{id}/expense-claims",
+        get(claims::list_of_employee),
+    )
+    // The advance surface, read-only: the finance lane owns `advance` (0280)
+    // and every mutation of it stays behind the finance routes. The
+    // Directory sheet reads who is holding company money and how much.
+    .route(
+        "/api/v1/employees/{id}/advances",
+        get(claims::list_advances),
+    )
+    // The confidential channel. The catalogue reads for free (somebody
+    // filing a grievance has to know which kinds exist); the queue answers
+    // to `people.grievance.read` for head office and to nothing but the
+    // caller's own filings for everybody else — the branch is on the rung,
+    // so a bounded caller never receives somebody else's complaint by
+    // asking nicely. Filing picks its key by whose complaint it was —
+    // their own, or a manager on a colleague's behalf — and investigating
+    // and resolving are disjoint ADMIN keys the domain keeps two actors
+    // on. The route never asks a store's reach about the queue: it is HO's
+    // precisely because it is nobody's posting.
+    .route(
+        "/api/v1/grievance-types",
+        get(grievance::list_types).post(grievance::define_type),
+    )
+    .route(
+        "/api/v1/grievance-types/{code}/retirement",
+        post(grievance::retire_type),
+    )
+    .route(
+        "/api/v1/grievances",
+        get(grievance::list_grievances).post(grievance::file),
+    )
+    .route(
+        "/api/v1/grievances/{id}/investigation",
+        post(grievance::investigation),
+    )
+    .route(
+        "/api/v1/grievances/{id}/resolution",
+        post(grievance::resolution),
+    )
+    .route(
+        "/api/v1/grievances/{id}/withdrawal",
+        post(grievance::withdrawal),
+    )
+    // The end of employment. The interview is opened by the TERMINATE path
+    // in its own transaction; reading it follows the employee read and its
+    // reach, and answering it is head office's. The Full & Final statement
+    // is head office's end to end, because it settles across places: one
+    // journal for the net, the person-side leg at the leaver's place, the
+    // cash side at head office, and the frozen totals compared to the live
+    // sources inside the settle's own transaction.
+    .route(
+        "/api/v1/exit-interviews",
+        get(exit::list_interviews).post(exit::create_interview),
+    )
+    .route(
+        "/api/v1/exit-interviews/{id}/completion",
+        post(exit::completion),
+    )
+    .route(
+        "/api/v1/exit-interviews/{id}/cancellation",
+        post(exit::interview_cancellation),
+    )
+    .route(
+        "/api/v1/full-and-final-statements",
+        get(exit::list_statements).post(exit::create_statement),
+    )
+    .route(
+        "/api/v1/full-and-final-statements/{id}/settlement",
+        post(exit::settlement),
+    )
+    .route(
+        "/api/v1/full-and-final-statements/{id}/cancellation",
+        post(exit::cancellation),
+    )
     // What an approval buys. It opens a CANDIDATE and posts them to the
     // unit that asked; the HIRE event that makes somebody an active
     // employee is still `POST /employees/{id}/employment`, because
@@ -1786,6 +1998,14 @@ pub fn router(state: AppState) -> Router {
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             audit::audit_actions,
+        ))
+        // Innermost of the custom layers, so it wraps only the handler's own
+        // response and every earlier layer still sees its headers: business
+        // time rides `x-virtual-time` when the clock is virtual, and nothing
+        // changes when it is not.
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::cloud::http::clock::virtual_time_header,
         ))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
@@ -2027,9 +2247,13 @@ async fn move_stock(
         }
     }
     // Clamp client-supplied timestamps: modest backdating for offline catch-up
-    // is fine, silent history rewriting or future-dating is not.
+    // is fine, silent history rewriting or future-dating is not. The clamp
+    // measures against the business clock, so under a virtual clock a fact
+    // from virtual history is judged there too — never against the wall
+    // clock, which would reject every legitimately-dated fact of a compressed
+    // run (plan §7.4).
     if let Some(occurred_at) = r.occurred_at {
-        let now = Utc::now();
+        let now = s.clock.now();
         if occurred_at > now + Duration::minutes(5) || occurred_at < now - Duration::days(7) {
             return Err(AppError::Validation(
                 "occurred_at must lie within the last 7 days and not in the future".into(),
@@ -3043,6 +3267,59 @@ async fn sync_voucher_release(
     )
     .await?;
     Ok(Json(released))
+}
+
+/// What a relaying till asks, to find a member's own live request.
+///
+/// `origin_id` and `actor_id` carry the same weight `RelayVoucherRequest`'s
+/// do: the machine credential proves which SHOP, and only that shop's own
+/// till knows which cashier is standing there — trusted for the same reason a
+/// sale fact is.
+#[derive(Debug, serde::Deserialize)]
+struct RelayRedeemLookup {
+    origin_id: String,
+    member_id: String,
+    code: String,
+    actor_id: String,
+}
+
+async fn sync_redeem_request_lookup(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<RelayRedeemLookup>,
+) -> Result<Json<Value>, AppError> {
+    authenticate_origin(&s, &headers, &request.origin_id).await?;
+    if request.actor_id.trim().is_empty() {
+        return Err(AppError::Validation(
+            "a redemption lookup has to be attributable to somebody".into(),
+        ));
+    }
+    let found =
+        infrastructure::lookup_redeem_request(&s.db, &request.member_id, &request.code).await?;
+    Ok(Json(serde_json::to_value(&found)?))
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct RelayRedeemConfirm {
+    origin_id: String,
+    actor_id: String,
+}
+
+async fn sync_redeem_request_confirm(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Path(request_id): Path<Uuid>,
+    Json(request): Json<RelayRedeemConfirm>,
+) -> Result<Json<Value>, AppError> {
+    authenticate_origin(&s, &headers, &request.origin_id).await?;
+    let actor = request.actor_id.trim();
+    if actor.is_empty() {
+        return Err(AppError::Validation(
+            "a redemption has to be attributable to somebody".into(),
+        ));
+    }
+    let outcome = infrastructure::confirm_redeem_request(&s.db, request_id, actor).await?;
+    Ok(Json(outcome))
 }
 
 /// What the fleet sent that this server would not take — an envelope rather

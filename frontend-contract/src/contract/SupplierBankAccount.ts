@@ -33,7 +33,16 @@ is_default: boolean,
  * reason every master here does it: a retirement nobody can find is a
  * retirement nobody can undo.
  */
-retired: boolean, note: string | null, 
+retired: boolean, 
+/**
+ * `UNVERIFIED`, `VERIFIED` or `REJECTED` (0308). Read-only here on
+ * purpose: verifying a number is Finance's act, done on the payment it
+ * is about to fund — a supplier master that could verify its own
+ * account would be the fraud control signing itself off. Carried so a
+ * register reading the same book can show the state without asking a
+ * second endpoint.
+ */
+verification_status: string | null, note: string | null, 
 /**
  * What a PATCH must quote in `If-Match`.
  */

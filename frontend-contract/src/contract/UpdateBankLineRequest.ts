@@ -2,11 +2,13 @@
 
 /**
  * What a person concluded about a bank line. ERPNext's *Update Bank
- * Transaction*, with one deliberate narrowing — and with their word `party`
- * spelled the way this codebase spells it: **counterparty**.
+ * Transaction*, with one deliberate narrowing -- and, since 0299, with their
+ * vocabulary too: `party_type` + `party`, named from the `party_type`
+ * registry.
  */
 export type UpdateBankLineRequest = { 
 /**
- * `SUPPLIER`, `CUSTOMER`, `MEMBER`, `STAFF` or `OTHER`. Null clears it.
+ * A row of `party_type` (0299) -- the registry is the list, not this
+ * comment. Null clears it.
  */
-counterparty_kind: string | null, counterparty_id: string | null, counterparty_name: string, note: string, };
+party_type: string | null, party_id: string | null, party_name: string, note: string, };

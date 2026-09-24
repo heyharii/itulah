@@ -64,6 +64,20 @@ export interface Tile<T extends string> {
   /// The one line that says what choosing it means. Optional, but a tile
   /// without one is usually a tile whose label was not clear enough.
   readonly note?: string
+  /// Drawn beside the label, at the left of the tile.
+  ///
+  /// For the choices whose options are things rather than words: the eleven
+  /// builds a thing can come in, the eleven objects a repair can be about. The
+  /// glyph is what the eye finds before it reads, and on a grid of eleven tiles
+  /// it is the difference between reading eleven labels and seeing one.
+  readonly icon?: React.ComponentType<{ className?: string }>
+  /// A code under the label, in the monospace face.
+  ///
+  /// The account a choice proposes, the class code it files under — a figure
+  /// the reader checks against the chart rather than reads as prose, so it is
+  /// set as one. Deliberately not a `note`: a note is a sentence about the
+  /// choice, and this is the choice's own identifier.
+  readonly tag?: string
   /// Why the server will not accept it. Present means disabled — and the
   /// sentence is drawn **on the tile**, not in a banner somewhere below.
   ///
@@ -110,13 +124,14 @@ export function Choices<T extends string>({
     >
       {options.map((one) => {
         const refused = one.refused !== undefined
+        const Glyph = one.icon
         return (
           <Radio.Root
             key={one.value}
             value={one.value}
             disabled={refused}
             className={cn(
-              "flex min-w-0 cursor-pointer flex-col items-start gap-0.5 rounded-inner border px-3 py-2.5 text-left transition-colors",
+              "flex min-w-0 cursor-pointer items-center gap-2.5 rounded-inner border px-3 py-2.5 text-left transition-colors",
               "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
               // A refused option carries a whole sentence, so it takes a whole
               // row rather than standing as a tile twice the height of the one
@@ -128,23 +143,51 @@ export function Choices<T extends string>({
                   : "border-hairline-2 bg-canvas hover:border-hairline-strong hover:bg-soft-2"
             )}
           >
-            <span
-              className={cn(
-                "text-[0.8125rem] font-medium",
-                refused
-                  ? "text-mute"
-                  : one.value === value
-                    ? "text-accent"
-                    : "text-ink"
-              )}
-            >
-              {one.label}
-            </span>
-            {(one.refused ?? one.note) && (
-              <span className="text-[0.71875rem] leading-relaxed text-mute">
-                {one.refused ?? one.note}
+            {Glyph && (
+              <span
+                className={cn(
+                  "grid size-[1.875rem] shrink-0 place-items-center rounded-inner",
+                  refused
+                    ? "bg-soft-2 text-mute"
+                    : one.value === value
+                      ? "bg-canvas text-accent"
+                      : "bg-soft-2 text-body"
+                )}
+              >
+                <Glyph className="size-4 stroke-[1.7]" />
               </span>
             )}
+            <span className="min-w-0 flex-1">
+              <span
+                className={cn(
+                  "block text-[0.8125rem] font-medium",
+                  refused
+                    ? "text-mute"
+                    : one.value === value
+                      ? "text-accent"
+                      : "text-ink"
+                )}
+              >
+                {one.label}
+              </span>
+              {one.tag !== undefined && (
+                <span
+                  className={cn(
+                    "mt-0.5 block font-mono text-[0.6875rem]",
+                    one.value === value && !refused
+                      ? "text-accent"
+                      : "text-mute"
+                  )}
+                >
+                  {one.tag}
+                </span>
+              )}
+              {(one.refused ?? one.note) && (
+                <span className="block text-[0.71875rem] leading-relaxed text-mute">
+                  {one.refused ?? one.note}
+                </span>
+              )}
+            </span>
           </Radio.Root>
         )
       })}

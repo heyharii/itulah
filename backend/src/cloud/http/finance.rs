@@ -24,13 +24,14 @@ use crate::cloud::{
         CorrectionDocument, DecideInstructionRequest, DepositPage, DepreciationRun,
         DescribeBankAccountRequest, DisposeAssetRequest, GeneralLedger, ImportOutcome,
         ImportStatementRequest, InstructionPage, JournalEntryDetail, JournalPage,
-        LandDepositRequest, LedgerAccount, LineSuggestions, MoneyOverview, PayablesAging,
-        PaymentInstruction, PaymentPage, PeriodPage, PostCountRequest, PostingIntent, PostingLine,
-        RaiseInstructionRequest, ReclassRequest, RecordBillRequest, RecordCountRequest,
-        RecordDepositRequest, RecordPaymentRequest, RegisterAssetRequest, SaleDayPage,
-        SetAccountMappingRequest, SettleInstructionRequest, Statement, StoreDeposit, SupplierBill,
-        SupplierPayment, TransferAssetRequest, TrialBalance, UnbilledReceipt,
-        UpdateBankLineRequest, WriteOffRequest,
+        LandDepositRequest, LedgerAccount, LineSuggestions, ManualJournalDraft,
+        ManualJournalDraftInput, MoneyOverview, PayablesAging, PaymentInstruction, PaymentPage,
+        PeriodPage, PostCountRequest, PostingIntent, PostingLine, RaiseInstructionRequest,
+        ReclassRequest, RecordBillRequest, RecordCountRequest, RecordDepositRequest,
+        RecordPaymentRequest, RegisterAssetRequest, SaleDayPage, SetAccountMappingRequest,
+        SettleInstructionRequest, Statement, StoreDeposit, SupplierBill, SupplierPayment,
+        TransferAssetRequest, TrialBalance, UnbilledReceipt, UpdateBankLineRequest,
+        WriteOffRequest,
     },
 };
 use axum::{
@@ -539,6 +540,94 @@ pub async fn journal_entry(
     ))
 }
 
+/// Manual journals stay outside the ledger while they are being reviewed.
+pub async fn manual_journal_drafts(State(state): State<AppState>) -> Result<Json<Value>, AppError> {
+    let rows = infrastructure::list_manual_journal_drafts(&state.db).await?;
+    Ok(Json(json!({ "rows": rows })))
+}
+
+pub async fn manual_journal_draft(
+    State(state): State<AppState>,
+    Path(draft_id): Path<Uuid>,
+) -> Result<Json<ManualJournalDraft>, AppError> {
+    Ok(Json(
+        infrastructure::get_manual_journal_draft(&state.db, draft_id).await?,
+    ))
+}
+
+pub async fn create_manual_journal_draft(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Extension(acted_on): Extension<DeclaredSubject>,
+    Json(request): Json<ManualJournalDraftInput>,
+) -> Result<Json<ManualJournalDraft>, AppError> {
+    let draft =
+        infrastructure::create_manual_journal_draft(&state.db, request, &principal.username)
+            .await?;
+    acted_on.set(RecordKind::JournalDraft, draft.draft_id.to_string());
+    Ok(Json(draft))
+}
+
+pub async fn update_manual_journal_draft(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Extension(acted_on): Extension<DeclaredSubject>,
+    Path(draft_id): Path<Uuid>,
+    Json(request): Json<ManualJournalDraftInput>,
+) -> Result<Json<ManualJournalDraft>, AppError> {
+    let draft = infrastructure::update_manual_journal_draft(
+        &state.db,
+        draft_id,
+        request,
+        &principal.username,
+    )
+    .await?;
+    acted_on.set(RecordKind::JournalDraft, draft_id.to_string());
+    Ok(Json(draft))
+}
+
+pub async fn submit_manual_journal_draft(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Extension(acted_on): Extension<DeclaredSubject>,
+    Path(draft_id): Path<Uuid>,
+) -> Result<Json<Value>, AppError> {
+    let mut tx = state.db.begin().await?;
+    let posted =
+        infrastructure::submit_manual_journal_draft(&mut tx, draft_id, &principal.username).await?;
+    tx.commit().await?;
+    acted_on.set(RecordKind::JournalDraft, draft_id.to_string());
+    Ok(Json(json!({
+        "draft_id": draft_id,
+        "entry_id": posted.entry_id,
+        "entry_number": posted.entry_number,
+        "total_minor": posted.total_minor,
+    })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CancelManualJournalDraftRequest {
+    pub reason: String,
+}
+
+pub async fn cancel_manual_journal_draft(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Extension(acted_on): Extension<DeclaredSubject>,
+    Path(draft_id): Path<Uuid>,
+    Json(request): Json<CancelManualJournalDraftRequest>,
+) -> Result<Json<ManualJournalDraft>, AppError> {
+    let draft = infrastructure::cancel_manual_journal_draft(
+        &state.db,
+        draft_id,
+        &request.reason,
+        &principal.username,
+    )
+    .await?;
+    acted_on.set(RecordKind::JournalDraft, draft_id.to_string());
+    Ok(Json(draft))
+}
+
 /// A journal entry somebody wrote by hand.
 ///
 /// Lines name accounts directly rather than meanings: choosing the account IS
@@ -933,9 +1022,10 @@ pub async fn post_payment(
 /// `q` searches the asset number, its name and its serial — the last matters,
 /// because somebody standing in front of a machine has the plate in their hand
 /// and nothing else. `site`, `category`, `decision` and `status` filter, each
-/// repeatable. `sort` is one of `name`, `acquired`, `cost`, `book`, with
-/// `dir=desc`; anything else is the house order, by asset number. `cursor` and
-/// `limit` page.
+/// repeatable. `group` reads one of the register's three GA views —
+/// `register`, `software`, `projects` — see [`AssetScope::group`]. `sort` is
+/// one of `name`, `acquired`, `cost`, `book`, with `dir=desc`; anything else
+/// is the house order, by asset number. `cursor` and `limit` page.
 ///
 /// `unassessed=true` is kept because the sidebar sends it, and it is exactly
 /// `decision=UNASSESSED` — "not assessed" is a state an asset is in rather
@@ -949,7 +1039,17 @@ pub async fn assets(
         &params,
         &[
             &PAGING[..],
-            &["site", "category", "decision", "status", "unassessed"],
+            &[
+                "site",
+                "category",
+                "decision",
+                "status",
+                "unassessed",
+                "group",
+                // The register's build views: the eleven forms a thing can come
+                // in, which is how a facilities person reads the same rows.
+                "build",
+            ],
         ]
         .concat(),
     )?;
@@ -968,6 +1068,8 @@ pub async fn assets(
                 categories: facet_values(&params, "category"),
                 decisions,
                 statuses: facet_values(&params, "status"),
+                builds: facet_values(&params, "build"),
+                group: single_value(&params, "group"),
                 sort: single_value(&params, "sort"),
                 desc: single_value(&params, "dir").as_deref() == Some("desc"),
                 cursor: single_value(&params, "cursor"),
@@ -1277,6 +1379,7 @@ pub async fn confirm_bank_match(
 /// has always meant, so a line settled by a single voucher is unaffected.
 pub async fn unmatch_bank_line(
     State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
     Path(line_id): Path<Uuid>,
     Query(params): Query<Vec<(String, String)>>,
 ) -> Result<Json<Value>, AppError> {
@@ -1288,7 +1391,7 @@ pub async fn unmatch_bank_line(
         ),
         None => None,
     };
-    infrastructure::unmatch(&state.db, line_id, journal_line).await?;
+    infrastructure::unmatch(&state.db, line_id, journal_line, &principal.username).await?;
     Ok(Json(json!({ "matched": false })))
 }
 
@@ -1306,6 +1409,40 @@ pub async fn update_bank_line(
     Ok(Json(
         infrastructure::update_line(&state.db, line_id, &request, &principal.username).await?,
     ))
+}
+
+/// Run the party matcher over one line (0304). `null` means the matcher found
+/// nothing it would stake a proposal on — the line stays for a person, which
+/// is the matcher succeeding quietly.
+pub async fn propose_bank_line_party(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(line_id): Path<Uuid>,
+) -> Result<Json<Option<infrastructure::PartyProposalRow>>, AppError> {
+    Ok(Json(
+        infrastructure::propose_line_party(&state.db, line_id, &principal.username).await?,
+    ))
+}
+
+/// A person accepted the matcher's reading. The write goes through the same
+/// guarded update a hand-typed party uses; `bank_said` is untouched by both.
+pub async fn accept_party_proposal(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(proposal_id): Path<Uuid>,
+) -> Result<Json<BankStatementLineRow>, AppError> {
+    Ok(Json(
+        infrastructure::accept_party_proposal(&state.db, proposal_id, &principal.username).await?,
+    ))
+}
+
+pub async fn ignore_party_proposal(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(proposal_id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    infrastructure::ignore_party_proposal(&state.db, proposal_id, &principal.username).await?;
+    Ok(Json(json!({ "ignored": true })))
 }
 
 // ---------------------------------------------------------------------------
@@ -1992,4 +2129,12 @@ pub async fn reverse_correction(
         )
         .await?,
     ))
+}
+
+/// The books' own health: sub-ledger differences and the latest integrity
+/// run's non-balanced answers, composed by the `ledger_health` view (0307).
+pub async fn ledger_health(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<infrastructure::LedgerHealthRow>>, AppError> {
+    Ok(Json(infrastructure::ledger_health(&state.db).await?))
 }

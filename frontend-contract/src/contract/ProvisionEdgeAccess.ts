@@ -6,7 +6,7 @@ import type { Role } from "./Role";
  */
 export type ProvisionEdgeAccess = { origin_id: string, role: Role, 
 /**
- * The PIN used at the till. Separate from the Cloud password on purpose:
+ * The password used at the till. Separate from the Cloud password on purpose:
  * the Edge never receives the Cloud one.
  */
 edge_password: string, offline_ttl_seconds: number | null, };

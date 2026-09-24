@@ -68,6 +68,14 @@ fn the_wire_types_are_written_for_the_browser() {
     inventory_backend::contract::EdgeSyncTriggered::export_all(&config)
         .unwrap_or_else(|e| panic!("EdgeSyncTriggered: {e}"));
 
+    // The virtual business clock: what the hub's clock chip displays and what
+    // its control panel posts. `export_all` pulls in `ClockMode` with
+    // `ClockStatus`.
+    inventory_backend::clock::ClockStatus::export_all(&config)
+        .unwrap_or_else(|e| panic!("ClockStatus: {e}"));
+    inventory_backend::cloud::http::clock::ClockControlRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("ClockControlRequest: {e}"));
+
     // Account administration. An admin screen posts these, and until they were
     // exported the only way to build one was to hand-write the shapes beside
     // the Rust that parses them.
@@ -377,6 +385,12 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("CreateSupplierBankAccountRequest: {e}"));
     inventory_backend::cloud::postgres::UpdateSupplierBankAccountRequest::export_all(&config)
         .unwrap_or_else(|e| panic!("UpdateSupplierBankAccountRequest: {e}"));
+    inventory_backend::cloud::postgres::SupplierContact::export_all(&config)
+        .unwrap_or_else(|e| panic!("SupplierContact: {e}"));
+    inventory_backend::cloud::postgres::CreateSupplierContactRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("CreateSupplierContactRequest: {e}"));
+    inventory_backend::cloud::postgres::UpdateSupplierContactRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("UpdateSupplierContactRequest: {e}"));
     // Where the words go on a bank's own giro leaf.
     inventory_backend::cloud::postgres::GiroPrintTemplate::export_all(&config)
         .unwrap_or_else(|e| panic!("GiroPrintTemplate: {e}"));
@@ -442,6 +456,15 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("IssuedPairingCode: {e}"));
     inventory_backend::cloud::http::member::MemberSessionResponse::export_all(&config)
         .unwrap_or_else(|e| panic!("MemberSessionResponse: {e}"));
+    // The other half of the pairing code's conversation: a shopper asks to
+    // turn points into a voucher, and a cashier's confirm is what a request
+    // becomes. See migration 0349.
+    inventory_backend::cloud::postgres::RedeemRequestStatus::export_all(&config)
+        .unwrap_or_else(|e| panic!("RedeemRequestStatus: {e}"));
+    inventory_backend::cloud::postgres::RedeemRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("RedeemRequest: {e}"));
+    inventory_backend::cloud::postgres::IssuedRedeemRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("IssuedRedeemRequest: {e}"));
 
     // Where an order can be delivered — the purchasing question, asked without
     // the administration privilege the sync origin register requires.
@@ -1031,6 +1054,18 @@ fn the_wire_types_are_written_for_the_browser() {
     inventory_backend::cloud::postgres::SaleDayPage::export_all(&config)
         .unwrap_or_else(|e| panic!("SaleDayPage: {e}"));
 
+    // General Affairs' own surface. One type today and the list grows with the
+    // department — contracts, repairs, replacements, supplies — which is why it
+    // is a named block rather than one line beside the asset ones.
+    //
+    // The overview is the screen that reads all of GA at once, so it is the
+    // first thing here: what wants somebody's attention, with the thresholds
+    // the server owns.
+    inventory_backend::cloud::postgres::GaAttention::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaAttention: {e}"));
+    inventory_backend::cloud::postgres::GaOverview::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaOverview: {e}"));
+
     inventory_backend::cloud::postgres::CompanyBankAccount::export_all(&config)
         .unwrap_or_else(|e| panic!("CompanyBankAccount: {e}"));
     inventory_backend::cloud::postgres::DescribeBankAccountRequest::export_all(&config)
@@ -1578,4 +1613,16 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("ReleaseCouponRequest: {e}"));
     inventory_backend::cloud::postgres::CancelCouponRequest::export_all(&config)
         .unwrap_or_else(|e| panic!("CancelCouponRequest: {e}"));
+
+    // PO intake: the drafts a buyer edits before the order exists. Exported
+    // from the intake kernel, not postgres — these never touch the books; the
+    // order route does, and it already has its own types.
+    inventory_backend::cloud::intake::po::PoImportIngestResponse::export_all(&config)
+        .unwrap_or_else(|e| panic!("PoImportIngestResponse: {e}"));
+    inventory_backend::cloud::intake::po::PoImportFileReport::export_all(&config)
+        .unwrap_or_else(|e| panic!("PoImportFileReport: {e}"));
+    inventory_backend::cloud::intake::po::PoImportHealth::export_all(&config)
+        .unwrap_or_else(|e| panic!("PoImportHealth: {e}"));
+    inventory_backend::cloud::intake::po::draft::PoImportDraft::export_all(&config)
+        .unwrap_or_else(|e| panic!("PoImportDraft: {e}"));
 }

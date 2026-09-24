@@ -3,4 +3,8 @@
 /**
  * One line of the trial balance.
  */
-export type TrialBalanceRow = { account_code: string, name: string, root_class: string, site_id: string | null, debit_minor: number, credit_minor: number, };
+export type TrialBalanceRow = { account_code: string, name: string, root_class: string, 
+/**
+ * Tree depth from the root, independent of the account number.
+ */
+depth: number, site_id: string | null, debit_minor: number, credit_minor: number, };

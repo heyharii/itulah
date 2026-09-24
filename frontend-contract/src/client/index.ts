@@ -10,4 +10,5 @@ export * from "./node";
 export * from "./auth";
 export * from "./member";
 export * from "./sync";
+export * from "./clock";
 export * from "./dc";

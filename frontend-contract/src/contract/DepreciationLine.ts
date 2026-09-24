@@ -11,8 +11,8 @@ export type DepreciationLine = { asset_id: string, asset_number: string, name: s
  */
 skipped_because: string | null, 
 /**
- * Only ever set by a preview: this asset has a charge to make and no
- * account to make it into.
+ * Only ever set by a preview: this asset has a charge to make, but a
+ * required account mapping or Finance's source-posting control blocks it.
  *
  * A real run cannot report this, because it stops at the first asset it
  * cannot resolve — which is why the preview exists. Absent in a run, and

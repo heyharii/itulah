@@ -149,6 +149,28 @@ pub fn required_role(method: &str, path: &str) -> Role {
         }
         return Role::Admin;
     }
+    // General Affairs, before the blanket GET rule below, and for the same
+    // reason finance sits above it: that rule makes every read a CASHIER read,
+    // which is right for stock and sales and wrong here. A supplier's bank
+    // account, a shop's lease and what a repair is expected to cost are the
+    // department's own papers, and holding a till token is not a reason to read
+    // them.
+    //
+    // One rung for reads and writes alike, which is unusual on this ladder and
+    // deliberate. GA is the department that FILES the fact — a door is broken,
+    // a laptop moved, the lease ends in sixty days — and every one of those is
+    // a shop manager's or a GA officer's ordinary act. Requiring ADMIN for them
+    // would mean a repair waited for head office, and requiring SUPERVISOR only
+    // for writes would hide from a shop manager the register they are asked to
+    // walk the floor with.
+    //
+    // The two acts that do need two people have it in the domain instead:
+    // approving a repair's budget, a replacement or a disposal is refused when
+    // the approver raised it — the `counted_by <> verified_by` pattern. Nothing
+    // here posts to the ledger, and nothing here chooses an account.
+    if path.starts_with("/api/v1/ga") {
+        return Role::Supervisor;
+    }
     // Purchasing, before the blanket GET rule below, and for the same reason
     // finance sits above it.
     //
@@ -378,6 +400,37 @@ mod tests {
         );
         assert_eq!(
             required_role("POST", "/api/v1/commercial/publications"),
+            Role::Supervisor
+        );
+    }
+
+    /// GA is the department that FILES a fact, so its reads and its writes are
+    /// the same rung — and that rung is not the blanket GET's.
+    ///
+    /// Both halves are worth pinning. Without the arm, a read falls to Cashier,
+    /// which would put a supplier's bank account and a shop's lease in front of
+    /// anybody holding a till token. And without it the WRITE would still be
+    /// Supervisor by the fall-through, so the half that looks like it needs no
+    /// test is the half that would silently be wrong.
+    ///
+    /// `/api/v1/ga` must stay ahead of `/api/v1/finance`'s siblings for the
+    /// same reason finance is ahead of the blanket rule: first match wins, and
+    /// the blanket rule is last.
+    #[test]
+    fn ga_is_a_supervisors_surface_to_read_and_to_write() {
+        assert_eq!(required_role("GET", "/api/v1/ga/overview"), Role::Supervisor);
+        assert_eq!(
+            required_role("POST", "/api/v1/ga/contracts"),
+            Role::Supervisor
+        );
+        assert_eq!(
+            required_role("PATCH", "/api/v1/ga/assets/9f0f5f0e-0000-0000-0000-000000000000"),
+            Role::Supervisor
+        );
+        // And the arm is on the prefix, not on a path somebody has to remember
+        // to add to it: a new GA route is covered the day it is written.
+        assert_eq!(
+            required_role("DELETE", "/api/v1/ga/supply-requests/abc"),
             Role::Supervisor
         );
     }

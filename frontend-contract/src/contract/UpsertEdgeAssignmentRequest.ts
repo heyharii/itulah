@@ -2,7 +2,7 @@
 import type { Role } from "./Role";
 
 /**
- * Giving somebody access to one Edge, or rotating the PIN they use there.
+ * Giving somebody access to one Edge, or rotating the password they use there.
  *
  * `edge_password` is separate from their Cloud password on purpose: the same
  * person signs in at head office with one credential and at a till with

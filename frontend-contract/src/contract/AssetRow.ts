@@ -8,7 +8,18 @@ export type AssetRow = { asset_id: string, asset_number: string, name: string, c
 /**
  * The client's own name for the category family.
  */
-category_name: string, site_id: string, status: string, serial_number: string | null, acquired_on: string, 
+category_name: string, 
+/**
+ * Which of the eleven forms this class is filled in on — `LAND`,
+ * `BUILDING`, `TECH`, `VEHICLE`, `FFE`, `IT`, `AUDIO`, `OE`, `SOFTWARE`,
+ * `DEFERRED` or `CIP`.
+ *
+ * Travels with every row because it is what the register draws its icon
+ * from, and because the build views filter on it. It is NOT a second class
+ * list: the class decides the accounts, this decides the form. See
+ * migration 0356.
+ */
+build: string, site_id: string, status: string, serial_number: string | null, acquired_on: string, 
 /**
  * How many things this row is. 1 for one object; the client's register
  * keeps lots, and 60,000 sensor pins are one row rather than 60,000.

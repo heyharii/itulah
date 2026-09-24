@@ -11,4 +11,11 @@ export type AssetFacets = { sites: Array<AssetFacet>, categories: Array<AssetFac
  * worth drawing; leaving the row out would make "nobody has assessed
  * anything" and "everything is assessed" look the same.
  */
-decisions: Array<AssetFacet>, statuses: Array<AssetFacet>, };
+decisions: Array<AssetFacet>, statuses: Array<AssetFacet>, 
+/**
+ * The eleven builds, with how many assets are filed under each — the
+ * counts behind the register's build chips. A build nobody has anything
+ * in is absent rather than zero, like every other facet here: the chips
+ * are drawn from the server's own list of the eleven, not from this.
+ */
+builds: Array<AssetFacet>, };
