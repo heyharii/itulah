@@ -28,7 +28,7 @@
 
 import { useEffect, useSyncExternalStore } from "react"
 
-import { claimFinger, login, logout, me, roster, type Me } from "@/api"
+import { claimFinger, claimPin, login, logout, me, roster, type Me } from "@/api"
 import { identifyFinger } from "@/edge"
 
 /// The shell's copy of what this terminal is. Field names are the Rust
@@ -310,6 +310,41 @@ async function signInWithFinger(): Promise<string | null> {
   return null
 }
 
+/// Open the counter with a PIN.
+///
+/// The same session a password opens, claimed through `claimPin` instead of
+/// `login`. There is no roster step and nothing local to match: the secret goes
+/// to the node and the node compares it — which is also why this needs the
+/// pairing channel (`signedEdge`) rather than the plain one. The node refuses
+/// the route outright unless this shop's `till_step_up` is `PIN`, and that
+/// refusal comes back in the node's own words.
+///
+/// Returns the node's own refusal text, or null when the counter is open.
+async function signInWithPin(username: string, pin: string): Promise<string | null> {
+  await open()
+  const config = held.config
+  if (config === null) {
+    return held.problem ?? "Setelan terminal tidak bisa dibaca dari sini."
+  }
+
+  const claimed = await claimPin({ username, pin, purpose: "SESSION" })
+  if (!claimed.ok) return claimed.problem
+
+  const token = claimed.body?.token ?? ""
+  if (token === "") {
+    return "Node menerima PIN itu tetapi tidak mengirim token."
+  }
+  const saved = await hand({ ...config, token })
+  if (!saved.ok) return saved.problem
+  const who = await me()
+  if (!who.ok) {
+    put({ config: saved.value, problem: who.problem })
+    return who.problem
+  }
+  put({ config: saved.value, me: who.body, problem: null })
+  return null
+}
+
 /// One supervisor authorisation, earned by a finger instead of a password.
 ///
 /// Not a sign-in: the cashier stays signed in and a supervisor walks over,
@@ -371,6 +406,45 @@ export async function supervisorByFinger(): Promise<{
   }
 }
 
+/// One supervisor authorisation, earned by a PIN instead of a finger.
+///
+/// The same grant by the same route family: the node checks the PIN itself,
+/// confirms the person behind it may authorise, and hands back a token that is
+/// single-use and expires in three minutes — the same clock a finger's grant
+/// runs on, because what expires is the grant and not the method that bought
+/// it. The cashier stays signed in; the supervisor types six-to-eight digits
+/// and walks away.
+///
+/// The PIN is spent here and held by nothing afterwards — the caller empties
+/// its pad the moment this answers, and nothing on this terminal ever writes
+/// one down.
+export async function supervisorByPin(
+  username: string,
+  pin: string,
+): Promise<{
+  readonly authorization: string | null
+  readonly username: string | null
+  readonly problem: string | null
+}> {
+  const claimed = await claimPin({ username, pin, purpose: "SUPERVISOR" })
+  if (!claimed.ok) {
+    return { authorization: null, username: null, problem: claimed.problem }
+  }
+  const authorization = claimed.body?.authorization ?? null
+  if (authorization === null) {
+    return {
+      authorization: null,
+      username: null,
+      problem: "Node menerima PIN itu tetapi tidak memberi otorisasi.",
+    }
+  }
+  return {
+    authorization,
+    username: claimed.body?.username ?? null,
+    problem: null,
+  }
+}
+
 /// Hand the terminal back to nobody.
 async function signOut(): Promise<void> {
   // The node is told first, while the shell still holds the token that says
@@ -413,7 +487,7 @@ async function pointAt(next: NodeEdit): Promise<string | null> {
   // The shell pastes the path straight onto this string, so an address without
   // a scheme is not a shorter address, it is a URL that will never resolve.
   if (!/^https?:\/\//i.test(base)) {
-    return "Alamat node harus dimulai dengan http:// atau https://, misalnya http://192.168.1.20:8081."
+    return "Alamat node harus dimulai dengan http:// atau https://, misalnya http://192.168.1.20:8082."
   }
   if (terminal === "") {
     return "Nomor terminal tidak boleh kosong — nomor itu ikut tercetak di struk."
@@ -484,6 +558,7 @@ export type Session = {
   readonly signIn: (username: string, password: string) => Promise<boolean>
   /// Returns the node's own refusal text, or null when the counter is open.
   readonly signInWithFinger: () => Promise<string | null>
+  readonly signInWithPin: (username: string, pin: string) => Promise<string | null>
   readonly signOut: () => Promise<void>
 }
 
@@ -501,6 +576,7 @@ export function useSession(): Session {
     problem: now.problem,
     signIn,
     signInWithFinger,
+    signInWithPin,
     signOut,
   }
 }

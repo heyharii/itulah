@@ -92,6 +92,42 @@ export const claimFinger = (
     score,
   })
 
+/// Which quick step-up this node accepts besides a password.
+///
+/// The same three words `edge/pin.rs::set_step_up` takes. Which one a shop runs
+/// is the node's decision, asked of the node (`GET /api/v1/auth/methods`) and
+/// never guessed here: a pad drawn on a hunch fetches a supervisor to a machine
+/// that was never going to take their PIN.
+export type StepUp = "NONE" | "PIN" | "FINGERPRINT"
+
+/// `GET /api/v1/auth/methods` — unauthenticated on purpose. The sign-in screen
+/// asks it before anybody has signed in, which is exactly why the route opens
+/// no session; what it leaks is one word about the shop's configuration, worth
+/// less than a till that guesses and draws a pad the node would refuse.
+export const authMethods = () =>
+  edge<{ till_step_up?: StepUp }>("GET", "/api/v1/auth/methods")
+
+/// `POST /api/v1/auth/pin/claim` — signed by the terminal, checked by the node.
+///
+/// The same claim a finger makes, with the one difference that matters: the
+/// secret travels to the node and the node compares it itself, so there is
+/// nothing a terminal can assert past this one. `SESSION` comes back as the
+/// same bearer token a password login issues; `SUPERVISOR` as the same one-shot
+/// `authorization` a finger earns. The node refuses the whole route unless this
+/// shop's `till_step_up` is `PIN` — a method only hidden in the interface while
+/// still accepted at the door would be the weakest thing in the building.
+///
+/// The PIN rides the terminal-signed channel and is never put on a sale or a
+/// void: `Supervisor` carries a password or an authorization, and the request
+/// body of those is filed at the node against the idempotency key — a PIN in
+/// that body would be a PIN sitting in the shop's SQLite for as long as the
+/// row lives. It is exchanged for a grant first, and only the grant travels.
+export const claimPin = (body: {
+  username: string
+  pin: string
+  purpose: "SESSION" | "SUPERVISOR"
+}) => signedEdge<ClaimReply>("POST", "/api/v1/auth/pin/claim", body)
+
 /// `POST /api/v1/auth/terminals` — pair this machine with the node. Done once,
 /// by somebody with `AuthAdmin`, because pairing grants a machine the standing
 /// to say who is pressing a finger on it.
@@ -113,6 +149,48 @@ export const enrolFinger = (body: {
   reader_kind: string
 }) => edge<RosterEntry>("POST", "/api/v1/auth/fingerprints", body)
 
+// ── a sweep, read back ──────────────────────────────────────────────────
+
+/// One reader session, as the list hands it down.
+///
+/// A session is not created by anyone; it begins existing the moment a handheld
+/// files observations under its name — so this is a list of what is being swept
+/// right now, not a registry (`edge/rfid.rs::recent_sessions`).
+export type RfidSessionBrief = {
+  readonly reader_session_id: string
+  readonly tag_count: number
+  readonly device_count: number
+  readonly last_seen_at: string | null
+}
+
+/// `GET /api/v1/rfid/sessions` — what is being swept right now, newest first.
+///
+/// The lane is the reader's, not this terminal's: a handheld signs its batch
+/// and posts it to the node (`/api/v1/rfid/observations`), and the till only
+/// ever reads back what the node already holds. Nothing here polls, either —
+/// the cashier pulls a finished sweep when they want it, which is a decision
+/// made at the counter and not a second, weaker node inside the till.
+export const rfidSessions = () =>
+  edge<{ items?: RfidSessionBrief[] }>("GET", "/api/v1/rfid/sessions")
+
+/// One session read whole: distinct EPCs, at most 2000 of them
+/// (`edge/rfid.rs::MAX_EPCS`), with `truncated` saying when the list was cut.
+export type RfidSessionSummary = {
+  readonly reader_session_id: string
+  readonly tag_count: number
+  readonly sighting_count: number
+  readonly epcs?: readonly string[]
+  readonly truncated?: boolean
+  readonly last_seen_at: string | null
+}
+
+/// `GET /api/v1/rfid/sessions/{id}` — the tags one sweep actually saw.
+export const rfidSession = (readerSessionId: string) =>
+  edge<RfidSessionSummary>(
+    "GET",
+    `/api/v1/rfid/sessions/${encodeURIComponent(readerSessionId)}`,
+  )
+
 // ── the price book ──────────────────────────────────────────────────────
 
 export type CatalogRow = {
@@ -128,7 +206,12 @@ export type CatalogRow = {
 /// prices. Read once and held: it is what lets a basket be drawn and priced
 /// while the line to the node is unsteady.
 export const catalogue = () =>
-  edge<{ items?: CatalogRow[]; currency?: string; has_price_book?: boolean }>(
+  edge<{
+    items?: CatalogRow[]
+    currency?: string
+    has_price_book?: boolean
+    publication_version?: number | null
+  }>(
     "GET",
     "/api/v1/store/catalog",
   )
@@ -145,8 +228,28 @@ export const catalogue = () =>
 export type QuoteReply = {
   readonly has_price_book?: boolean
   readonly total_minor?: number | null
+  readonly amount_due_minor?: number
+  readonly discount_total_minor?: number
+  readonly points_earned?: number
   readonly lines?: readonly unknown[]
-  readonly promotions?: readonly unknown[]
+  readonly promotions?: readonly PromotionOutcome[]
+  readonly granted_lines?: readonly GrantedLine[]
+}
+
+export type PromotionOutcome = {
+  readonly rule_id: string
+  readonly name: string
+  readonly applied: boolean
+  readonly benefit_minor: number
+  readonly coupon_code?: string | null
+  readonly reason?: string | null
+}
+
+export type GrantedLine = {
+  readonly sku_code: string
+  readonly quantity: number
+  readonly unit_price_minor: number
+  readonly value_minor: number
 }
 
 /// A fee on the bill that is not goods — a carrier bag, delivery, wrapping.

@@ -3,6 +3,7 @@ import { useState } from "react"
 import { useIdleLock, LockScreen } from "@/lock"
 import { CustomerScreen } from "@/screens/customer"
 import { LoginScreen, SetupScreen } from "@/screens/login"
+import { RedeemScreen } from "@/screens/redeem"
 import { ReturnScreen, VoidScreen } from "@/screens/returns"
 import { ShiftScreen } from "@/screens/shift"
 import { useSession } from "@/session"
@@ -57,7 +58,7 @@ function Counter() {
   // Pointing this terminal at a node is allowed before signing in: a till that
   // could not be repointed until it had signed in would be unrecoverable the
   // moment it was pointed at the wrong shop.
-  if (where === "setup") {
+  if (where === "setup" && session.me === null) {
     return <SetupScreen onDone={() => setWhere("sale")} />
   }
 
@@ -73,7 +74,9 @@ function Counter() {
   const actorId = session.me.username
 
   const screen =
-    where === "shift" ? (
+    where === "setup" ? (
+      <SetupScreen onDone={() => setWhere("sale")} />
+    ) : where === "sale" || where === "payment" ? null : where === "shift" ? (
       <ShiftScreen
         actorId={actorId}
         terminalId={session.terminalId}
@@ -83,21 +86,29 @@ function Counter() {
       <ReturnScreen actorId={actorId} onBack={() => setWhere("sale")} />
     ) : where === "void" ? (
       <VoidScreen actorId={actorId} onBack={() => setWhere("sale")} />
-    ) : (
-      <Till
-        actorId={actorId}
-        terminalId={session.terminalId}
-        where={where}
-        onGo={setWhere}
-        onSignOut={() => {
-          void session.signOut()
-          setWhere("sale")
-        }}
-      />
-    )
+    ) : where === "redeem" ? (
+      <RedeemScreen actorId={actorId} onBack={() => setWhere("sale")} />
+    ) : null
 
   return (
     <>
+      {/* Keep the counter mounted while a cashier opens a utility screen. Its
+          basket, coupon and identified member belong to this sale and must be
+          waiting when the cashier returns. `display: contents` adds no layout
+          wrapper while the till is visible; when hidden, it cannot steal focus
+          or receive input from the utility screen. */}
+      <div style={{ display: where === "sale" || where === "payment" ? "contents" : "none" }}>
+        <Till
+          actorId={actorId}
+          terminalId={session.terminalId}
+          where={where}
+          onGo={setWhere}
+          onSignOut={() => {
+            void session.signOut()
+            setWhere("sale")
+          }}
+        />
+      </div>
       {screen}
       {idle.warningIn !== null && !idle.locked && (
         <div id="toast" role="status">
@@ -121,6 +132,15 @@ function Counter() {
             const accepted = await session.signIn(username, password)
             if (accepted) idle.stayAwake()
             return accepted
+          }}
+          onUnlockPin={async (username, pin) => {
+            // The same rule, by the staging road: the node checks the PIN
+            // itself and issues the same session, and the shell relays nothing
+            // but its yes or no.
+            const refusal = await session.signInWithPin(username, pin)
+            if (refusal !== null) return false
+            idle.stayAwake()
+            return true
           }}
         />
       )}

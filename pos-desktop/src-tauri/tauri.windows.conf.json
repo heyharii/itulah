@@ -1,0 +1,9 @@
+{
+  "bundle": {
+    "targets": ["msi"],
+    "resources": {
+      "rfid-native/UHFAPI.dll": "rfid-native/UHFAPI.dll",
+      "rfid-native/libusb-1.0.dll": "rfid-native/libusb-1.0.dll"
+    }
+  }
+}

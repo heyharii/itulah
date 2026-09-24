@@ -181,8 +181,8 @@ export function HoldList({
             <h1>Keranjang tertahan</h1>
             <p>
               Diparkir di terminal ini saja — tidak pernah dikirim ke node, dan
-              hilang kalau terminal ditutup. Totalnya dihitung ulang oleh node
-              begitu keranjangnya dilanjutkan.
+              tetap ada kalau terminal ditutup atau aplikasinya mati. Totalnya
+              dihitung ulang oleh node begitu keranjangnya dilanjutkan.
             </p>
           </div>
           <button className="btn ghost" onClick={onBack}>

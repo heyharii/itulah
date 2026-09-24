@@ -409,7 +409,7 @@ export function SetupScreen({ onDone }: { onDone: () => void }) {
             <input
               value={baseUrl}
               onChange={(event) => setBaseUrl(event.target.value)}
-              placeholder="http://192.168.1.20:8081"
+              placeholder="http://192.168.1.20:8082"
               autoComplete="off"
               spellCheck={false}
               inputMode="url"

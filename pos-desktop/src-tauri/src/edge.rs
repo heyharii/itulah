@@ -1,7 +1,7 @@
 //! The one way this terminal reaches its shop's node.
 //!
 //! The window cannot call the edge itself. A WebView served from `tauri://`
-//! is a different origin to `http://till-01.local:8081`, and the edge sends no
+//! is a different origin to `http://till-01.local:8082`, and the edge sends no
 //! CORS headers — deliberately: it serves its own SPA same-origin, and
 //! `backend/src/cloud/http/mod.rs` is the only place in the estate that opens
 //! an allow-list. Adding one to the edge so a desktop shell could skip this
@@ -32,7 +32,7 @@ use tauri::Manager;
 /// at another shop's node by anything the window loads.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NodeConfig {
-    /// `http://127.0.0.1:8081` in development; the counter's own node on a
+    /// `http://127.0.0.1:8082` in development; the counter's own node on a
     /// shop LAN otherwise.
     pub base_url: String,
     /// Bearer token for the edge session. Both of our backends name their
@@ -93,7 +93,7 @@ fn default_paper() -> String {
 impl Default for NodeConfig {
     fn default() -> Self {
         Self {
-            base_url: "http://127.0.0.1:8081".into(),
+            base_url: "http://127.0.0.1:8082".into(),
             token: None,
             terminal_id: "POS-01".into(),
             printer_host: None,
@@ -104,6 +104,16 @@ impl Default for NodeConfig {
             pairing_sequence: 0,
             simulate_fingerprint: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::NodeConfig;
+
+    #[test]
+    fn new_till_points_at_the_store_edge_port() {
+        assert_eq!(NodeConfig::default().base_url, "http://127.0.0.1:8082");
     }
 }
 
@@ -225,8 +235,7 @@ fn sign(
         use sha2::Digest;
         sha2::Sha256::digest(secret.as_bytes())
     });
-    let canonical =
-        format!("{method}\n{path}\n{terminal}\n{timestamp}\n{sequence}\n{body_sha256}");
+    let canonical = format!("{method}\n{path}\n{terminal}\n{timestamp}\n{sequence}\n{body_sha256}");
     let mut mac = <Hmac<Sha256>>::new_from_slice(key.as_bytes()).expect("hmac takes any key");
     mac.update(canonical.as_bytes());
     hex(&mac.finalize().into_bytes())
@@ -315,7 +324,10 @@ pub fn edge_signed_call(
     };
 
     match outcome {
-        Ok(response) => reply_from(response.status(), response.into_string().unwrap_or_default()),
+        Ok(response) => reply_from(
+            response.status(),
+            response.into_string().unwrap_or_default(),
+        ),
         Err(ureq::Error::Status(status, response)) => {
             reply_from(status, response.into_string().unwrap_or_default())
         }
@@ -362,7 +374,10 @@ pub fn edge_call(
     };
 
     match outcome {
-        Ok(response) => reply_from(response.status(), response.into_string().unwrap_or_default()),
+        Ok(response) => reply_from(
+            response.status(),
+            response.into_string().unwrap_or_default(),
+        ),
         // A 4xx or 5xx is an answer, not a failure to reach: the node said no,
         // and what it said is the thing the cashier needs to read.
         Err(ureq::Error::Status(status, response)) => {

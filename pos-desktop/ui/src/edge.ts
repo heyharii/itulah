@@ -139,3 +139,13 @@ export async function device(
   }
   return invoke<DeviceState>(which)
 }
+
+/// Read one EPC with the local Chainway R3. The Rust command mutes the buzzer
+/// and verifies it before inventory, so the page cannot start a noisy sweep.
+export async function readRfidSingle(): Promise<string> {
+  const invoke = bridge()
+  if (invoke === null) {
+    throw new Error("Chainway R3 hanya bisa dibaca dari aplikasi kasir Windows.")
+  }
+  return invoke<string>("rfid_read_single")
+}

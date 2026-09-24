@@ -7,7 +7,10 @@
 /// of that away, and the second time it happened they would simply stop
 /// locking — which leaves an open till in a shop where anybody can sell under
 /// somebody else's name. So the session stays, the token stays, the basket
-/// stays, and coming back costs one password.
+/// stays, and coming back costs one password — or, at a node whose
+/// `till_step_up` is `PIN`, the six-to-eight digits of the person who has to
+/// open the counter, which is the one way in that can actually be rehearsed on
+/// a Mac, where no fingerprint scanner can ever be bound.
 ///
 /// That is also why `LockScreen` is an overlay and not a screen. It is drawn
 /// OVER the till rather than instead of it, so the counter behind is never
@@ -26,6 +29,8 @@
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 
+import * as api from "@/api"
+import { PinPad } from "@/pinpad"
 import { useSession } from "@/session"
 
 /// How much notice the counter gets. Long enough to reach the mouse from the
@@ -151,21 +156,34 @@ export function useIdleLock(minutes: number): IdleLock {
 
 /// The counter, locked, with the sale still underneath it.
 ///
-/// There is no way out of this card but a password: no close button, no
+/// There is no way out of this card but a credential the node accepts: the
+/// password, always — and, when this shop's node says its `till_step_up` is
+/// `PIN`, the supervisor's or cashier's PIN on the pad. No close button, no
 /// backdrop to click through, no Escape. The overlay covers the viewport, so
 /// the till behind cannot be clicked; and because that till is still mounted
 /// and still listening, every keystroke that does not belong to this card is
 /// swallowed before it can reach it.
 ///
+/// The pad is offered only on the node's own word, and never while the answer
+/// is outstanding: a pad that appears and then vanishes is worse than one that
+/// arrives late, because the one that vanished was pressed. A node that would
+/// not answer has said nothing, not `NONE` — neither draws a pad, and the
+/// password path stays open either way.
+///
 /// `onUnlock` answers yes or no and nothing else. The reason a refusal
 /// happened belongs to the node, is already in the session store in the node's
 /// own words, and anything invented here could only disagree with it.
+/// `onUnlockPin` is the same yes-or-no for the pad, and both are wired by the
+/// shell, which is what keeps "unlocked" a thing the node decided rather than
+/// a thing a keypress did.
 export function LockScreen({
   actorId,
   onUnlock,
+  onUnlockPin,
 }: {
   actorId: string
   onUnlock: (username: string, password: string) => Promise<boolean>
+  onUnlockPin?: (username: string, pin: string) => Promise<boolean>
 }) {
   const { problem } = useSession()
   // Whoever walked away is nearly always whoever comes back, so their name is
@@ -178,6 +196,30 @@ export function LockScreen({
   const [tried, setTried] = useState(false)
   const card = useRef<HTMLFormElement>(null)
   const field = useRef<HTMLInputElement>(null)
+
+  // Which quick way in this node accepts. Asked once, on mount, while the
+  // counter is locked — the session is still good, so this is read by a signed
+  // in terminal, but the route itself needs no session and would answer all
+  // the same. Null means it has not answered, not `NONE`; neither draws a pad.
+  const [stepUp, setStepUp] = useState<api.StepUp | null>(null)
+  useEffect(() => {
+    let alive = true
+    void (async () => {
+      const reply = await api.authMethods()
+      if (!alive) return
+      setStepUp(reply.ok ? (reply.body?.till_step_up ?? "NONE") : null)
+    })()
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  // The pad's value is held here and emptied whichever way the node answered —
+  // a refusal is precisely the moment somebody walks to ask, leaving marks
+  // behind them that the next person at this counter could submit.
+  const [pin, setPin] = useState("")
+  const [pinBusy, setPinBusy] = useState(false)
+  const [pinNote, setPinNote] = useState<string | null>(null)
 
   // Nothing behind this card may be typed at, tabbed into, or clicked.
   //
@@ -230,6 +272,29 @@ export function LockScreen({
     if (!accepted) field.current?.focus()
   }
 
+  /// Spend a PIN on getting back in — the counterpart of `unlock`, offered only
+  /// when the node said it takes PINs.
+  ///
+  /// Both halves are checked before anything is spent: nobody should be told
+  /// "PIN salah" by the node because the name box above the pad was empty — and
+  /// the PIN they typed correctly would be gone either way. The refusal, like
+  /// the password's, is the node's own words; this screen adds none.
+  async function unlockWithPin() {
+    if (onUnlockPin === undefined) return
+    if (username.trim() === "" || pin === "") {
+      setPinNote(
+        "PIN perlu dua hal: nama pengguna di kolom di atas, dan PIN di pad.",
+      )
+      return
+    }
+    setPinBusy(true)
+    setPinNote(null)
+    const accepted = await onUnlockPin(username, pin)
+    setPinBusy(false)
+    setPin("")
+    if (!accepted) field.current?.focus()
+  }
+
   return (
     <div className="overlay">
       <form
@@ -270,6 +335,27 @@ export function LockScreen({
             aria-label="Kata sandi"
           />
         </label>
+
+        {stepUp === "PIN" && onUnlockPin !== undefined && (
+          <div style={{ width: "100%", textAlign: "left" }}>
+            <span className="label">Buka dengan PIN</span>
+            <p className="muted" style={{ fontSize: 11.5, margin: "4px 0 0" }}>
+              Node toko ini menerima PIN: nama penggunanya di kolom atas,
+              PIN-nya di pad bawah — node yang mencocokkan keduanya.
+            </p>
+            <PinPad
+              value={pin}
+              onChange={setPin}
+              onSubmit={() => void unlockWithPin()}
+              disabled={pinBusy}
+            />
+            {pinNote !== null && (
+              <p className="error" style={{ marginTop: 6 }}>
+                {pinNote}
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Only after somebody has actually tried. The session store keeps the
             last refusal it saw, and a problem left over from before the screen

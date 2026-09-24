@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import * as api from "@/api"
 import { publish } from "@/customer-link"
-import { device, inShell, openCustomerDisplay } from "@/edge"
+import { device, inShell, openCustomerDisplay, readRfidSingle } from "@/edge"
 import {
   BagPicker,
   CancelSale,
@@ -63,7 +63,21 @@ type Quote = {
   readonly totalMinor: number | null
   readonly stale: boolean
   readonly problem: string | null
+  readonly discountTotalMinor: number
+  readonly pointsEarned: number
+  readonly promotions: readonly api.PromotionOutcome[]
+  readonly grantedLines: readonly api.GrantedLine[]
 }
+
+const emptyQuote = (): Quote => ({
+  totalMinor: null,
+  stale: false,
+  problem: null,
+  discountTotalMinor: 0,
+  pointsEarned: 0,
+  promotions: [],
+  grantedLines: [],
+})
 
 export type Sold = {
   readonly id: string
@@ -102,6 +116,64 @@ function newCheckoutId(): string {
   return `checkout-${Date.now()}-${Math.round(Math.random() * 1e9)}`
 }
 
+/// Where parked baskets outlive this window.
+///
+/// A held basket is the unsold basket, and the unsold basket is the one state
+/// the shell is allowed to keep (`README.md`) — so it is kept the same way the
+/// outbox is: this terminal's own storage, written on every change, read back
+/// on mount. The garments a hold names are physically sitting in a drawer
+/// because the list said so; a restart that ate the list would leave the shop
+/// looking for clothes that its own terminal denied ever seeing. Salvaged the
+/// same way too: a row that cannot be read as a hold is skipped, never a
+/// reason to drop the others.
+const HOLDS_KEY = "pos.holds.v1"
+
+function readHolds(): readonly Held[] {
+  let raw: string | null = null
+  try {
+    raw = localStorage.getItem(HOLDS_KEY)
+  } catch {
+    return []
+  }
+  if (raw === null) return []
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return []
+  }
+  if (!Array.isArray(parsed)) return []
+  const holds: Held[] = []
+  for (const row of parsed) {
+    if (typeof row !== "object" || row === null) continue
+    const one = row as Record<string, unknown>
+    if (typeof one.id !== "string" || !Array.isArray(one.units)) continue
+    const units: Unit[] = []
+    for (const unit of one.units) {
+      if (typeof unit !== "object" || unit === null) continue
+      const u = unit as Record<string, unknown>
+      if (typeof u.epc !== "string" || typeof u.sku_code !== "string") continue
+      units.push({
+        epc: u.epc,
+        sku_code: u.sku_code,
+        name: typeof u.name === "string" ? u.name : null,
+        unitPriceMinor:
+          typeof u.unitPriceMinor === "number" ? u.unitPriceMinor : null,
+      })
+    }
+    holds.push({
+      id: one.id,
+      units,
+      coupons: Array.isArray(one.coupons)
+        ? one.coupons.filter((code): code is string => typeof code === "string")
+        : [],
+      customerId: typeof one.customerId === "string" ? one.customerId : null,
+      at: typeof one.at === "string" ? one.at : new Date().toISOString(),
+    })
+  }
+  return holds
+}
+
 /// Rupiah below 100 is not issued, so change is never counted into a note
 /// nobody can hand over.
 const NOTES = [
@@ -121,7 +193,14 @@ function countOut(amount: number): readonly (readonly [number, number])[] {
   return out
 }
 
-export type Where = "sale" | "payment" | "shift" | "return" | "void" | "setup"
+export type Where =
+  | "sale"
+  | "payment"
+  | "shift"
+  | "return"
+  | "void"
+  | "redeem"
+  | "setup"
 
 export function Till({
   actorId,
@@ -139,29 +218,29 @@ export function Till({
   const [rows, setRows] = useState<readonly api.CatalogRow[]>([])
   const [bookProblem, setBookProblem] = useState<string | null>(null)
   const [units, setUnits] = useState<readonly Unit[]>([])
-  const [held, setHeld] = useState<readonly Held[]>([])
+  const [held, setHeld] = useState<readonly Held[]>(readHolds)
   const [coupons, setCoupons] = useState<readonly string[]>([])
   const [charges, setCharges] = useState<readonly api.Charge[]>([])
   // Panels that open *over* the counter rather than replacing it. Kept here and
   // not in `Where` because leaving them is always "back to this basket" — a
   // cashier who cancelled a bag picker has not gone anywhere.
   const [panel, setPanel] = useState<
-    null | "cancel" | "hold" | "bags" | { readonly receipt: string }
+    null | "cancel" | "hold" | "bags" | "rfid" | { readonly receipt: string }
   >(null)
   const [customerId, setCustomerId] = useState<string | null>(null)
   const [note, setNote] = useState<{ bad: boolean; text: string } | null>(null)
+  const [rfidBusy, setRfidBusy] = useState(false)
   const [check, setCheck] = useState<readonly api.CatalogRow[]>([])
-  const [quote, setQuote] = useState<Quote>({
-    totalMinor: null,
-    stale: false,
-    problem: null,
-  })
+  const [quote, setQuote] = useState<Quote>(emptyQuote)
+  const quoteRequest = useRef(0)
   const [sold, setSold] = useState<Sold | null>(null)
   const scan = useRef<HTMLInputElement>(null)
   const outbox = useOutbox()
 
-  // The shop's price book, read once and held. This is the read that lets a
-  // basket be drawn and priced while the line to the node is unsteady.
+  // Load the resident book immediately so a basket can be drawn while the node
+  // is busy. While a basket is open, the poll below refreshes this cached view
+  // and asks the node for a fresh quote so a Cloud publication reaches an
+  // already-open till without requiring the cashier to rescan an item.
   useEffect(() => {
     void (async () => {
       const reply = await api.catalogue()
@@ -169,6 +248,19 @@ export function Till({
       else setBookProblem(reply.problem)
     })()
   }, [])
+
+  // Parked baskets survive this window: written on every change, so a crash —
+  // or the app being closed between two customers — still finds them in the
+  // Ditahan list afterwards. Storage refusing is not a fault worth a banner:
+  // the in-memory list still works, it just stops promising to survive.
+  useEffect(() => {
+    try {
+      if (held.length === 0) localStorage.removeItem(HOLDS_KEY)
+      else localStorage.setItem(HOLDS_KEY, JSON.stringify(held))
+    } catch {
+      // Nowhere to write. Nothing to read either, next time.
+    }
+  }, [held])
 
   // Anything sitting in the outbox is tried again whenever this screen comes
   // back to rest — a shop's wifi returns while somebody is scanning, not while
@@ -185,8 +277,43 @@ export function Till({
 
   const booked = units.reduce((sum, unit) => sum + (unit.unitPriceMinor ?? 0), 0)
   const unpriced = units.some((unit) => unit.unitPriceMinor === null)
-  const total = quote.totalMinor ?? booked
+  const chargeTotal = charges.reduce((sum, charge) => sum + charge.amount_minor, 0)
+  const total = quote.totalMinor ?? booked + chargeTotal
   const currency = rows[0]?.currency ?? "IDR"
+
+  const askForQuote = useCallback(
+    async (markStale: boolean) => {
+      const request = ++quoteRequest.current
+      if (markStale) setQuote((was) => ({ ...was, stale: true, problem: null }))
+      const reply = await api.quote(
+        units.map((unit) => unit.epc),
+        coupons,
+        customerId,
+        charges,
+      )
+      if (request !== quoteRequest.current) return
+      setQuote(
+        reply.ok
+          ? {
+              totalMinor:
+                reply.body?.amount_due_minor ??
+                reply.body?.total_minor ??
+                null,
+              stale: false,
+              problem: null,
+              discountTotalMinor: reply.body?.discount_total_minor ?? 0,
+              pointsEarned: reply.body?.points_earned ?? 0,
+              promotions: reply.body?.promotions ?? [],
+              grantedLines: reply.body?.granted_lines ?? [],
+            }
+          : {
+              ...emptyQuote(),
+              problem: reply.problem,
+            },
+      )
+    },
+    [units, coupons, customerId, charges],
+  )
 
   /// Ask the node what this basket comes to.
   ///
@@ -197,27 +324,86 @@ export function Till({
   /// will not honour.
   useEffect(() => {
     if (units.length === 0) {
-      setQuote({ totalMinor: null, stale: false, problem: null })
+      quoteRequest.current += 1
+      setQuote(emptyQuote())
       return
     }
     setQuote((was) => ({ ...was, stale: true }))
-    const epcs = units.map((unit) => unit.epc)
     const timer = setTimeout(() => {
-      void (async () => {
-        const reply = await api.quote(epcs, coupons, customerId, charges)
-        setQuote(
-          reply.ok
-            ? {
-                totalMinor: reply.body?.total_minor ?? null,
-                stale: false,
-                problem: null,
-              }
-            : { totalMinor: null, stale: false, problem: reply.problem },
-        )
-      })()
+      void askForQuote(false)
     }, 250)
     return () => clearTimeout(timer)
-  }, [units, coupons, customerId, charges])
+  }, [units, askForQuote])
+
+  // Marketing and price books can arrive while a cashier is looking at a
+  // basket. Refresh the local display prices and quote from the node while the
+  // till or its payment page remains open. The node is local, so this remains
+  // useful when the Cloud link is down; failures keep the last good catalogue
+  // and let askForQuote surface the node's actual quote status.
+  useEffect(() => {
+    if (
+      units.length === 0 ||
+      (where !== "sale" && where !== "payment")
+    ) {
+      return
+    }
+
+    let inFlight = false
+    const timer = window.setInterval(() => {
+      if (inFlight) return
+      inFlight = true
+      void (async () => {
+        try {
+          const reply = await api.catalogue()
+          if (reply.ok && reply.body?.has_price_book) {
+            const nextRows = reply.body.items ?? []
+            setRows((previous) => {
+              const unchanged =
+                previous.length === nextRows.length &&
+                nextRows.every(
+                  (row, index) =>
+                    previous[index]?.sku_code === row.sku_code &&
+                    previous[index]?.name === row.name &&
+                    previous[index]?.unit_price_minor === row.unit_price_minor,
+                )
+              return unchanged ? previous : nextRows
+            })
+            const byCode = new Map(
+              nextRows.map((row) => [row.sku_code, row] as const),
+            )
+            setUnits((previous) => {
+              let changed = false
+              const next = previous.map((unit) => {
+                const row = byCode.get(unit.sku_code)
+                if (
+                  row === undefined ||
+                  (row.name === unit.name &&
+                    row.unit_price_minor === unit.unitPriceMinor)
+                ) {
+                  return unit
+                }
+                changed = true
+                return {
+                  ...unit,
+                  name: row.name,
+                  unitPriceMinor: row.unit_price_minor,
+                }
+              })
+              return changed ? next : previous
+            })
+          }
+          await askForQuote(false)
+        } finally {
+          inFlight = false
+        }
+      })()
+    // The cloud-to-edge sender runs every 5s. Poll the till more frequently so
+    // a live basket picks up a newly applied book promptly instead of adding
+    // another full sender interval to the customer's wait.
+    }, 2_000)
+
+    return () => window.clearInterval(timer)
+  }, [where, units.length, askForQuote])
 
   const onScan = useCallback(
     (raw: string) => {
@@ -271,6 +457,20 @@ export function Till({
     },
     [bySku, rows, units],
   )
+
+  const readWithR3 = useCallback(async () => {
+    if (rfidBusy) return
+    setRfidBusy(true)
+    try {
+      onScan(await readRfidSingle())
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      setNote({ bad: true, text: `Chainway R3: ${detail}` })
+    } finally {
+      setRfidBusy(false)
+      scan.current?.focus()
+    }
+  }, [onScan, rfidBusy])
 
   useEffect(() => {
     if (where === "sale" && sold === null) scan.current?.focus()
@@ -330,6 +530,7 @@ export function Till({
       F2: () => units.length > 0 && onGo("payment"),
       F3: () => onGo("return"),
       F4: () => setPanel("bags"),
+      F6: () => setPanel("rfid"),
       F8: () => units.length > 0 && setPanel("cancel"),
       F9: () => setPanel("hold"),
       F10: () => units.length > 0 && onGo("payment"),
@@ -416,11 +617,21 @@ export function Till({
                   →
                 </button>
               </div>
+              <button
+                className="scan-r3"
+                type="button"
+                onClick={() => void readWithR3()}
+                disabled={!inShell() || rfidBusy}
+                aria-label="Baca satu tag dengan Chainway R3 tanpa bunyi"
+                title="Baca satu tag; buzzer R3 diverifikasi mati sebelum pembacaan"
+              >
+                {rfidBusy ? "Membaca…" : "Baca R3"}
+              </button>
             </form>
             <p className="scan-tip">
-              Tag masuk ke keranjang. Barcode dan nama menjawab “ini berapa” —
-              satu barang yang terjual adalah satu tag, dan sebuah barcode tidak
-              memberi tahu yang mana.
+              Pindai lewat keyboard atau tekan Baca R3 untuk membaca satu tag
+              tanpa bunyi. Barcode dan nama hanya mencari produk; satu barang
+              yang terjual tetap harus punya EPC sendiri.
             </p>
           </div>
 
@@ -458,6 +669,18 @@ export function Till({
 
           <Extras
             coupons={coupons}
+            unappliedCoupons={
+              quote.stale
+                ? []
+                : coupons.filter(
+                    (code) =>
+                      !quote.promotions.some(
+                        (promotion) =>
+                          promotion.applied &&
+                          promotion.coupon_code?.toUpperCase() === code,
+                      ),
+                  )
+            }
             customerId={customerId}
             onCoupon={(code) =>
               setCoupons((was) =>
@@ -492,6 +715,7 @@ export function Till({
             }}
             onResume={() => setPanel("hold")}
             onBags={() => setPanel("bags")}
+            onRfid={() => setPanel("rfid")}
             onGo={onGo}
           />
         </section>
@@ -584,6 +808,42 @@ export function Till({
                 </span>
               </div>
             ))}
+            {!quote.stale &&
+              quote.promotions
+                .filter((promotion) => promotion.applied)
+                .map((promotion) => (
+                  <div className="total-line" key={promotion.rule_id}>
+                    <span className="muted">{promotion.name}</span>
+                    <span className="num">
+                      −{money(promotion.benefit_minor, currency)}
+                    </span>
+                  </div>
+                ))}
+            {!quote.stale &&
+              quote.grantedLines.map((line, index) => (
+                <div
+                  className="total-line"
+                  key={`${line.sku_code}-${index}`}
+                >
+                  <span className="muted">
+                    Gratis · {bySku.get(line.sku_code)?.name ?? line.sku_code} ×{" "}
+                    {line.quantity}
+                  </span>
+                  <span className="num">
+                    {money(line.value_minor, currency)}
+                  </span>
+                </div>
+              ))}
+            {!quote.stale &&
+              customerId !== null &&
+              quote.pointsEarned > 0 && (
+                <div className="total-line">
+                  <span className="muted">
+                    Perkiraan poin · masuk setelah Cloud menerima penjualan
+                  </span>
+                  <span className="num">+{quote.pointsEarned}</span>
+                </div>
+              )}
             <div className="grand">
               <span>TOTAL</span>
               <strong className="num">{money(total, currency)}</strong>
@@ -616,7 +876,7 @@ export function Till({
           )}
         </section>
       </main>
-      <Statusbar unsent={outbox.unsent} />
+      <Statusbar unsent={outbox.unsent} refused={outbox.refused} />
 
       {panel === "cancel" && (
         <CancelSale
@@ -658,6 +918,57 @@ export function Till({
             setCustomerId(found.customerId)
             setHeld((was) => was.filter((one) => one.id !== id))
             setPanel(null)
+          }}
+        />
+      )}
+
+      {panel === "rfid" && (
+        <ReaderSessions
+          onBack={() => setPanel(null)}
+          onPull={(epcs, truncated) => {
+            setPanel(null)
+            const fresh = epcs.filter(
+              (epc) => !units.some((unit) => unit.epc === epc),
+            )
+            const skipped = epcs.length - fresh.length
+            if (fresh.length === 0) {
+              setNote({
+                bad: true,
+                text:
+                  skipped > 0
+                    ? `Semua ${skipped} tag sesi itu sudah ada di keranjang.`
+                    : "Sesi itu tidak memuat satu tag pun.",
+              })
+              return
+            }
+            setUnits((was) => [
+              ...was,
+              ...fresh.map((epc) => {
+                // The same decode the scan field runs, so a tag pulled from a
+                // sweep lands exactly as a tag scanned at the counter would —
+                // same name from the price book, same "tanpa harga" honesty
+                // when the shop has not priced that article yet.
+                const scanned = readScan(epc)
+                const sku = scanned.kind === "epc" ? scanned.sku_code : epc
+                const row = bySku.get(sku)
+                return {
+                  epc,
+                  sku_code: sku,
+                  name: row?.name ?? null,
+                  unitPriceMinor: row?.unit_price_minor ?? null,
+                }
+              }),
+            ])
+            setNote({
+              bad: false,
+              text:
+                `Ditarik ${fresh.length} tag ke keranjang` +
+                (skipped > 0 ? `, ${skipped} dilewati karena sudah ada` : "") +
+                (truncated
+                  ? ". Sesi itu memuat lebih dari 2000 tag — hanya 2000 pertama yang diambil node"
+                  : "") +
+                ".",
+            })
           }}
         />
       )}
@@ -730,12 +1041,14 @@ export function Topbar({
 /// the one that has to see the code.
 function Extras({
   coupons,
+  unappliedCoupons,
   customerId,
   onCoupon,
   onDropCoupon,
   onCustomer,
 }: {
   coupons: readonly string[]
+  unappliedCoupons: readonly string[]
   customerId: string | null
   onCoupon: (code: string) => void
   onDropCoupon: (code: string) => void
@@ -784,6 +1097,12 @@ function Extras({
           ))}
         </div>
       )}
+      {unappliedCoupons.length > 0 && (
+        <div className="notice warn" role="status">
+          {unappliedCoupons.map((code) => "Kupon " + code).join(", ")}
+          {" belum memberi potongan pada keranjang ini."}
+        </div>
+      )}
       {/* Written onto the sale exactly as typed. This node cannot check it —
           the member directory is central and this terminal addresses only its
           own shop, which is what keeps the till selling when the line to head
@@ -809,6 +1128,131 @@ function Extras({
   )
 }
 
+/// A sweep a handheld already gave the node, listed so the counter can pull it.
+///
+/// The reader's lane ends at the node: the handheld signs its batch and posts
+/// it to `/api/v1/rfid/observations`, and the node files the reads under a
+/// session name. What becomes merchandise is the cashier's decision, made
+/// here — a pull, asked for once, not a feed that keeps adding tags while
+/// somebody is looking the other way. The tags land exactly as a scan at the
+/// counter lands, because the caller runs them through the same `readScan`.
+function ReaderSessions({
+  onBack,
+  onPull,
+}: {
+  onBack: () => void
+  onPull: (epcs: readonly string[], truncated: boolean) => void
+}) {
+  const [items, setItems] = useState<
+    readonly api.RfidSessionBrief[] | null
+  >(null)
+  const [problem, setProblem] = useState<string | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    void (async () => {
+      const reply = await api.rfidSessions()
+      if (!alive) return
+      if (!reply.ok) {
+        setProblem(reply.problem)
+        return
+      }
+      setItems(reply.body?.items ?? [])
+    })()
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  async function pull(readerSessionId: string) {
+    setBusy(readerSessionId)
+    setProblem(null)
+    const reply = await api.rfidSession(readerSessionId)
+    setBusy(null)
+    if (!reply.ok) {
+      setProblem(reply.problem)
+      return
+    }
+    if ((reply.body.epcs?.length ?? 0) === 0) {
+      setProblem("Sesi itu tidak memuat satu tag pun.")
+      return
+    }
+    onPull(reply.body.epcs ?? [], reply.body.truncated === true)
+  }
+
+  return (
+    <div className="page">
+      <div className="page-inner">
+        <div className="page-head">
+          <div>
+            <h1>Hasil pindai handheld</h1>
+            <p>
+              Pemindai mengirim bacaannya ke node, bukan ke terminal ini. Pilih
+              sesinya untuk menarik tagnya ke keranjang — yang sudah ada di
+              keranjang tidak akan dobel.
+            </p>
+          </div>
+          <button className="btn ghost" onClick={onBack}>
+            ← Kembali ke konter
+          </button>
+        </div>
+
+        {items === null && problem === null && (
+          <div className="empty">
+            <h3>Menanyakan sesi ke node…</h3>
+          </div>
+        )}
+
+        {problem !== null && <div className="notice warn">{problem}</div>}
+
+        {items !== null && items.length === 0 && (
+          <div className="empty">
+            <h3>Belum ada sesi pindai</h3>
+            <p>
+              Tekan tombol kirim di handheld setelah memindai, lalu buka panel
+              ini lagi. Bacaannya sudah tersimpan di node sebelum tombol ini
+              ditekan.
+            </p>
+          </div>
+        )}
+
+        {items !== null && items.length > 0 && (
+          <div className="rows">
+            {items.map((one) => (
+              <div className="row-item" key={one.reader_session_id}>
+                <div className="grow">
+                  <h3>
+                    {one.tag_count} tag · {one.device_count} pemindai
+                  </h3>
+                  <p>
+                    {one.reader_session_id}
+                    {one.last_seen_at !== null && (
+                      <>
+                        {" · terakhir "}
+                        {new Date(one.last_seen_at).toLocaleTimeString("id-ID")}
+                      </>
+                    )}
+                  </p>
+                </div>
+                <button
+                  className="btn primary"
+                  disabled={busy !== null}
+                  onClick={() => void pull(one.reader_session_id)}
+                >
+                  {busy === one.reader_session_id
+                    ? "Menarik…"
+                    : "Tarik ke keranjang"}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 /// The board: what a cashier does mid-sale, and what they do twice a day.
 ///
 /// It never moves and never scrolls. At four in the afternoon the interface is
@@ -820,6 +1264,7 @@ function Board({
   onHold,
   onResume,
   onBags,
+  onRfid,
   onGo,
 }: {
   held: readonly { readonly id: string; readonly at: string }[]
@@ -827,6 +1272,7 @@ function Board({
   onHold: () => void
   onResume: () => void
   onBags: () => void
+  onRfid: () => void
   onGo: (next: Where) => void
 }) {
   const [devices, setDevices] = useState<
@@ -864,8 +1310,14 @@ function Board({
         <button className="util" onClick={() => onGo("return")}>
           Retur
         </button>
+        <button className="util" onClick={onRfid}>
+          Tarik RFID
+        </button>
         <button className="util" onClick={() => onGo("void")}>
           Batalkan penjualan
+        </button>
+        <button className="util" onClick={() => onGo("redeem")}>
+          Tukar poin
         </button>
         <button className="util strong" onClick={() => onGo("shift")}>
           Shift &amp; kas
@@ -902,16 +1354,27 @@ function Board({
   )
 }
 
-function Statusbar({ unsent }: { unsent?: number }) {
+function Statusbar({
+  unsent,
+  refused,
+}: {
+  unsent?: number
+  refused?: number
+}) {
+  const syncStatus =
+    refused !== undefined && refused > 0
+      ? `${refused} penjualan ditolak node; perlu ditangani kasir`
+      : unsent !== undefined && unsent > 0
+        ? `${unsent} penjualan menunggu terkirim`
+        : unsent !== undefined
+          ? "Semua penjualan sudah terkirim"
+          : "Status sync tidak tersedia"
+
   return (
     <footer className="statusbar">
       <span>Terminal kasir · satu node toko, banyak terminal</span>
       <span className="right">
-        <span>
-          {unsent !== undefined && unsent > 0
-            ? `${unsent} penjualan menunggu terkirim`
-            : "Semua penjualan sudah terkirim"}
-        </span>
+        <span>{syncStatus}</span>
       </span>
     </footer>
   )

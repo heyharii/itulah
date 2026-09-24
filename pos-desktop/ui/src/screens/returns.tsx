@@ -446,10 +446,10 @@ function useSupervisor() {
   async function ask(): Promise<void> {
     // Started before the call rather than after it: see `GRANT_MS`.
     const pressed = Date.now()
-    setAsking(true)
+    setAsking("FINGER")
     setRefused(null)
     const answer = await supervisorByFinger()
-    setAsking(false)
+    setAsking(null)
     take(pressed, answer, "FINGER")
   }
 
@@ -477,10 +477,10 @@ function useSupervisor() {
       })
       return
     }
-    setAsking(true)
+    setAsking("PIN")
     setRefused(null)
     const answer = await supervisorByPin(who, typed)
-    setAsking(false)
+    setAsking(null)
     // Gone the moment the node has answered, refusal included. It bought a grant
     // or it bought nothing, and there is no second thing to buy with it either
     // way — a PIN still in the ref is a PIN the next person at this counter can
@@ -672,16 +672,16 @@ function Authorisation({ hold }: { hold: Supervision }) {
                 value={hold.pinValue}
                 onChange={hold.setPin}
                 onSubmit={() => void hold.askPin()}
-                disabled={hold.asking}
+                disabled={hold.asking !== null}
               />
               <button
                 className="btn"
                 type="button"
                 style={{ marginTop: 8 }}
-                disabled={hold.asking || hold.pinValue === ""}
+                disabled={hold.asking !== null || hold.pinValue === ""}
                 onClick={() => void hold.askPin()}
               >
-                {hold.asking
+                {hold.asking === "PIN"
                   ? "Menanyakan ke node…"
                   : "Otorisasi dengan PIN ini"}
               </button>
@@ -693,10 +693,10 @@ function Authorisation({ hold }: { hold: Supervision }) {
       <button
         className="btn"
         type="button"
-        disabled={hold.asking}
+        disabled={hold.asking !== null}
         onClick={() => void hold.ask()}
       >
-        {hold.asking
+        {hold.asking === "FINGER"
           ? "Menunggu jari pada pemindai…"
           : granted === null
             ? "Otorisasi dengan sidik jari"
@@ -710,7 +710,7 @@ function Authorisation({ hold }: { hold: Supervision }) {
               one of them is answered by pressing again. Flattened into "coba
               lagi" it would send a cashier pressing at a counter that has no
               reader attached at all, while a queue waits. */}
-          {hold.refused.fromPress && (
+          {hold.refused.from === "FINGER" && (
             <div className="notice warn">
               Kalimatnya milik pihak yang menolak, dan tiga hal yang berbeda
               bisa berakhir di situ. <strong>Pemindainya tidak terpasang</strong>{" "}

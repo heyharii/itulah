@@ -1,0 +1,93 @@
+name: POS Windows build
+
+on:
+  push:
+    paths:
+      - "pos-desktop/**"
+      - ".github/workflows/pos-windows.yml"
+  pull_request:
+    paths:
+      - "pos-desktop/**"
+      - ".github/workflows/pos-windows.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-x64:
+    name: Build and test POS for Windows x64
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: pos-desktop/ui/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: pos-desktop/src-tauri -> target
+
+      - name: Install POS UI dependencies
+        working-directory: pos-desktop/ui
+        run: npm ci
+
+      - name: Test POS native commands
+        run: cargo test --manifest-path pos-desktop/src-tauri/Cargo.toml --lib
+
+      - name: Download and verify the official Chainway R3 SDK
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $url = 'https://chainwayeurope.com/upload/materials/chainway-support/_shared/sdk/Demo_Windwos_R3.rar'
+          $archive = Join-Path $env:RUNNER_TEMP 'chainway-r3-sdk.rar'
+          $extract = Join-Path $env:RUNNER_TEMP 'chainway-r3-sdk'
+          Invoke-WebRequest -Uri $url -OutFile $archive
+          $archiveHash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
+          if ($archiveHash -ne '65fcb027a146a8e38cba5dcc2c674262e14f278c61ce4ed3999bd45bfb888ce3') {
+            throw "Official Chainway SDK archive hash changed: $archiveHash"
+          }
+
+          $sevenZip = Get-Command 7z -ErrorAction SilentlyContinue
+          if (-not $sevenZip) { $sevenZip = Get-Command 7z.exe -ErrorAction Stop }
+          New-Item -ItemType Directory -Force -Path $extract | Out-Null
+          & $sevenZip.Source x $archive "-o$extract" -y | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "7-Zip extraction failed: $LASTEXITCODE" }
+
+          $api = Get-ChildItem -Path $extract -Filter UHFAPI.dll -Recurse |
+            Where-Object { $_.Directory.Name -ieq 'x64' } |
+            Select-Object -First 1
+          if (-not $api) { throw 'The verified Chainway SDK archive has no x64 UHFAPI.dll.' }
+          $usb = Join-Path $api.DirectoryName 'libusb-1.0.dll'
+          if (-not (Test-Path $usb)) { throw 'The verified Chainway SDK archive has no matching x64 libusb DLL.' }
+
+          $expected = @{
+            'UHFAPI.dll' = '25c044a8f0160d3365df4bb31608f645074f13cf153eaa1476bb91c42e1cdef8'
+            'libusb-1.0.dll' = '5072054cb3002ae071f382ad5c2c2b0092d9451c537d0c13444c2b6f968f7251'
+          }
+          foreach ($name in $expected.Keys) {
+            $file = if ($name -eq 'UHFAPI.dll') { $api.FullName } else { $usb }
+            $hash = (Get-FileHash -Algorithm SHA256 $file).Hash.ToLowerInvariant()
+            if ($hash -ne $expected[$name]) { throw "$name hash did not match the verified R3 SDK." }
+          }
+
+          $native = Join-Path $env:GITHUB_WORKSPACE 'pos-desktop/src-tauri/rfid-native'
+          New-Item -ItemType Directory -Force -Path $native | Out-Null
+          Copy-Item $api.FullName (Join-Path $native 'UHFAPI.dll')
+          Copy-Item $usb (Join-Path $native 'libusb-1.0.dll')
+
+      - name: Build the Windows installer
+        working-directory: pos-desktop
+        run: npm exec --yes --package=@tauri-apps/cli@2.11.5 -- tauri build --config src-tauri/tauri.windows.conf.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: itulah-pos-windows-x64-${{ github.sha }}
+          path: pos-desktop/src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: error
+          retention-days: 30

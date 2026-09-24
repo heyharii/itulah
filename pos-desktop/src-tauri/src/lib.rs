@@ -27,6 +27,7 @@ use tauri::Manager;
 
 mod device;
 mod edge;
+mod rfid;
 
 /// Open the screen that faces the shopper.
 ///
@@ -71,6 +72,7 @@ pub fn run() {
             edge::edge_call,
             edge::edge_signed_call,
             device::rfid_state,
+            device::rfid_read_single,
             device::fingerprint_state,
             device::fingerprint_identify,
             device::fingerprint_enroll,
