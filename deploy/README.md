@@ -149,6 +149,40 @@ that called `inventory-edge` must likewise be changed to `cloud`, `dc`, or
 `store` in the same coordinated rollout; the checked-in Store unit already
 runs `/usr/local/bin/store`.
 
+### Current GCP pilot
+
+The active pilot uses Google Cloud, not the Render Blueprint above:
+
+* `itulah-pilot-cloud` is the Cloud API VM in `asia-southeast2-a`. Its
+  `itulah-cloud.service` runs a Docker image pinned by digest and binds only to
+  the Cloud node's private tailnet address on port 8080.
+* PostgreSQL is a separate Cloud SQL instance. The VM's Cloud SQL Auth Proxy
+  provides the local database connection; Store and DC nodes keep their own
+  SQLite databases and sync facts to Cloud.
+* `itulah-pilot-headscale` is a separate VM for the Headscale control plane;
+  it does not host the API or PostgreSQL. It is reachable at
+  `https://34-50-125-173.sslip.io`. Riza has joined it as `tag:store` at
+  `100.64.0.3`; Cloud is `100.64.0.1`.
+  The Windows Store Edge now uploads directly to Cloud at
+  `http://100.64.0.1:8080`, without routing sync through the MacBook. The
+  latest sender check showed a settled handshake, no queued or dead-lettered
+  events, and zero consecutive failures. An earlier test sale also appeared
+  in the Cloud daily report. The MacBook is still on Tailscale's hosted
+  network, so laptop-to-Headscale access remains to be completed. Public DNS
+  for `hs.itulah.co.id` still returns NXDOMAIN; the working pilot uses the
+  static `sslip.io` endpoint meanwhile.
+
+The Cloud deploy workflow watches pushes to `codex/pos-r3-windows` and builds
+the active POS R3 source in Cloud Build. `main` remains gated until its code is
+checked against the pilot release. GitHub uses Workload Identity Federation,
+not a long-lived service-account key, to submit the source to Cloud Build.
+Cloud Build compiles the image, pushes a uniquely tagged image with its source
+revision recorded in Artifact Registry, resolves its digest, and reaches the
+VM over IAP/OS Login. The deployment pins that digest in a systemd drop-in,
+restarts the API, checks `/api/v1/health`, and restores the previous digest if
+the new image fails its health check. Cloud SQL data and its proxy service
+are not part of the container update.
+
 ### 4. DC and Store Edge nodes
 
 The edge binaries run on the DC and shop machines so they keep operating when
