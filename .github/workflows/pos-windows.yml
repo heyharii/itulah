@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   windows-x64:
@@ -102,9 +102,16 @@ jobs:
         working-directory: pos-desktop
         run: npm exec --yes --package=@tauri-apps/cli@2.11.5 -- tauri build --config src-tauri/tauri.windows.conf.json
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: itulah-pos-windows-x64-${{ github.sha }}
-          path: pos-desktop/src-tauri/target/release/bundle/msi/*.msi
-          if-no-files-found: error
-          retention-days: 30
+      - name: Attach the MSI to a draft GitHub release
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $msi = Get-ChildItem -Path 'pos-desktop/src-tauri/target/release/bundle' -Filter '*.msi' -Recurse -File |
+            Select-Object -First 1
+          if (-not $msi) { throw 'The Windows build produced no MSI installer.' }
+          $tag = "pos-windows-$env:GITHUB_SHA"
+          gh release create $tag $msi.FullName --draft --title "Itulah POS Windows x64 $env:GITHUB_SHA" --notes 'Windows POS MSI built and tested by GitHub Actions. This is a draft installer for review.'
+          if ($LASTEXITCODE -ne 0) { throw "Could not attach the MSI to draft release $tag." }
