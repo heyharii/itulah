@@ -37,9 +37,6 @@ jobs:
         working-directory: pos-desktop/ui
         run: npm ci
 
-      - name: Test POS native commands
-        run: cargo test --manifest-path pos-desktop/src-tauri/Cargo.toml --lib
-
       - name: Download and verify the official Chainway R3 SDK
         shell: pwsh
         run: |
@@ -80,6 +77,9 @@ jobs:
           New-Item -ItemType Directory -Force -Path $native | Out-Null
           Copy-Item $api.FullName (Join-Path $native 'UHFAPI.dll')
           Copy-Item $usb (Join-Path $native 'libusb-1.0.dll')
+
+      - name: Test POS native commands
+        run: cargo test --manifest-path pos-desktop/src-tauri/Cargo.toml --lib
 
       - name: Build the Windows installer
         working-directory: pos-desktop
