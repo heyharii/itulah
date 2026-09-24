@@ -56,7 +56,19 @@ jobs:
           & $sevenZip.Source x $archive "-o$extract" -y | Out-Null
           if ($LASTEXITCODE -ne 0) { throw "7-Zip extraction failed: $LASTEXITCODE" }
 
-          $apiCandidates = Get-ChildItem -Path $extract -Filter UHFAPI.dll -Recurse -File
+          $apiArchive = Get-ChildItem -Path $extract -Filter 'win-UHF_LIB_20250829.rar' -Recurse -File |
+            Select-Object -First 1
+          if (-not $apiArchive) { throw 'The official Chainway package has no R3 Windows API archive.' }
+          $apiArchiveHash = (Get-FileHash -Algorithm SHA256 $apiArchive.FullName).Hash.ToLowerInvariant()
+          if ($apiArchiveHash -ne '6026ea51bd3f69aee5880f83f4f5b7d1cd0198905fde8fb4dc59e686bda3e4f3') {
+            throw "Chainway API archive hash changed: $apiArchiveHash"
+          }
+          $apiExtract = Join-Path $env:RUNNER_TEMP 'chainway-r3-api'
+          New-Item -ItemType Directory -Force -Path $apiExtract | Out-Null
+          & $sevenZip.Source x $apiArchive.FullName "-o$apiExtract" -y | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "Chainway API extraction failed: $LASTEXITCODE" }
+
+          $apiCandidates = Get-ChildItem -Path $apiExtract -Filter UHFAPI.dll -Recurse -File
           $api = $apiCandidates |
             Where-Object { (Get-FileHash -Algorithm SHA256 $_.FullName).Hash -ieq '25c044a8f0160d3365df4bb31608f645074f13cf153eaa1476bb91c42e1cdef8' } |
             Select-Object -First 1
