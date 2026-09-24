@@ -1,0 +1,53 @@
+name: Deploy Cloud API
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'backend/**'
+      - 'Dockerfile'
+      - 'deploy/render/entrypoint.sh'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: itulah-cloud-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # Keep production deploys paused until main is reconciled with the source
+    # currently running on the Cloud VM. Enable with the repository variable
+    # GCP_CLOUD_DEPLOY_ENABLED=true after that review is complete.
+    if: vars.GCP_CLOUD_DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Authenticate to Google Cloud with Workload Identity Federation
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          project_id: project-21f41328-b088-4894-b3f
+          workload_identity_provider: projects/207703853289/locations/global/workloadIdentityPools/github-deploy/providers/itulah
+          service_account: itulah-github-deploy@project-21f41328-b088-4894-b3f.iam.gserviceaccount.com
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
+
+      - name: Submit the source to Cloud Build
+        run: >-
+          gcloud builds submit .
+          --project=project-21f41328-b088-4894-b3f
+          --region=asia-southeast2
+          --config=cloudbuild.yaml
+          --service-account=projects/project-21f41328-b088-4894-b3f/serviceAccounts/itulah-cloudbuild-deploy@project-21f41328-b088-4894-b3f.iam.gserviceaccount.com
+          --gcs-source-staging-dir=gs://itulah-pilot-build-src-207703853289/source
+          --substitutions=_IMAGE_URI=asia-southeast2-docker.pkg.dev/project-21f41328-b088-4894-b3f/itulah-pilot/cloud,_INSTANCE=itulah-pilot-cloud,_ZONE=asia-southeast2-a,_COMMIT_SHA=${{ github.sha }}
