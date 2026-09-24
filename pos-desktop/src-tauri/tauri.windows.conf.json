@@ -1,6 +1,7 @@
 {
   "bundle": {
     "targets": ["msi"],
+    "icon": ["icons/icon.ico"],
     "resources": {
       "rfid-native/UHFAPI.dll": "rfid-native/UHFAPI.dll",
       "rfid-native/libusb-1.0.dll": "rfid-native/libusb-1.0.dll"

@@ -32,6 +32,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: pos-desktop/src-tauri -> target
+          cache-on-failure: true
 
       - name: Install POS UI dependencies
         working-directory: pos-desktop/ui
