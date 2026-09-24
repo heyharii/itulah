@@ -38,14 +38,44 @@ jobs:
         working-directory: pos-desktop/ui
         run: npm ci
 
+      - name: Restore the verified Chainway R3 SDK cache
+        uses: actions/cache/restore@v4
+        with:
+          path: pos-desktop/src-tauri/rfid-native
+          key: chainway-r3-sdk-windows-x64-65fcb027a146a8e38cba5dcc2c674262e14f278c61ce4ed3999bd45bfb888ce3
+
       - name: Download and verify the official Chainway R3 SDK
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          $native = Join-Path $env:GITHUB_WORKSPACE 'pos-desktop/src-tauri/rfid-native'
+          $apiPath = Join-Path $native 'UHFAPI.dll'
+          $usbPath = Join-Path $native 'libusb-1.0.dll'
+          if ((Test-Path $apiPath) -and (Test-Path $usbPath)) {
+            $apiHash = (Get-FileHash -Algorithm SHA256 $apiPath).Hash.ToLowerInvariant()
+            $usbHash = (Get-FileHash -Algorithm SHA256 $usbPath).Hash.ToLowerInvariant()
+            if (($apiHash -eq '25c044a8f0160d3365df4bb31608f645074f13cf153eaa1476bb91c42e1cdef8') -and
+                ($usbHash -eq '5072054cb3002ae071f382ad5c2c2b0092d9451c537d0c13444c2b6f968f7251')) {
+              Write-Output 'Using Chainway R3 SDK DLLs previously verified against the official archive.'
+              return
+            }
+          }
           $url = 'https://chainwayeurope.com/upload/materials/chainway-support/_shared/sdk/Demo_Windwos_R3.rar'
           $archive = Join-Path $env:RUNNER_TEMP 'chainway-r3-sdk.rar'
           $extract = Join-Path $env:RUNNER_TEMP 'chainway-r3-sdk'
-          Invoke-WebRequest -Uri $url -OutFile $archive
+          $downloaded = $false
+          for ($attempt = 1; $attempt -le 5; $attempt++) {
+            try {
+              Invoke-WebRequest -Uri $url -OutFile $archive -TimeoutSec 90
+              $downloaded = $true
+              break
+            } catch {
+              Remove-Item $archive -Force -ErrorAction SilentlyContinue
+              if ($attempt -eq 5) { throw }
+              Start-Sleep -Seconds (5 * $attempt)
+            }
+          }
+          if (-not $downloaded) { throw 'Could not download the official Chainway SDK after five attempts.' }
           $archiveHash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
           if ($archiveHash -ne '65fcb027a146a8e38cba5dcc2c674262e14f278c61ce4ed3999bd45bfb888ce3') {
             throw "Official Chainway SDK archive hash changed: $archiveHash"
@@ -94,6 +124,12 @@ jobs:
           New-Item -ItemType Directory -Force -Path $native | Out-Null
           Copy-Item $api.FullName (Join-Path $native 'UHFAPI.dll')
           Copy-Item $usb (Join-Path $native 'libusb-1.0.dll')
+
+      - name: Cache the verified Chainway R3 SDK
+        uses: actions/cache/save@v4
+        with:
+          path: pos-desktop/src-tauri/rfid-native
+          key: chainway-r3-sdk-windows-x64-65fcb027a146a8e38cba5dcc2c674262e14f278c61ce4ed3999bd45bfb888ce3
 
       - name: Test POS native commands
         run: cargo test --manifest-path pos-desktop/src-tauri/Cargo.toml --lib
