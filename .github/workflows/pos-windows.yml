@@ -4,10 +4,16 @@ on:
   push:
     paths:
       - "pos-desktop/**"
+      - "backend/**"
+      - "deploy/windows/**"
+      - "deploy/edge/store.env.example"
       - ".github/workflows/pos-windows.yml"
   pull_request:
     paths:
       - "pos-desktop/**"
+      - "backend/**"
+      - "deploy/windows/**"
+      - "deploy/edge/store.env.example"
       - ".github/workflows/pos-windows.yml"
   workflow_dispatch:
 
@@ -134,6 +140,24 @@ jobs:
       - name: Test POS native commands
         run: cargo test --manifest-path pos-desktop/src-tauri/Cargo.toml --lib
 
+      - name: Build Store Edge for Windows x64
+        run: cargo build --release --manifest-path backend/Cargo.toml --bin store
+
+      - name: Package Store Edge for Windows deployment
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $package = Join-Path $env:RUNNER_TEMP 'itulah-store-edge-windows-x64'
+          New-Item -ItemType Directory -Force -Path $package | Out-Null
+          Copy-Item 'backend/target/release/store.exe' $package
+          Copy-Item 'deploy/windows/install-store-edge.ps1' $package
+          Copy-Item 'deploy/windows/run-store-edge.ps1' $package
+          Copy-Item 'deploy/windows/README.md' $package
+          Copy-Item 'deploy/edge/store.env.example' (Join-Path $package 'store.env.example')
+          $zip = Join-Path $env:RUNNER_TEMP 'itulah-store-edge-windows-x64.zip'
+          Compress-Archive -Path (Join-Path $package '*') -DestinationPath $zip -Force
+          Write-Output "Packaged $zip"
+
       - name: Build the Windows installer
         working-directory: pos-desktop
         run: npm exec --yes --package=@tauri-apps/cli@2.11.5 -- tauri build --config src-tauri/tauri.windows.conf.json
@@ -148,6 +172,8 @@ jobs:
           $msi = Get-ChildItem -Path 'pos-desktop/src-tauri/target/release/bundle' -Filter '*.msi' -Recurse -File |
             Select-Object -First 1
           if (-not $msi) { throw 'The Windows build produced no MSI installer.' }
+          $store = Join-Path $env:RUNNER_TEMP 'itulah-store-edge-windows-x64.zip'
+          if (-not (Test-Path $store)) { throw 'The Store Edge Windows package is missing.' }
           $tag = "pos-windows-$env:GITHUB_SHA"
-          gh release create $tag $msi.FullName --draft --title "Itulah POS Windows x64 $env:GITHUB_SHA" --notes 'Windows POS MSI built and tested by GitHub Actions. This is a draft installer for review.'
+          gh release create $tag $msi.FullName $store --draft --title "Itulah POS and Store Edge Windows x64 $env:GITHUB_SHA" --notes 'Windows POS MSI and Store Edge package built by GitHub Actions. Draft assets for controlled deployment.'
           if ($LASTEXITCODE -ne 0) { throw "Could not attach the MSI to draft release $tag." }
