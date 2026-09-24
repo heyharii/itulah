@@ -406,11 +406,25 @@ export function Till({
   }, [where, units.length, askForQuote])
 
   const onScan = useCallback(
-    (raw: string) => {
+    async (raw: string) => {
       const text = raw.trim()
       if (text === "") return
       setCheck([])
-      const scanned = readScan(text)
+      let scanned = readScan(text)
+
+      // Some readers emit a pre-encoded EPC whose SKU is not in our private
+      // A0 format. Ask this shop's own Edge to price the known EPC; the quote
+      // is read-only and resolves the SKU from the local unit record, so this
+      // still works when the Cloud link is down.
+      if (scanned.kind === "unknown" && /^[0-9a-fA-F]{24}$/.test(text)) {
+        const resolved = await api.quote([text])
+        const skuCode = resolved.ok
+          ? resolved.body?.lines?.[0]?.sku_code
+          : undefined
+        if (skuCode !== undefined && bySku.has(skuCode)) {
+          scanned = { kind: "epc", epc: text.toUpperCase(), sku_code: skuCode }
+        }
+      }
 
       if (scanned.kind === "epc") {
         if (units.some((unit) => unit.epc === scanned.epc)) {
@@ -462,7 +476,7 @@ export function Till({
     if (rfidBusy) return
     setRfidBusy(true)
     try {
-      onScan(await readRfidSingle())
+      await onScan(await readRfidSingle())
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
       setNote({ bad: true, text: `Chainway R3: ${detail}` })
@@ -601,7 +615,7 @@ export function Till({
                 event.preventDefault()
                 const field = scan.current
                 if (field === null) return
-                onScan(field.value)
+                void onScan(field.value)
                 field.value = ""
               }}
             >

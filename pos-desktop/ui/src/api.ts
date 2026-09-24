@@ -231,7 +231,7 @@ export type QuoteReply = {
   readonly amount_due_minor?: number
   readonly discount_total_minor?: number
   readonly points_earned?: number
-  readonly lines?: readonly unknown[]
+  readonly lines?: readonly { readonly sku_code: string }[]
   readonly promotions?: readonly PromotionOutcome[]
   readonly granted_lines?: readonly GrantedLine[]
 }
