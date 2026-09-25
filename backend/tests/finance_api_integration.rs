@@ -333,6 +333,39 @@ async fn get(app: &axum::Router, who: &(String, String), path: &str) -> Response
     .await
 }
 
+// 25 -------------------------------------------------------------------------
+
+/// Rent income is a unit's income, recorded by a Finance HO manual journal.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn rental_income_lands_on_8005(pool: PgPool) {
+    let app = app_with_admin(&pool).await;
+    let admin = sign_in(&app, "admin", ADMIN_PASSWORD).await;
+
+    let posted = post_manual_journal(
+        &app,
+        &admin,
+        vec![
+            line("1002", SITE, 500_000, 0),
+            line("8005", SITE, 0, 500_000),
+        ],
+    )
+    .await;
+    assert_eq!(posted.status, StatusCode::OK, "post: {:?}", posted.body);
+
+    let trial = get(
+        &app,
+        &admin,
+        "/api/v1/finance/trial-balance?site=store-01&as_of=2026-09-30",
+    )
+    .await;
+    assert_eq!(trial.status, StatusCode::OK, "trial: {:?}", trial.body);
+    assert!(
+        trial.body.to_string().contains("8005"),
+        "Pendapatan Sewa Gedung: {}",
+        trial.body
+    );
+}
+
 // 33 -------------------------------------------------------------------------
 
 /// Head office charges a unit a management fee: the unit's cost, head office's
