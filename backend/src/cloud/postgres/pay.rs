@@ -620,8 +620,10 @@ pub async fn build_slips(
         // request that overlaps the boundary contributes its chargeable days
         // inside the month, not its whole stored list — and facts belonging to
         // another place never enter this shop's slip.
+        // COALESCE, because an employee with no approved leave counts zero days
+        // and an empty set sums to NULL — which a typed scalar cannot decode.
         let leave_days: Option<i64> = sqlx::query_scalar(
-            "SELECT sum(days) FROM (
+            "SELECT COALESCE(sum(days), 0)::bigint FROM (
                  SELECT count(*)::bigint AS days
                    FROM leave_request lr,
                         jsonb_array_elements_text(lr.chargeable) AS day
