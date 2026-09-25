@@ -321,6 +321,55 @@ async fn retired_accounts_cannot_be_posted(pool: PgPool) {
     }
 }
 
+// 34 -------------------------------------------------------------------------
+
+/// Closing a month seals and validates; it never posts the period's profit to
+/// retained earnings (that is derived). The books are read back through Finance.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn closing_a_month_posts_nothing_to_retained_earnings(pool: PgPool) {
+    let app = app_with_admin(&pool).await;
+    let admin = sign_in(&app, "admin", ADMIN_PASSWORD).await;
+
+    // Something to close: a manual journal so the month is not empty.
+    let posted = post_manual_journal(
+        &app,
+        &admin,
+        vec![line("1002", SITE, 10_000, 0), line("4002", SITE, 0, 10_000)],
+    )
+    .await;
+    assert_eq!(posted.status, StatusCode::OK, "seed: {:?}", posted.body);
+
+    let closed = send(
+        app.clone(),
+        "POST",
+        "/api/v1/finance/periods/close",
+        write_headers(&admin.0, &admin.1),
+        Some(json!({ "year": 2026, "month": 9, "reason": "tutup buku September" })),
+    )
+    .await;
+    assert!(
+        !closed.status.is_server_error(),
+        "closing must not fail: {:?}",
+        closed.body
+    );
+
+    // Retained earnings is not in the trial balance: nothing closed into it.
+    let trial = send(
+        app.clone(),
+        "GET",
+        "/api/v1/finance/trial-balance?site=dc&as_of=2026-09-30",
+        vec![(header::COOKIE.to_string(), admin.0.clone())],
+        None,
+    )
+    .await;
+    assert_eq!(trial.status, StatusCode::OK, "trial: {:?}", trial.body);
+    assert!(
+        !trial.body.to_string().contains("3003"),
+        "no line closed into 3003 Laba Ditahan: {}",
+        trial.body
+    );
+}
+
 // 39 -------------------------------------------------------------------------
 
 /// 6002 Pendapatan lain-lain is reachable by a Finance HO manual journal and by
