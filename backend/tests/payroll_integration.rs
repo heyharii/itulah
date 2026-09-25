@@ -103,6 +103,8 @@ fn browser(set_cookies: &[String]) -> (String, String) {
 
 fn config() -> AppConfig {
     AppConfig {
+        po_import: inventory_backend::cloud::intake::po::PoImportConfig::from_env(),
+        clock: None,
         bind_addr: "127.0.0.1:0"
             .parse::<SocketAddr>()
             .unwrap_or_else(|error| panic!("bind: {error}")),
@@ -113,6 +115,7 @@ fn config() -> AppConfig {
         observed_window_hours: 24,
         lost_risk_window_days: 30,
         enable_test_controls: false,
+        finance_automation_enabled: false,
         frontend_dir: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../frontend"),
         sync_upload_url: None,
         sync_upload_key: None,
@@ -1252,6 +1255,9 @@ async fn an_approved_run_crosses_to_finance_once_and_answers_back(pool: PgPool) 
     set_account(&app, &cookies, &csrf, &siti, "1234567890").await;
     let budi = staff_at(&app, &cookies, &csrf, "K0702", "store-07").await;
     agree_pay(&app, &cookies, &csrf, &budi, 4_000_000).await;
+    // Approval refuses a run with somebody who has no account to be paid into,
+    // so the handover test's second person needs one too.
+    set_account(&app, &cookies, &csrf, &budi, "0987654321").await;
     close_april(&app, &cookies, &csrf).await;
 
     let opened = open_run(&app, &cookies, &csrf).await;
@@ -1345,6 +1351,138 @@ async fn an_approved_run_crosses_to_finance_once_and_answers_back(pool: PgPool) 
     assert_eq!(listed.body[0]["handover"]["state"], "RECEIVED");
     assert_eq!(listed.body[0]["handover"]["gross_minor"], 10_000_000);
     assert_eq!(listed.body[0]["handover"]["people"], 2);
+
+    // Finance Connect stage 3: the handover IS the accrual, per component on
+    // the store's selling-expense leaves (6012-6024) against 2017, with the
+    // month's THR accrued to 2018 (client accountant and owner, 25 Sep).
+    let leaf = |code: &'static str| {
+        let pool = pool.clone();
+        async move {
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COALESCE(SUM(l.debit_minor - l.credit_minor), 0)::bigint
+                   FROM journal_line l JOIN journal_entry e ON e.entry_id = l.entry_id
+                  WHERE l.account_code = $1 AND l.site_id = 'store-07'",
+            )
+            .bind(code)
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("{code}: {error}"))
+        }
+    };
+    let expense: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(l.debit_minor - l.credit_minor), 0)::bigint
+           FROM journal_line l JOIN journal_entry e ON e.entry_id = l.entry_id
+          WHERE e.source_kind = 'PAYROLL_RUN' AND l.site_id = 'store-07'
+            AND l.account_code BETWEEN '6012' AND '6024'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("expense: {error}"));
+    let thr = 5_000_000 / 12 + 4_000_000 / 12;
+    assert_eq!(expense, 10_000_000 + thr, "gross plus the month's THR, on store leaves");
+    assert_eq!(leaf("2017").await, -10_000_000, "net pay owed on 2017");
+    assert_eq!(leaf("2018").await, -thr, "THR accrued on 2018");
+    assert_eq!(leaf("6018").await, thr, "THR expense on the store THR leaf");
+    assert_eq!(leaf("6026").await, 0, "no head-office leaf for a store's staff");
+
+    // Stage two, the store way: head office sends the money (its half), the
+    // store confirms it into petty cash (its half), and pays out of petty
+    // cash — 2017 comes back to nothing, and the affiliate pair nets to zero.
+    cloud::describe_account(
+        &pool,
+        &cloud::DescribeBankAccountRequest {
+            ledger_account_code: "1005".into(),
+            site_id: "dc".into(),
+            bank_code: Some("BCA".into()),
+            bank_name: String::new(),
+            account_no: "8880012345".into(),
+            account_holder: "PT Contoh".into(),
+            branch: None,
+            kind: "GIRO".into(),
+            is_primary: Some(true),
+            note: None,
+        },
+        "admin",
+    )
+    .await
+    .unwrap_or_else(|error| panic!("bank account: {error}"));
+    let day = chrono::Utc::now().date_naive();
+    let sent = cloud::operating_fund_send(
+        &pool,
+        &cloud::SendFundRequest {
+            site_id: "store-07".into(),
+            custodian_employee_id: siti.clone(),
+            amount_minor: 10_000_000,
+            value_date: day,
+            due_date: None,
+            bank_key: "bank_giro".into(),
+            bank_qualifier: "BCA".into(),
+            payout_bank_name: "BCA".into(),
+            payout_account_no: "7712345678".into(),
+            payout_account_name: "Siti".into(),
+            note: None,
+        },
+        "admin",
+    )
+    .await
+    .unwrap_or_else(|error| panic!("send: {error}"));
+    let fund_id: uuid::Uuid = serde_json::from_value(sent["fund_id"].clone())
+        .unwrap_or_else(|error| panic!("fund id: {error}"));
+    assert!(
+        cloud::fund_settlement_record(
+            &pool,
+            &cloud::SettleFundRequest {
+                fund_id,
+                allocation_id: None,
+                kind: "PAYROLL".into(),
+                reference_id: None,
+                expense_key: None,
+                amount_minor: 10_000_000,
+                settled_on: day,
+                proof_file_id: None,
+                note: None,
+            },
+            "admin",
+        )
+        .await
+        .is_err(),
+        "the store spends the money only after confirming it into petty cash"
+    );
+    cloud::operating_fund_receive(&pool, fund_id, &cloud::ReceiveFundRequest { received_on: day }, "admin")
+        .await
+        .unwrap_or_else(|error| panic!("receive: {error}"));
+    cloud::fund_settlement_record(
+        &pool,
+        &cloud::SettleFundRequest {
+            fund_id,
+            allocation_id: None,
+            kind: "PAYROLL".into(),
+            reference_id: None,
+            expense_key: None,
+            amount_minor: 10_000_000,
+            settled_on: day,
+            proof_file_id: None,
+            note: None,
+        },
+        "admin",
+    )
+    .await
+    .unwrap_or_else(|error| panic!("pay out: {error}"));
+    assert_eq!(leaf("2017").await, 0, "payroll payable is cleared by the payout");
+    assert_eq!(leaf("1003").await, 0, "petty cash received and paid out");
+    assert_eq!(leaf("2028").await, -10_000_000, "the store owes head office the funding");
+    let (ho_1057, company): (i64, i64) = sqlx::query_as(
+        "SELECT COALESCE(SUM(debit_minor - credit_minor) FILTER (WHERE account_code = '1057'
+                                                               AND site_id = 'dc'), 0)::bigint,
+                COALESCE(SUM(debit_minor - credit_minor) FILTER (WHERE account_code IN
+                    ('1057','1058','1059','2028','2029')), 0)::bigint
+           FROM journal_line",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("affiliate: {error}"));
+    assert_eq!(ho_1057, 10_000_000, "head office is owed the funding");
+    assert_eq!(company, 0, "the affiliate pair nets to zero company-wide");
 
     // Finance answers under its own key: the officer who handed it over cannot
     // also declare it paid.

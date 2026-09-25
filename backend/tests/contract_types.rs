@@ -709,6 +709,21 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("SalesPostingLine: {e}"));
     inventory_backend::cloud::postgres::SalesPostingDocument::export_all(&config)
         .unwrap_or_else(|e| panic!("SalesPostingDocument: {e}"));
+    // Finance Connect: the sale-day exception queue and Finance's setup.
+    for_contract!(
+        &config,
+        SalesPostingException,
+        ResolveSalesExceptionRequest,
+        EdcTerminal,
+        UpsertEdcTerminalRequest,
+        AcquirerFeeRate,
+        SetAcquirerFeeRateRequest,
+        FinanceSetting,
+        SetFinanceSettingRequest,
+        NewBankTerminal,
+        AddBankRequest,
+        AddBankOutcome,
+    );
     inventory_backend::cloud::postgres::GenerateSalesPostingRequest::export_all(&config)
         .unwrap_or_else(|e| panic!("GenerateSalesPostingRequest: {e}"));
     inventory_backend::cloud::postgres::GenerateSalesDaysRequest::export_all(&config)
@@ -748,6 +763,15 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("AccountDetail: {e}"));
     inventory_backend::cloud::http::finance::PeriodRequest::export_all(&config)
         .unwrap_or_else(|e| panic!("PeriodRequest: {e}"));
+
+    // GA tahap 6, the Finance handoff: the six warnings before posting, and
+    // the hold request that goes with them. `BillWarning` is named here and not
+    // left to a derive — nothing else reaches it, and a type that is only
+    // derived is silently never written.
+    inventory_backend::cloud::postgres::BillWarning::export_all(&config)
+        .unwrap_or_else(|e| panic!("BillWarning: {e}"));
+    inventory_backend::cloud::http::finance::HoldBillRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("HoldBillRequest: {e}"));
 
     // Positions and statements. One matrix shape serves every "what is this
     // family worth, per location" screen, and one statement shape serves the
@@ -1066,6 +1090,208 @@ fn the_wire_types_are_written_for_the_browser() {
     inventory_backend::cloud::postgres::GaOverview::export_all(&config)
         .unwrap_or_else(|e| panic!("GaOverview: {e}"));
 
+    // The document drawer's four types, which were transcribed by hand in
+    // `frontend-hub/src/lib/queries/workplace.ts` since the drawer landed —
+    // with a comment saying the fix was to regenerate rather than edit the
+    // shape. This is that regeneration: 0358 added an expiry to a document, and
+    // a hand-written mirror would have gone on saying a STNK has no
+    // `expires_on` while the server sent one.
+    for_contract!(
+        &config,
+        Document,
+        DocumentLink,
+        DocumentUpload,
+        DocumentUploadRequest,
+        FileDocumentRequest
+    );
+
+    // GA's own half of the asset register — the upkeep side, and the history
+    // that says how a thing got where it is. Named one by one rather than left
+    // to a derive, for the reason this whole file exists: `export_all` writes
+    // the type it is CALLED on and everything that type reaches, and nothing
+    // above reaches an asset page. A derive with no caller writes nothing at
+    // all, silently.
+    //
+    // The three request types are named for the same reason and not because a
+    // server reads them: a client that can read a register and cannot write one
+    // has half a screen, and a struct that is only ever deserialised is
+    // reachable from nothing the server sends.
+    inventory_backend::cloud::postgres::GaAssetRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaAssetRow: {e}"));
+    inventory_backend::cloud::postgres::GaAssetPage::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaAssetPage: {e}"));
+    inventory_backend::cloud::postgres::GaAssetFacets::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaAssetFacets: {e}"));
+    inventory_backend::cloud::postgres::GaAssetFacet::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaAssetFacet: {e}"));
+    inventory_backend::cloud::postgres::GaAssetEvent::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaAssetEvent: {e}"));
+    inventory_backend::cloud::postgres::GaAssetHub::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaAssetHub: {e}"));
+    inventory_backend::cloud::postgres::GaDocument::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaDocument: {e}"));
+    inventory_backend::cloud::postgres::RegisterGaAssetRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("RegisterGaAssetRequest: {e}"));
+    inventory_backend::cloud::postgres::UpdateGaAssetRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("UpdateGaAssetRequest: {e}"));
+    inventory_backend::cloud::postgres::TransferGaAssetRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("TransferGaAssetRequest: {e}"));
+    inventory_backend::cloud::postgres::NoteGaAssetRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("NoteGaAssetRequest: {e}"));
+
+    // The eleven forms — what the register's "new asset" screen draws itself
+    // from. Exported from `domain` rather than `postgres` because that is where
+    // the table lives: it is the same table `assert_specs` enforces, which is
+    // the whole point of the route that serves it.
+    inventory_backend::cloud::domain::GaBuildSchema::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaBuildSchema: {e}"));
+    inventory_backend::cloud::domain::GaBuildSpec::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaBuildSpec: {e}"));
+    inventory_backend::cloud::domain::GaBuildField::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaBuildField: {e}"));
+
+    // GA tahap 3: the contract register, its hub, its meters and its two
+    // vocabularies. Exported one by one for the reason every block here gives:
+    // `export_all` writes the type it is called on and what that type reaches,
+    // and a derive with no caller writes nothing.
+    inventory_backend::cloud::postgres::GaContractRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaContractRow: {e}"));
+    inventory_backend::cloud::postgres::GaContractPage::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaContractPage: {e}"));
+    inventory_backend::cloud::postgres::GaContractFacets::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaContractFacets: {e}"));
+    inventory_backend::cloud::postgres::GaContractFacet::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaContractFacet: {e}"));
+    inventory_backend::cloud::postgres::GaContractHub::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaContractHub: {e}"));
+    inventory_backend::cloud::postgres::GaContractBill::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaContractBill: {e}"));
+    inventory_backend::cloud::postgres::GaContractTemplate::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaContractTemplate: {e}"));
+    inventory_backend::cloud::postgres::GaMeterReading::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaMeterReading: {e}"));
+    inventory_backend::cloud::postgres::GaContractType::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaContractType: {e}"));
+    inventory_backend::cloud::postgres::RecordGaContractRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("RecordGaContractRequest: {e}"));
+    inventory_backend::cloud::postgres::UpdateGaContractRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("UpdateGaContractRequest: {e}"));
+    inventory_backend::cloud::postgres::ArchiveGaContractRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("ArchiveGaContractRequest: {e}"));
+    inventory_backend::cloud::postgres::RecordMeterReadingRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("RecordMeterReadingRequest: {e}"));
+
+    // GA tahap 4: the upkeep — the schedule, the walk-round, the repair, the
+    // swap and the disposal. Exported one by one and not left to a derive, for
+    // the reason the block above gives: `export_all` writes the type it is
+    // CALLED on and everything that type reaches, and nothing above reaches
+    // these. A derive with no caller writes nothing at all, silently.
+    //
+    // `GaMaintenanceFacet` is shared by all five lists, so it is named once;
+    // each `Page` pulls its own facet set in behind it, and the request types
+    // are named because a client that can read a list and cannot write one has
+    // half a screen.
+    inventory_backend::cloud::postgres::GaMaintenanceFacet::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaMaintenanceFacet: {e}"));
+    inventory_backend::cloud::postgres::GaMaintenanceTask::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaMaintenanceTask: {e}"));
+    inventory_backend::cloud::postgres::GaMaintenanceTaskRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaMaintenanceTaskRow: {e}"));
+    inventory_backend::cloud::postgres::GaMaintenanceTaskPage::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaMaintenanceTaskPage: {e}"));
+    inventory_backend::cloud::postgres::GaMaintenanceTaskFacets::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaMaintenanceTaskFacets: {e}"));
+    inventory_backend::cloud::postgres::RecordGaTaskRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("RecordGaTaskRequest: {e}"));
+    inventory_backend::cloud::postgres::UpdateGaTaskRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("UpdateGaTaskRequest: {e}"));
+
+    inventory_backend::cloud::postgres::GaInspection::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaInspection: {e}"));
+    inventory_backend::cloud::postgres::GaInspectionRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaInspectionRow: {e}"));
+    inventory_backend::cloud::postgres::GaInspectionPage::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaInspectionPage: {e}"));
+    inventory_backend::cloud::postgres::GaInspectionFacets::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaInspectionFacets: {e}"));
+    inventory_backend::cloud::postgres::RecordGaInspectionRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("RecordGaInspectionRequest: {e}"));
+
+    inventory_backend::cloud::postgres::GaRepair::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaRepair: {e}"));
+    inventory_backend::cloud::postgres::GaRepairRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaRepairRow: {e}"));
+    inventory_backend::cloud::postgres::GaRepairPage::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaRepairPage: {e}"));
+    inventory_backend::cloud::postgres::GaRepairFacets::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaRepairFacets: {e}"));
+    inventory_backend::cloud::postgres::RecordGaRepairRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("RecordGaRepairRequest: {e}"));
+    inventory_backend::cloud::postgres::UpdateGaRepairRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("UpdateGaRepairRequest: {e}"));
+    inventory_backend::cloud::postgres::MoveGaRepairRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("MoveGaRepairRequest: {e}"));
+    inventory_backend::cloud::postgres::ApproveGaRepairRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("ApproveGaRepairRequest: {e}"));
+
+    inventory_backend::cloud::postgres::GaReplacement::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaReplacement: {e}"));
+    inventory_backend::cloud::postgres::GaReplacementRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaReplacementRow: {e}"));
+    inventory_backend::cloud::postgres::GaReplacementPage::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaReplacementPage: {e}"));
+    inventory_backend::cloud::postgres::GaReplacementFacets::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaReplacementFacets: {e}"));
+    inventory_backend::cloud::postgres::RecordGaReplacementRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("RecordGaReplacementRequest: {e}"));
+    inventory_backend::cloud::postgres::MoveGaReplacementRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("MoveGaReplacementRequest: {e}"));
+
+    inventory_backend::cloud::postgres::GaDisposal::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaDisposal: {e}"));
+    inventory_backend::cloud::postgres::GaDisposalRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaDisposalRow: {e}"));
+    inventory_backend::cloud::postgres::GaDisposalPage::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaDisposalPage: {e}"));
+    inventory_backend::cloud::postgres::GaDisposalFacets::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaDisposalFacets: {e}"));
+    inventory_backend::cloud::postgres::RequestGaDisposalRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("RequestGaDisposalRequest: {e}"));
+    inventory_backend::cloud::postgres::DecideGaDisposalRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("DecideGaDisposalRequest: {e}"));
+    inventory_backend::cloud::postgres::GaRepairObject::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaRepairObject: {e}"));
+
+    // GA tahap 5: the places hub and the supplies register. Named one by one
+    // for the reason the blocks above give — `export_all` writes only what the
+    // type it is called on reaches.
+    inventory_backend::cloud::postgres::GaLocationRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaLocationRow: {e}"));
+    inventory_backend::cloud::postgres::GaLocationHub::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaLocationHub: {e}"));
+    inventory_backend::cloud::postgres::UpdateGaLocationRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("UpdateGaLocationRequest: {e}"));
+    inventory_backend::cloud::postgres::GaSupplyRequestRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaSupplyRequestRow: {e}"));
+    inventory_backend::cloud::postgres::GaSupplyCategory::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaSupplyCategory: {e}"));
+    inventory_backend::cloud::postgres::RecordGaSupplyRequestRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("RecordGaSupplyRequestRequest: {e}"));
+    inventory_backend::cloud::postgres::MoveGaSupplyRequestRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("MoveGaSupplyRequestRequest: {e}"));
+    inventory_backend::cloud::postgres::UpdateGaSupplyRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("UpdateGaSupplyRequest: {e}"));
+
+    // GA tahap 6: the account a line proposes (brief §8.2) and the draft GA
+    // files (brief §8.3). Both are wire types the GA forms and the Finance
+    // Inbox read; named here for the reason every block above gives.
+    inventory_backend::cloud::postgres::AccountSuggestion::export_all(&config)
+        .unwrap_or_else(|e| panic!("AccountSuggestion: {e}"));
+    inventory_backend::cloud::http::ga::GaBillRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaBillRequest: {e}"));
+    inventory_backend::cloud::http::ga::GaBillLineRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaBillLineRequest: {e}"));
+
     inventory_backend::cloud::postgres::CompanyBankAccount::export_all(&config)
         .unwrap_or_else(|e| panic!("CompanyBankAccount: {e}"));
     inventory_backend::cloud::postgres::DescribeBankAccountRequest::export_all(&config)
@@ -1281,6 +1507,80 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("OvertimeOrderView: {e}"));
     inventory_backend::cloud::http::overtime::OvertimePolicyView::export_all(&config)
         .unwrap_or_else(|e| panic!("OvertimePolicyView: {e}"));
+    // People's next generation — swaps, change proposals, checklists, the
+    // pipeline, performance, training, the rule numbers and the org masters.
+    inventory_backend::cloud::http::people::RosterSwapView::export_all(&config)
+        .unwrap_or_else(|e| panic!("RosterSwapView: {e}"));
+    inventory_backend::cloud::http::people::FileSwapBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("FileSwapBody: {e}"));
+    inventory_backend::cloud::http::people::SwapDecisionBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("SwapDecisionBody: {e}"));
+    inventory_backend::cloud::http::people::ChangeProposalView::export_all(&config)
+        .unwrap_or_else(|e| panic!("ChangeProposalView: {e}"));
+    inventory_backend::cloud::http::people::ChangePropView::export_all(&config)
+        .unwrap_or_else(|e| panic!("ChangePropView: {e}"));
+    inventory_backend::cloud::http::people::FileChangeBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("FileChangeBody: {e}"));
+    inventory_backend::cloud::http::people::ChangeDecisionBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("ChangeDecisionBody: {e}"));
+    inventory_backend::cloud::http::people::LifecycleTaskView::export_all(&config)
+        .unwrap_or_else(|e| panic!("LifecycleTaskView: {e}"));
+    inventory_backend::cloud::http::people::CompleteTaskBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("CompleteTaskBody: {e}"));
+    inventory_backend::cloud::http::people::StaffingPlanView::export_all(&config)
+        .unwrap_or_else(|e| panic!("StaffingPlanView: {e}"));
+    inventory_backend::cloud::http::people::PlanBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("PlanBody: {e}"));
+    inventory_backend::cloud::http::people::ApplicantView::export_all(&config)
+        .unwrap_or_else(|e| panic!("ApplicantView: {e}"));
+    inventory_backend::cloud::http::people::FileApplicantBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("FileApplicantBody: {e}"));
+    inventory_backend::cloud::http::people::StageBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("StageBody: {e}"));
+    inventory_backend::cloud::http::people::ScheduleInterviewBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("ScheduleInterviewBody: {e}"));
+    inventory_backend::cloud::http::people::InterviewView::export_all(&config)
+        .unwrap_or_else(|e| panic!("InterviewView: {e}"));
+    inventory_backend::cloud::http::people::InterviewResultBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("InterviewResultBody: {e}"));
+    inventory_backend::cloud::http::people::OfferView::export_all(&config)
+        .unwrap_or_else(|e| panic!("OfferView: {e}"));
+    inventory_backend::cloud::http::people::MakeOfferBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("MakeOfferBody: {e}"));
+    inventory_backend::cloud::http::people::OfferDecisionBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("OfferDecisionBody: {e}"));
+    inventory_backend::cloud::http::people::HireBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("HireBody: {e}"));
+    inventory_backend::cloud::http::people::PerformanceTemplateView::export_all(&config)
+        .unwrap_or_else(|e| panic!("PerformanceTemplateView: {e}"));
+    inventory_backend::cloud::http::people::PerformanceScoreView::export_all(&config)
+        .unwrap_or_else(|e| panic!("PerformanceScoreView: {e}"));
+    inventory_backend::cloud::http::people::RecordScoreBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("RecordScoreBody: {e}"));
+    inventory_backend::cloud::http::people::TrainingProgramView::export_all(&config)
+        .unwrap_or_else(|e| panic!("TrainingProgramView: {e}"));
+    inventory_backend::cloud::http::people::DefineTrainingBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("DefineTrainingBody: {e}"));
+    inventory_backend::cloud::http::people::NominateBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("NominateBody: {e}"));
+    inventory_backend::cloud::http::people::UniformIssuanceView::export_all(&config)
+        .unwrap_or_else(|e| panic!("UniformIssuanceView: {e}"));
+    inventory_backend::cloud::http::people::UniformBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("UniformBody: {e}"));
+    inventory_backend::cloud::http::people::PolicyView::export_all(&config)
+        .unwrap_or_else(|e| panic!("PolicyView: {e}"));
+    inventory_backend::cloud::http::people::PolicySetBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("PolicySetBody: {e}"));
+    inventory_backend::cloud::http::people::GradeView::export_all(&config)
+        .unwrap_or_else(|e| panic!("GradeView: {e}"));
+    inventory_backend::cloud::http::people::PositionView::export_all(&config)
+        .unwrap_or_else(|e| panic!("PositionView: {e}"));
+    inventory_backend::cloud::http::people::StructureView::export_all(&config)
+        .unwrap_or_else(|e| panic!("StructureView: {e}"));
+    inventory_backend::cloud::http::people::ColleagueView::export_all(&config)
+        .unwrap_or_else(|e| panic!("ColleagueView: {e}"));
+    inventory_backend::cloud::http::people::ColleagueDayView::export_all(&config)
+        .unwrap_or_else(|e| panic!("ColleagueDayView: {e}"));
     // Shift patterns, the roster and the close boundary. `CloseReadinessView`
     // carries `Option<u32>` where the reference carries `u32`, and that is the
     // whole point: `null` means the punch checks were not made, `0` would mean

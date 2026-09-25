@@ -1094,6 +1094,10 @@ pub struct AcquirerSettlementRow {
     pub curated_at: Option<DateTime<Utc>>,
     pub created_by: String,
     pub created_at: DateTime<Utc>,
+    /// The MDR Finance's rates expected, when a rate was set for the bank.
+    pub mdr_expected_minor: Option<i64>,
+    /// UNCHECKED, OK, NO_RATE, VARIANCE or ACCEPTED (Finance Connect stage 2).
+    pub mdr_check: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -1216,7 +1220,7 @@ const EXCEPTION_KINDS: [&str; 4] = ["FEE", "CHARGEBACK", "OTHER_DAY", "OPEN"];
 const fn receivable_key(tender_kind: &str) -> &'static str {
     match tender_kind.as_bytes() {
         b"CARD_DEBIT" => "card_receivable_debit",
-        b"QRIS" => "qris_receivable",
+        b"QRIS" => "card_receivable_debit",
         _ => "card_receivable_credit",
     }
 }
@@ -1387,6 +1391,7 @@ const SETTLEMENT_COLUMNS: &str = "
     s.gross_minor, s.mdr_minor, s.net_minor, s.expected_net_minor,
     s.bank_statement_line_id, s.status, s.difference_minor, s.explanation,
     s.journal_entry_id, s.curated_by, s.curated_at, s.created_by, s.created_at,
+    s.mdr_expected_minor, s.mdr_check,
     (SELECT COUNT(*) FROM acquirer_settlement_line l
       WHERE l.settlement_id = s.settlement_id)::bigint AS line_count";
 
@@ -1411,6 +1416,8 @@ fn to_settlement_row(row: &sqlx::postgres::PgRow) -> Result<AcquirerSettlementRo
         curated_at: row.try_get("curated_at")?,
         created_by: row.try_get("created_by")?,
         created_at: row.try_get("created_at")?,
+        mdr_expected_minor: row.try_get("mdr_expected_minor")?,
+        mdr_check: row.try_get("mdr_check")?,
     })
 }
 
@@ -1631,13 +1638,122 @@ async fn acq_settlement_settle_ledger_items(
     Ok(())
 }
 
+/// What the MDR check found for one settlement.
+struct MdrCheck {
+    status: &'static str,
+    expected_minor: Option<i64>,
+    tolerance_minor: i64,
+}
+
+/// Which rate kinds answer a settled tender, most specific first. A debit card
+/// does not say whether it was issued by the acquiring bank, so the on-us rate
+/// is tried before the off-us one.
+fn fee_kinds(tender_kind: &str) -> &'static [&'static str] {
+    match tender_kind {
+        "CARD_DEBIT" => &["DEBIT_ON_US", "DEBIT_OFF_US"],
+        "CARD_CREDIT" => &["CREDIT"],
+        "QRIS" => &["QRIS"],
+        _ => &[],
+    }
+}
+
+async fn finance_setting(pool: &PgPool, key: &str, default: i64) -> Result<i64, AppError> {
+    let value: Option<i64> = sqlx::query_scalar(
+        "SELECT round(value_numeric)::bigint FROM finance_setting WHERE setting_key = $1",
+    )
+    .bind(key)
+    .fetch_optional(pool)
+    .await?;
+    Ok(value.unwrap_or(default))
+}
+
+/// Expected MDR = gross × Finance's rate for the bank and kind in force on the
+/// day, summed over the settlement's lines; tolerance = the larger of the two
+/// Finance settings. Rates are final: the bank's MDR includes VAT.
+async fn mdr_check(
+    pool: &PgPool,
+    settlement: &AcquirerSettlementRow,
+    lines: &[sqlx::postgres::PgRow],
+    fees: i64,
+    on: NaiveDate,
+) -> Result<MdrCheck, AppError> {
+    let bank = settlement.acquirer.trim().to_uppercase();
+    let mut expected = 0i64;
+    let mut missing = false;
+    for row in lines {
+        let tender_kind: String = row.try_get("tender_kind")?;
+        let amount: i64 = row.try_get("amount_minor")?;
+        let kinds: Vec<String> = fee_kinds(&tender_kind).iter().map(|k| (*k).to_string()).collect();
+        let fee: Option<i64> = sqlx::query_scalar(
+            "SELECT round($4::numeric * rate_percent / 100)::bigint
+               FROM acquirer_fee_rate
+              WHERE bank_code = $1 AND fee_kind = ANY($2) AND effective_from <= $3
+              ORDER BY array_position($2, fee_kind), effective_from DESC
+              LIMIT 1",
+        )
+        .bind(&bank)
+        .bind(&kinds)
+        .bind(on)
+        .bind(amount)
+        .fetch_optional(pool)
+        .await?;
+        match fee {
+            Some(fee) => expected += fee,
+            None => missing = true,
+        }
+    }
+    let floor = finance_setting(pool, "mdr_tolerance_minor", 1_000).await?;
+    let bps = finance_setting(pool, "mdr_tolerance_bps", 5).await?;
+    let tolerance = floor.max(settlement.gross_minor.saturating_mul(bps) / 10_000);
+    if missing {
+        return Ok(MdrCheck {
+            status: "NO_RATE",
+            expected_minor: None,
+            tolerance_minor: tolerance,
+        });
+    }
+    Ok(MdrCheck {
+        status: if (fees - expected).abs() <= tolerance {
+            "OK"
+        } else {
+            "VARIANCE"
+        },
+        expected_minor: Some(expected),
+        tolerance_minor: tolerance,
+    })
+}
+
+/// Finance accepts an MDR variance after reviewing it, so the settlement can
+/// be curated with the bank's actual fee.
+pub async fn acq_settlement_accept_mdr_variance(
+    pool: &PgPool,
+    settlement_id: Uuid,
+    actor: &str,
+) -> Result<AcquirerSettlementRow, AppError> {
+    let updated = sqlx::query(
+        "UPDATE acquirer_settlement
+            SET mdr_check = 'ACCEPTED', mdr_checked_by = $2, mdr_checked_at = now()
+          WHERE settlement_id = $1 AND status = 'DRAFT' AND mdr_check = 'VARIANCE'",
+    )
+    .bind(settlement_id)
+    .bind(actor)
+    .execute(pool)
+    .await?;
+    if updated.rows_affected() == 0 {
+        return Err(AppError::Conflict(
+            "only a draft settlement whose MDR check found a variance can have it accepted".into(),
+        ));
+    }
+    acq_settlement_row(pool, settlement_id).await
+}
+
 /// Stand behind the reading, and post it.
 ///
 /// The entry, in the client's own terms:
 ///
 /// ```text
 ///   Dr  bank_giro / bank_savings   at dc,            qualified by the bank
-///   Dr  card_fee / qris_fee        at the sale's shop, qualified by the acquirer
+///   Dr  card_fee                   at the sale's shop
 ///   Cr  card_receivable_*          at the sale's shop, qualified by the acquirer
 /// ```
 ///
@@ -1709,10 +1825,7 @@ pub async fn acq_settlement_curate(
         fees += mdr;
         discharged.push((site_id.clone(), tender_kind.clone(), amount));
         if mdr > 0 {
-            posting_lines.push(
-                PostingLine::debit(fee_key(&tender_kind), &site_id, mdr)
-                    .with_qualifier(&settlement.acquirer),
-            );
+            posting_lines.push(PostingLine::debit(fee_key(&tender_kind), &site_id, mdr));
         }
         posting_lines.push(
             PostingLine::credit(receivable_key(&tender_kind), &site_id, amount)
@@ -1737,8 +1850,45 @@ pub async fn acq_settlement_curate(
         )));
     }
 
+    // The MDR the bank took, held against the rate Finance set (brief stage 2
+    // point 3). Within tolerance the actual MDR posts; outside it the
+    // settlement is marked VARIANCE and refused until Finance accepts it, so a
+    // wrong fee is never booked quietly. No rate for the bank: the actual MDR
+    // posts and the settlement says the rate was missing.
+    let posting_date = request.posting_date.unwrap_or(settlement.settlement_date);
+    let mdr_check = mdr_check(pool, &settlement, &lines, fees, posting_date).await?;
+    if mdr_check.status == "VARIANCE" {
+        let accepted: bool = sqlx::query_scalar(
+            "SELECT mdr_check = 'ACCEPTED' FROM acquirer_settlement WHERE settlement_id = $1",
+        )
+        .bind(settlement_id)
+        .fetch_one(pool)
+        .await?;
+        if !accepted {
+            sqlx::query(
+                "UPDATE acquirer_settlement
+                    SET mdr_check = 'VARIANCE', mdr_expected_minor = $2,
+                        mdr_checked_by = $3, mdr_checked_at = now()
+                  WHERE settlement_id = $1",
+            )
+            .bind(settlement_id)
+            .bind(mdr_check.expected_minor)
+            .bind(actor)
+            .execute(pool)
+            .await?;
+            return Err(AppError::Conflict(format!(
+                "the bank took MDR {fees} and Finance's rates expect {}; the difference {} is \
+                 beyond the tolerance of {}. Check the rate or the bank report, then accept the \
+                 variance to post it",
+                mdr_check.expected_minor.unwrap_or(0),
+                fees - mdr_check.expected_minor.unwrap_or(0),
+                mdr_check.tolerance_minor
+            )));
+        }
+    }
+
     let intent = PostingIntent {
-        posting_date: request.posting_date.unwrap_or(settlement.settlement_date),
+        posting_date,
         source_kind: "ACQ_SETTLEMENT".into(),
         source_id: Some(settlement_id.to_string()),
         rule_version: "acquirer_settlement/1".into(),
@@ -1763,12 +1913,18 @@ pub async fn acq_settlement_curate(
     // satisfied by the row as a whole rather than failing on the first column.
     let updated = sqlx::query(
         "UPDATE acquirer_settlement
-            SET status = 'CURATED', curated_by = $2, curated_at = now(), journal_entry_id = $3
+            SET status = 'CURATED', curated_by = $2, curated_at = now(), journal_entry_id = $3,
+                mdr_expected_minor = $4,
+                mdr_check = CASE WHEN mdr_check = 'ACCEPTED' THEN 'ACCEPTED' ELSE $5 END,
+                mdr_checked_by = COALESCE(mdr_checked_by, $2),
+                mdr_checked_at = COALESCE(mdr_checked_at, now())
           WHERE settlement_id = $1 AND status = 'DRAFT'",
     )
     .bind(settlement_id)
     .bind(actor)
     .bind(posted.entry_id)
+    .bind(mdr_check.expected_minor)
+    .bind(mdr_check.status)
     .execute(&mut *tx)
     .await?;
     if updated.rows_affected() == 0 {
@@ -2099,8 +2255,8 @@ pub struct AcquirerAgingRow {
     /// qualifier and the party on the item itself.
     pub acquirer: String,
     pub site_id: String,
-    /// Which receivable: `card_receivable_debit`, `card_receivable_credit` or
-    /// `qris_receivable`.
+    /// Which receivable: debit card (including new QRIS postings), credit card,
+    /// or the legacy `qris_receivable` key for historical open items.
     pub semantic_key: String,
     /// The client account this meaning and this acquirer resolve to at this
     /// shop. `None` when the map points nowhere yet — which is a finding in
@@ -2274,7 +2430,12 @@ pub async fn acq_settlement_unmapped_keys(
         let site_id: String = row.try_get("site_id")?;
         let tender_kind: String = row.try_get("tender_kind")?;
         for key in [receivable_key(&tender_kind), fee_key(&tender_kind)] {
-            if resolve_account_code(pool, key, &site_id, &settlement.acquirer)
+            let qualifier = if key == fee_key(&tender_kind) {
+                ""
+            } else {
+                settlement.acquirer.as_str()
+            };
+            if resolve_account_code(pool, key, &site_id, qualifier)
                 .await
                 .is_err()
             {

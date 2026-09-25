@@ -130,11 +130,20 @@ pub async fn finance_controls(
                              SELECT account_code FROM account_map
                               WHERE semantic_key IN ('trade_payable','non_merchandise_payable'))
                     ), 0)::bigint AS gl_minor,
-            COALESCE((SELECT SUM(st.outstanding_minor) FROM supplier_invoice_standing st), 0)::bigint
+            COALESCE((SELECT SUM(st.outstanding_minor)
+                        FROM payment_ledger_as_of(COALESCE($1::date, CURRENT_DATE)) st
+                       WHERE st.account_key IN ('trade_payable','non_merchandise_payable')
+                         AND st.party_type = 'SUPPLIER'
+                         AND st.side = 'PAYABLE'), 0)::bigint
                 AS subledger_minor,
-            COALESCE((SELECT COUNT(*) FROM supplier_invoice_standing st
-                       WHERE st.outstanding_minor <> 0), 0)::bigint AS unmatched",
+            COALESCE((SELECT COUNT(*)
+                        FROM payment_ledger_as_of(COALESCE($1::date, CURRENT_DATE)) st
+                       WHERE st.account_key IN ('trade_payable','non_merchandise_payable')
+                         AND st.party_type = 'SUPPLIER'
+                         AND st.side = 'PAYABLE'
+                         AND st.outstanding_minor <> 0), 0)::bigint AS unmatched",
     )
+    .bind(as_of)
     .fetch_one(pool)
     .await;
     match ap {
@@ -320,9 +329,24 @@ pub async fn finance_controls(
                        WHERE l.account_code IN (
                              SELECT account_code FROM account_map
                               WHERE semantic_key = 'payroll_payable')), 0)::bigint AS gl_minor,
-            COALESCE((SELECT SUM(s.net_minor) FROM payroll_slip s
-                        JOIN payroll_run r ON r.id = s.run_id
-                       WHERE r.state <> 'DRAFT'), 0)::bigint AS subledger_minor,
+            -- What is still owed, read from the payroll documents: the 2017
+            -- credit of every run handed over and not yet paid, plus the
+            -- envelopes a store has not yet handed out for runs Finance has
+            -- settled. The accrual is gross less PPh 21 and loan withholdings
+            -- (BPJS stays in 2017 until remitted), which is why it is read
+            -- from the accrual entry and not from the slips' net.
+            (COALESCE((SELECT SUM(l.credit_minor - l.debit_minor)
+                         FROM journal_line l
+                         JOIN journal_entry e ON e.entry_id = l.entry_id
+                         JOIN payroll_handover h ON h.run_id = e.source_id
+                        WHERE e.source_kind = 'PAYROLL_RUN' AND e.purpose IN ('ACCRUAL', 'MAIN')
+                          AND h.state = 'RECEIVED'
+                          AND l.account_code IN (SELECT account_code FROM account_map
+                                                  WHERE semantic_key = 'payroll_payable')), 0)
+             + COALESCE((SELECT SUM(t.net_minor) FROM payroll_payout_task t
+                          JOIN payroll_handover h ON h.run_id = t.run_id
+                         WHERE h.state <> 'RECEIVED' AND t.status <> 'PAID'), 0))::bigint
+                AS subledger_minor,
             COALESCE((SELECT COUNT(*) FROM payroll_run r WHERE r.state = 'DRAFT'), 0)::bigint
                 AS drafts",
     )
@@ -338,31 +362,14 @@ pub async fn finance_controls(
             subledger_minor: sub,
             difference_minor: gl - sub,
             unmatched: row.try_get("drafts")?,
-            // Not covered, and the difference below is not a discrepancy to
-            // chase: it is the whole subledger. A payroll run approves slips
-            // and posts NOTHING — `pay.rs` builds no `PostingIntent` — so
-            // `payroll_payable` is only ever DEBITED, by a store paying an
-            // advance against it (`store_money.rs`). The credit that should
-            // raise the liability, and the salary expense that should sit
-            // opposite it, have never existed.
-            //
-            // This is the largest thing missing from the ledger: the client's
-            // own 2025 general ledger puts head-office salaries alone at
-            // Rp 2.87 billion. It predates the forty-account chart and is not
-            // caused by it — what the chart changed is that the expense now has
-            // one visible home (`6201 Beban karyawan`, carrying a
-            // `pay_component`) instead of twenty-six unmapped client leaves, so
-            // the hole is a named account nothing reaches rather than a gap in
-            // a list nobody read.
-            //
-            // Not filled in here, because WHEN the expense is recognised —
-            // approval or payment — is a policy decision, not a defect to patch.
-            // `docs/finance-client-decisions.md` carries the question.
-            covered: false,
+            // Finance Connect stage 3: the handover posts the accrual (per
+            // component, gross less PPh 21 and loan withholdings to 2017) and
+            // payment debits 2017 — head office from the bank at settlement,
+            // a store from its petty cash as each envelope is handed out.
+            covered: true,
             note: Some(
-                "Run payroll belum memposting jurnal apa pun: tidak ada beban gaji \
-                 dan tidak ada kredit ke utang gaji, jadi selisih di bawah ini sama \
-                 dengan seluruh subledger. Lihat docs/finance-client-decisions.md."
+                "Akrual payroll (hand_over) mengkredit 2017 per komponen; pembayaran HO saat \
+                 settle dan pembayaran toko dari petty cash mendebit 2017."
                     .into(),
             ),
         });
@@ -607,6 +614,26 @@ pub async fn finance_close_readiness(
         unbalanced,
     ));
 
+    // The month-end agents (depreciation, OE reserve, prepaid, amortisation)
+    // run by default; this says whether this node has them switched off, so a
+    // month closed without depreciation is a visible decision, not a surprise.
+    let automation = crate::cloud::application::finance_automation_from_env();
+    checks.push(check(
+        "FINANCE_AUTOMATION",
+        "Agen akhir bulan Finance berjalan",
+        if automation { "OK" } else { "BLOCKER" },
+        if automation {
+            "Penyusutan, cadangan penggantian OE, penyebaran prepaid dan amortisasi berjalan otomatis \
+             (INVENTORY_FINANCE_AUTOMATION_ENABLED tidak dimatikan)"
+                .to_string()
+        } else {
+            "INVENTORY_FINANCE_AUTOMATION_ENABLED=false di node ini: penyusutan, cadangan dan \
+             prepaid bulan ini tidak diposting otomatis; jalankan manual sebelum tutup buku"
+                .to_string()
+        },
+        i64::from(!automation),
+    ));
+
     // The inter-unit account, which for one legal entity must be nothing.
     //
     // The owner settled it on 18 September 2026: fourteen units, ONE company.
@@ -627,7 +654,13 @@ pub async fn finance_close_readiness(
         "SELECT COALESCE(SUM(l.debit_minor - l.credit_minor), 0)::bigint
            FROM journal_line l
            JOIN journal_entry e ON e.entry_id = l.entry_id
-          WHERE l.account_code = '1501'
+          -- The client chart keeps the inter-unit balance on its affiliate
+          -- leaves (1057/1058/1059 receivable, 2028/2029/2031 payable), not
+          -- on the retired 1501: every account an affiliate meaning points at.
+          WHERE l.account_code IN (
+                SELECT DISTINCT account_code FROM account_map
+                 WHERE semantic_key IN ('affiliate_receivable', 'affiliate_payable'))
+            AND l.counter_site_id IS NOT NULL
             AND e.posting_date <= make_date($1, $2, 1) + INTERVAL '1 month' - INTERVAL '1 day'",
     )
     .bind(i32::from(year16))
@@ -644,9 +677,9 @@ pub async fn finance_close_readiness(
                 .to_string()
         } else {
             format!(
-                "Selisih {interunit} pada 1501: satu sisi dibukukan tanpa lawannya. \
-                 Cari jurnal yang menyentuh 1501 tanpa counter_site_id, atau pasangan \
-                 yang hanya satu arahnya diposting."
+                "Selisih {interunit} pada akun afiliasi (1057/1058/1059, 2028/2029/2031): \
+                 satu sisi dibukukan tanpa lawannya. Cari pasangan kirim/terima antar-unit \
+                 yang baru satu sisinya diposting."
             )
         },
         interunit.abs(),

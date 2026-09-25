@@ -55,7 +55,7 @@ use super::ledger::{
 use crate::cloud::application::AppError;
 use crate::cloud::domain::{balancing_legs, first_unbalanced_site, kind_for_source, SiteMovement};
 use chrono::NaiveDate;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sqlx::{Postgres, Row, Transaction};
 use uuid::Uuid;
 
@@ -93,7 +93,7 @@ pub const MAIN: &str = "MAIN";
 ///
 /// An `Account` carries one because the person choosing the code is also the
 /// person choosing what it was for, and nothing else in the entry knows.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum LineAccount {
     /// Resolved through `account_map` for this line's location.
@@ -150,7 +150,7 @@ impl From<String> for LineAccount {
 }
 
 /// One side of one posting.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct PostingLine {
     pub account: LineAccount,
     pub site_id: String,
@@ -163,7 +163,11 @@ pub struct PostingLine {
     pub counter_site_id: Option<String>,
     pub debit_minor: i64,
     pub credit_minor: i64,
-    pub supplier_id: Option<String>,
+    /// Which party this line is against, from the party_type registry (0299), and
+    /// who exactly. Written by the rule that KNOWS, like asset_id and
+    /// bank_account_id; the 0300 guard enforces the pair on control accounts.
+    pub party_type: Option<String>,
+    pub party_id: Option<String>,
     /// Which asset this line is about, when it is about one.
     ///
     /// The second sub-ledger dimension, and it is set the same way the first
@@ -205,7 +209,8 @@ impl PostingLine {
             counter_site_id: None,
             debit_minor: amount_minor,
             credit_minor: 0,
-            supplier_id: None,
+            party_type: None,
+            party_id: None,
             asset_id: None,
             bank_account_id: None,
             memo: None,
@@ -219,7 +224,8 @@ impl PostingLine {
             counter_site_id: None,
             debit_minor: 0,
             credit_minor: amount_minor,
-            supplier_id: None,
+            party_type: None,
+            party_id: None,
             asset_id: None,
             bank_account_id: None,
             memo: None,
@@ -255,8 +261,33 @@ impl PostingLine {
         self
     }
 
+    /// Say which unit is on the other side of an affiliate line.
+    ///
+    /// The balancer sets this on the legs it adds, and a rule that posts an
+    /// affiliate line itself — the store's half of a remittance, head office's
+    /// half of receiving it — has to set it too, because the account guard
+    /// (`requires_counter_site`) refuses an inter-unit balance that names only
+    /// its own side. A rule that knows says so; nothing infers it.
+    pub fn with_counter_site(mut self, counter_site_id: &str) -> Self {
+        self.counter_site_id = Some(counter_site_id.to_string());
+        self
+    }
+
     pub fn for_supplier(mut self, supplier_id: &str) -> Self {
-        self.supplier_id = Some(supplier_id.to_string());
+        self.party_type = Some("SUPPLIER".to_string());
+        self.party_id = Some(supplier_id.to_string());
+        self
+    }
+
+    /// Say which employee this line is against — the mirror of
+    /// `for_supplier`, and the party the 0300 guard and the payment surfaces
+    /// read. An expense claim's payable carries it (the debt is owed TO one
+    /// person); the expense side does not, for the same reason a supplier
+    /// bill's expense lines name no supplier: the cost is not owed BY the
+    /// person it is about.
+    pub fn for_employee(mut self, employee_id: &str) -> Self {
+        self.party_type = Some("EMPLOYEE".to_string());
+        self.party_id = Some(employee_id.to_string());
         self
     }
 
@@ -374,7 +405,8 @@ fn balanced_per_site(intent: &PostingIntent) -> Result<(Vec<PostingLine>, i64), 
             counter_site_id: Some(leg.counter_site_id),
             debit_minor: leg.debit_minor,
             credit_minor: leg.credit_minor,
-            supplier_id: None,
+            party_type: None,
+            party_id: None,
             // An affiliate leg is about a unit, never about a machine.
             asset_id: None,
             bank_account_id: None,
@@ -448,6 +480,34 @@ pub async fn post(
     purpose: Option<&str>,
     actor: &str,
 ) -> Result<Posted, AppError> {
+    // One common door for document-driven posting. Finance can keep the global
+    // switch off while explicitly allowing a reviewed set of source kinds; the
+    // database trigger enforces the same decision at the journal boundary.
+    if intent.source_kind != "MANUAL" {
+        let automatic_posting_enabled = sqlx::query_scalar::<_, bool>(
+            "SELECT control.automatic_posting_enabled
+                    OR EXISTS (
+                        SELECT 1
+                          FROM finance_posting_source_policy policy
+                         WHERE policy.source_kind = $1
+                           AND policy.enabled
+                    )
+               FROM finance_posting_control control
+              WHERE control.singleton = true
+              FOR SHARE",
+        )
+        .bind(&intent.source_kind)
+        .fetch_optional(&mut **tx)
+        .await?
+        .unwrap_or(false);
+
+        if !automatic_posting_enabled {
+            return Err(AppError::Conflict(
+                format!("automatic posting is paused for source kind {}; Finance has not allowed this posting flow", intent.source_kind),
+            ));
+        }
+    }
+
     let purpose = purpose
         .map(str::trim)
         .filter(|p| !p.is_empty())
@@ -548,6 +608,11 @@ pub async fn post(
         resolved.push((code, category, bank_account_id));
     }
 
+    // The budget reads last, with every line's account and category resolved:
+    // a promise about spending is checked against the posting as it will be,
+    // not as the rule guessed it (0305).
+    enforce_budgets(&mut **tx, intent.posting_date, &lines, &resolved).await?;
+
     let entry_id = Uuid::new_v4();
     let number: i64 = sqlx::query("SELECT nextval('journal_entry_number_seq') AS n")
         .fetch_one(&mut **tx)
@@ -582,9 +647,9 @@ pub async fn post(
         sqlx::query(
             "INSERT INTO journal_line
                (line_id, entry_id, line_number, account_code, category_code, site_id,
-                counter_site_id, debit_minor, credit_minor, supplier_id, asset_id, memo,
+                counter_site_id, debit_minor, credit_minor, party_type, party_id, asset_id, memo,
                 bank_account_id)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",
         )
         .bind(Uuid::new_v4())
         .bind(entry_id)
@@ -600,7 +665,8 @@ pub async fn post(
         .bind(line.counter_site_id.as_deref())
         .bind(line.debit_minor)
         .bind(line.credit_minor)
-        .bind(line.supplier_id.as_deref())
+        .bind(line.party_type.as_deref())
+        .bind(line.party_id.as_deref())
         .bind(line.asset_id)
         .bind(line.memo.as_deref())
         .bind(*bank_account_id)
@@ -654,7 +720,7 @@ pub async fn reverse(
     // rather than by a check somebody could forget to write.
     let lines = sqlx::query(
         "SELECT line_number, account_code, category_code, site_id, counter_site_id,
-                debit_minor, credit_minor, supplier_id, asset_id, memo, bank_account_id
+                debit_minor, credit_minor, party_type, party_id, asset_id, memo, bank_account_id
            FROM journal_line WHERE entry_id = $1 ORDER BY line_number",
     )
     .bind(entry_id)
@@ -682,8 +748,19 @@ pub async fn reverse(
     .bind(format!("reverses {original_number}: {reason}"))
     .bind(entry_id)
     .bind(actor)
+    // `reversal_of` is UNIQUE: the database refuses the second reversal, and
+    // the refusal must name the act rather than arrive as SQLSTATE 23505.
     .execute(&mut **tx)
-    .await?;
+    .await
+    .map_err(|error| match &error {
+        sqlx::Error::Database(db) if db.constraint() == Some("journal_entry_reversal_of_key") => {
+            AppError::Conflict(format!(
+                "{original_number} has already been reversed; a reversal is one mirror, \
+                 never two -- reverse the reversal instead"
+            ))
+        }
+        _ => AppError::from(error),
+    })?;
 
     for row in &lines {
         let debit: i64 = row.try_get("debit_minor")?;
@@ -691,9 +768,9 @@ pub async fn reverse(
         sqlx::query(
             "INSERT INTO journal_line
                (line_id, entry_id, line_number, account_code, category_code, site_id,
-                counter_site_id, debit_minor, credit_minor, supplier_id, asset_id, memo,
+                counter_site_id, debit_minor, credit_minor, party_type, party_id, asset_id, memo,
                 bank_account_id)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",
         )
         .bind(Uuid::new_v4())
         .bind(reversal_id)
@@ -713,7 +790,13 @@ pub async fn reverse(
         // The mirror: what was debited is credited.
         .bind(credit)
         .bind(debit)
-        .bind(row.try_get::<Option<String>, _>("supplier_id")?)
+        // Carried, not re-resolved: the mirror is against the same party the
+        // original was against, or the sub-ledgers that read the pair (the
+        // Payment Ledger, the ageing) would show a debt coming back to nobody
+        // while a stranger received it. The SELECT above fetches the pair; the
+        // trigger `journal_line_names_its_party` (0300) states when it is due.
+        .bind(row.try_get::<Option<String>, _>("party_type")?)
+        .bind(row.try_get::<Option<String>, _>("party_id")?)
         // Copied, like the account code and for the same reason: a reversal is
         // about whatever the original was about. An undone disposal that lost
         // its asset would leave the asset's own ledger showing the cost going
@@ -733,4 +816,111 @@ pub async fn reverse(
         entry_number,
         total_minor: total,
     })
+}
+
+// ---------------------------------------------------------------------------
+// Budgets: a promise the poster reads (0305)
+// ---------------------------------------------------------------------------
+
+/// STOP budgets this posting runs into, refusing with the numbers.
+///
+/// WARN budgets never arrive here — a note is not a refusal, and the screen
+/// reads them from the table directly. Only STOP crosses the door, and only
+/// when the month's spend would cross the promise: the promise is read once,
+/// the month's spend once, and the posting's own share is added before the
+/// comparison, because the entry in hand is part of what would break it.
+/// OPENING is exempt the same way the party guard is: history arriving is not
+/// the month choosing to spend.
+async fn enforce_budgets(
+    tx: &mut sqlx::PgConnection,
+    posting_date: NaiveDate,
+    lines: &[PostingLine],
+    resolved: &[(String, Option<String>, Option<Uuid>)],
+) -> Result<(), AppError> {
+    let budgets = sqlx::query(
+        "SELECT site_id, account_code, category_code, amount_minor, period_start, period_end
+           FROM budget
+          WHERE superseded_by IS NULL
+            AND on_exceed = 'STOP'
+            AND period_start <= $1 AND period_end >= $1",
+    )
+    .bind(posting_date)
+    .fetch_all(&mut *tx)
+    .await?;
+    if budgets.is_empty() {
+        return Ok(());
+    }
+
+    let spenders: Vec<(&str, &str, Option<&str>, i64)> = lines
+        .iter()
+        .zip(resolved.iter())
+        .filter(|(line, _)| line.debit_minor > 0)
+        .map(|(line, (account_code, category_code, _))| {
+            (
+                line.site_id.as_str(),
+                account_code.as_str(),
+                category_code.as_deref(),
+                line.debit_minor,
+            )
+        })
+        .collect();
+    if spenders.is_empty() {
+        return Ok(());
+    }
+
+    for budget in &budgets {
+        let site_id: String = budget.try_get("site_id")?;
+        let account_code: Option<String> = budget.try_get("account_code")?;
+        let category_code: Option<String> = budget.try_get("category_code")?;
+        let amount_minor: i64 = budget.try_get("amount_minor")?;
+        let period_start: NaiveDate = budget.try_get("period_start")?;
+        let period_end: NaiveDate = budget.try_get("period_end")?;
+
+        let mut adds: i64 = 0;
+        let mut hits_site = false;
+        for (site, account, category, debit) in &spenders {
+            let hit = match (&account_code, &category_code) {
+                (Some(wanted), _) => *account == wanted.as_str(),
+                (None, Some(wanted)) => *category == Some(wanted.as_str()),
+                (None, None) => false,
+            };
+            if hit && *site == site_id {
+                adds += debit;
+                hits_site = true;
+            }
+        }
+        if !hits_site {
+            continue;
+        }
+
+        let spent: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(SUM(jl.debit_minor - jl.credit_minor), 0)
+               FROM journal_line jl
+               JOIN journal_entry je ON je.entry_id = jl.entry_id
+              WHERE jl.site_id = $1
+                AND je.posting_date BETWEEN $2 AND $3
+                AND je.source_kind <> 'OPENING'
+                AND ($4::text IS NULL OR jl.account_code = $4)
+                AND ($5::text IS NULL OR jl.category_code = $5)",
+        )
+        .bind(&site_id)
+        .bind(period_start)
+        .bind(period_end)
+        .bind(&account_code)
+        .bind(&category_code)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        if spent + adds > amount_minor {
+            return Err(AppError::Validation(format!(
+                "budget STOP at {site_id} for {} ({}..{}): promised {amount_minor}, the month \
+                 already spent {spent}, and this entry adds {adds} — move the posting or raise \
+                 the promise",
+                account_code.as_deref().unwrap_or("its category"),
+                period_start,
+                period_end
+            )));
+        }
+    }
+    Ok(())
 }

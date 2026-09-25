@@ -239,6 +239,29 @@ pub(super) async fn apply_lines(
     }
     refresh_projection_positions(tx, &command.lines).await?;
     validate_unique_company_placements(tx, &unit_subjects.into_iter().collect::<Vec<_>>()).await?;
+    // The money follows the goods. A count shortfall, a confirmed loss and a
+    // disposal are economic outflows, and the general ledger hears about them
+    // here, in this same transaction: the movement ledger and the cost ledger
+    // commit together or not at all. A move, a sale (already costed by the
+    // sales day) and a gain post nothing — see `post_operational_outflow`.
+    for line in &command.lines {
+        let Some(pool) = line.from.pool() else {
+            continue;
+        };
+        super::stock_ledger::post_operational_outflow(
+            tx,
+            command.cause.as_str(),
+            line.subject_id.0,
+            line.quantity,
+            command.occurred_at.date_naive(),
+            &pool.id(),
+            pool.site_id().as_str(),
+            &format!("{idempotency_key}:{}", line.subject_id.0),
+            &command.reason,
+            &command.actor_id,
+        )
+        .await?;
+    }
     Ok(ids)
 }
 

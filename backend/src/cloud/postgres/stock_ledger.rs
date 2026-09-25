@@ -687,15 +687,23 @@ fn outflow_posting(event_kind: &str) -> Option<(&'static str, &'static str, &'st
         // rule's `SALE_DAY` on purpose: the two entries have different rules,
         // different lines, and different reasons to be reposted.
         "SALE" => Some(("COGS_DAY", "cogs", COGS_POSTING_PURPOSE)),
-        // A stock count difference. `8010110006 Kehilangan Barang atau Selisih
-        // Stock Opname` is the client's own account and it is named for exactly
-        // this.
-        "LOSS" => Some(("ADJUSTMENT", "stock_loss", "STOCK_LOSS")),
+        // A stock count difference. `STOCK_COUNT`, not `ADJUSTMENT`: the
+        // policy keeps `5102 + SHRINKAGE` rule-only, and an ADJUSTMENT is a
+        // hand-keyed kind -- a count's difference has a document of its own,
+        // which is exactly what rule-only demands.
+        "LOSS" => Some(("STOCK_COUNT", "stock_loss", "STOCK_LOSS")),
         // Damage and disposal land in the same account. The reference
         // implementation keeps loss and damage apart; this client's chart does
         // not, and inventing a second account puts a line in their books their
         // own accountant cannot explain.
-        "WRITE_OFF" | "DISPOSAL" => Some(("WRITE_OFF", "stock_loss", "WRITE_OFF")),
+        // Keep Inventory's write-off distinct from Finance correction
+        // journals, which also use the generic WRITE_OFF source kind.
+        // Damage and disposal are an expense of the goods themselves (owner
+        // decision 8, stage 5): Dr 6011 Biaya Kerusakan Persediaan / Cr 1029.
+        // A stock-count shortfall (LOSS) stays on 8007.
+        "WRITE_OFF" | "DISPOSAL" => {
+            Some(("INVENTORY_WRITE_OFF", "inventory_damage", "WRITE_OFF"))
+        }
         // Goods going BACK to the vendor are not a cost of goods sold. The
         // debit belongs on the payable, whichever of the three ways the return
         // settles: a refund pays that debit off with cash, a debt reduction IS
@@ -703,6 +711,36 @@ fn outflow_posting(event_kind: &str) -> Option<(&'static str, &'static str, &'st
         "SUPPLIER_RETURN" => Some(("CREDIT_NOTE", "trade_payable", "SUPPLIER_RETURN")),
         _ => None,
     }
+}
+
+/// The entry a supplier return makes.
+///
+/// The payable is head office's (owner rule, 25 Sep) and the stock is wherever
+/// the goods were returned from. When those are the same place the entry is the
+/// two lines it always was; when the goods sat in a shop, the shop's side goes
+/// through Atas Barang — Dr 2029 / Cr 1029 — and head office's side is
+/// Dr 2002 / Cr 1058. The balancer cannot be left to add these itself: a credit
+/// at the shop reads as value it GAVE head office (a receivable), where the
+/// whole point of a return is that the shop owes head office LESS.
+fn supplier_return_lines(site_id: &str, value: i64) -> Vec<PostingLine> {
+    let ho = super::poster::HEAD_OFFICE_SITE;
+    let mut lines = vec![
+        PostingLine::debit("trade_payable", ho, value),
+        PostingLine::credit("inventory", site_id, value),
+    ];
+    if site_id != ho {
+        lines.push(
+            PostingLine::debit("affiliate_payable", site_id, value)
+                .with_qualifier(&format!("BARANG:{ho}"))
+                .with_counter_site(ho),
+        );
+        lines.push(
+            PostingLine::credit("affiliate_receivable", ho, value)
+                .with_qualifier(&format!("BARANG:{site_id}"))
+                .with_counter_site(site_id),
+        );
+    }
+    lines
 }
 
 /// Take basis for an economic outflow, record what it took, and post it.
@@ -774,6 +812,22 @@ pub async fn stock_ledger_consume(
 
     let total: i64 = taken.iter().map(|a| a.value_minor).sum();
 
+    // Provenance, not a queue (owner decision 1, stage 5): every new item gets
+    // its own SKU, so an article normally has ONE receipt cost and the layers
+    // it is taken from all carry it. Two different costs on one SKU should not
+    // happen; when it does it is flagged for Finance instead of being averaged
+    // silently, and the layers still answer the value.
+    flag_multiple_costs(tx, request.article_id, &request.source_id).await?;
+
+    // Shopping bags are customer supplies (owner decision 11): at the till
+    // they are Dr 6004 / Cr 1030, not cost of sales against merchandise.
+    let supply = article_is_supply(tx, request.article_id).await?;
+    let (expense_key, stock_key) = match (supply, request.event_kind.as_str()) {
+        (true, "SALE") => ("customer_supplies", "bag_inventory"),
+        (true, _) => (expense_key, "bag_inventory"),
+        (false, _) => (expense_key, "inventory"),
+    };
+
     // Posted BEFORE the entries are written, and its identifier carried onto
     // them. The stock ledger is append-only, so an entry cannot be told about
     // its journal afterwards — which is the right way round anyway: an entry
@@ -798,7 +852,7 @@ pub async fn stock_ledger_consume(
                         // affiliate legs itself. A rule that wrote them by hand
                         // would be a second author of the same fact.
                         PostingLine::debit(expense_key, &request.site_id, total),
-                        PostingLine::credit("inventory", &request.site_id, total),
+                        PostingLine::credit(stock_key, &request.site_id, total),
                     ],
                 },
                 Some(&posting_purpose(purpose_step, request.article_id)),
@@ -882,6 +936,81 @@ pub async fn stock_ledger_consume(
     }
 
     Ok(posting)
+}
+
+/// The cost of goods leaving the company on an operational movement.
+///
+/// The movement ledger records custody; this records the money. It is called
+/// from the one place every movement group is applied, so an official count's
+/// shortfall, a confirmed loss and a disposal each reach the general ledger at
+/// the moment they happen, in the same transaction as the movement itself — the
+/// stock ledger and the journal commit together or not at all.
+///
+/// Causes that are not an economic outflow return `None` and post nothing: a
+/// move between our own places changes custody, a sale is already costed by the
+/// sales day, and a gain has no known cost (see the note on gains below).
+///
+/// A subject with no SKU has no cost layer to draw on, so it posts nothing
+/// either; the operational event still stands.
+pub async fn post_operational_outflow(
+    tx: &mut Transaction<'_, Postgres>,
+    cause: &str,
+    subject_id: Uuid,
+    quantity: i64,
+    economic_date: NaiveDate,
+    from_pool_id: &str,
+    site_id: &str,
+    event_id: &str,
+    memo: &str,
+    actor: &str,
+) -> Result<Option<StockLedgerPosting>, AppError> {
+    let event_kind = match cause {
+        // An official count's shortfall: Dr 8007 Selisih Stock Opname / Cr 1029.
+        "COUNT_SHORTAGE" => "LOSS",
+        // Damage, theft or a confirmed loss: Dr 6011 Biaya Kerusakan Persediaan
+        // / Cr 1029.
+        "CONFIRMED_LOST" => "WRITE_OFF",
+        "DISPOSAL" => "DISPOSAL",
+        // Everything else: a move, a sale (costed by the sales day), a
+        // customer return (the goods come back), or a gain with no known cost.
+        _ => return Ok(None),
+    };
+    if quantity <= 0 {
+        return Ok(None);
+    }
+    let sku: Option<Uuid> =
+        sqlx::query_scalar("SELECT sku_id FROM inventory_subject WHERE id = $1")
+            .bind(subject_id)
+            .fetch_one(&mut **tx)
+            .await?;
+    let Some(sku) = sku else {
+        return Ok(None);
+    };
+    let article: Uuid = sqlx::query_scalar("SELECT article_id FROM sku WHERE id = $1")
+        .bind(sku)
+        .fetch_optional(&mut **tx)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("sku {sku}")))?;
+    let posting = stock_ledger_consume(
+        tx,
+        &StockOutflow {
+            article_id: article,
+            sku_id: Some(sku),
+            epc: None,
+            lot_reference: None,
+            quantity,
+            event_kind: event_kind.into(),
+            event_id: event_id.to_string(),
+            from_pool_id: from_pool_id.to_string(),
+            site_id: site_id.to_string(),
+            economic_date,
+            source_id: event_id.to_string(),
+            memo: Some(memo.to_string()),
+        },
+        actor,
+    )
+    .await?;
+    Ok(Some(posting))
 }
 
 /// Send goods back to the receipt they arrived on.
@@ -972,10 +1101,7 @@ pub async fn stock_ledger_return_to_supplier(
                     rule_version: "supplier_return/1".into(),
                     currency: "IDR".into(),
                     memo: request.memo.clone(),
-                    lines: vec![
-                        PostingLine::debit("trade_payable", &request.site_id, value),
-                        PostingLine::credit("inventory", &request.site_id, value),
-                    ],
+                    lines: supplier_return_lines(&request.site_id, value),
                 },
                 // Keyed on the layer and not the article: one credit note can
                 // send back goods from two receipts of the same article, and
@@ -1142,11 +1268,75 @@ pub async fn stock_ledger_record_transfer(
 /// A full repost is not this. Rewriting the cost of sales that have already been
 /// reported is a restatement somebody signs for, or a change of costing method,
 /// and neither is the normal path.
+/// What a price correction did, and how it was split.
+pub struct PriceCorrectionOutcome {
+    pub inventory_minor: i64,
+    pub cogs_minor: i64,
+    /// The Atas Barang pair, when the goods are in a shop and the caller is
+    /// making its own journal. Empty at head office.
+    pub affiliate_lines: Vec<PostingLine>,
+    pub posting: StockLedgerPosting,
+}
+
+/// The Atas Barang pair a price correction makes when the goods are in a shop.
+///
+/// Built for the credit-note direction (shop owes less): Dr 2029 at the shop,
+/// Cr 1058 at head office. A debit note (shop owes more) is the same pair with
+/// the sides swapped.
+fn price_correction_affiliate_lines(site: &str, amount_minor: i64, ho: &str) -> Vec<PostingLine> {
+    if site == ho {
+        return Vec::new();
+    }
+    let magnitude = amount_minor.abs();
+    let mut store_leg = PostingLine::debit("affiliate_payable", site, magnitude)
+        .with_qualifier(&format!("BARANG:{ho}"))
+        .with_counter_site(ho);
+    let mut ho_leg = PostingLine::credit("affiliate_receivable", ho, magnitude)
+        .with_qualifier(&format!("BARANG:{site}"))
+        .with_counter_site(site);
+    if amount_minor > 0 {
+        store_leg.debit_minor = 0;
+        store_leg.credit_minor = magnitude;
+        ho_leg.debit_minor = magnitude;
+        ho_leg.credit_minor = 0;
+    }
+    vec![store_leg, ho_leg]
+}
+
+/// A supplier billing a different price than the goods were received at, and the
+/// journal made optional.
+///
+/// `post_journal` is FALSE when the caller's own document already carries the
+/// stock half — a supplier bill whose price variance adjusts the provenance cost
+/// rather than landing in `8004 Potongan Pembelian`. The layer and the stock
+/// ledger still move; only the journal is the caller's, because it and the
+/// payable the bill already credits are one entry, and writing a second would
+/// put the variance into inventory twice.
 pub async fn cost_layer_correct_price(
     tx: &mut Transaction<'_, Postgres>,
     request: &LayerPriceCorrection,
     actor: &str,
 ) -> Result<StockLedgerPosting, AppError> {
+    Ok(price_correction(tx, request, actor, true).await?.posting)
+}
+
+/// The same correction with no journal of its own, for a caller that is making
+/// one. Returns the split so the caller can put the inventory and cost-of-sales
+/// halves on its own lines.
+pub async fn cost_layer_correct_price_without_journal(
+    tx: &mut Transaction<'_, Postgres>,
+    request: &LayerPriceCorrection,
+    actor: &str,
+) -> Result<PriceCorrectionOutcome, AppError> {
+    price_correction(tx, request, actor, false).await
+}
+
+async fn price_correction(
+    tx: &mut Transaction<'_, Postgres>,
+    request: &LayerPriceCorrection,
+    actor: &str,
+    post_journal: bool,
+) -> Result<PriceCorrectionOutcome, AppError> {
     if request.amount_minor == 0 {
         return Err(AppError::Validation(
             "a price correction of nothing corrects nothing; if the supplier billed what was \
@@ -1159,7 +1349,38 @@ pub async fn cost_layer_correct_price(
         request.source_id, request.layer_id, request.amount_minor
     );
     if let Some(existing) = replay(tx, &key).await? {
-        return Ok(existing);
+        let row = sqlx::query(
+            "SELECT inventory_portion_minor, cogs_portion_minor
+               FROM cost_layer_adjustment WHERE idempotency_key = $1",
+        )
+        .bind(&key)
+        .fetch_optional(&mut **tx)
+        .await?;
+        let (inventory_minor, cogs_minor) = match row {
+            Some(row) => (
+                row.try_get::<Option<i64>, _>("inventory_portion_minor")?
+                    .unwrap_or(0),
+                row.try_get::<Option<i64>, _>("cogs_portion_minor")?
+                    .unwrap_or(0),
+            ),
+            None => (0, 0),
+        };
+        let site: Option<String> =
+            sqlx::query_scalar("SELECT site_id FROM cost_layer WHERE layer_id = $1")
+                .bind(request.layer_id)
+                .fetch_optional(&mut **tx)
+                .await?;
+        let affiliate_lines = price_correction_affiliate_lines(
+            site.as_deref().unwrap_or_default(),
+            request.amount_minor,
+            super::poster::HEAD_OFFICE_SITE,
+        );
+        return Ok(PriceCorrectionOutcome {
+            inventory_minor,
+            cogs_minor,
+            affiliate_lines,
+            posting: existing,
+        });
     }
 
     assert_period_open(tx, request.effective_date, "this price correction").await?;
@@ -1201,35 +1422,65 @@ pub async fn cost_layer_correct_price(
     // consumption breakdown the company-wide queue deliberately does not keep —
     // and 0098 refuses a cross-location line anyway, because the honest credit
     // is an inter-unit balance no rule writes yet.
-    let mut lines = Vec::with_capacity(3);
-    let mut push = |key: &str, amount: i64| {
+    let ho = super::poster::HEAD_OFFICE_SITE;
+    // The stock adjustment stays where the goods are: on hand → inventory,
+    // already sold → cost of sales (the split `split_price_correction` made).
+    let mut stock_lines = Vec::with_capacity(2);
+    let mut push_stock = |key: &str, amount: i64| {
         if amount > 0 {
-            lines.push(PostingLine::debit(key, &site, amount));
+            stock_lines.push(PostingLine::debit(key, &site, amount));
         } else if amount < 0 {
-            lines.push(PostingLine::credit(key, &site, -amount));
+            stock_lines.push(PostingLine::credit(key, &site, -amount));
         }
     };
-    push("inventory", split.inventory_minor);
-    push("cogs", split.cogs_minor);
-    push("trade_payable", -request.amount_minor);
+    push_stock("inventory", split.inventory_minor);
+    push_stock("cogs", split.cogs_minor);
+    // The supplier is head office's counterparty (owner rule, 25 Sep), so the
+    // payable sits at dc. When the goods are in a shop the two are joined
+    // through Atas Barang explicitly: the shop's debt to head office moves by
+    // the correction, and head office's receivable from the shop moves with it.
+    // The balancer cannot do this — it reads a credit at the shop as a
+    // receivable, and a correction changes what the shop already owes.
+    let payable_line = if request.amount_minor > 0 {
+        // The supplier billed more: head office owes more.
+        PostingLine::credit("trade_payable", ho, request.amount_minor)
+    } else {
+        PostingLine::debit("trade_payable", ho, -request.amount_minor)
+    };
+    let affiliate_lines = price_correction_affiliate_lines(&site, request.amount_minor, ho);
 
-    let posted = post(
-        tx,
-        &PostingIntent {
-            posting_date: request.effective_date,
-            source_kind: "LANDED_COST".into(),
-            source_id: Some(request.source_id.clone()),
-            rule_version: "price_correction/1".into(),
-            currency: "IDR".into(),
-            memo: Some(request.reason.clone()),
-            lines,
-        },
-        // The layer, again: one debit note can correct the price of two
-        // receipts, and the split is a different sum on each of them.
-        Some(&posting_purpose("PRICE_CORRECTION", request.layer_id)),
-        actor,
-    )
-    .await?;
+    // When this makes its own journal it posts the payable and the legs; when it
+    // is journal-less the caller's document already credits the payable, so it
+    // takes the stock half AND the Atas Barang legs and nothing else.
+    let mut lines = stock_lines;
+    if post_journal {
+        lines.push(payable_line);
+        lines.extend(affiliate_lines.iter().cloned());
+    }
+
+    let posted = if post_journal {
+        Some(
+            post(
+                tx,
+                &PostingIntent {
+                    posting_date: request.effective_date,
+                    source_kind: "LANDED_COST".into(),
+                    source_id: Some(request.source_id.clone()),
+                    rule_version: "price_correction/1".into(),
+                    currency: "IDR".into(),
+                    memo: Some(request.reason.clone()),
+                    lines,
+                },
+                // The layer, again: one debit note can correct the price of two
+                // receipts, and the split is a different sum on each of them.
+                Some(&posting_purpose("PRICE_CORRECTION", request.layer_id)),
+                actor,
+            )
+            .await?,
+        )
+    } else {
+        None
+    };
 
     sqlx::query(
         "INSERT INTO cost_layer_adjustment
@@ -1246,7 +1497,7 @@ pub async fn cost_layer_correct_price(
     .bind(actor)
     .bind(split.inventory_minor)
     .bind(split.cogs_minor)
-    .bind(posted.entry_id)
+    .bind(posted.as_ref().map(|p| p.entry_id))
     .bind(&key)
     .execute(&mut **tx)
     .await?;
@@ -1285,31 +1536,36 @@ pub async fn cost_layer_correct_price(
     .bind(STOCK_LEDGER_METHOD)
     .bind(&request.source_id)
     .bind(request.effective_date)
-    .bind(posted.entry_id)
+    .bind(posted.as_ref().map(|p| p.entry_id))
     .bind(&key)
     .bind(actor)
     .execute(&mut **tx)
     .await?;
 
-    Ok(StockLedgerPosting {
-        posting_group_id: group,
-        article_id: article,
-        event_kind: "PRICE_CORRECTION".into(),
-        quantity: 0,
-        value_minor: request.amount_minor,
-        economic_date: request.effective_date,
-        journal_entry_id: Some(posted.entry_id),
-        journal_entry_number: Some(posted.entry_number),
-        allocations: vec![StockLedgerAllocation {
-            entry_id,
-            cost_layer_id: Some(request.layer_id),
-            layer_economic_date: Some(layer_date),
+    Ok(PriceCorrectionOutcome {
+        inventory_minor: split.inventory_minor,
+        cogs_minor: split.cogs_minor,
+        affiliate_lines,
+        posting: StockLedgerPosting {
+            posting_group_id: group,
+            article_id: article,
+            event_kind: "PRICE_CORRECTION".into(),
             quantity: 0,
-            valuation_rate_minor: None,
-            value_minor: split.inventory_minor,
-            qty_after: quantity_after,
-            stock_value_after_minor: value_before + split.inventory_minor,
-        }],
+            value_minor: request.amount_minor,
+            economic_date: request.effective_date,
+            journal_entry_id: posted.as_ref().map(|p| p.entry_id),
+            journal_entry_number: posted.as_ref().map(|p| p.entry_number.clone()),
+            allocations: vec![StockLedgerAllocation {
+                entry_id,
+                cost_layer_id: Some(request.layer_id),
+                layer_economic_date: Some(layer_date),
+                quantity: 0,
+                valuation_rate_minor: None,
+                value_minor: split.inventory_minor,
+                qty_after: quantity_after,
+                stock_value_after_minor: value_before + split.inventory_minor,
+            }],
+        },
     })
 }
 
@@ -1331,6 +1587,364 @@ struct QueuedLayer {
 /// matter: two deliveries accepted in the same second must consume in a fixed
 /// order, or a rebuild produces a different allocation from the original run and
 /// the two are indistinguishable from a bug.
+/// Post the cost of goods sold while their SKU had no layer to take them from
+/// (owner decision 2, stage 5): at the SKU's last known receipt cost, flagged
+/// "cost pending", so the sales day still posts. `cost_pending_true_up` puts
+/// it right when the receipt lands.
+#[allow(clippy::too_many_arguments)]
+pub async fn cost_pending_post(
+    tx: &mut Transaction<'_, Postgres>,
+    article_id: Uuid,
+    quantity: i64,
+    site_id: &str,
+    economic_date: NaiveDate,
+    source_id: &str,
+    reason: &str,
+    actor: &str,
+) -> Result<(), AppError> {
+    let unit = last_known_unit_cost(tx, article_id).await?;
+    let provisional = unit.saturating_mul(quantity);
+    let supply = article_is_supply(tx, article_id).await?;
+    let (expense_key, stock_key) = if supply {
+        ("customer_supplies", "bag_inventory")
+    } else {
+        ("cogs", "inventory")
+    };
+    let flag_id = Uuid::new_v4();
+    let entry_id = if provisional > 0 {
+        Some(
+            post(
+                tx,
+                &PostingIntent {
+                    posting_date: economic_date,
+                    source_kind: "COGS_DAY".into(),
+                    source_id: Some(source_id.to_string()),
+                    rule_version: "cogs_day_pending/1".into(),
+                    currency: "IDR".into(),
+                    memo: Some(format!("HPP menunggu biaya: {quantity} x {unit}")),
+                    lines: vec![
+                        PostingLine::debit(expense_key, site_id, provisional),
+                        PostingLine::credit(stock_key, site_id, provisional),
+                    ],
+                },
+                Some(&format!("PENDING_{}", article_id.simple())),
+                actor,
+            )
+            .await?
+            .entry_id,
+        )
+    } else {
+        None
+    };
+    sqlx::query(
+        "INSERT INTO inventory_cost_flag
+           (flag_id, article_id, kind, site_id, quantity, unit_cost_minor, provisional_minor,
+            source_id, journal_entry_id, detail)
+         VALUES ($1, $2, 'COST_PENDING', $3, $4, $5, $6, $7, $8, $9)",
+    )
+    .bind(flag_id)
+    .bind(article_id)
+    .bind(site_id)
+    .bind(quantity)
+    .bind(unit)
+    .bind(provisional)
+    .bind(source_id)
+    .bind(entry_id)
+    .bind(format!("biaya menunggu: {reason}"))
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+/// When a layer lands for an article with sales still "cost pending", take
+/// those units from the layers at their real cost and reverse the provisional
+/// cost, so cost of sales ends at the provenance cost and 1029 equals the
+/// layers again. A pending sale the layers still cannot cover stays open.
+pub async fn cost_pending_true_up(
+    tx: &mut Transaction<'_, Postgres>,
+    article_id: Uuid,
+    economic_date: NaiveDate,
+) -> Result<(), AppError> {
+    let pending = sqlx::query(
+        "SELECT flag_id, site_id, quantity, provisional_minor, journal_entry_id
+           FROM inventory_cost_flag
+          WHERE article_id = $1 AND kind = 'COST_PENDING' AND status = 'OPEN'
+          ORDER BY created_at",
+    )
+    .bind(article_id)
+    .fetch_all(&mut **tx)
+    .await?;
+    let supply = article_is_supply(tx, article_id).await?;
+    let (expense_key, stock_key) = if supply {
+        ("customer_supplies", "bag_inventory")
+    } else {
+        ("cogs", "inventory")
+    };
+    for row in &pending {
+        let flag_id: Uuid = row.try_get("flag_id")?;
+        let site_id: String = row.try_get::<Option<String>, _>("site_id")?.unwrap_or_default();
+        let quantity: i64 = row.try_get("quantity")?;
+        let provisional: i64 = row.try_get("provisional_minor")?;
+        let pool_id: String = sqlx::query_scalar(
+            "SELECT id FROM operational_pool
+              WHERE site_id = $1 AND group_code IN ('STORE_INVENTORY', 'WAREHOUSE')
+              ORDER BY (group_code = 'STORE_INVENTORY') DESC, display_order LIMIT 1",
+        )
+        .bind(&site_id)
+        .fetch_optional(&mut **tx)
+        .await?
+        .unwrap_or_else(|| format!("{site_id}.warehouse"));
+        let source = format!("pending:{flag_id}");
+        let consumed = stock_ledger_consume(
+            tx,
+            &StockOutflow {
+                article_id,
+                sku_id: None,
+                epc: None,
+                lot_reference: None,
+                quantity,
+                event_kind: "SALE".into(),
+                event_id: source.clone(),
+                from_pool_id: pool_id,
+                site_id: site_id.clone(),
+                economic_date,
+                source_id: source.clone(),
+                memo: Some("HPP diluruskan: biaya dari penerimaan".into()),
+            },
+            "system:cost-true-up",
+        )
+        .await;
+        let Ok(consumed) = consumed else { break };
+        let reversal = if provisional > 0 {
+            Some(
+                post(
+                    tx,
+                    &PostingIntent {
+                        posting_date: economic_date,
+                        source_kind: "COGS_DAY".into(),
+                        source_id: Some(source.clone()),
+                        rule_version: "cogs_day_true_up/1".into(),
+                        currency: "IDR".into(),
+                        memo: Some("HPP sementara dibalik".into()),
+                        lines: vec![
+                            PostingLine::debit(stock_key, &site_id, provisional),
+                            PostingLine::credit(expense_key, &site_id, provisional),
+                        ],
+                    },
+                    Some("TRUE_UP"),
+                    "system:cost-true-up",
+                )
+                .await?
+                .entry_id,
+            )
+        } else {
+            None
+        };
+        sqlx::query(
+            "UPDATE inventory_cost_flag
+                SET status = 'RESOLVED', resolved_at = now(),
+                    resolved_entry_id = COALESCE($2, $3)
+              WHERE flag_id = $1",
+        )
+        .bind(flag_id)
+        .bind(consumed.journal_entry_id)
+        .bind(reversal)
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(())
+}
+
+/// Book what allotments have dispatched and received since the last sweep,
+/// per the client accountant's SJD rule (25 Sep), in both books:
+///
+/// * dispatch (SJD): sender Dr 1031 BDP / Cr 1029; receiver Dr 1031 BDP /
+///   Cr 2029 Hutang Affiliasi Atas Barang (counter = head office);
+/// * receipt: head office Dr 1058 Piutang Affiliasi Atas Barang (counter =
+///   the unit) / Cr 1031; the unit Dr 1029 / Cr 1031.
+///
+/// Values at the article's provenance cost (its remaining layers; the last
+/// receipt cost when none remain). Bags use 1030/1032 the same way. Each
+/// site's lines balance on their own, so the poster adds no legs. A move
+/// between two units (which the accountant routes through head office) is not
+/// booked here yet and is left for Finance.
+pub async fn stock_transfer_post_pending(pool: &PgPool, actor: &str) -> Result<i64, AppError> {
+    let lines = sqlx::query(
+        "SELECT l.id, l.source_site_id, l.destination_id, sk.article_id,
+                a.created_at::date AS allotted_on,
+                COALESCE(p.dispatched_quantity, l.dispatched_quantity)::bigint AS dispatched,
+                COALESCE(p.received_quantity, l.received_quantity)::bigint AS received,
+                COALESCE((SELECT SUM(t.quantity) FROM stock_transfer_posting t
+                           WHERE t.allotment_line_id = l.id AND t.stage = 'DISPATCH'), 0)::bigint
+                    AS booked_dispatch,
+                COALESCE((SELECT SUM(t.quantity) FROM stock_transfer_posting t
+                           WHERE t.allotment_line_id = l.id AND t.stage = 'RECEIPT'), 0)::bigint
+                    AS booked_receipt
+           FROM allotment_line l
+           JOIN allotment a ON a.id = l.allotment_id
+           JOIN sku sk ON sk.id = l.sku_id
+           LEFT JOIN edge_allotment_line_progress p ON p.allotment_line_id = l.id
+          WHERE l.destination_type = 'STORE' AND l.source_site_id IS NOT NULL
+            AND l.source_site_id <> l.destination_id",
+    )
+    .fetch_all(pool)
+    .await?;
+    let mut booked = 0i64;
+    let today = chrono::Utc::now().date_naive();
+    for row in &lines {
+        let line_id: Uuid = row.try_get("id")?;
+        let source: String = row.try_get("source_site_id")?;
+        let destination: String = row.try_get("destination_id")?;
+        let article_id: Uuid = row.try_get("article_id")?;
+        if source != super::poster::HEAD_OFFICE_SITE && destination != super::poster::HEAD_OFFICE_SITE {
+            continue;
+        }
+        for (stage, done, already) in [
+            ("DISPATCH", row.try_get::<i64, _>("dispatched")?, row.try_get::<i64, _>("booked_dispatch")?),
+            ("RECEIPT", row.try_get::<i64, _>("received")?, row.try_get::<i64, _>("booked_receipt")?),
+        ] {
+            let delta = done - already;
+            if delta <= 0 {
+                continue;
+            }
+            let mut tx = pool.begin().await?;
+            let supply = article_is_supply(&mut tx, article_id).await?;
+            let (stock, transit, transit_q) = if supply {
+                ("bag_inventory", "goods_in_transit", "BAG")
+            } else {
+                ("inventory", "goods_in_transit", "MERCHANDISE")
+            };
+            let unit: i64 = sqlx::query_scalar::<_, Option<i64>>(
+                "SELECT (SUM(remaining_value_minor) / NULLIF(SUM(remaining_quantity), 0))::bigint
+                   FROM cost_layer_remaining WHERE article_id = $1 AND remaining_quantity > 0",
+            )
+            .bind(article_id)
+            .fetch_one(&mut *tx)
+            .await?
+            .unwrap_or(last_known_unit_cost(&mut tx, article_id).await?);
+            let value = unit.saturating_mul(delta);
+            let affiliate = |key: &str, site: &str, counter: &str, debit: bool| {
+                let mut leg = if debit {
+                    PostingLine::debit(key, site, value)
+                } else {
+                    PostingLine::credit(key, site, value)
+                }
+                .with_qualifier(&format!("BARANG:{counter}"));
+                leg.counter_site_id = Some(counter.to_string());
+                leg
+            };
+            let entry = if value > 0 {
+                let lines = match stage {
+                    "DISPATCH" => vec![
+                        PostingLine::debit(transit, &source, value).with_qualifier(transit_q),
+                        PostingLine::credit(stock, &source, value),
+                        PostingLine::debit(transit, &destination, value).with_qualifier(transit_q),
+                        affiliate("affiliate_payable", &destination, &source, false),
+                    ],
+                    _ => vec![
+                        affiliate("affiliate_receivable", &source, &destination, true),
+                        PostingLine::credit(transit, &source, value).with_qualifier(transit_q),
+                        PostingLine::debit(stock, &destination, value),
+                        PostingLine::credit(transit, &destination, value).with_qualifier(transit_q),
+                    ],
+                };
+                Some(
+                    post(
+                        &mut tx,
+                        &PostingIntent {
+                            posting_date: today,
+                            source_kind: "TRANSFER".into(),
+                            source_id: Some(line_id.to_string()),
+                            rule_version: "sjd_transfer/1".into(),
+                            currency: "IDR".into(),
+                            memo: Some(format!("{stage} {delta} unit {source} -> {destination}")),
+                            lines,
+                        },
+                        Some(&format!("{stage}_{}_{}", already, done)),
+                        actor,
+                    )
+                    .await?
+                    .entry_id,
+                )
+            } else {
+                None
+            };
+            sqlx::query(
+                "INSERT INTO stock_transfer_posting
+                   (allotment_line_id, stage, quantity, value_minor, journal_entry_id)
+                 VALUES ($1, $2, $3, $4, $5)",
+            )
+            .bind(line_id)
+            .bind(stage)
+            .bind(delta)
+            .bind(value)
+            .bind(entry)
+            .execute(&mut *tx)
+            .await?;
+            tx.commit().await?;
+            booked += 1;
+        }
+    }
+    Ok(booked)
+}
+
+/// Whether an article is a customer supply (shopping bags), held on 1030.
+pub async fn article_is_supply(
+    tx: &mut Transaction<'_, Postgres>,
+    article_id: Uuid,
+) -> Result<bool, AppError> {
+    Ok(sqlx::query_scalar::<_, bool>(
+        "SELECT is_customer_supply FROM article WHERE id = $1",
+    )
+    .bind(article_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .unwrap_or(false))
+}
+
+/// Raise a MULTI_COST flag once for an article whose remaining layers carry
+/// more than one unit cost.
+async fn flag_multiple_costs(
+    tx: &mut Transaction<'_, Postgres>,
+    article_id: Uuid,
+    source_id: &str,
+) -> Result<(), AppError> {
+    sqlx::query(
+        "INSERT INTO inventory_cost_flag (flag_id, article_id, kind, source_id, detail)
+         SELECT $1, $2, 'MULTI_COST', $3,
+                'this SKU was received at ' || COUNT(DISTINCT r.unit_cost_minor)::text ||
+                ' different unit costs; provenance expects one: review the receipts'
+           FROM cost_layer_remaining r
+          WHERE r.article_id = $2 AND r.remaining_quantity > 0
+         HAVING COUNT(DISTINCT r.unit_cost_minor) > 1
+            AND NOT EXISTS (SELECT 1 FROM inventory_cost_flag f
+                             WHERE f.article_id = $2 AND f.kind = 'MULTI_COST'
+                               AND f.status = 'OPEN')",
+    )
+    .bind(Uuid::new_v4())
+    .bind(article_id)
+    .bind(source_id)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+/// The last unit cost an article was received at, for a sale whose layers are
+/// short (owner decision 2, stage 5). Zero when it has never been received.
+pub async fn last_known_unit_cost(
+    tx: &mut Transaction<'_, Postgres>,
+    article_id: Uuid,
+) -> Result<i64, AppError> {
+    Ok(sqlx::query_scalar::<_, i64>(
+        "SELECT unit_cost_minor FROM cost_layer WHERE article_id = $1
+          ORDER BY economic_date DESC, recorded_at DESC LIMIT 1",
+    )
+    .bind(article_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .unwrap_or(0))
+}
+
 async fn read_queue(
     tx: &mut Transaction<'_, Postgres>,
     article_id: Uuid,

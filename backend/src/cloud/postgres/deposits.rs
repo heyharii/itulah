@@ -689,7 +689,7 @@ pub async fn bank_deposit(
 
     let intent = PostingIntent {
         posting_date: existing.banked_on,
-        source_kind: "DEPOSIT".into(),
+        source_kind: "STORE_DEPOSIT".into(),
         source_id: Some(deposit_id.to_string()),
         rule_version: "store_deposit/1".into(),
         currency: existing.currency.clone(),
@@ -769,7 +769,7 @@ pub async fn land_deposit(
 
     let intent = PostingIntent {
         posting_date: landed_on,
-        source_kind: "DEPOSIT".into(),
+        source_kind: "STORE_DEPOSIT".into(),
         source_id: Some(deposit_id.to_string()),
         rule_version: "store_deposit/1".into(),
         currency: existing.currency.clone(),

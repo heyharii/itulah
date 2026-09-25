@@ -912,7 +912,11 @@ async fn asset_leg(
     expected: Option<&str>,
 ) -> Result<Resolved, AppError> {
     let resolved = resolve_account(executor, semantic_key, site_id, qualifier).await?;
-    if resolved.category_code.as_deref() != expected {
+    // On the client's 267 leaves the account itself says which charge it is
+    // (7007 is building depreciation, 1113 is CIP), so a row with no category
+    // is the normal answer and needs no telling apart. The category test
+    // still guards a row that DOES carry one and carries the wrong one.
+    if resolved.category_code.is_some() && resolved.category_code.as_deref() != expected {
         return Err(AppError::Validation(format!(
             "the map points {semantic_key} ({qualifier}) at {} at {site_id} {}, and this charge \
              is {}. One account carries several of these now, and the category is the only thing \

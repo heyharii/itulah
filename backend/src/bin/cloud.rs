@@ -51,8 +51,23 @@ async fn main() -> Result<(), AppError> {
     tokio::spawn(run_auth_policy_refresh_agent(state.db.clone()));
     tokio::spawn(run_catalog_publisher(state.db.clone()));
     tokio::spawn(run_ageing_work_agent(state.db.clone()));
-    tokio::spawn(run_asset_month_end_agent(state.db.clone()));
+    if state.config.finance_automation_enabled {
+        tokio::spawn(run_asset_month_end_agent(state.db.clone()));
+        tokio::spawn(run_prepaid_month_end_agent(state.db.clone()));
+        info!("asset and prepaid month-end posting enabled");
+    } else {
+        info!(
+            "asset and prepaid month-end posting disabled; event-driven Finance posting remains active"
+        );
+    }
+    tokio::spawn(run_sale_day_agent(state.db.clone()));
+    tokio::spawn(run_goods_receipt_posting_agent(state.db.clone()));
+    tokio::spawn(run_bill_template_agent(state.db.clone()));
     tokio::spawn(run_integrity_agent(state.db.clone()));
+    // The clock's own HR work: the accrual a policy has earned, the
+    // carry-forward a cap put a deadline on, next week's roster carried from
+    // this week's plan, and the nudges. See `postgres::schedule` and `0363`.
+    tokio::spawn(run_hr_scheduler(state.db.clone()));
     if state.config.sync_apply_enabled {
         tokio::spawn(sync_agent::run_apply_agent(state.clone()));
     }
@@ -188,6 +203,187 @@ async fn run_ageing_work_agent(pool: sqlx::PgPool) {
 /// the journal refuses that, and the refusal is recorded in the run log rather
 /// than retried. A month somebody closed without charging it is a decision, and
 /// this is not the thing that should quietly undo it.
+
+/// Spread last month's prepaids onto the months they belong to, without being
+/// asked.
+///
+/// The defer engine (`prepaid.rs`) has been the whole mechanism since 0309 --
+/// schedules, a one-click allocate, reconciliation -- and nothing has ever
+/// called the allocate except a person opening a screen. A month nobody
+/// spreads looks exactly like a month in which nothing was amortising: the
+/// liability just sits there and the expense lands late, which is the same
+/// silent failure the depreciation agent above exists for.
+///
+/// Hourly, charging the PREVIOUS month, idempotent per (schedule, month) by
+/// the allocate's own EXISTS check -- twenty-four attempts a day move exactly
+/// one month of each schedule. It never opens a period and never posts into a
+/// closed one; the refusal is logged, not retried, because a closed month
+/// that still owes a spread is a decision somebody made.
+async fn run_prepaid_month_end_agent(pool: sqlx::PgPool) {
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(60 * 60));
+    loop {
+        interval.tick().await;
+        let Some(previous) = chrono::Utc::now()
+            .date_naive()
+            .checked_sub_months(chrono::Months::new(1))
+        else {
+            continue;
+        };
+        let (year, month) = (
+            chrono::Datelike::year(&previous),
+            chrono::Datelike::month(&previous),
+        );
+        match postgres::prepaid_allocate(
+            &pool,
+            &postgres::PrepaidAllocationRequest {
+                year,
+                month,
+                site_id: None,
+            },
+            "system:month-end",
+        )
+        .await
+        {
+            Ok(run) if run.posted > 0 => info!(
+                %year, %month, schedules = run.posted,
+                total = run.amount_minor,
+                "spread a month of prepaids"
+            ),
+            Ok(_) => {}
+            Err(error) => {
+                tracing::error!(%year,%month,%error,"could not spread the month's prepaids")
+            }
+        }
+    }
+}
+
+/// Close each completed trading day into the books without a Finance button.
+///
+/// The still-trading day is excluded. A prior day's figures are rebuilt from
+/// source sales, checked again by `sales_posting_post`, and posted with
+/// receivables and cost of sales in one transaction. If the source changed or
+/// cannot resolve, the day remains unposted and the next sweep retries it.
+///
+/// Hourly because the sweep is one query against the sales tables, and
+/// because a node restarted at noon should not wait a day to notice the
+/// morning is missing from the desk.
+async fn run_sale_day_agent(pool: sqlx::PgPool) {
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(60 * 60));
+    loop {
+        interval.tick().await;
+        let today = chrono::Utc::now().date_naive();
+        let Some(from) = today.checked_sub_days(chrono::Days::new(6)) else {
+            continue;
+        };
+        // `to` exclusive of today: the day still trading is not missing yet.
+        match postgres::sales_posting_generate_days(
+            &pool,
+            &postgres::GenerateSalesDaysRequest {
+                site_id: None,
+                from: Some(from),
+                to: Some(today),
+            },
+            "system:sale-day",
+        )
+        .await
+        {
+            Ok(raised) => {
+                for day in raised.iter().filter(|day| day.outcome == "GENERATED") {
+                    let Some(posting_id) = day.posting_id else {
+                        continue;
+                    };
+                    match postgres::sales_posting_post(&pool, posting_id, "system:sale-day").await {
+                        Ok(document) => info!(
+                            site = %document.posting.site_id,
+                            date = %document.posting.business_date,
+                            entry = %document.posting.journal_entry_id.unwrap_or_default(),
+                            "automatically posted completed sales day"
+                        ),
+                        Err(error) => tracing::warn!(
+                            site = %day.site_id,
+                            date = %day.business_date,
+                            %error,
+                            "sales day awaits correction before it can post"
+                        ),
+                    }
+                }
+            }
+            Err(error) => tracing::error!(%error,"could not look for unraised days"),
+        }
+    }
+}
+
+/// Value accepted supplier deliveries automatically at their ordered price.
+///
+/// A failed receipt stays in the awaiting-posting list and is retried on the
+/// next sweep. The list is bounded so a backlog drains steadily.
+async fn run_goods_receipt_posting_agent(pool: sqlx::PgPool) {
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(60 * 60));
+    loop {
+        interval.tick().await;
+        match postgres::receipts_awaiting_posting(&pool, 200).await {
+            Ok(receipts) => {
+                for receipt in receipts {
+                    match postgres::receipt_post(
+                        &pool,
+                        receipt.receipt_id,
+                        None,
+                        "system:goods-receipt",
+                    )
+                    .await
+                    {
+                        Ok(posting) => info!(
+                            receipt = %posting.receipt_number,
+                            entry = %posting.entry_number,
+                            "automatically posted accepted goods receipt"
+                        ),
+                        Err(error) => tracing::warn!(
+                            receipt = %receipt.receipt_number,
+                            %error,
+                            "goods receipt awaits correction before it can post"
+                        ),
+                    }
+                }
+            }
+            Err(error) => tracing::error!(%error, "could not find goods receipts awaiting posting"),
+        }
+        // Goods moving between head office and the shops, booked in both
+        // books at SJD dispatch and at receipt (client accountant, 25 Sep).
+        match postgres::stock_transfer_post_pending(&pool, "system:stock-transfer").await {
+            Ok(0) => {}
+            Ok(booked) => info!(booked, "booked allotment dispatches and receipts"),
+            Err(error) => tracing::warn!(%error, "allotment transfers await correction"),
+        }
+    }
+}
+
+/// Raise the recurring bills whose day has come, without being asked.
+///
+/// One sweep an hour against a table of promises; `bill_template_run` keeps
+/// it to one draft per template per period however often it runs. The drafts
+/// wait for a person exactly as a typed draft does -- see `bill_template.rs`
+/// for why this agent stops at raising.
+async fn run_bill_template_agent(pool: sqlx::PgPool) {
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(60 * 60));
+    loop {
+        interval.tick().await;
+        match postgres::bill_template_sweep(
+            &pool,
+            chrono::Utc::now().date_naive(),
+            "system:recurring-bills",
+        )
+        .await
+        {
+            Ok(sweep) if sweep.raised > 0 => info!(
+                raised = sweep.raised,
+                "raised the recurring bills that were due"
+            ),
+            Ok(_) => {}
+            Err(error) => tracing::error!(%error, "could not raise recurring bills"),
+        }
+    }
+}
+
 async fn run_asset_month_end_agent(pool: sqlx::PgPool) {
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(60 * 60));
     loop {
@@ -315,6 +511,45 @@ async fn run_auth_policy_refresh_agent(pool: sqlx::PgPool) {
                 }
             }
             Err(error) => tracing::error!(%error,"failed to inspect Edge auth policy leases"),
+        }
+    }
+}
+
+/// The clock's HR pass.
+///
+/// Hourly rather than daily, for the reason the integrity agent gives: a
+/// process restarted at eight in the morning must not wait until tomorrow to
+/// notice that a policy has earned days. The claim ledger makes the extra ticks
+/// cheap — a month already accrued is one `INSERT` that changes nothing — and
+/// the delta arithmetic in `domain::schedule` makes a missed tick self-healing
+/// rather than a lost month.
+///
+/// Every job is caught: one refused accrual must not stop the roster being
+/// carried or the nudges being raised, and each job writes its own outcome to
+/// `scheduled_job_run` so the screen can show a failure nobody watched happen.
+async fn run_hr_scheduler(pool: sqlx::PgPool) {
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(60 * 60));
+    info!("HR scheduler started: accrual, expiry, roster carry, nudges");
+    loop {
+        interval.tick().await;
+        let today = inventory_backend::reporting::local_today();
+        let results = inventory_backend::cloud::postgres::run_all(&pool, today).await;
+        for result in &results {
+            match result.status.as_str() {
+                "RAN" => info!(
+                    job = %result.job,
+                    %today,
+                    detail = %result.detail,
+                    "HR scheduler job ran"
+                ),
+                "FAILED" => tracing::error!(
+                    job = %result.job,
+                    %today,
+                    detail = %result.detail,
+                    "HR scheduler job failed"
+                ),
+                _ => {}
+            }
         }
     }
 }

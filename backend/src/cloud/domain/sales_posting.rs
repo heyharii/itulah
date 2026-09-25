@@ -280,22 +280,24 @@ fn meanings_for(
             // the debit receivable.
             None => Err("a CARD tender must say whether it was debit or credit".to_string()),
         },
-        "QRIS" => Ok(("qris_receivable", "revenue_qris")),
-        // A gift card was paid for when it was sold, and the shop has been
-        // holding that money as a liability ever since. Redeeming it settles
-        // the liability; it does not bring money in today. The income is
-        // ordinary sales income, which is why it credits the same account cash
-        // does — the customer's money arrived as cash, on some earlier day.
-        "VOUCHER" => Ok(("voucher_liability", "revenue_cash")),
-        // The catch-all the till keeps for a tender that is none of the four —
-        // a marketplace payout, a bank transfer the customer sent a screenshot
-        // of, a payment link. Refusing it did not stop the shop taking the
-        // money; it stopped the DAY from posting, which is the one outcome a
-        // posting rule may never cause. The money is a receivable from whoever
-        // the reference names until it settles, and the income is sales income
-        // like any other — kept on its own key so a report can still tell it
-        // from the counter's cash.
-        "OTHER" => Ok(("other_receivable", "revenue_other")),
+        // QRIS rides the EDC of a bank (owner decision 25 Sep, no new account):
+        // the same debit-card receivable and sales leaf as that bank's debit
+        // cards, told apart by the tender kind on the sale-day line. A QRIS
+        // bucket that names no bank never reaches here — `exception_reason`
+        // sends it to the sale-day exception queue first.
+        "QRIS" => Ok(("card_receivable_debit", "revenue_debit")),
+        // Every voucher is free (owner decision 13): nothing was owed when it
+        // was issued, so the value spent is a sales discount (4012), not a
+        // tender and not a liability being settled.
+        "VOUCHER" => Ok(("sales_discount", "revenue_cash")),
+        // Goods taken back on a RETURN and given out again as the replacement
+        // (owner decision 11: money never leaves the till). The replacement is
+        // a sale; what paid for it is the returned goods, so there is no asset
+        // side — the return document itself is the debit, on `sales_return`.
+        RETURN_CREDIT => Ok(("", "revenue_cash")),
+        // No online sales (owner decision 14): refused by name, and kept out
+        // of the day by `exception_reason` so the rest of the day still posts.
+        "OTHER" => Err(ONLINE_REFUSAL.to_string()),
         other => Err(format!(
             "tender method {other:?} has no posting rule; retender it to a method the \
              ledger knows before posting the day"
@@ -303,18 +305,39 @@ fn meanings_for(
     }
 }
 
+/// The method a day reading uses for returned goods given out again as the
+/// replacement: not a wire tender, a bucket `read_day` builds from the returns.
+pub const RETURN_CREDIT: &str = "RETURN";
+
+const ONLINE_REFUSAL: &str = "an OTHER (online/marketplace) tender has no posting rule: this company \
+     does not sell online (owner decision 14). Retender it at the source to the method that \
+     really took the money, then generate the day again";
+
+/// Why a bucket cannot go into the sales-day entry and has to wait in the
+/// exception queue instead — or `None` when it can post.
+///
+/// The day still posts without it (brief stage 2 point 1): one bad tender
+/// line must not hold up every other rupiah the shop took that day.
+pub fn exception_reason(method: &str, acquirer: &str) -> Option<String> {
+    match method {
+        "QRIS" if acquirer.trim().is_empty() => Some(
+            "QRIS tender without the bank of its EDC terminal: register the terminal under \
+             Finance EDC terminals (or let the POS send the bank), then resolve this line"
+                .to_string(),
+        ),
+        "OTHER" => Some(ONLINE_REFUSAL.to_string()),
+        _ => None,
+    }
+}
+
 /// Which qualifier narrows each meaning.
 ///
-/// Cash needs none. A card receivable and its income account are both per
-/// acquirer, because the client keeps an account per bank and per network. A
-/// QRIS receivable is per provider — that is who owes the money — while their
-/// chart keeps one QRIS income account, so the income side is unqualified.
-/// OTHER follows QRIS exactly: the receivable is per counterparty (which
-/// marketplace, which sender), the income is one account.
+/// Cash needs none. Card and QRIS use the same debit or credit acquirer route;
+/// OTHER remains qualified by the counterparty that owes the money.
 fn qualifiers_for(method: &str, acquirer: &str) -> (String, String) {
     match method {
-        "CARD" => (acquirer.to_string(), acquirer.to_string()),
-        "QRIS" | "OTHER" => (acquirer.to_string(), String::new()),
+        "CARD" | "QRIS" => (acquirer.to_string(), acquirer.to_string()),
+        "OTHER" => (acquirer.to_string(), String::new()),
         _ => (String::new(), String::new()),
     }
 }
@@ -473,7 +496,11 @@ pub fn build(figures: &DayFigures) -> Result<DayPosting, String> {
             format!("{} {}", bucket.method, bucket.acquirer)
         };
 
-        if net > 0 {
+        if asset_key.is_empty() {
+            // Returned goods paying for the replacement: they answer the
+            // return document, exactly as a refund row would.
+            refunded += bucket.receipts_minor;
+        } else if net > 0 {
             sides.push(LedgerSide::debit(
                 asset_key,
                 &asset_qualifier,
@@ -552,11 +579,14 @@ pub fn build(figures: &DayFigures) -> Result<DayPosting, String> {
     // which: a residue the shop kept is income, a residue it paid out is cost.
     let residue = figures.returns_minor - refunded;
     if residue > 0 {
+        // Money never leaves the till on a return (owner decision 11), so a
+        // return worth more than the replacement leaves the difference with
+        // the shop: forfeited, to Pendapatan (Biaya) Lain-lain.
         sides.push(LedgerSide::credit(
-            "rounding",
+            "other_income_expense",
             "",
             residue,
-            "refund documents exceed their refund rows".to_string(),
+            "returned goods worth more than their replacement: difference forfeited".to_string(),
         ));
     } else if residue < 0 {
         sides.push(LedgerSide::debit(
@@ -674,9 +704,9 @@ mod tests {
         assert!(keys.contains(&("revenue_debit", "BCA")));
         assert!(keys.contains(&("card_receivable_credit", "VISA")));
         assert!(keys.contains(&("revenue_credit", "VISA")));
-        assert!(keys.contains(&("qris_receivable", "GOPAY")));
-        assert!(keys.contains(&("revenue_qris", "")));
-        assert!(keys.contains(&("voucher_liability", "")));
+        assert!(keys.contains(&("card_receivable_debit", "GOPAY")));
+        assert!(keys.contains(&("revenue_debit", "GOPAY")));
+        assert!(keys.contains(&("sales_discount", "")));
     }
 
     #[test]
@@ -706,7 +736,7 @@ mod tests {
     }
 
     #[test]
-    fn a_refund_document_its_rows_do_not_cover_lands_in_rounding_and_nowhere_else() {
+    fn a_return_worth_more_than_its_replacement_is_forfeited_to_other_income() {
         let day = DayFigures {
             buckets: vec![bucket("CASH", "", None, 1_110_000)],
             discount_minor: 0,
@@ -716,12 +746,13 @@ mod tests {
             recorded_vat: None,
         };
         let posted = build(&day).unwrap_or_else(|error| panic!("{error}"));
-        let rounding = posted
+        let forfeited = posted
             .sides
             .iter()
-            .find(|side| side.semantic_key == "rounding")
+            .find(|side| side.semantic_key == "other_income_expense")
             .unwrap_or_else(|| panic!("the residue should be visible"));
-        assert_eq!(rounding.credit_minor, 50_000);
+        assert_eq!(forfeited.credit_minor, 50_000);
+        assert!(posted.sides.iter().all(|s| s.semantic_key != "rounding"));
         let debits: i64 = posted.sides.iter().map(|s| s.debit_minor).sum();
         let credits: i64 = posted.sides.iter().map(|s| s.credit_minor).sum();
         assert_eq!(debits, credits);
@@ -767,10 +798,9 @@ mod tests {
 
     #[test]
     fn a_method_the_ledger_cannot_place_is_refused_by_name() {
-        // OTHER is deliberately NOT the subject here: it has a rule of its own
-        // (`other_receivable` / `revenue_other`), because a day containing it
-        // must still post. What remains refused is a method this build has
-        // never heard of — which is a reading of a different wire, not a day.
+        // OTHER has its own refusal (no online sales) and waits in the
+        // exception queue; this is a method this build has never heard of —
+        // a reading of a different wire, not a day.
         let day = DayFigures {
             buckets: vec![bucket("CHEQUE", "", None, 10_000)],
             discount_minor: 0,
@@ -784,32 +814,58 @@ mod tests {
     }
 
     #[test]
-    fn an_other_tender_posts_to_its_own_pair_and_still_balances() {
+    fn an_online_tender_and_a_bankless_qris_wait_in_the_exception_queue() {
+        assert!(exception_reason("OTHER", "TOKOPEDIA").is_some());
+        assert!(exception_reason("QRIS", "").is_some());
+        assert!(exception_reason("QRIS", "BNI").is_none());
+        assert!(exception_reason("CASH", "").is_none());
         let day = DayFigures {
-            buckets: vec![
-                bucket("CASH", "", None, 100_000),
-                bucket("OTHER", "TOKOPEDIA", None, 50_000),
-            ],
+            buckets: vec![bucket("OTHER", "TOKOPEDIA", None, 50_000)],
             discount_minor: 0,
             returns_minor: 0,
             vat_rate_bps: 1_100,
             recorded_vat: None,
         };
+        let refusal = build(&day).err().unwrap_or_else(|| panic!("should refuse"));
+        assert!(refusal.contains("online"), "said: {refusal}");
+    }
+
+    /// Return 100,000 for a replacement of 130,000: 30,000 more comes in as
+    /// cash, the return is the debit, the replacement is the sale.
+    #[test]
+    fn a_return_paid_for_by_returned_goods_moves_no_money() {
+        let day = DayFigures {
+            buckets: vec![
+                bucket("CASH", "", None, 30_000),
+                bucket(RETURN_CREDIT, "", None, 100_000),
+            ],
+            discount_minor: 0,
+            returns_minor: 100_000,
+            vat_rate_bps: 0,
+            recorded_vat: None,
+        };
         let posted = build(&day).unwrap_or_else(|refusal| panic!("refused: {refusal}"));
-        let receivable = posted
-            .sides
-            .iter()
-            .find(|s| s.semantic_key == "other_receivable")
-            .unwrap_or_else(|| panic!("no other_receivable side"));
-        assert_eq!(receivable.debit_minor, 50_000);
-        assert_eq!(receivable.qualifier, "TOKOPEDIA");
-        assert!(posted
-            .sides
-            .iter()
-            .any(|s| s.semantic_key == "revenue_other" && s.credit_minor > 0));
-        let debits: i64 = posted.sides.iter().map(|s| s.debit_minor).sum();
-        let credits: i64 = posted.sides.iter().map(|s| s.credit_minor).sum();
-        assert_eq!(debits, credits);
+        let debit = |key: &str| -> i64 {
+            posted
+                .sides
+                .iter()
+                .filter(|s| s.semantic_key == key)
+                .map(|s| s.debit_minor)
+                .sum()
+        };
+        let credit = |key: &str| -> i64 {
+            posted
+                .sides
+                .iter()
+                .filter(|s| s.semantic_key == key)
+                .map(|s| s.credit_minor)
+                .sum()
+        };
+        assert_eq!(debit("cash"), 30_000);
+        assert_eq!(debit("sales_return"), 100_000);
+        assert_eq!(credit("revenue_cash"), 130_000);
+        assert_eq!(credit("other_income_expense"), 0);
+        assert!(posted.sides.iter().all(|s| !s.semantic_key.is_empty()));
     }
 
     #[test]

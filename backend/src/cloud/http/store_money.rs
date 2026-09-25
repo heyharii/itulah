@@ -89,6 +89,7 @@ pub fn lane_b_routes(router: Router<AppState>) -> Router<AppState> {
         )
         // The float.
         .route("/api/v1/store-money/funds", get(funds).post(fund_send))
+        .route("/api/v1/store-money/funds/{id}/receive", post(fund_receive))
         .route(
             "/api/v1/store-money/funds/{id}/accountability",
             get(fund_accountability),
@@ -568,6 +569,28 @@ pub async fn allocation_open(
     head_office_only(&principal, "earmarking a shop's funds")?;
     Ok(Json(
         infrastructure::fund_allocation_open(&state.db, &request, &principal.username).await?,
+    ))
+}
+
+/// The shop confirms head office's transfer into its petty cash: the unit's
+/// half of the pair (client accountant, rule B).
+pub async fn fund_receive(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(id): Path<Uuid>,
+    Json(request): Json<infrastructure::ReceiveFundRequest>,
+) -> Result<Json<Value>, AppError> {
+    let site =
+        sqlx::query_scalar::<_, String>("SELECT site_id FROM operating_fund WHERE fund_id = $1")
+            .bind(id)
+            .fetch_optional(&state.db)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("there is no operating fund {id}")))?;
+    allow_site(&state, &principal, &site).await?;
+    at_least_supervisor(&principal, "confirming a fund into petty cash")?;
+    Ok(Json(
+        infrastructure::operating_fund_receive(&state.db, id, &request, &principal.username)
+            .await?,
     ))
 }
 

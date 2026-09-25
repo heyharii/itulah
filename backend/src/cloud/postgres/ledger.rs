@@ -4,35 +4,10 @@
 //! door. What this module does is read, and the shape of the reads is the point:
 //!
 //! **No balance is stored.** Every figure below is summed from `journal_line`
-//! at the moment it is asked for. A group account's balance is the sum over its
-//! descendants, found by prefix on the account code, because a code here is a
-//! path: the digits to the left of where you stop name the heading you are
-//! standing under. This is the same decision `purchase_order` makes about
-//! received quantities, for the same reason: a stored total and the rows it
-//! summarises drift, and when they do nobody can say which to believe.
-//!
-//! # What the prefix rollup actually requires, now that two charts share it
-//!
-//! It used to be enough to say "the client's codes are a tree written in
-//! digits", because there was one chart and the importer had built it that way.
-//! There are now two sets of codes in `ledger_account` and only one of them is
-//! the client's: the retired 190 leaves, ten to twelve digits on the client's
-//! `{1,3,5,7,10,12}` ladder, and the forty postable accounts of 0287–0292, four
-//! digits, ours, hung directly under the same single-digit roots `1`–`8`.
-//!
-//! The rollup still works, and it works for a narrower reason than the old
-//! sentence claimed: **no account code in the chart is a strict prefix of
-//! another except through a declared heading.** The forty are all four digits,
-//! so none can prefix another; and none of them prefixes a legacy leaf either —
-//! checked, not assumed, because `1301` matching `1031803001` would have rolled
-//! Contract In Progress into Persediaan and still balanced. What holds it is
-//! that the client's second rung is `101`/`102`/`103` and ours is `11`–`16`,
-//! `21`–`25`, `31`/`32`, `41`–`43`, `51`, `61`–`64`, `71`, `81`/`82`.
-//!
-//! So `root_class` — the first digit — keeps meaning what it meant, which is
-//! why `financial_statements.rs` did not have to change; and a future code that
-//! did prefix an existing one would break these sums silently, which is the one
-//! thing to check before minting another.
+//! when requested. A group account's balance covers its nested-set interval,
+//! rebuilt from the declared `parent_code` tree. Account numbers identify
+//! accounts; they are not parsed to infer ancestors. This permits a compact,
+//! stable four-digit COA while preserving arbitrary chart depth.
 
 use super::poster::HEAD_OFFICE_SITE;
 use crate::cloud::application::AppError;
@@ -40,7 +15,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Row};
 
-/// One account as the client's own chart has it.
+/// One account as the Finance chart has it.
 ///
 /// `name` is never translated. An accountant looks for
 /// "Piutang Affiliasi Pembiayaan CIKUPA"; anything else is a different account
@@ -53,21 +28,28 @@ pub struct LedgerAccount {
     pub parent_code: Option<String>,
     /// `1` ASSET … `8` BEBAN NON OPERASIONAL.
     pub root_class: String,
-    /// The code's own length, which is the rung it sits on. The retired client
-    /// accounts are on their `{1,3,5,7,10,12}` ladder; the forty postable ones
-    /// are all `4`, one step under a root of `1`. Sent so the browser can
-    /// indent without measuring strings.
+    /// Tree depth from the root, sent so the browser can indent without
+    /// measuring account numbers.
     pub depth: i32,
     /// A heading. Has a balance by summation; nothing may be posted to it.
     pub is_group: bool,
     pub is_active: bool,
     pub site_id: Option<String>,
-    /// Set only on goods-in-transit leaves, where the code names a route
-    /// rather than a place: this is where the goods came from.
+    /// Set on goods-in-transit leaves to identify where the goods came from.
     pub counterparty_site_id: Option<String>,
     /// How many accounts hang directly under this one, so a tree can show an
     /// expander without fetching the children first.
     pub child_count: i64,
+    /// Which family of categories this account takes, or `null` for the
+    /// sixteen that take none.
+    ///
+    /// Travels with the account because it is a property OF the account, not
+    /// of the screen: `6301` takes an `expense_category` and refuses a line
+    /// without one; `2101` takes none and refuses a line that carries one.
+    /// Both refusals come from the database, and a picker that did not know
+    /// this had to let somebody fill the form in, press Save, and read it off
+    /// the refusal — which is what it was doing.
+    pub category_family: Option<String>,
 }
 
 /// What an account is worth, summed over its own postings and its descendants'.
@@ -90,6 +72,8 @@ pub struct TrialBalanceRow {
     pub account_code: String,
     pub name: String,
     pub root_class: String,
+    /// Tree depth from the root, independent of the account number.
+    pub depth: i32,
     pub site_id: Option<String>,
     pub debit_minor: i64,
     pub credit_minor: i64,
@@ -422,28 +406,22 @@ pub async fn book_locations(pool: &PgPool) -> Result<Vec<BookLocation>, AppError
 
 /// Every meaning the posting rules use, in the order a person would set them.
 pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
-    // Four meanings were removed here in 0277, and it is worth saying which and
-    // why: `revenue`, `output_tax`, `qris_clearing` and `other_tender_clearing`
-    // belonged to the day-posting writer 0273 deleted. Nothing in the estate
-    // asks for them any more — the authority names `revenue_cash`,
-    // `revenue_debit`, `revenue_credit`, `revenue_qris`, `vat_out` and
-    // `qris_receivable`, and it refuses an unnamed tender rather than clearing
-    // it — so every one of them was a pair this screen counted as unset for
-    // ever, 56 of them across fourteen places. A required list that demands
-    // what nothing reads teaches people to ignore the number.
+    // Retired meanings from earlier day-posting rules are deliberately absent.
+    // The current rule uses the live client chart's sales, tender, tax and
+    // receivable meanings; QRIS follows the debit-card route by owner decision.
     vec![
         key(
             "inventory",
             "Merchandise inventory",
-            "1301 Persediaan · MERCHANDISE",
+            "1029 Persediaan Barang Dagangan",
             false,
             "Payables",
-            Some("item_class"),
+            None,
         ),
         key(
             "trade_payable",
             "Supplier payable",
-            "2101 Hutang usaha · which one is supplier_id",
+            "2002 Hutang Suppliers Barang Dagangan · which one is supplier_id",
             false,
             "Payables",
             None,
@@ -458,7 +436,7 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "capital_contributed",
             "Capital put in by an owner",
-            "3101 Modal disetor · which one is principal",
+            "3002 Modal Setor · which one is principal",
             false,
             "Equity",
             None,
@@ -466,7 +444,7 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "owner_drawings",
             "Drawings taken by an owner",
-            "3102 Prive · which one is principal",
+            "3004 Prive · which one is principal",
             false,
             "Equity",
             None,
@@ -474,55 +452,55 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "pph21_payable",
             "PPh 21 owed",
-            "2201 Hutang pajak · PPH21",
+            "2011 Hutang Pajak PPH Pasal 21",
             false,
             "Tax",
-            Some("tax_kind"),
+            None,
         ),
         key(
             "pph25_credit",
             "PPh 25 paid in advance",
-            "1402 Pajak dibayar dimuka · PPH25",
+            "1046 Prepaid - PPh Pasal 25",
             false,
             "Tax",
-            Some("tax_kind"),
+            None,
         ),
         key(
             "pph29_payable",
             "PPh 29 owed",
-            "2201 Hutang pajak · PPH29",
+            "2015 Hutang Pajak PPH Pasal 25 (no PPh 29 leaf; review)",
             false,
             "Tax",
-            Some("tax_kind"),
+            None,
         ),
         key(
             "pbb_payable",
             "Land and building tax owed",
-            "2201 Hutang pajak · PBB",
+            "2014 Hutang Pajak Bumi & Bangunan",
             false,
             "Tax",
-            Some("tax_kind"),
+            None,
         ),
         key(
             "vat_in",
             "Input VAT",
-            "1402 Pajak dibayar dimuka · PPN_IN",
+            "1048 Prepaid - VAT (PPN Masukan)",
             false,
             "Payables",
-            Some("tax_kind"),
+            None,
         ),
         key(
             "purchase_discount",
             "Purchase discount and price variance",
-            "5101 Harga pokok penjualan · PURCHASE_DISCOUNT",
+            "8004 Potongan Pembelian",
             false,
             "Payables",
-            Some("cost_kind"),
+            None,
         ),
         key(
             "non_merchandise_payable",
             "Non-merchandise payable",
-            "2101 Hutang usaha · which one is supplier_id",
+            "2004 Hutang Supplier Non Barang Dagang",
             false,
             "Expenses",
             None,
@@ -530,34 +508,34 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "accrued_expense",
             "Accrued expense",
-            "2301 Biaya masih harus dibayar · an accrual_kind, per qualifier",
+            "2022–2026 … YMHD, per qualifier",
             true,
             "Payables",
-            Some("accrual_kind"),
+            None,
         ),
         key(
             "cash",
             "Cash on hand",
-            "1101 Kas · DRAWER",
+            "1002 Cash on Hand",
             false,
             "Cash & Bank",
-            Some("pot"),
+            None,
         ),
         key(
             "petty_cash",
             "Petty cash",
-            "1101 Kas · PETTY",
+            "1003 Petty Cash",
             false,
             "Cash & Bank",
-            Some("pot"),
+            None,
         ),
         key(
             "cashier_float",
             "Cashier float",
-            "1101 Kas · FLOAT",
+            "1004 Modal Kasir",
             false,
             "Cash & Bank",
-            Some("pot"),
+            None,
         ),
         // Where takings sit between a drawer and a bank. Unqualified, unlike
         // the two bank keys below it: a bag of notes is in transit to one
@@ -573,7 +551,7 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "bank_savings",
             "Bank — savings",
-            "1102 Bank · which one is bank_account_id",
+            "1010–1014 Cash In Bank Tabungan, per bank",
             true,
             "Cash & Bank",
             None,
@@ -581,7 +559,7 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "bank_giro",
             "Bank — giro",
-            "1102 Bank · which one is bank_account_id",
+            "1005–1009 Cash In Bank Giro, per bank",
             true,
             "Cash & Bank",
             None,
@@ -598,7 +576,7 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "giro_outstanding",
             "Giro issued, not cleared",
-            "2103 Giro keluar belum cair · which one is bank_account_id",
+            "2005–2009 Outstanding Giro, per bank",
             true,
             "Payables",
             None,
@@ -614,7 +592,7 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "time_deposit",
             "Time deposit",
-            "1102 Bank · which one is bank_account_id",
+            "1015–1018 Time Deposit, per bank",
             true,
             "Cash & Bank",
             None,
@@ -630,18 +608,18 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "bank_admin_fee",
             "Bank charges",
-            "6301 Beban umum & administrasi · BIAYA_BANK_HO",
+            "6043 Biaya Bank HO",
             false,
             "Cash & Bank",
-            Some("expense_category"),
+            None,
         ),
         key(
             "interest_income",
             "Bank interest received",
-            "4301 Pendapatan lain-lain · INTEREST",
+            "8002 Pendapatan Bunga Bank",
             false,
             "Cash & Bank",
-            Some("income_kind"),
+            None,
         ),
         // The client's chart has no leaf named for PPh final on interest, so
         // this points at the income-tax expense they do keep. It is an expense
@@ -653,10 +631,10 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "tax_on_interest",
             "Tax withheld on bank interest",
-            "8201 Pajak penghasilan · PPH25",
+            "8015 Current Tax Inc/Exp PPH Pasal 25",
             false,
             "Cash & Bank",
-            Some("tax_kind"),
+            None,
         ),
         // The residue between what the return documents say was refunded and
         // what their refund rows add up to — `domain::sales_posting` — and
@@ -667,18 +645,18 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "rounding",
             "Rounding difference — gain",
-            "4301 Pendapatan Lain-lain · ROUNDING (residu untung; residu rugi → rounding_loss)",
+            "8003 Selisih pembulatan",
             false,
             "Cash & Bank",
-            Some("income_kind"),
+            None,
         ),
         key(
             "rounding_loss",
             "Rounding difference — loss",
-            "8301 Biaya Lain-lain · ROUNDING_LOSS",
+            "8003 Selisih pembulatan",
             false,
             "Cash & Bank",
-            Some("other_expense_kind"),
+            None,
         ),
         // Where a drawer that does not agree with the books is explained.
         //
@@ -700,18 +678,18 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "cash_variance",
             "Cash count difference — over",
-            "4301 Pendapatan Lain-lain · CASH_VARIANCE (kelebihan kas; kekurangan → cash_shortage)",
+            "8008 Pendapatan (Biaya) Lain-Lain (kelebihan kas)",
             false,
             "Cash & Bank",
-            Some("income_kind"),
+            None,
         ),
         key(
             "cash_shortage",
             "Cash count difference — short",
-            "8301 Biaya Lain-lain · CASH_SHORTAGE",
+            "1023 Piutang Kepala Toko at a store, 1022 Piutang Pegawai at head office (kekurangan kas)",
             false,
             "Cash & Bank",
-            Some("other_expense_kind"),
+            None,
         ),
         // lane-A changed these two from unqualified to qualified. What a shop
         // is owed on cards is owed by a NAMED acquirer, clearing on its own
@@ -723,18 +701,18 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "card_receivable_credit",
             "Credit card receivable",
-            "1201 Piutang tender · a tender, per qualifier",
+            "1020 Piutang kartu Kredit, per scheme",
             true,
             "Receivables",
-            Some("tender"),
+            None,
         ),
         key(
             "card_receivable_debit",
             "Debit card receivable",
-            "1201 Piutang tender · a tender, per qualifier",
+            "1021 Piutang Debit Card, per bank",
             true,
             "Receivables",
-            Some("tender"),
+            None,
         ),
         // lane-P
         //
@@ -753,18 +731,18 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "store_manager_receivable",
             "Store manager float",
-            "1202 Piutang karyawan & lainnya · STORE_MANAGER",
+            "1023 Piutang Kepala Toko",
             false,
             "Receivables",
-            Some("party"),
+            None,
         ),
         key(
             "card_fee",
             "Card fee (MDR)",
-            "6101 Beban penjualan · BIAYA_CREDIT_CARD",
+            "6005 Biaya Credit Card",
             false,
             "Receivables",
-            Some("expense_category"),
+            None,
         ),
         // The three the counter takes that the client's chart never answered
         // for, and the one it answers for too many times.
@@ -803,10 +781,10 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "voucher_liability",
             "Vouchers outstanding",
-            "2401 Kewajiban voucher & uang muka penjualan · CUSTOMER_DEPOSIT",
+            "2033 Uang Muka - Penjualan",
             false,
             "Sales",
-            Some("deferred_revenue_kind"),
+            None,
         ),
         // The member-points half of the same story has NO key here on purpose.
         // The client's chart keeps a loyalty obligation on `66 Hutang
@@ -826,18 +804,10 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "marketing_expense",
             "Promotion and marketing expense",
-            "6101 Beban penjualan · BIAYA_PROMOSI",
+            "6006 Biaya Promosi",
             false,
             "Sales",
-            Some("expense_category"),
-        ),
-        key(
-            "advertising_expense",
-            "Advertising expense",
-            "6101 Beban penjualan · BIAYA_ADVERTISING_IKLAN",
-            false,
-            "Sales",
-            Some("expense_category"),
+            None,
         ),
         // The sibling the client keeps on the SAME account with a different
         // category — their #76 Biaya Advertising / Iklan. Two meanings rather
@@ -847,10 +817,10 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "advertising_expense",
             "Advertising expense",
-            "6101 Beban penjualan · BIAYA_ADVERTISING_IKLAN",
+            "6008 Biaya Advertising / Iklan",
             false,
             "Sales",
-            Some("expense_category"),
+            None,
         ),
         // A tender that is none of the named four already has its pair —
         // `other_receivable` / `revenue_other`, registered further down and
@@ -859,42 +829,42 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "affiliate_receivable",
             "Inter-unit receivable",
-            "1501 Rekening koran antar-unit · FINANCING",
+            "1057/1058/1059 Piutang Affiliasi, per kind:counterparty",
             true,
             "Receivables",
-            Some("interunit_reason"),
+            None,
         ),
         key(
             "affiliate_payable",
             "Inter-unit payable",
-            "1501 Rekening koran antar-unit · FINANCING",
+            "2028 Pembiayaan / 2029 Atas Barang / 1059 Lain-lain (two-way), per kind:counterparty",
             true,
             "Payables",
-            Some("interunit_reason"),
+            None,
         ),
         key(
             "goods_in_transit",
             "Goods in transit",
-            "1302 Barang dalam perjalanan · MERCHANDISE",
+            "1031 BDP Barang Dagangan (1032 for bags)",
             true,
             "Inventory & COGS",
-            Some("item_class"),
+            None,
         ),
         key(
             "cogs",
             "Cost of goods",
-            "5101 Harga pokok penjualan · COGS",
+            "5002 Harga Pokok Pembelian",
             false,
             "Inventory & COGS",
-            Some("cost_kind"),
+            None,
         ),
         key(
             "stock_loss",
             "Stock count variance",
-            "5102 Susut & selisih persediaan · SHRINKAGE",
+            "8007 Kehilangan Barang atau Selisih Stock Opname",
             false,
             "Inventory & COGS",
-            Some("loss_kind"),
+            None,
         ),
         // Both write-off sides, and both on the client's one "income (expense)"
         // leaf. The chart has no bad-debt expense account: what it has is
@@ -911,10 +881,10 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "bad_debt_expense",
             "Receivable written off",
-            "4301 Pendapatan lain-lain · INCOME_OTHER",
+            "6051 Biaya Penyisihan Kerugian Piutang",
             false,
             "Corrections",
-            Some("expense_category"),
+            None,
         ),
         // The client's `8010110007` was one signed leaf. It is two meanings
         // since 0296: a payable given up on, or anything else that is income
@@ -925,39 +895,39 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "other_income_expense",
             "Other income",
-            "4301 Pendapatan Lain-lain · INCOME_OTHER (pendapatan; biaya → other_expense)",
+            "8008 Pendapatan (Biaya) Lain-Lain",
             false,
             "Corrections",
-            Some("income_kind"),
+            None,
         ),
         key(
             "other_expense",
             "Other expense",
-            "8301 Biaya Lain-lain · OTHER_EXPENSE",
+            "8008 Pendapatan (Biaya) Lain-Lain",
             false,
             "Corrections",
-            Some("other_expense_kind"),
+            None,
         ),
         key(
             "prepaid_expense",
             "Prepaid expense",
-            "1401 Biaya dibayar dimuka · a prepaid_kind, per qualifier",
+            "1036–1044 … Bayar Dimuka, per qualifier",
             true,
             "Expenses",
-            Some("prepaid_kind"),
+            None,
         ),
         key(
             "advance",
             "Advance",
-            "1403 Uang muka · an advance_purpose, per qualifier",
+            "1051–1054 Advanced - Travelling/Purchase/Contractors/Others, per purpose",
             true,
             "Expenses",
-            Some("advance_purpose"),
+            None,
         ),
         key(
             "fixed_asset",
             "Fixed asset",
-            "1601 Aset tetap · which one is asset_id",
+            "1061–1080 per asset class",
             true,
             "Fixed Assets",
             None,
@@ -965,7 +935,7 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "accumulated_depreciation",
             "Accumulated depreciation",
-            "1609 Akumulasi penyusutan · which one is asset_id",
+            "1082–1099 per asset class",
             true,
             "Fixed Assets",
             None,
@@ -973,7 +943,7 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "depreciation_expense",
             "Depreciation expense",
-            "7101 Beban penyusutan & amortisasi · which one is asset_id",
+            "7007–7023 per asset class",
             true,
             "Fixed Assets",
             None,
@@ -987,7 +957,7 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "replacement_reserve",
             "Replacement reserve",
-            "1610 Cadangan penggantian operating equipment · which one is asset_id",
+            "1100 Reserve Replacement - Operating Equipment",
             true,
             "Fixed Assets",
             None,
@@ -995,7 +965,7 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "replacement_expense",
             "Replacement expense",
-            "7101 Beban penyusutan & amortisasi · which one is asset_id",
+            "7024 Biaya Replacement Operating Equipment",
             true,
             "Fixed Assets",
             None,
@@ -1011,7 +981,7 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "work_in_progress",
             "Work in progress",
-            "1601 Aset tetap · which one is asset_id",
+            "1113 Contract In Progress (CIP)",
             true,
             "Fixed Assets",
             None,
@@ -1019,7 +989,7 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "intangible_asset",
             "Intangible asset",
-            "1602 Aset takberwujud & aset tangguhan · which one is asset_id",
+            "1104/1105/1111 per class",
             true,
             "Fixed Assets",
             None,
@@ -1027,7 +997,7 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "accumulated_amortisation",
             "Accumulated amortisation",
-            "1619 Akumulasi amortisasi · which one is asset_id",
+            "1106/1107/1112 per class",
             true,
             "Fixed Assets",
             None,
@@ -1035,7 +1005,7 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "amortisation_expense",
             "Amortisation expense",
-            "7101 Beban penyusutan & amortisasi · which one is asset_id",
+            "7025/7027/7026 per class",
             true,
             "Fixed Assets",
             None,
@@ -1062,18 +1032,18 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "asset_disposal_result",
             "Gain on disposal",
-            "4301 Pendapatan Lain-lain · ASSET_DISPOSAL (laba; rugi → asset_disposal_loss)",
+            "8008 Pendapatan (Biaya) Lain-Lain",
             false,
             "Fixed Assets",
-            Some("income_kind"),
+            None,
         ),
         key(
             "asset_disposal_loss",
             "Loss on disposal",
-            "8301 Biaya Lain-lain · ASSET_DISPOSAL_LOSS",
+            "8008 Pendapatan (Biaya) Lain-Lain",
             false,
             "Fixed Assets",
-            Some("other_expense_kind"),
+            None,
         ),
         // The client's seventh asset family is not depreciated. `1021607` is
         // named `Reserve Replacement - Operating Equipment` where the other six
@@ -1091,7 +1061,7 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "loan_principal",
             "Loan principal",
-            "2501 Pinjaman bank · which one is financing_facility",
+            "2043–2048 Pinjaman Jangka Panjang, per lender",
             true,
             "Loans & Financing",
             None,
@@ -1099,87 +1069,45 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "interest_expense",
             "Interest",
-            "8101 Beban bunga · which one is financing_facility",
+            "8011 Biaya Bunga Pinjaman Bank (8012 leasing)",
             false,
             "Loans & Financing",
             None,
         ),
-        // lane-A: what a day's takings need. The client splits sales income by
-        // how it was settled, because cash is in a drawer tonight and a card is
-        // a named acquirer's debt that arrives on Thursday net of a fee, so the
-        // income keys below are qualified the same way the receivables are.
-        //
-        // Three of these are marked "proposed": their chart, all 496 accounts
-        // of it, has nothing for them. QRIS did not exist when it was drawn and
-        // they have never sold a gift card — checked, not assumed: no account
-        // in it mentions QRIS, a wallet, or a voucher.
-        //
-        // Each suggested code is a rung nobody has taken, checked against the
-        // same file. That check is worth making rather than eyeballing: the
-        // obvious next rung for QRIS income, 4010113001, is already spent on
-        // "Penjualan Online Sendiri" — 401011.3 is their online rung, .3002
-        // being the marketplaces — so QRIS goes to 401011.4 instead. Proposing
-        // a code that already means something else is the one mistake here
-        // that would post real money into somebody else's account and still
-        // balance.
-        //
-        // All three are suggestions on the Account Map screen and nothing more.
-        // Unmapped, the day refuses and names the key.
+        // Sales uses the client's existing account tree. QRIS deliberately
+        // follows the debit-card meanings because the owner chose not to add a
+        // separate QRIS account; an unmapped acquirer still fails closed.
         key(
             "revenue_cash",
             "Sales — cash",
-            "4101 Penjualan · CASH",
+            "4002 Penjualan Tunai",
             false,
             "Sales posting",
-            Some("tender"),
+            None,
         ),
         key(
             "revenue_debit",
             "Sales — debit card",
-            "4101 Penjualan · a tender, per qualifier",
+            "4003–4006 Penjualan Debit Card, per bank",
             true,
             "Sales posting",
-            Some("tender"),
+            None,
         ),
         key(
             "revenue_credit",
             "Sales — credit card",
-            "4101 Penjualan · a tender, per qualifier",
+            "4007/4008 Penjualan Kartu Kredit, per scheme",
             true,
             "Sales posting",
-            Some("tender"),
-        ),
-        key(
-            "revenue_qris",
-            "Sales — QRIS",
-            "4101 Penjualan · QRIS",
-            false,
-            "Sales posting",
-            Some("tender"),
+            None,
         ),
         // OTHER: the tender that is none of the four — a marketplace payout, a
         // transfer, a payment link. The receivable is qualified by the
         // counterparty (TOKOPEDIA and the like), the income is one account.
         key(
-            "revenue_other",
-            "Sales — other tenders",
-            "4101 Penjualan · OTHER",
-            false,
-            "Sales posting",
-            Some("tender"),
-        ),
-        key(
-            "other_receivable",
-            "Other tender receivable",
-            "1201 Piutang tender · per counterparty",
-            true,
-            "Sales posting",
-            Some("tender"),
-        ),
-        key(
             "sales_return",
             "Sales returns",
-            "4202 Retur Penjualan",
+            "4013 Retur Penjualan",
             false,
             "Sales posting",
             None,
@@ -1187,7 +1115,7 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "sales_discount",
             "Sales discount",
-            "4201 Potongan Penjualan",
+            "4012 Discount / Potongan Penjualan",
             false,
             "Sales posting",
             None,
@@ -1195,18 +1123,10 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "vat_out",
             "Output VAT",
-            "2201 Hutang pajak · PPN_OUT",
+            "2013 Hutang VAT PPN Keluaran (head office)",
             false,
             "Sales posting",
-            Some("tax_kind"),
-        ),
-        key(
-            "qris_receivable",
-            "QRIS receivable",
-            "1201 Piutang tender · QRIS",
-            true,
-            "Sales posting",
-            Some("tender"),
+            None,
         ),
         // end lane-A
         // lane-G: the rest of the payables loop.
@@ -1217,21 +1137,6 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         // `trade_payable` do. None is invented and none is borrowed from a
         // meaning that was already spoken for.
         //
-        // The one this lane exists for. 0052 said the client's chart had no
-        // goods-received-not-invoiced account and refused to post a delivery on
-        // those grounds; the account was there all along, beside the ordinary
-        // supplier payable, and nothing had ever posted to it. A delivery
-        // credits it and the bill that answers the delivery clears it, so the
-        // balance on it at a month end is exactly what the warehouse holds and
-        // nobody has been invoiced for.
-        key(
-            "supplier_suspend",
-            "Supplier payable — goods received, not invoiced",
-            "2102 Barang diterima belum ditagih · which one is supplier_id",
-            false,
-            "Payables",
-            None,
-        ),
         // Where a bill that disagrees with the order puts the difference.
         //
         // The expectation is the SAME account `purchase_discount` names, and
@@ -1245,10 +1150,10 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "purchase_price_variance",
             "Purchase price variance",
-            "5101 Harga pokok penjualan · PURCHASE_DISCOUNT",
+            "8004 Potongan Pembelian",
             false,
             "Payables",
-            Some("cost_kind"),
+            None,
         ),
         // Money paid to a supplier before there is a bill to owe them for.
         //
@@ -1260,10 +1165,10 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "advance_purchase",
             "Advance to a supplier",
-            "1403 Uang muka · ADVANCED_PURCHASE",
+            "1052 Advanced - Purchase",
             false,
             "Payables",
-            Some("advance_purpose"),
+            None,
         ),
         // `bank_admin_fee` — the bank's own charge on a transfer, when it comes
         // out of the same movement rather than being debited separately — is
@@ -1275,10 +1180,10 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "pph23_payable",
             "PPh 23 withheld",
-            "2201 Hutang pajak · PPH23",
+            "2012 Hutang Pajak PPH Pasal 23 (withold)",
             false,
             "Payables",
-            Some("tax_kind"),
+            None,
         ),
         // The final-tax half of the same act, and the one honest gap in this
         // list: the client's chart has no PPh 4(2) leaf. `20121 HUTANG PAJAK`
@@ -1296,10 +1201,10 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "pph_final_payable",
             "PPh 4(2) withheld — final",
-            "2201 Hutang pajak · PPH_FINAL",
+            "2012 Hutang Pajak PPH Pasal 23 (PPh 4(2) has no leaf; told apart by the withholding key)",
             false,
             "Payables",
-            Some("tax_kind"),
+            None,
         ),
         // ── lane-B — the store cash chain ────────────────────────────────
         //
@@ -1316,10 +1221,10 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "cash_in_transit",
             "Cash in transit",
-            "1101 Kas · TRANSIT",
+            "1002 Cash on Hand (no transit leaf; review)",
             false,
             "Cash & Bank",
-            Some("pot"),
+            None,
         ),
         // The drawer's difference, once somebody has accepted it. The next free
         // leaf under the rung that already holds `8010110002 Selisih
@@ -1337,10 +1242,55 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "payroll_payable",
             "Wages payable",
-            "2301 Biaya masih harus dibayar · BIAYA_GAJI_DAN_UPAH_YMHD",
+            "2017 Biaya Gaji dan Upah YMHD",
             false,
             "Payables",
-            Some("accrual_kind"),
+            None,
+        ),
+        // The salary expense a handed-over run charges. One leaf, `6201 Beban
+        // Pegawai`, with the pay component named by the line's category -- the
+        // twenty-six client leaves this replaced were an account doing a
+        // dimension's job.
+        key(
+            "payroll_expense",
+            "Employee expense",
+            "6012–6024 at a store, 6026–6038 at head office, per component class",
+            false,
+            "Payroll",
+            None,
+        ),
+        // An approved expense claim, sanctioned line by line and posted per
+        // claim type. The qualifier IS the type code (TRAVEL, MEDICAL, ...),
+        // and it resolves EXACTLY — no fall-through to an unqualified row —
+        // so the map rows for it arrive with the types themselves: defining
+        // the first type maps it at every site, and an unmapped type refuses
+        // by name at approval. A type whose code names a specific expense
+        // draws that expense's leaf (medical 6016/6030, travel 6047, and so
+        // on); a claim that names nothing else draws `6076 Biaya Klaim
+        // Karyawan`, minted by 0372 because the client chart had no general
+        // claim leaf. No category family: the account's identity is answered
+        // by the qualifier, the way the bank meanings are answered by
+        // `bank_account_id`.
+        key(
+            "employee_expense",
+            "Employee expense claims",
+            "6076 Biaya Klaim Karyawan, or 6016/6030/6047/6048/6041/6044 by claim type",
+            true,
+            "Expenses",
+            None,
+        ),
+        // And what the company owes the employee between the sanction and the
+        // petty-cash payout that clears it. The client 267 chart had no claim
+        // payable leaf — 0371 had to borrow `Hutang Lain - Lain` — so 0372
+        // minted `2049 Hutang Klaim Karyawan` for it. The employee the debt is
+        // owed TO is the line's party (0300), not a category.
+        key(
+            "employee_claim_payable",
+            "Owed to an employee for an approved claim",
+            "2049 Hutang Klaim Karyawan",
+            false,
+            "Payables",
+            None,
         ),
         // What a shop may spend petty cash or an operating fund on. Nine, and
         // the ninth is a catch-all on purpose: a category list with no bottom
@@ -1350,74 +1300,74 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "expense_electricity",
             "Electricity",
-            "6301 Beban umum & administrasi · BIAYA_PEMAKAIAN_LISTRIK",
+            "6045 Biaya Pemakaian Listrik",
             false,
             "Store cash",
-            Some("expense_category"),
+            None,
         ),
         key(
             "expense_water",
             "Water",
-            "6301 Beban umum & administrasi · BIAYA_PEMAKAIAN_AIR_BERSIH",
+            "6046 Biaya Pemakaian Air Bersih (PDAM)",
             false,
             "Store cash",
-            Some("expense_category"),
+            None,
         ),
         key(
             "expense_telephone",
             "Telephone and internet",
-            "6301 Beban umum & administrasi · BIAYA_TELEPHONE_FACSIMILE_MODEM",
+            "6044 Biaya Telephone, Facsimile, Modem",
             false,
             "Store cash",
-            Some("expense_category"),
+            None,
         ),
         key(
             "expense_household",
             "Household",
-            "6301 Beban umum & administrasi · BIAYA_RUMAH_TANGGA",
+            "6042 Biaya Rumah Tangga",
             false,
             "Store cash",
-            Some("expense_category"),
+            None,
         ),
         key(
             "expense_stationery",
             "Stationery and printing",
-            "6301 Beban umum & administrasi · ALAT_TULIS_KANTOR_BARANG_CETAKAN",
+            "6041 Alat Tulis Kantor & Barang Cetakan",
             false,
             "Store cash",
-            Some("expense_category"),
+            None,
         ),
         key(
             "expense_repairs",
             "Repairs and maintenance",
-            "6301 Beban umum & administrasi · BIAYA_PERBAIKAN_DAN_PERAWATAN_BANGUNAN",
+            "6069 Biaya Perbaikan dan Perawatan Bangunan",
             false,
             "Store cash",
-            Some("expense_category"),
+            None,
         ),
         key(
             "expense_transport",
             "Local transport",
-            "6301 Beban umum & administrasi · BIAYA_LOKAL_TRANSPORT",
+            "6048 Biaya Lokal Transport",
             false,
             "Store cash",
-            Some("expense_category"),
+            None,
         ),
         key(
             "expense_cleaning",
             "Cleaning",
-            "6301 Beban umum & administrasi · BIAYA_KEBERSIHAN",
+            "6040 Biaya Kebersihan (Cleaning)",
             false,
             "Store cash",
-            Some("expense_category"),
+            None,
         ),
         key(
             "expense_misc",
             "Miscellaneous",
-            "6301 Beban umum & administrasi · MISCELLANEOUS_EXPENCES",
+            "6064 Miscellaneous Expences",
             false,
             "Store cash",
-            Some("expense_category"),
+            None,
         ),
         // ── end lane-B ───────────────────────────────────────────────────
     ]
@@ -1425,7 +1375,8 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
 
 const ACCOUNT_COLUMNS: &str = "a.account_code, a.name, a.parent_code, a.root_class::text AS root_class,
      a.depth::int AS depth, a.is_group, a.is_active, a.site_id, a.counterparty_site_id,
-     (SELECT COUNT(*) FROM ledger_account c WHERE c.parent_code = a.account_code)::bigint AS child_count";
+     (SELECT COUNT(*) FROM ledger_account c WHERE c.parent_code = a.account_code)::bigint AS child_count,
+     a.category_family";
 
 fn to_account(row: &sqlx::postgres::PgRow) -> Result<LedgerAccount, AppError> {
     Ok(LedgerAccount {
@@ -1439,6 +1390,7 @@ fn to_account(row: &sqlx::postgres::PgRow) -> Result<LedgerAccount, AppError> {
         site_id: row.try_get("site_id")?,
         counterparty_site_id: row.try_get("counterparty_site_id")?,
         child_count: row.try_get("child_count")?,
+        category_family: row.try_get("category_family")?,
     })
 }
 
@@ -1486,15 +1438,15 @@ pub struct AccountScope {
     /// nobody asked — the tree's position is where somebody was, not what they
     /// are now looking for.
     pub parent: Option<String>,
-    /// Free text, tried against the account code by prefix and the name
+    /// Free text, tried against an account-number prefix and the name
     /// anywhere.
     ///
     /// Both, because both are how people look: finance quotes a code,
     /// everybody else quotes a name, and a search that only did one of them
     /// would send half its users to the tree to hunt.
     pub needle: Option<String>,
-    /// Root classes to keep — `1` … `8`, the first digit of the client's own
-    /// numbering. Empty means every class — an empty filter and no filter are
+    /// Root classes to keep — `1` … `8`, matching the top-level account. Empty
+    /// means every class — an empty filter and no filter are
     /// the same request, and treating them differently is how a screen ends up
     /// showing nothing the moment somebody unticks the last box.
     pub classes: Vec<String>,
@@ -1632,6 +1584,10 @@ const ACCOUNT_ROWS: &str = "
            a.depth::int AS depth, a.is_group, a.is_active, a.site_id,
            a.counterparty_site_id,
            COALESCE(kids.n, 0)::bigint AS child_count,
+           -- The second place an account row is assembled. `to_account` reads
+           -- both, so a column added to ACCOUNT_COLUMNS and not to this one is
+           -- a search that answers: no column found for that name.
+           a.category_family,
            CASE WHEN $2::text IS NOT NULL AND a.account_code LIKE $2 || '%'
                 THEN 0 ELSE 1 END AS code_rank
       FROM ledger_account a
@@ -1647,10 +1603,8 @@ const ACCOUNT_ROWS: &str = "
        -- Branch mode, when nobody is searching: one level of the tree, and a
        -- NULL parent is the eight roots rather than 'every account'.
        AND ($2::text IS NOT NULL OR a.parent_code IS NOT DISTINCT FROM $1)
-       -- Search mode: the whole chart. The code by prefix, because a code is
-       -- read left to right and `101` means the branch; the name anywhere,
-       -- because nobody knows which word of `Piutang Affiliasi Pembiayaan
-       -- CIKUPA` the account is filed under.
+       -- Search mode: the whole chart. A code-number prefix is useful when
+       -- somebody remembers only the first digits; names match any word.
        AND ($2::text IS NULL
             OR a.account_code LIKE $2 || '%' OR a.name ILIKE '%' || $2 || '%')
 ";
@@ -1658,7 +1612,7 @@ const ACCOUNT_ROWS: &str = "
 /// The chart, one page at a time, beside how big the whole answer is.
 pub async fn account_page(pool: &PgPool, scope: AccountScope) -> Result<AccountPage, AppError> {
     // A blank search is not a search. `Some("")` would compile to a prefix
-    // match on the empty string, which matches all 7,528 accounts and costs a
+    // match on the empty string, which matches the whole chart and costs a
     // scan to say so — and, worse, would silently turn "clear the box" into
     // "fetch the chart".
     let needle = scope
@@ -1887,12 +1841,13 @@ pub async fn account_with_path(
         .ok_or_else(|| AppError::NotFound(format!("account {code}")))?;
     let account = to_account(&row)?;
 
-    // Ancestors are every declared strict prefix of this code — the same rule
-    // the importer used to choose a parent, applied all the way up.
+    // The account number is no longer the hierarchy. Read the declared tree
+    // ancestors in chart order through the nested-set bounds.
     let path_sql = format!(
         "SELECT {ACCOUNT_COLUMNS} FROM ledger_account a
-          WHERE $1 LIKE a.account_code || '%' AND a.account_code <> $1
-          ORDER BY length(a.account_code)"
+          JOIN ledger_account target ON target.account_code = $1
+          WHERE a.lft < target.lft AND a.rgt > target.rgt
+          ORDER BY a.lft"
     );
     let path_rows = sqlx::query(&path_sql).bind(code).fetch_all(pool).await?;
     let path = path_rows
@@ -1904,12 +1859,9 @@ pub async fn account_with_path(
 
 /// What one account is worth, including everything filed under it.
 ///
-/// The prefix match is what makes a heading meaningful: asking for `1` gives
-/// the whole of ASSET — the forty postable accounts under it and the retired
-/// client leaves that still hold history. It is a `LIKE 'code%'` rather than a
-/// recursive walk because the codes encode the tree, and the index on
-/// `journal_line (account_code, site_id)` serves it directly. The module header
-/// says what that encoding now requires of a new code.
+/// The nested-set bounds make a heading meaningful: asking for an account
+/// includes its own balance and the balances of all descendants, regardless
+/// of how their account numbers are assigned.
 pub async fn account_balance(
     pool: &PgPool,
     code: &str,
@@ -1919,8 +1871,12 @@ pub async fn account_balance(
     let row = sqlx::query(
         "SELECT COALESCE(SUM(l.debit_minor),0)::bigint AS debit,
                 COALESCE(SUM(l.credit_minor),0)::bigint AS credit
-           FROM journal_line l JOIN journal_entry e USING (entry_id)
-          WHERE l.account_code LIKE $1 || '%'
+           FROM ledger_account selected
+           JOIN ledger_account descendant
+             ON descendant.lft >= selected.lft AND descendant.rgt <= selected.rgt
+           JOIN journal_line l ON l.account_code = descendant.account_code
+           JOIN journal_entry e USING (entry_id)
+          WHERE selected.account_code = $1
             AND ($2::text IS NULL OR l.site_id = $2)
             AND ($3::date IS NULL OR e.posting_date <= $3)",
     )
@@ -2052,7 +2008,8 @@ impl TrialCursor {
 /// `WHERE`, and a sort expression that is not also a column is one a `WHERE`
 /// cannot see.
 const TRIAL_LEDGER: &str = "
-    SELECT l.account_code, a.name, a.root_class::text AS root_class, l.site_id,
+    SELECT l.account_code, a.name, a.root_class::text AS root_class,
+           a.depth::int AS depth, l.site_id,
            SUM(l.debit_minor)::bigint AS debit,
            SUM(l.credit_minor)::bigint AS credit,
            (SUM(l.debit_minor) - SUM(l.credit_minor))::bigint AS net
@@ -2061,7 +2018,7 @@ const TRIAL_LEDGER: &str = "
       JOIN ledger_account a ON a.account_code = l.account_code
      WHERE e.posting_date <= $1
        AND ($2::text IS NULL OR l.site_id = $2)
-     GROUP BY l.account_code, a.name, a.root_class, l.site_id
+     GROUP BY l.account_code, a.name, a.root_class, a.depth, l.site_id
     HAVING SUM(l.debit_minor) <> 0 OR SUM(l.credit_minor) <> 0
 ";
 
@@ -2169,6 +2126,7 @@ pub async fn trial_balance(
             account_code: row.try_get("account_code")?,
             name: row.try_get("name")?,
             root_class: row.try_get("root_class")?,
+            depth: row.try_get("depth")?,
             site_id: row.try_get("site_id")?,
             debit_minor: row.try_get("debit")?,
             credit_minor: row.try_get("credit")?,
@@ -3164,9 +3122,14 @@ const POLICY_SELECT: &str = "
                      COALESCE(b.code = $5 AND c.kind = $6, FALSE)
                      ORDER BY c.is_primary DESC, c.account_no_digits),
                      '{}'::boolean[]) AS by_map
-            FROM company_bank_account c
+            FROM bank_account c
             JOIN bank b ON b.bank_id = c.bank_id
-           WHERE c.ledger_account_code = a.account_code AND c.site_id = $2
+           -- `bank_account` (0308) holds our accounts and every party's in one
+           -- table. This asks about OURS: a party row carries no ledger
+           -- binding, so without the flag the join drags in supplier accounts
+           -- whose `ledger_account_code` is null.
+           WHERE c.is_company_account
+             AND c.ledger_account_code = a.account_code AND c.site_id = $2
       ) held ON true";
 
 /// The tail of that read. Everything the aggregate above does not group by
@@ -4121,4 +4084,32 @@ mod catalogue_tests {
             "declared more than once — two lanes probably added the same meaning: {doubled:?}"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// Ledger health (0307): every answer the books compute about themselves,
+// composed in one view and served as one list.
+// ---------------------------------------------------------------------------
+
+/// One unhealthy thing, as the health screen lists it.
+#[derive(Debug, Serialize, sqlx::FromRow)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct LedgerHealthRow {
+    pub check_kind: String,
+    pub subject: String,
+    pub subject_scope: String,
+    pub detail: String,
+    pub unhealthy: bool,
+    pub checked_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+pub async fn ledger_health(pool: &PgPool) -> Result<Vec<LedgerHealthRow>, AppError> {
+    let rows = sqlx::query_as(
+        "SELECT check_kind, subject, subject_scope, detail, unhealthy, checked_at
+           FROM ledger_health
+          ORDER BY checked_at DESC, check_kind, subject",
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
 }

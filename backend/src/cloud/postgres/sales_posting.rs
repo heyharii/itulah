@@ -49,10 +49,12 @@
 //! cost half waits for inventory valuation. See `domain::sales_posting`.
 
 use super::payment_ledger;
-use super::poster::{post, reverse, PostingIntent, PostingLine};
+use super::poster::{post, reverse, PostingIntent, PostingLine, HEAD_OFFICE_SITE};
+use super::stock_ledger::{self, StockOutflow};
 use crate::cloud::application::AppError;
 use crate::cloud::domain::sales_posting::{
-    build, classify_card, CardKind, DayFigures, LedgerSide, RecordedVat, TenderBucket,
+    build, classify_card, exception_reason, CardKind, DayFigures, LedgerSide, RecordedVat,
+    TenderBucket, RETURN_CREDIT,
 };
 use crate::reporting::DEFAULT_UTC_OFFSET_MINUTES;
 use chrono::{DateTime, Duration, NaiveDate, NaiveTime, TimeZone, Utc};
@@ -153,6 +155,33 @@ pub struct SalesPostingLine {
 pub struct SalesPostingDocument {
     pub posting: SalesPosting,
     pub lines: Vec<SalesPostingLine>,
+    /// Tender lines of the day that could not post, with why. The rest of the
+    /// day posts without them (Finance Connect stage 2).
+    pub exceptions: Vec<SalesPostingException>,
+}
+
+/// One tender line a sales day could not post: a QRIS whose EDC bank is not
+/// known, or an online tender (the company does not sell online).
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct SalesPostingException {
+    pub exception_id: Uuid,
+    pub method: String,
+    pub acquirer: String,
+    pub receipts_minor: i64,
+    pub refunds_minor: i64,
+    pub tender_count: i64,
+    pub reason: String,
+    pub status: String,
+    pub resolved_bank: Option<String>,
+    pub journal_entry_id: Option<Uuid>,
+}
+
+/// Name the bank of a QRIS exception, so it posts to that bank's debit pair.
+#[derive(Clone, Debug, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ResolveSalesExceptionRequest {
+    pub bank_code: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -309,6 +338,52 @@ fn acquirer_of(method: &str, acquirer: Option<&str>, reference: Option<&str>) ->
 
 /// A running merge of both populations' tenders into the buckets the rule
 /// posts from.
+/// Which bank each EDC terminal at a shop belongs to, and which codes are banks.
+struct EdcBanks {
+    terminals: BTreeMap<String, String>,
+    banks: Vec<String>,
+}
+
+impl EdcBanks {
+    async fn load(pool: &PgPool, site_id: &str) -> Result<Self, AppError> {
+        let terminals = sqlx::query(
+            "SELECT terminal_id, bank_code FROM edc_terminal WHERE site_id = $1 AND active",
+        )
+        .bind(site_id)
+        .fetch_all(pool)
+        .await?
+        .iter()
+        .map(|row| {
+            Ok((
+                row.try_get::<String, _>("terminal_id")?.trim().to_ascii_uppercase(),
+                row.try_get::<String, _>("bank_code")?,
+            ))
+        })
+        .collect::<Result<BTreeMap<_, _>, AppError>>()?;
+        let banks = sqlx::query_scalar::<_, String>("SELECT upper(code) FROM bank WHERE active")
+            .fetch_all(pool)
+            .await?;
+        Ok(Self { terminals, banks })
+    }
+}
+
+/// The bank a QRIS tender settles through (owner decision 25 Sep: QRIS rides
+/// the EDC of a bank). The acquirer the POS sent when it is a bank; otherwise
+/// the bank of the terminal it was paid on; otherwise nothing, which sends the
+/// bucket to the exception queue. Every other method passes through.
+fn qris_bank(method: &str, acquirer: String, terminal: Option<&str>, edc: &EdcBanks) -> String {
+    if method != "QRIS" {
+        return acquirer;
+    }
+    if edc.banks.iter().any(|bank| *bank == acquirer) {
+        return acquirer;
+    }
+    terminal
+        .map(|t| t.trim().to_ascii_uppercase())
+        .and_then(|t| edc.terminals.get(&t).cloned())
+        .unwrap_or_default()
+}
+
 #[derive(Default)]
 struct Buckets {
     receipts: BTreeMap<BucketKey, (i64, i64)>,
@@ -467,7 +542,8 @@ async fn read_recorded_vat(
                 (COALESCE(SUM(tax_total_minor),0)
                  + COALESCE(SUM(charge_tax_minor),0))::bigint AS tax_minor
            FROM edge_sale
-          WHERE site_id = $1 AND occurred_at >= $2 AND occurred_at < $3",
+          WHERE site_id = $1 AND occurred_at >= $2 AND occurred_at < $3
+            AND status = 'COMPLETED'",
     )
     .bind(site_id)
     .bind(start)
@@ -533,6 +609,9 @@ async fn read_recorded_vat(
 
 struct DayReading {
     figures: DayFigures,
+    /// Buckets that cannot post, each with the reason; kept out of `figures`
+    /// so the rest of the day posts (brief stage 2 point 1).
+    exceptions: Vec<(TenderBucket, String)>,
     gross_minor: i64,
     untendered_minor: i64,
     sale_count: i64,
@@ -554,7 +633,8 @@ async fn read_day(
                 COALESCE(SUM(change_minor),0)::bigint AS change_minor,
                 COALESCE(SUM(discount_total_minor),0)::bigint AS discount_minor
            FROM edge_sale
-          WHERE site_id = $1 AND occurred_at >= $2 AND occurred_at < $3",
+          WHERE site_id = $1 AND occurred_at >= $2 AND occurred_at < $3
+            AND status = 'COMPLETED'",
     )
     .bind(site_id)
     .bind(start)
@@ -566,15 +646,16 @@ async fn read_day(
     let mut change: i64 = synced.try_get("change_minor")?;
     let discount: i64 = synced.try_get("discount_minor")?;
 
+    let edc = EdcBanks::load(pool, site_id).await?;
     let mut tendered: i64 = 0;
     let synced_tenders = sqlx::query(
-        "SELECT t.method, t.acquirer, t.reference, t.card_kind,
+        "SELECT t.method, t.acquirer, t.reference, t.card_kind, t.terminal_id,
                 COALESCE(SUM(t.amount_minor),0)::bigint AS amount_minor,
                 COUNT(*)::bigint AS tender_count
            FROM edge_sale_tender t
            JOIN edge_sale s ON s.sale_id = t.sale_id
           WHERE s.site_id = $1 AND s.occurred_at >= $2 AND s.occurred_at < $3
-          GROUP BY t.method, t.acquirer, t.reference, t.card_kind",
+          GROUP BY t.method, t.acquirer, t.reference, t.card_kind, t.terminal_id",
     )
     .bind(site_id)
     .bind(start)
@@ -584,10 +665,15 @@ async fn read_day(
     for row in &synced_tenders {
         let method: String = row.try_get("method")?;
         let amount: i64 = row.try_get("amount_minor")?;
-        let acquirer = acquirer_of(
+        let acquirer = qris_bank(
             &method,
-            row.try_get::<Option<String>, _>("acquirer")?.as_deref(),
-            row.try_get::<Option<String>, _>("reference")?.as_deref(),
+            acquirer_of(
+                &method,
+                row.try_get::<Option<String>, _>("acquirer")?.as_deref(),
+                row.try_get::<Option<String>, _>("reference")?.as_deref(),
+            ),
+            row.try_get::<Option<String>, _>("terminal_id")?.as_deref(),
+            &edc,
         );
         tendered += amount;
         buckets.take(
@@ -620,14 +706,14 @@ async fn read_day(
     change += central.try_get::<i64, _>("change_minor")?;
 
     let central_tenders = sqlx::query(
-        "SELECT p.method, p.acquirer, p.reference, p.card_kind,
+        "SELECT p.method, p.acquirer, p.reference, p.card_kind, p.terminal_id,
                 COALESCE(SUM(p.amount_minor),0)::bigint AS amount_minor,
                 COUNT(*)::bigint AS tender_count
            FROM sale_payment p
            JOIN sale s ON s.id = p.sale_id
           WHERE s.site_id = $1 AND s.status = 'COMPLETED'
             AND s.completed_at >= $2 AND s.completed_at < $3
-          GROUP BY p.method, p.acquirer, p.reference, p.card_kind",
+          GROUP BY p.method, p.acquirer, p.reference, p.card_kind, p.terminal_id",
     )
     .bind(site_id)
     .bind(start)
@@ -637,10 +723,15 @@ async fn read_day(
     for row in &central_tenders {
         let method: String = row.try_get("method")?;
         let amount: i64 = row.try_get("amount_minor")?;
-        let acquirer = acquirer_of(
+        let acquirer = qris_bank(
             &method,
-            row.try_get::<Option<String>, _>("acquirer")?.as_deref(),
-            row.try_get::<Option<String>, _>("reference")?.as_deref(),
+            acquirer_of(
+                &method,
+                row.try_get::<Option<String>, _>("acquirer")?.as_deref(),
+                row.try_get::<Option<String>, _>("reference")?.as_deref(),
+            ),
+            row.try_get::<Option<String>, _>("terminal_id")?.as_deref(),
+            &edc,
         );
         tendered += amount;
         buckets.take(
@@ -680,7 +771,9 @@ async fn read_day(
     .bind(end)
     .fetch_all(pool)
     .await?;
+    let mut refunded_by_rows: i64 = 0;
     for row in &refund_rows {
+        refunded_by_rows += row.try_get::<i64, _>("amount_minor")?;
         let method: String = row.try_get("method")?;
         let acquirer = acquirer_of(
             &method,
@@ -704,18 +797,47 @@ async fn read_day(
     // could take nothing but cash, so cash is what it was. The figure is kept
     // on the document so that reading is visible rather than assumed.
     let expected = gross + change;
-    let untendered = (expected - tendered).max(0);
+    let mut untendered = (expected - tendered).max(0);
+
+    // RETURN (owner decision 11): money never leaves the till. The goods taken
+    // back pay for the replacement, which therefore arrives with less tender
+    // than its total. That shortfall is not cash — it is the return — so the
+    // part of it the day's un-refunded returns explain becomes a RETURN bucket
+    // (revenue, no asset side), and only what is left is treated as cash.
+    let unrefunded_returns = (returns - refunded_by_rows).max(0);
+    let returned_goods = untendered.min(unrefunded_returns);
+    untendered -= returned_goods;
+    if returned_goods > 0 {
+        buckets.take(
+            ((RETURN_CREDIT.to_string(), String::new(), None), false),
+            returned_goods,
+            0,
+        );
+    }
 
     let recorded_vat = read_recorded_vat(pool, site_id, start, end).await?;
 
+    let (postable, exceptions): (Vec<TenderBucket>, Vec<TenderBucket>) = buckets
+        .into_vec(untendered - change)?
+        .into_iter()
+        .partition(|bucket| exception_reason(&bucket.method, &bucket.acquirer).is_none());
+    let exceptions = exceptions
+        .into_iter()
+        .map(|bucket| {
+            let reason = exception_reason(&bucket.method, &bucket.acquirer).unwrap_or_default();
+            (bucket, reason)
+        })
+        .collect();
+
     Ok(DayReading {
         figures: DayFigures {
-            buckets: buckets.into_vec(untendered - change)?,
+            buckets: postable,
             discount_minor: discount,
             returns_minor: returns,
             vat_rate_bps: day_vat_rate_bps(pool).await?,
             recorded_vat,
         },
+        exceptions,
         gross_minor: gross,
         untendered_minor: untendered,
         sale_count,
@@ -838,7 +960,36 @@ pub async fn sales_posting_detail(
         })
         .collect::<Result<Vec<_>, AppError>>()?;
 
-    Ok(SalesPostingDocument { posting, lines })
+    let exceptions = sqlx::query(
+        "SELECT exception_id, method, acquirer, receipts_minor, refunds_minor, tender_count,
+                reason, status, resolved_bank, journal_entry_id
+           FROM sales_posting_exception WHERE posting_id = $1 ORDER BY created_at, method",
+    )
+    .bind(posting_id)
+    .fetch_all(pool)
+    .await?
+    .iter()
+    .map(|row| {
+        Ok(SalesPostingException {
+            exception_id: row.try_get("exception_id")?,
+            method: row.try_get("method")?,
+            acquirer: row.try_get("acquirer")?,
+            receipts_minor: row.try_get("receipts_minor")?,
+            refunds_minor: row.try_get("refunds_minor")?,
+            tender_count: row.try_get("tender_count")?,
+            reason: row.try_get("reason")?,
+            status: row.try_get("status")?,
+            resolved_bank: row.try_get("resolved_bank")?,
+            journal_entry_id: row.try_get("journal_entry_id")?,
+        })
+    })
+    .collect::<Result<Vec<_>, AppError>>()?;
+
+    Ok(SalesPostingDocument {
+        posting,
+        lines,
+        exceptions,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -990,8 +1141,160 @@ pub async fn sales_posting_generate(
         .execute(&mut *tx)
         .await?;
     }
+
+    // The lines that cannot post wait beside the day. An exception already
+    // resolved (posted on its own) is not raised again when the day is
+    // regenerated, or the same money would be booked twice.
+    sqlx::query("DELETE FROM sales_posting_exception WHERE posting_id = $1 AND status = 'OPEN'")
+        .bind(posting_id)
+        .execute(&mut *tx)
+        .await?;
+    for (bucket, reason) in &reading.exceptions {
+        sqlx::query(
+            "INSERT INTO sales_posting_exception
+               (exception_id, posting_id, method, acquirer, receipts_minor, refunds_minor,
+                tender_count, reason)
+             SELECT $1, $2, $3, $4, $5, $6, $7, $8
+              WHERE NOT EXISTS (
+                  SELECT 1 FROM sales_posting_exception x
+                   WHERE x.posting_id = $2 AND x.status = 'RESOLVED' AND x.method = $3
+                     AND x.receipts_minor = $5 AND x.refunds_minor = $6)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(posting_id)
+        .bind(&bucket.method)
+        .bind(&bucket.acquirer)
+        .bind(bucket.receipts_minor)
+        .bind(bucket.refunds_minor)
+        .bind(bucket.tender_count)
+        .bind(reason)
+        .execute(&mut *tx)
+        .await?;
+    }
     tx.commit().await?;
 
+    sales_posting_detail(pool, posting_id).await
+}
+
+/// Post one QRIS exception once Finance has named its bank.
+///
+/// The day it belongs to must already be posted — its figures are then fixed
+/// and this line is the only part of the day still outside the books. The
+/// entry is the same pair the day would have written: Dr the bank's debit-card
+/// receivable, Cr that bank's debit-card sales, and the VAT inside it at the
+/// day's rate to `vat_out` at head office. An online tender is not resolved
+/// here: the company does not sell online, so it is retendered at the source.
+pub async fn sales_posting_exception_resolve(
+    pool: &PgPool,
+    exception_id: Uuid,
+    request: &ResolveSalesExceptionRequest,
+    actor: &str,
+) -> Result<SalesPostingDocument, AppError> {
+    let bank = request.bank_code.trim().to_ascii_uppercase();
+    if bank.is_empty() {
+        return Err(AppError::Validation("name the bank of the EDC this QRIS was paid on".into()));
+    }
+    let row = sqlx::query(
+        "SELECT x.posting_id, x.method, x.status, x.receipts_minor, x.refunds_minor,
+                p.site_id, p.business_date, p.status AS day_status, p.vat_rate_bps, p.currency
+           FROM sales_posting_exception x
+           JOIN sales_posting p ON p.posting_id = x.posting_id
+          WHERE x.exception_id = $1",
+    )
+    .bind(exception_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound("sales posting exception".into()))?;
+    let posting_id: Uuid = row.try_get("posting_id")?;
+    let method: String = row.try_get("method")?;
+    let status: String = row.try_get("status")?;
+    let day_status: String = row.try_get("day_status")?;
+    if status != "OPEN" {
+        return Err(AppError::Conflict("this exception is already resolved".into()));
+    }
+    if method != "QRIS" {
+        return Err(AppError::Validation(format!(
+            "a {method} line is not resolved by naming a bank: the company does not sell \
+             online, so retender it at the source and generate the day again"
+        )));
+    }
+    if day_status != "POSTED" {
+        return Err(AppError::Conflict(
+            "post the day first; this line is resolved into a posted day".into(),
+        ));
+    }
+    let site_id: String = row.try_get("site_id")?;
+    let business_date: NaiveDate = row.try_get("business_date")?;
+    let vat_rate_bps: i32 = row.try_get("vat_rate_bps")?;
+    let currency: String = row.try_get("currency")?;
+    let net = row.try_get::<i64, _>("receipts_minor")? - row.try_get::<i64, _>("refunds_minor")?;
+    if net <= 0 {
+        return Err(AppError::Validation("this line nets to nothing; there is nothing to post".into()));
+    }
+    let vat = if vat_rate_bps > 0 {
+        i64::try_from(i128::from(net) * i128::from(vat_rate_bps) / (10_000 + i128::from(vat_rate_bps)))
+            .unwrap_or(0)
+    } else {
+        0
+    };
+    let memo = format!("QRIS {bank} takings (exception resolved)");
+    let mut lines = vec![
+        {
+            let mut line = PostingLine::debit("card_receivable_debit", &site_id, net).with_qualifier(&bank);
+            line.memo = Some(memo.clone());
+            line
+        },
+        {
+            let mut line = PostingLine::credit("revenue_debit", &site_id, net - vat).with_qualifier(&bank);
+            line.memo = Some(format!("QRIS {bank} sales"));
+            line
+        },
+    ];
+    if vat > 0 {
+        lines.push(PostingLine::credit("vat_out", HEAD_OFFICE_SITE, vat));
+    }
+    let intent = PostingIntent {
+        posting_date: business_date,
+        source_kind: "SALE_DAY_EXCEPTION".into(),
+        source_id: Some(exception_id.to_string()),
+        rule_version: "sale_day_exception/1".into(),
+        currency,
+        memo: Some(format!("{memo} {site_id} {business_date}")),
+        lines,
+    };
+    let mut tx = pool.begin().await?;
+    let posted = post(&mut tx, &intent, None, actor).await?;
+    let side = LedgerSide {
+        semantic_key: "card_receivable_debit",
+        qualifier: bank.clone(),
+        debit_minor: net,
+        credit_minor: 0,
+        memo,
+    };
+    sales_posting_open_receivables(
+        &mut tx,
+        posting_id,
+        &format!("EXCEPTION_{exception_id}"),
+        &site_id,
+        business_date,
+        posted.entry_id,
+        std::slice::from_ref(&side),
+        actor,
+    )
+    .await?;
+    sqlx::query(
+        "UPDATE sales_posting_exception
+            SET status = 'RESOLVED', resolved_bank = $2, journal_entry_id = $3,
+                resolved_by = $4, resolved_at = now()
+          WHERE exception_id = $1 AND status = 'OPEN'",
+    )
+    .bind(exception_id)
+    .bind(&bank)
+    .bind(posted.entry_id)
+    .bind(actor)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
     sales_posting_detail(pool, posting_id).await
 }
 
@@ -1100,6 +1403,7 @@ pub async fn sales_posting_generate_days(
 const RECEIVABLE_KEYS: &[&str] = &[
     "card_receivable_debit",
     "card_receivable_credit",
+    // Keep the retired key readable while legacy QRIS items remain open.
     "qris_receivable",
 ];
 
@@ -1121,6 +1425,22 @@ const RETENDER_VOUCHER_KIND: &str = "RETENDER";
 /// leave the books carrying a receivable the ledger had stopped following.
 fn day_voucher(posting_id: Uuid, purpose: &str) -> String {
     format!("{posting_id}/{purpose}")
+}
+
+/// Where a takings side posts.
+///
+/// Two of the day's meanings are promises the company itself holds, not the
+/// shop: output tax is owed to the tax office (`2201`), and a voucher is owed
+/// to a customer (`2401`). The chart scopes both `dimension = 'company'` —
+/// they post at head office and `balanced_per_site` bridges the two units with
+/// the affiliate accounts. Every other side posts where the day happened.
+/// Placing either leg at the shop makes the day unpostable, which is the one
+/// outcome a posting rule may never cause.
+fn posting_site(day_site: &str, semantic_key: &str) -> String {
+    match semantic_key {
+        "vat_out" | "voucher_liability" => HEAD_OFFICE_SITE.to_string(),
+        _ => day_site.to_string(),
+    }
 }
 
 /// Open one Payment Ledger item per acquirer receivable this day created.
@@ -1201,6 +1521,203 @@ async fn sales_posting_open_receivables(
 /// The document row and the journal are written in one transaction, for the
 /// same reason `post_bill` does it: a day marked posted with no entry behind
 /// it, or an entry with no day, are both states nobody could explain later.
+
+/// The cost of what left the shelves on the day being posted.
+///
+/// FIFO over the cost layers the receipts wrote (`lane_i_cost_layer`), in the
+/// same transaction as the takings entry. Deliberately its own `COGS_DAY`
+/// entry rather than lines on the sale entry: the two have different rules
+/// and different reasons to be reposted, and the sales rule posts no cost on
+/// purpose -- this is the second half, not an amendment.
+///
+/// `source_id` carries the attempt (`{posting_id}:{ATTEMPT_n}`), so a day
+/// that was reversed and regenerated consumes under a new key instead of
+/// being read as the same consumption twice. Net of what was restocked by
+/// returns taken back the same day: those goods never left the pool the
+/// queue answers for.
+async fn sales_posting_consume_cost(
+    tx: &mut Transaction<'_, Postgres>,
+    posting_id: Uuid,
+    purpose: &str,
+    site_id: &str,
+    business_date: NaiveDate,
+    actor: &str,
+) -> Result<(), AppError> {
+    let cogs_source = format!("{posting_id}:{purpose}");
+    let quantities = sqlx::query(
+        "WITH sold AS (
+             SELECT sl.sku_id, SUM(sl.quantity)::bigint AS qty
+               FROM sale s JOIN sale_line sl ON sl.sale_id = s.id
+              WHERE s.status = 'COMPLETED' AND s.site_id = $1
+                AND ((s.completed_at AT TIME ZONE 'UTC')
+                     + make_interval(mins => $3))::date = $2
+              GROUP BY sl.sku_id
+             UNION ALL
+             SELECT sk.id, SUM(el.quantity)::bigint
+               FROM edge_sale e
+               JOIN edge_sale_line el ON el.sale_id = e.sale_id
+               JOIN (SELECT DISTINCT ON (sku_code) sku_code, id, article_id
+                       FROM sku ORDER BY sku_code, active DESC) sk
+                      ON sk.sku_code = el.sku_code
+              WHERE e.site_id = $1
+                AND e.status = 'COMPLETED'
+                AND ((e.occurred_at AT TIME ZONE 'UTC')
+                     + make_interval(mins => $3))::date = $2
+              GROUP BY sk.id
+         ), restocked AS (
+             SELECT rl.sku_id, SUM(rl.quantity)::bigint AS qty
+               FROM sale_return r JOIN sale_return_line rl ON rl.return_id = r.id
+              WHERE r.site_id = $1 AND rl.restock
+                AND ((r.created_at AT TIME ZONE 'UTC')
+                     + make_interval(mins => $3))::date = $2
+              GROUP BY rl.sku_id
+         )
+         SELECT COALESCE(so.sku_id, rs.sku_id) AS sku_id,
+                sk.article_id,
+                COALESCE(so.qty, 0) - COALESCE(rs.qty, 0) AS qty
+           FROM sold so
+           FULL JOIN restocked rs ON rs.sku_id = so.sku_id
+           JOIN sku sk ON sk.id = COALESCE(so.sku_id, rs.sku_id)
+          WHERE COALESCE(so.qty, 0) - COALESCE(rs.qty, 0) > 0",
+    )
+    .bind(site_id)
+    .bind(business_date)
+    .bind(DEFAULT_UTC_OFFSET_MINUTES)
+    .fetch_all(&mut **tx)
+    .await?;
+    // Where the goods stood: the site's floor, falling back to its warehouse
+    // for a site with no floor of its own (the DC sells out of the warehouse
+    // in this estate). Trace only -- costing reads the queue, not the pool --
+    // but the FK still wants a pool that exists.
+    let from_pool: String = sqlx::query_scalar(
+        "SELECT id FROM operational_pool
+          WHERE site_id = $1 AND group_code IN ('STORE_INVENTORY', 'WAREHOUSE')
+          ORDER BY (group_code = 'STORE_INVENTORY') DESC, display_order
+          LIMIT 1",
+    )
+    .bind(site_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .unwrap_or_else(|| format!("{site_id}.warehouse"));
+    for row in &quantities {
+        let sku: Uuid = row.try_get("sku_id")?;
+        let article: Uuid = row.try_get("article_id")?;
+        let quantity: i64 = row.try_get("qty")?;
+        let consumed = stock_ledger::stock_ledger_consume(
+            tx,
+            &StockOutflow {
+                article_id: article,
+                sku_id: Some(sku),
+                epc: None,
+                lot_reference: None,
+                quantity,
+                event_kind: "SALE".into(),
+                event_id: cogs_source.clone(),
+                from_pool_id: from_pool.clone(),
+                site_id: site_id.to_string(),
+                economic_date: business_date,
+                source_id: cogs_source.clone(),
+                memo: Some(format!("HPP {site_id} {business_date}")),
+            },
+            actor,
+        )
+        .await;
+        // Short stock never stops the sales day (owner decision 2, stage 5):
+        // the units the layers cannot answer are costed at the SKU's last
+        // known receipt cost, flagged "cost pending", and trued up when the
+        // receipt lands.
+        match consumed {
+            Ok(_) => {}
+            Err(AppError::Validation(reason)) => {
+                stock_ledger::cost_pending_post(
+                    tx,
+                    article,
+                    quantity,
+                    site_id,
+                    business_date,
+                    &format!("{cogs_source}:{article}"),
+                    &reason,
+                    actor,
+                )
+                .await?;
+            }
+            Err(other) => return Err(other),
+        }
+    }
+    Ok(())
+}
+
+/// Put back what a reversed day consumed.
+///
+/// The journal side is the ordinary mirror. The stock side is compensating
+/// `stock_ledger_entry` rows that return each allocation to the layer it came
+/// from, so the FIFO queue a regenerated day draws on is the queue the
+/// reversal left behind, not a shorter one.
+async fn sales_posting_unconsume_cost(
+    tx: &mut Transaction<'_, Postgres>,
+    posting_id: Uuid,
+    posting_date: NaiveDate,
+    reason: &str,
+    actor: &str,
+) -> Result<(), AppError> {
+    let sources: Vec<(Uuid, String)> = sqlx::query(
+        "SELECT entry_id, source_id FROM journal_entry
+          WHERE source_kind = 'COGS_DAY' AND source_id LIKE $1 || ':%'",
+    )
+    .bind(posting_id.to_string())
+    .fetch_all(&mut **tx)
+    .await?
+    .iter()
+    .map(|row| Ok((row.try_get("entry_id")?, row.try_get("source_id")?)))
+    .collect::<Result<_, AppError>>()?;
+    for (entry_id, source) in &sources {
+        let reversal = reverse(tx, *entry_id, posting_date, reason, actor).await?;
+        let originals = sqlx::query(
+            "SELECT entry_id, article_id, sku_id, epc, lot_reference, from_pool_id,
+                    site_id, quantity, cost_layer_id, valuation_rate_minor, economic_date
+               FROM stock_ledger_entry
+              WHERE source_kind = 'COGS_DAY' AND source_id = $1
+              ORDER BY line_number",
+        )
+        .bind(source)
+        .fetch_all(&mut **tx)
+        .await?;
+        let group = Uuid::new_v4();
+        for (index, original) in originals.iter().enumerate() {
+            let quantity: i64 = original.try_get("quantity")?;
+            let rate: i64 = original.try_get("valuation_rate_minor")?;
+            let value = quantity * rate;
+            sqlx::query(
+                "INSERT INTO stock_ledger_entry
+                   (entry_id, posting_group_id, line_number, article_id, sku_id, epc,
+                    lot_reference, from_pool_id, to_pool_id, site_id, quantity, qty_delta,
+                    qty_after,
+                    cost_layer_id, valuation_rate_minor, stock_value_difference_minor,
+                    stock_value_after_minor, event_kind, source_kind, source_id,
+                    economic_date, journal_entry_id, idempotency_key, actor)
+                 SELECT $1, $2, $3, article_id, sku_id, epc, lot_reference, NULL,
+                        from_pool_id, site_id, quantity, quantity, qty_after + quantity,
+                        cost_layer_id, valuation_rate_minor, $4,
+                        stock_value_after_minor + $4,
+                        'SALE', 'COGS_DAY_UNWIND', source_id, $5, $6,
+                        idempotency_key || ':unwind', $7
+                   FROM stock_ledger_entry WHERE entry_id = $8",
+            )
+            .bind(Uuid::new_v4())
+            .bind(group)
+            .bind(index as i32 + 1)
+            .bind(value)
+            .bind(posting_date)
+            .bind(reversal.entry_id)
+            .bind(actor)
+            .bind(original.try_get::<Uuid, _>("entry_id")?)
+            .execute(&mut **tx)
+            .await?;
+        }
+    }
+    Ok(())
+}
+
 pub async fn sales_posting_post(
     pool: &PgPool,
     posting_id: Uuid,
@@ -1248,18 +1765,11 @@ pub async fn sales_posting_post(
         .sides
         .iter()
         .map(|side| {
+            let site = posting_site(&existing.posting.site_id, side.semantic_key);
             let mut line = if side.debit_minor > 0 {
-                PostingLine::debit(
-                    side.semantic_key,
-                    &existing.posting.site_id,
-                    side.debit_minor,
-                )
+                PostingLine::debit(side.semantic_key, &site, side.debit_minor)
             } else {
-                PostingLine::credit(
-                    side.semantic_key,
-                    &existing.posting.site_id,
-                    side.credit_minor,
-                )
+                PostingLine::credit(side.semantic_key, &site, side.credit_minor)
             };
             if !side.qualifier.is_empty() {
                 line = line.with_qualifier(&side.qualifier);
@@ -1313,6 +1823,18 @@ pub async fn sales_posting_post(
         existing.posting.business_date,
         posted.entry_id,
         &built.sides,
+        actor,
+    )
+    .await?;
+    // The cost of the day, out of the same transaction: revenue without cost
+    // is half a day, and the two halves can never disagree once both are in
+    // one commit.
+    sales_posting_consume_cost(
+        &mut tx,
+        posting_id,
+        &purpose,
+        &existing.posting.site_id,
+        existing.posting.business_date,
         actor,
     )
     .await?;
@@ -1397,6 +1919,20 @@ pub async fn sales_posting_reverse(
         &mut tx,
         DAY_VOUCHER_KIND,
         &day_voucher(posting_id, &purpose),
+        reason,
+        actor,
+    )
+    .await?;
+    // And the cost the day took off the shelves goes back on them, the same
+    // way the receivables above stop counting: in the same transaction as the
+    // reversal, or the queue the regenerated day will draw on would be short
+    // by exactly what this day consumed.
+    sales_posting_unconsume_cost(
+        &mut tx,
+        posting_id,
+        request
+            .posting_date
+            .unwrap_or(existing.posting.business_date),
         reason,
         actor,
     )
@@ -1618,15 +2154,16 @@ pub async fn retender_tender(
             )),
             lines: vec![
                 {
-                    let mut line = PostingLine::debit(to_key, &found.site_id, found.amount_minor);
+                    let site = posting_site(&found.site_id, to_key);
+                    let mut line = PostingLine::debit(to_key, &site, found.amount_minor);
                     if !to_qualifier.is_empty() {
                         line = line.with_qualifier(&to_qualifier);
                     }
                     line
                 },
                 {
-                    let mut line =
-                        PostingLine::credit(from_key, &found.site_id, found.amount_minor);
+                    let site = posting_site(&found.site_id, from_key);
+                    let mut line = PostingLine::credit(from_key, &site, found.amount_minor);
                     if !from_qualifier.is_empty() {
                         line = line.with_qualifier(&from_qualifier);
                     }
@@ -1761,12 +2298,9 @@ fn receivable_of(
         ("CASH", _) => Ok(("cash", String::new())),
         ("CARD", Some(CardKind::Debit)) => Ok(("card_receivable_debit", acquirer.to_string())),
         ("CARD", Some(CardKind::Credit)) => Ok(("card_receivable_credit", acquirer.to_string())),
-        ("QRIS", _) => Ok(("qris_receivable", acquirer.to_string())),
-        ("VOUCHER", _) => Ok(("voucher_liability", String::new())),
-        // The same pairing `domain::sales_posting::meanings_for` gives it:
-        // OTHER is a receivable from whoever the reference names, never a
-        // refusal — a day containing one must still post.
-        ("OTHER", _) => Ok(("other_receivable", acquirer.to_string())),
+        ("QRIS", _) => Ok(("card_receivable_debit", acquirer.to_string())),
+        // Free vouchers are a sales discount on the day (owner decision 13).
+        ("VOUCHER", _) => Ok(("sales_discount", String::new())),
         (other, _) => Err(AppError::Validation(format!(
             "tender method {other:?} has no account behind it, so a posted day cannot be \
              reclassified into or out of it"

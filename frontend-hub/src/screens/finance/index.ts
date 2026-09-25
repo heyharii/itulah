@@ -17,6 +17,7 @@ import { Periods } from "@/screens/finance/periods"
 import { Reports } from "@/screens/finance/reports"
 import { UnmatchedCharges } from "@/screens/finance/unmatched-charges"
 import { SupplierBills } from "@/screens/finance/supplier-bills"
+import { SalesSetup } from "@/screens/finance/sales-setup"
 
 /// Screens this module has written. Keys must be paths declared in
 /// `lib/navigation.ts`; anything not listed here renders `Placeholder`.
@@ -75,4 +76,5 @@ export const screens: ScreenMap = {
   "/finance/categories": LineCategories,
   "/finance/periods": Periods,
   "/finance/giro-print": GiroPrinting,
+  "/finance/sales-setup": SalesSetup,
 }

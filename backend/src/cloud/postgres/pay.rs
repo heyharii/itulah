@@ -23,6 +23,7 @@
 //! pre-checks and then updates by id, has a window between the two; the cash
 //! count's form does not, and this follows the cash count's.
 
+use super::{post, PostingIntent, PostingLine};
 use crate::cloud::application::AppError;
 use crate::cloud::domain::{
     AllowanceCode, AttendanceMonth, Authorization, BankAccount, ComponentBase, ComponentBasis,
@@ -34,6 +35,7 @@ use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use pricing_engine::Money;
 use serde::Serialize;
 use sqlx::{PgPool, Postgres, Row, Transaction};
+use uuid::Uuid;
 
 fn corrupt(what: &str, detail: String) -> AppError {
     AppError::Configuration(format!(
@@ -429,6 +431,7 @@ pub struct AllowanceLine {
 async fn overtime_bands(
     tx: &mut Transaction<'_, Postgres>,
     employee_id: &str,
+    place: &PlaceId,
     first_day: NaiveDate,
 ) -> Result<(i64, i64, i64, i64), AppError> {
     let row = sqlx::query(
@@ -436,6 +439,7 @@ async fn overtime_bands(
              SELECT on_date, day_kind, sum(planned_minutes)::bigint AS minutes
                FROM overtime_order
               WHERE employee_id = $1 AND state = 'AGREED'
+                AND place_id = $3
                 AND on_date >= $2::date AND on_date < ($2::date + interval '1 month')
               GROUP BY on_date, day_kind
          )
@@ -452,6 +456,7 @@ async fn overtime_bands(
     )
     .bind(employee_id)
     .bind(first_day)
+    .bind(place.as_str())
     .fetch_one(&mut **tx)
     .await?;
 
@@ -564,13 +569,22 @@ pub async fn build_slips(
     // Once for the run, not once per person: the catalogue is the company's.
     let catalogue = super::components::catalogue_for_run(tx, first_day).await?;
 
+    // Everybody whose posting overlapped this month, not only whoever is
+    // posted there the moment the run is built. Somebody transferred or
+    // terminated on the 20th worked here for twenty days and belongs on this
+    // shop's run; somebody hired on the 18th belongs on it too. Candidates are
+    // excluded because they are not working yet — "accepted" is not "started".
     let people = sqlx::query(
-        "SELECT a.employee_id FROM employee_assignment a
+        "SELECT DISTINCT a.employee_id FROM employee_assignment a
            JOIN employee e ON e.id = a.employee_id
-          WHERE a.place_id = $1 AND a.valid_to IS NULL AND e.status = 'ACTIVE'
+          WHERE a.place_id = $1
+            AND a.valid_from < ($2::date + interval '1 month')
+            AND (a.valid_to IS NULL OR a.valid_to >= $2::date)
+            AND e.status IN ('ACTIVE', 'TERMINATED')
           ORDER BY a.employee_id",
     )
     .bind(run.place().as_str())
+    .bind(first_day)
     .fetch_all(&mut **tx)
     .await?;
 
@@ -602,13 +616,25 @@ pub async fn build_slips(
             })
             .ok_or_else(|| corrupt("pay total", "the agreement overflows".to_owned()))?;
 
+        // Only the days this run's own month and place are about. A leave
+        // request that overlaps the boundary contributes its chargeable days
+        // inside the month, not its whole stored list — and facts belonging to
+        // another place never enter this shop's slip.
         let leave_days: Option<i64> = sqlx::query_scalar(
-            "SELECT sum(jsonb_array_length(chargeable)) FROM leave_request
-              WHERE employee_id = $1 AND state = 'APPROVED'
-                AND from_date < ($2::date + interval '1 month') AND to_date >= $2::date",
+            "SELECT sum(days) FROM (
+                 SELECT count(*)::bigint AS days
+                   FROM leave_request lr,
+                        jsonb_array_elements_text(lr.chargeable) AS day
+                  WHERE lr.employee_id = $1
+                    AND lr.state = 'APPROVED'
+                    AND lr.place_id = $3
+                    AND (day)::date >= $2::date
+                    AND (day)::date < ($2::date + interval '1 month')
+             ) counted",
         )
         .bind(&employee_id)
         .bind(first_day)
+        .bind(run.place().as_str())
         .fetch_one(&mut **tx)
         .await?;
 
@@ -616,16 +642,18 @@ pub async fn build_slips(
         // sum of the bands rather than a second query, so `overtime_minutes`
         // and the lines that value it cannot disagree.
         let (first_hour, later, rest_day, holiday) =
-            overtime_bands(tx, &employee_id, first_day).await?;
+            overtime_bands(tx, &employee_id, run.place(), first_day).await?;
         let overtime = first_hour + later + rest_day + holiday;
 
         let rostered: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM roster_day
               WHERE employee_id = $1
+                AND place_id = $3
                 AND on_date >= $2::date AND on_date < ($2::date + interval '1 month')",
         )
         .bind(&employee_id)
         .bind(first_day)
+        .bind(run.place().as_str())
         .fetch_one(&mut **tx)
         .await?;
 
@@ -688,6 +716,52 @@ pub async fn build_slips(
     Ok(written)
 }
 
+/// Rebuild a draft run's slips after something the run reads has moved.
+///
+/// A slip is a snapshot of what was true when the run was built, which is the
+/// right shape for an approved run and the wrong one for a draft: a one-off a
+/// place files while the batch is still working, or a reopen that takes a
+/// signed batch back to the place, changes what the month holds. Without this
+/// the run would keep the earlier arithmetic and the approval would be of a
+/// figure nobody recomputed.
+///
+/// A no-op when there is no run for `(place, period)` or it is no longer a
+/// draft. The `FOR UPDATE` re-check inside the transaction is what makes a
+/// concurrent submit win: if the state moved after the read, nothing is
+/// rebuilt and the caller's next view shows the submitted run.
+pub async fn rebuild_draft_run(
+    pool: &PgPool,
+    place: &str,
+    first_day: NaiveDate,
+) -> Result<(), AppError> {
+    let Some(run_id) = sqlx::query_scalar::<_, String>(
+        "SELECT id FROM payroll_run WHERE place_id = $1 AND period = $2",
+    )
+    .bind(place)
+    .bind(first_day)
+    .fetch_optional(pool)
+    .await?
+    else {
+        return Ok(());
+    };
+    let Some(run) = load_run(pool, &run_id).await? else {
+        return Ok(());
+    };
+
+    let mut tx = pool.begin().await?;
+    let state: Option<String> =
+        sqlx::query_scalar("SELECT state FROM payroll_run WHERE id = $1 FOR UPDATE")
+            .bind(&run_id)
+            .fetch_one(&mut *tx)
+            .await?;
+    if state.as_deref() != Some("DRAFT") {
+        return Ok(());
+    }
+    build_slips(&mut tx, &run, first_day).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
 /// Open a run and build its slips in one transaction.
 ///
 /// Together, because a run with no slips is a run that looks built and is not,
@@ -726,14 +800,173 @@ pub async fn open_run(
 
 /// Record a step. Only the state and the history move.
 pub async fn save_run(pool: &PgPool, run: &PayrollRun) -> Result<(), AppError> {
+    let mut tx = pool.begin().await?;
+    set_run_state(&mut tx, run).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// The state and the history, as every step leaves them — the part of a step
+/// that makes no facts beside itself.
+async fn set_run_state(
+    tx: &mut Transaction<'_, Postgres>,
+    run: &PayrollRun,
+) -> Result<(), AppError> {
     sqlx::query(
         "UPDATE payroll_run SET state = $2, history = $3, updated_at = now() WHERE id = $1",
     )
     .bind(run.id())
     .bind(run.state().code())
     .bind(serde_json::to_value(run.history())?)
-    .execute(pool)
+    .execute(&mut **tx)
     .await?;
+    Ok(())
+}
+
+/// Record the approval and settle what the batch's adjustments repay, in one
+/// transaction.
+///
+/// A run is approved all-or-nothing, and its settlements are facts of the same
+/// class as the decision itself — so they are made in the decision's own
+/// transaction, or not at all. Before anything is inserted, every advance the
+/// batch's adjustments repay is re-checked: filings sit while months move, and
+/// an outstanding that was enough at filing may not be by the time head office
+/// answers. One short advance refuses the whole approval, naming the advance
+/// and the overshoot.
+pub async fn save_approval(
+    pool: &PgPool,
+    run: &PayrollRun,
+    approver: &str,
+) -> Result<(), AppError> {
+    let mut tx = pool.begin().await?;
+    set_run_state(&mut tx, run).await?;
+    settle_adjusted_advances(&mut tx, run, approver).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Record the reopen and take the settlements the run's approval made back
+/// out, in one transaction.
+///
+/// The owner accepted that a reopen may undo an approval Finance has already
+/// been handed (see `http::pay::reopen_run`); the settlement is the same class
+/// of fact as the approval that made it, and it follows the same way back.
+pub async fn save_reopen(pool: &PgPool, run: &PayrollRun) -> Result<(), AppError> {
+    let mut tx = pool.begin().await?;
+    set_run_state(&mut tx, run).await?;
+    sqlx::query(
+        "DELETE FROM advance_settlement s
+           USING payroll_adjustment a
+          WHERE s.payroll_adjustment_id = a.id
+            AND s.kind = 'PAYROLL'
+            AND a.place_id = $1 AND a.period = $2",
+    )
+    .bind(run.place().as_str())
+    .bind(period_first_day(run.period())?)
+    .execute(&mut *tx)
+    .await?;
+    // A reopen hands the batch back to the place, and the month's facts may
+    // have moved while it was signed. Rebuilding in the same transaction means
+    // the draft the place sees is the month it is actually working.
+    build_slips(&mut tx, run, period_first_day(run.period())?).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// The settlements the batch's adjustments repay, inserted after the
+/// outstanding has been re-checked per advance.
+///
+/// The re-check is the filing check over again — what has come back before
+/// this batch, plus what this batch repays, against what was paid out —
+/// computed per advance over the batch's own sum, because two components may
+/// repay one advance in one month and the refusal must see the total it would
+/// make. The advances are read in `advance_number` order, so the refusal names
+/// the same advance every time.
+///
+/// The settlement rides the adjustment (`payroll_adjustment_id`), carries no
+/// entry of its own — the deduction moves inside the payout envelope and the
+/// handover — and notes the run's period, which is the answer to "which month
+/// took this back".
+async fn settle_adjusted_advances(
+    tx: &mut Transaction<'_, Postgres>,
+    run: &PayrollRun,
+    approver: &str,
+) -> Result<(), AppError> {
+    use std::collections::BTreeMap;
+
+    // The repayments the batch makes, one row per adjustment that names an
+    // advance — the settlement is per adjustment, so a reopen can take back
+    // exactly what this run's approval made.
+    let repayments = sqlx::query(
+        "SELECT a.id, a.amount_minor, ad.advance_id
+           FROM payroll_adjustment a
+           JOIN advance ad ON ad.advance_id = a.advance_id
+          WHERE a.place_id = $1 AND a.period = $2 AND a.advance_id IS NOT NULL
+          ORDER BY a.id",
+    )
+    .bind(run.place().as_str())
+    .bind(period_first_day(run.period())?)
+    .fetch_all(&mut **tx)
+    .await?;
+    if repayments.is_empty() {
+        return Ok(());
+    }
+
+    let mut batch_repays: BTreeMap<Uuid, i64> = BTreeMap::new();
+    for row in &repayments {
+        *batch_repays.entry(row.try_get("advance_id")?).or_insert(0) +=
+            row.try_get::<i64, _>("amount_minor")?;
+    }
+
+    // The advances themselves, with everything that came back before this
+    // batch — the same fold the Directory reads, computed inside this
+    // transaction so it cannot move under the check.
+    let advances = sqlx::query(
+        "SELECT ad.advance_id, ad.advance_number, ad.amount_minor AS paid_out_minor,
+                COALESCE(SUM(s.amount_minor), 0) AS settled_minor
+           FROM advance ad
+           LEFT JOIN advance_settlement s ON s.advance_id = ad.advance_id
+          WHERE ad.advance_id IN (SELECT a.advance_id FROM payroll_adjustment a
+                                   WHERE a.place_id = $1 AND a.period = $2
+                                     AND a.advance_id IS NOT NULL)
+          GROUP BY ad.advance_id
+          ORDER BY ad.advance_number",
+    )
+    .bind(run.place().as_str())
+    .bind(period_first_day(run.period())?)
+    .fetch_all(&mut **tx)
+    .await?;
+    for row in &advances {
+        let advance_id: Uuid = row.try_get("advance_id")?;
+        let number: String = row.try_get("advance_number")?;
+        let paid_out: i64 = row.try_get("paid_out_minor")?;
+        let settled: i64 = row.try_get("settled_minor")?;
+        let repays = batch_repays.get(&advance_id).copied().unwrap_or(0);
+        let over = settled + repays - paid_out;
+        if over > 0 {
+            return Err(AppError::Conflict(format!(
+                "advance {number} has {paid_out} out and {settled} back, so this batch's \
+                 {repays} overshoots it by {over} — a run is approved all-or-nothing"
+            )));
+        }
+    }
+
+    for row in &repayments {
+        sqlx::query(
+            "INSERT INTO advance_settlement
+                 (settlement_id, advance_id, kind, amount_minor, entry_id,
+                  payroll_adjustment_id, settled_by, note)
+               VALUES ($1, $2, 'PAYROLL', $3, NULL, $4, $5, $6)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(row.try_get::<Uuid, _>("advance_id")?)
+        .bind(row.try_get::<i64, _>("amount_minor")?)
+        .bind(row.try_get::<String, _>("id")?)
+        .bind(approver)
+        .bind(run.period())
+        .execute(&mut **tx)
+        .await?;
+    }
     Ok(())
 }
 
@@ -807,6 +1040,30 @@ pub async fn slips_of(pool: &PgPool, employee_id: &str) -> Result<Vec<PayrollSli
         .collect::<Result<_, AppError>>()?;
 
     rows.iter().map(|row| slip_row(row, &mut lines)).collect()
+}
+
+/// The gross on the latest slip head office has approved for somebody.
+///
+/// Used by F&F when the caller leaves `final_pay_minor` out: "the last run's
+/// gross" is a figure that already exists in this system, so copying it is not
+/// inventing a wage. It deliberately returns `None` rather than zero when there
+/// has never been an approved run — a settlement over no payroll is a decision
+/// somebody has to state, not a nought to assume.
+pub async fn last_approved_gross_minor(
+    pool: &PgPool,
+    employee_id: &str,
+) -> Result<Option<i64>, AppError> {
+    Ok(sqlx::query_scalar(
+        "SELECT s.gross_minor
+           FROM payroll_slip s
+           JOIN payroll_run r ON r.id = s.run_id
+          WHERE s.employee_id = $1 AND r.state = 'APPROVED'
+          ORDER BY r.period DESC, r.id DESC
+          LIMIT 1",
+    )
+    .bind(employee_id)
+    .fetch_optional(pool)
+    .await?)
 }
 
 /// What a run adds up to, and what stands in its way.
@@ -1169,8 +1426,275 @@ pub async fn hand_over(pool: &PgPool, handover: &PayrollHandover) -> Result<(), 
         .execute(&mut *tx)
         .await?;
     }
+
+    // The signed handover IS the accrual. Gross, one line each way, on the day
+    // the approved run reaches Finance: the wages became owed when both sides
+    // agreed on them, so the source event posts the journal in this transaction.
+    // The store later paying staff out of its fund debits the same payable
+    // (`store_money.rs`), which is the loop closing -- before this posting
+    // existed, that debit answered a credit nobody had ever written.
+    //
+    // The place pays, but the SITE the ledger knows is the place's own: `ho`
+    // is a place that works at site `dc` (0236), so the site comes from
+    // `org_place` and falls back to the place's own id.
+    let site_id: String =
+        sqlx::query_scalar("SELECT COALESCE(site_id, id) FROM org_place WHERE id = $1")
+            .bind(handover.place().as_str())
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| {
+                AppError::NotFound(format!("the payroll handover's place {}", handover.place()))
+            })?;
+    let lines = payroll_accrual_lines(&mut tx, handover.run_id(), &site_id, handover.gross_minor())
+        .await?;
+    let intent = PostingIntent {
+        posting_date: Utc::now().date_naive(),
+        source_kind: "PAYROLL_RUN".into(),
+        source_id: Some(handover.run_id().to_string()),
+        rule_version: "payroll_run/2".into(),
+        currency: "IDR".into(),
+        memo: Some(format!(
+            "Payroll {} {} handed to Finance",
+            handover.place(),
+            handover.period()
+        )),
+        lines,
+    };
+    post(
+        &mut tx,
+        &intent,
+        Some("ACCRUAL"),
+        &handover.handed_over().actor().to_string(),
+    )
+    .await?;
+
     tx.commit().await?;
     Ok(())
+}
+
+/// The component class a pay component's code names, which is the qualifier
+/// `payroll_expense` is mapped by (0371): store staff to 6012–6024, head office
+/// and DC to 6026–6038, by the kind of site.
+///
+/// Read off the code because components are defined by HR, not by Finance; a
+/// code that names nothing more specific is salary (allowances belong with
+/// the salary account, owner decision 25 Sep).
+fn component_class(code: &str, unit: Option<&str>) -> &'static str {
+    let code = code.to_ascii_uppercase();
+    let has = |needle: &str| code.contains(needle);
+    if unit.is_some_and(|u| u.starts_with("OVERTIME")) || has("LEMBUR") || has("OVERTIME") {
+        "OVERTIME"
+    } else if has("THR") {
+        "THR"
+    } else if has("BONUS") || has("KPI") || has("INSENTIF") || has("INCENTIVE") || has("KOMISI") {
+        "BONUS"
+    } else if has("MAKAN") || has("MEAL") {
+        "MEAL"
+    } else if has("TRANSPORT") {
+        "TRANSPORT"
+    } else if has("KESEHATAN") || has("MEDIS") || has("MEDICAL") || has("PENGOBATAN") {
+        "MEDICAL"
+    } else if has("SERAGAM") || has("UNIFORM") {
+        "UNIFORM"
+    } else if has("PESANGON") || has("SEVERANCE") {
+        "SEVERANCE"
+    } else {
+        "SALARY"
+    }
+}
+
+/// Where a deduction withheld from pay goes, as (meaning, qualifier).
+///
+/// Client accountant, 25 Sep, and the owner's correction the same day: gross is
+/// owed as `2017 Biaya Gaji dan Upah YMHD`; PPh 21 withheld goes to 2011; a
+/// loan instalment repays the employee receivable; an advance remainder
+/// deducted from pay credits the advance (owner decision, HR 5). A deduction
+/// the code does not explain stays in 2017, where Finance sees it at payment.
+///
+/// BPJS is the one that was wrong. It used to fall through to 2017 with every
+/// other unexplained deduction, which is exactly the "Cr 2017 includes BPJS"
+/// the owner rejected. It now names `bpjs_payable` — its own meaning with its
+/// own canonical mapping (2021, marked TO_CONFIRM at the map), so the day the
+/// client accountant decides, one `account_map` row moves and no payroll code
+/// changes. It is deliberately NOT defaulted to salary.
+fn deduction_meaning(code: &str) -> (&'static str, &'static str) {
+    let code = code.to_ascii_uppercase();
+    let has = |needle: &str| code.contains(needle);
+    if has("PPH") {
+        ("pph21_payable", "")
+    } else if has("BPJS") || has("JAMSOSTEK") {
+        ("bpjs_payable", "")
+    } else if has("KASBON") || has("PINJAM") || has("CICIL") || has("LOAN") || has("PIUTANG") {
+        ("employee_receivable", "")
+    } else if has("UANG_MUKA") || has("UANGMUKA") || has("ADVANCE") {
+        ("advance", "PERJALANAN")
+    } else {
+        ("payroll_payable", "")
+    }
+}
+
+/// The accrual a payroll run posts when HR hands it to Finance.
+///
+/// Client accountant (25 Sep), stage one of two: Dr each component's expense at
+/// the run's site — the site kind decides store (6012–6024) or head office/DC
+/// (6026–6038) — / Cr 2017 Biaya Gaji dan Upah YMHD, with the withholdings that
+/// leave 2017 credited where they are owed. Stage two (payment on the 1st) is
+/// Dr 2017 / Cr petty cash at a store (funded by head office's transfer) or Cr
+/// bank at head office.
+///
+/// The THR earned this month is accrued too — one twelfth of a month's base
+/// per slip, Dr THR expense / Cr `thr_payable` (2018, owner decision HR 4) —
+/// and a THR paid in the run is drawn from that accrual rather than expensed
+/// again. Employer BPJS is not computed anywhere in this estate yet, so no
+/// line is invented for it.
+///
+/// Balanced by construction: the expense lines sum to the slips' gross (any
+/// amount the components do not explain is salary), and the credits sum to
+/// the same gross.
+async fn payroll_accrual_lines(
+    tx: &mut Transaction<'_, Postgres>,
+    run_id: &str,
+    site_id: &str,
+    handed_gross: i64,
+) -> Result<Vec<PostingLine>, AppError> {
+    use std::collections::BTreeMap;
+    let slips = sqlx::query(
+        "SELECT employee_id, base_minor, fixed_allowances, gross_minor
+           FROM payroll_slip WHERE run_id = $1 ORDER BY employee_id",
+    )
+    .bind(run_id)
+    .fetch_all(&mut **tx)
+    .await?;
+    let slip_lines = sqlx::query(
+        "SELECT employee_id, kind, component_code, unit, amount_minor
+           FROM payroll_slip_line WHERE run_id = $1",
+    )
+    .bind(run_id)
+    .fetch_all(&mut **tx)
+    .await?;
+
+    let mut expense: BTreeMap<&'static str, i64> = BTreeMap::new();
+    let mut credits: BTreeMap<(&'static str, &'static str), i64> = BTreeMap::new();
+    let mut thr_accrual = 0i64;
+    let mut gross_total = 0i64;
+    for slip in &slips {
+        let employee: String = slip.try_get("employee_id")?;
+        let base: i64 = slip.try_get("base_minor")?;
+        let gross: i64 = slip.try_get("gross_minor")?;
+        gross_total += gross;
+        let mut explained = 0i64;
+        for allowance in decode_allowances(slip.try_get("fixed_allowances")?)? {
+            let minor = allowance.amount().minor;
+            *expense
+                .entry(component_class(&allowance.code().to_string(), None))
+                .or_default() += minor;
+            explained += minor;
+        }
+        for line in slip_lines
+            .iter()
+            .filter(|l| l.try_get::<String, _>("employee_id").ok().as_deref() == Some(&employee))
+        {
+            let kind: String = line.try_get("kind")?;
+            let code: String = line.try_get("component_code")?;
+            let unit: Option<String> = line.try_get("unit")?;
+            let amount: i64 = line.try_get("amount_minor")?;
+            if kind == "DEDUCTION" {
+                *credits.entry(deduction_meaning(&code)).or_default() += amount;
+            } else {
+                *expense.entry(component_class(&code, unit.as_deref())).or_default() += amount;
+                explained += amount;
+            }
+        }
+        // Whatever the components do not explain — base pay included — is
+        // salary, so the expense is always the slip's own gross.
+        *expense.entry("SALARY").or_default() += gross - explained;
+        thr_accrual += base / 12;
+    }
+    if slips.is_empty() || gross_total != handed_gross {
+        return Err(AppError::Conflict(format!(
+            "the run's slips come to {gross_total} and the handover says {handed_gross}; \
+             the accrual would not be the liability HR signed"
+        )));
+    }
+
+    // A THR paid in this run is drawn from what has been accrued for it.
+    let thr_paid = expense.remove("THR").unwrap_or(0);
+    let mut lines = Vec::new();
+    for (class, amount) in &expense {
+        if *amount > 0 {
+            lines.push(PostingLine::debit("payroll_expense", site_id, *amount).with_qualifier(class));
+        } else if *amount < 0 {
+            lines.push(PostingLine::credit("payroll_expense", site_id, -amount).with_qualifier(class));
+        }
+    }
+    if thr_paid > 0 {
+        lines.push(PostingLine::debit("thr_payable", site_id, thr_paid));
+    }
+    for ((key, qualifier), amount) in &credits {
+        if *amount > 0 && *key != "payroll_payable" {
+            lines.push(PostingLine::credit(*key, site_id, *amount).with_qualifier(qualifier));
+        }
+    }
+    let net_to_2017 = gross_total
+        - credits
+            .iter()
+            .filter(|((key, _), _)| *key != "payroll_payable")
+            .map(|(_, amount)| amount)
+            .sum::<i64>();
+    if net_to_2017 != 0 {
+        lines.push(if net_to_2017 > 0 {
+            PostingLine::credit("payroll_payable", site_id, net_to_2017)
+        } else {
+            PostingLine::debit("payroll_payable", site_id, -net_to_2017)
+        });
+    }
+    if thr_accrual > 0 {
+        lines.push(PostingLine::debit("payroll_expense", site_id, thr_accrual).with_qualifier("THR"));
+        lines.push(PostingLine::credit("thr_payable", site_id, thr_accrual));
+    }
+    Ok(lines)
+}
+
+/// Post the accrual of a run straight from its slips, without a handover
+/// document around it: the same lines `hand_over` posts. For a run whose
+/// handover was recorded before the accrual existed, and for tests of the rule.
+pub async fn payroll_accrual_post(
+    pool: &PgPool,
+    run_id: &str,
+    place_id: &str,
+    actor: &str,
+) -> Result<Uuid, AppError> {
+    let mut tx = pool.begin().await?;
+    let site_id: String =
+        sqlx::query_scalar("SELECT COALESCE(site_id, id) FROM org_place WHERE id = $1")
+            .bind(place_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("the payroll place {place_id}")))?;
+    let gross: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(gross_minor), 0)::bigint FROM payroll_slip WHERE run_id = $1",
+    )
+    .bind(run_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    let lines = payroll_accrual_lines(&mut tx, run_id, &site_id, gross).await?;
+    let posted = post(
+        &mut tx,
+        &PostingIntent {
+            posting_date: Utc::now().date_naive(),
+            source_kind: "PAYROLL_RUN".into(),
+            source_id: Some(run_id.to_string()),
+            rule_version: "payroll_run/2".into(),
+            currency: "IDR".into(),
+            memo: Some(format!("Payroll {place_id} accrued")),
+            lines,
+        },
+        Some("ACCRUAL"),
+        actor,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(posted.entry_id)
 }
 
 /// Record that Finance has paid it.
@@ -1180,7 +1704,95 @@ pub async fn hand_over(pool: &PgPool, handover: &PayrollHandover) -> Result<(), 
 /// gone out. The unguarded form — pre-check the state, then update by id — has
 /// a window between the two, and this is the shape `cash_count::post_variance`
 /// settled on for the same reason.
-pub async fn settle_handover(pool: &PgPool, handover: &PayrollHandover) -> Result<(), AppError> {
+pub async fn settle_handover(
+    pool: &PgPool,
+    handover: &PayrollHandover,
+    paid_from: Option<(&str, &str)>,
+) -> Result<(), AppError> {
+    let accrual_posted: bool = sqlx::query_scalar(
+        "SELECT EXISTS (
+             SELECT 1 FROM journal_entry
+              WHERE source_kind = 'PAYROLL_RUN'
+                AND source_id = $1 AND purpose IN ('ACCRUAL', 'MAIN')
+         )",
+    )
+    .bind(handover.run_id().to_string())
+    .fetch_one(pool)
+    .await?;
+    if !accrual_posted {
+        return Err(AppError::Conflict(
+            "the payroll handover has no posted accrual journal, so it cannot be settled".into(),
+        ));
+    }
+    // Client accountant, 25 Sep (payroll stage two): head office and DC staff
+    // are paid from head office's bank — Dr 2017 Biaya Gaji dan Upah YMHD /
+    // Cr bank — in the same act that records the run as paid. A store's staff
+    // are paid out of the store's petty cash (Dr 2017 / Cr 1003), funded by
+    // head office's transfer, through the store payout tasks; recording the
+    // run as settled posts nothing more for a store.
+    let (site_id, site_kind): (String, String) = sqlx::query_as(
+        "SELECT s.id, s.kind FROM org_place p JOIN site s ON s.id = COALESCE(p.site_id, p.id)
+          WHERE p.id = $1",
+    )
+    .bind(handover.place().as_str())
+    .fetch_one(pool)
+    .await?;
+    let mut tx = pool.begin().await?;
+    if site_kind != "STORE" {
+        let (bank_key, bank_qualifier) = paid_from.ok_or_else(|| {
+            AppError::Validation(
+                "a head-office payroll is paid from a bank: say which (bank_key and \
+                 bank_qualifier)"
+                    .into(),
+            )
+        })?;
+        if !matches!(bank_key, "bank_giro" | "bank_savings") {
+            return Err(AppError::Validation(
+                "head-office wages leave a giro or a savings account".into(),
+            ));
+        }
+        let owed: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(SUM(l.credit_minor - l.debit_minor), 0)::bigint
+               FROM journal_line l
+               JOIN journal_entry e ON e.entry_id = l.entry_id
+              WHERE e.source_kind = 'PAYROLL_RUN' AND e.source_id = $1
+                AND e.purpose IN ('ACCRUAL', 'MAIN') AND l.site_id = $2
+                AND l.account_code = (SELECT account_code FROM account_map
+                                       WHERE semantic_key = 'payroll_payable'
+                                         AND site_id = $2 AND qualifier = '')",
+        )
+        .bind(handover.run_id().to_string())
+        .bind(&site_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if owed > 0 {
+            post(
+                &mut tx,
+                &PostingIntent {
+                    posting_date: Utc::now().date_naive(),
+                    source_kind: "PAYROLL_RUN".into(),
+                    source_id: Some(handover.run_id().to_string()),
+                    rule_version: "payroll_payment/1".into(),
+                    currency: "IDR".into(),
+                    memo: Some(format!(
+                        "Payroll {} {} paid",
+                        handover.place(),
+                        handover.period()
+                    )),
+                    lines: vec![
+                        PostingLine::debit("payroll_payable", &site_id, owed),
+                        PostingLine::credit(bank_key, "dc", owed).with_qualifier(bank_qualifier),
+                    ],
+                },
+                Some("PAYMENT"),
+                &handover
+                    .settled()
+                    .map(|signature| signature.actor().to_string())
+                    .unwrap_or_else(|| "finance".to_string()),
+            )
+            .await?;
+        }
+    }
     let updated = sqlx::query(
         "UPDATE payroll_handover
             SET state = $2, settled = $3, updated_at = now()
@@ -1197,7 +1809,7 @@ pub async fn settle_handover(pool: &PgPool, handover: &PayrollHandover) -> Resul
                 AppError::Validation("a settled handover carries the signature that paid it".into())
             })?,
     )
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
     if updated.rows_affected() == 0 {
         return Err(AppError::Conflict(format!(
@@ -1205,6 +1817,7 @@ pub async fn settle_handover(pool: &PgPool, handover: &PayrollHandover) -> Resul
             handover.period()
         )));
     }
+    tx.commit().await?;
     Ok(())
 }
 

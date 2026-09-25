@@ -5,13 +5,13 @@
 //! # Why this is one module and not five
 //!
 //! Because it is one loop, and the accounts only make sense as a loop. A
-//! delivery credits `supplier_suspend`; the bill that answers it debits the same
-//! account and credits `trade_payable`; a credit note debits that back; an
-//! advance sits in `advance_purchase` until a bill exists to set it against; and
-//! the payment that finally settles the bill splits between the bank and the tax
-//! office. Split across five files, the property that ties them — that every
-//! account this lane opens is emptied again by the next document — would be five
-//! people's business and nobody's.
+//! delivery credits `trade_payable` as soon as accepted goods are received; the
+//! supplier bill completes that debt with tax and invoice terms; a credit note
+//! debits it back; an advance sits in `advance_purchase` until a bill exists to
+//! set it against; and the payment that finally settles the bill splits between
+//! the bank and the tax office. Split across five files, the property that ties
+//! them — that every account this lane opens is emptied again by the next
+//! document — would be five people's business and nobody's.
 //!
 //! `payables.rs` still owns the bill itself and `payments.rs` the payment. This
 //! module owns what happens around them, and each of those calls into it at
@@ -31,7 +31,7 @@ use super::payment_ledger::{
     ple_delink, ple_open, ple_settle_claim, PaymentLedgerClaim, PaymentLedgerItem,
     PaymentLedgerPartyType, PaymentLedgerSide,
 };
-use super::poster::{post, reverse, LineAccount, PostingIntent, PostingLine};
+use super::poster::{post, reverse, LineAccount, PostingIntent, PostingLine, HEAD_OFFICE_SITE};
 use crate::cloud::application::AppError;
 use crate::cloud::domain::three_way::{
     match_bill_to_deliveries, LineFault, MatchLine, MatchTolerance,
@@ -42,9 +42,6 @@ use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
-/// The liability a delivery raises before anybody has agreed a bill:
-/// `2012001002 Hutang Supplier Barang Dagang - Suspend`.
-const SUSPEND: &str = "supplier_suspend";
 /// Where a bill that disagrees with the order puts the difference.
 const VARIANCE: &str = "purchase_price_variance";
 /// Money paid to a supplier before there is anything to owe them for.
@@ -125,6 +122,7 @@ pub(super) const fn payable_key(kind_is_expense: bool) -> &'static str {
 pub(super) async fn payable_opened(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     account_key: &str,
+    voucher_kind: &str,
     site_id: &str,
     supplier_id: &str,
     supplier_name: Option<&str>,
@@ -150,7 +148,7 @@ pub(super) async fn payable_opened(
             party_type: PaymentLedgerPartyType::Supplier,
             party_id: supplier_id.to_string(),
             party_name: supplier_name.map(str::to_string),
-            voucher_kind: BILL_VOUCHER.to_string(),
+            voucher_kind: voucher_kind.to_string(),
             voucher_id: voucher_id.to_string(),
             journal_entry_id,
             side: PaymentLedgerSide::Payable,
@@ -234,15 +232,69 @@ pub(super) async fn payable_settled(
 /// and posted, and adjusting a layer that already exists is lane-I's business:
 /// it owns whether that is a revaluation of the remaining quantity or a
 /// difference straight to cost of sales, and this lane must not pre-empt it.
+///
+/// Finance Connect stage 5 (owner decision): the receipt creates the layer at
+/// qty x PO price, and any sale that was posted while this SKU had no layer
+/// ("cost pending") is trued up against it in the same transaction.
 pub(super) async fn lane_i_cost_layer(
-    _tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    _article_code: &str,
-    _quantity: i64,
-    _unit_cost_minor: i64,
-    _economic_date: NaiveDate,
-    _receipt_id: Uuid,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    article_code: &str,
+    quantity: i64,
+    unit_cost_minor: i64,
+    economic_date: NaiveDate,
+    receipt_id: Uuid,
 ) -> Result<(), AppError> {
-    Ok(())
+    if quantity <= 0 {
+        return Ok(());
+    }
+    let Some(article_id) =
+        sqlx::query_scalar::<_, Uuid>("SELECT id FROM article WHERE article_code = $1")
+            .bind(article_code)
+            .fetch_optional(&mut **tx)
+            .await?
+    else {
+        // A receipt line for an article the catalogue does not hold cannot
+        // carry a layer; the valuation entry beside it still stands.
+        tracing::warn!(article = article_code, receipt = %receipt_id, "no article for a receipt line; no cost layer");
+        return Ok(());
+    };
+    let (site_id, supplier_id): (String, Option<String>) = sqlx::query_as(
+        "SELECT site_id, supplier_id::text FROM goods_receipt WHERE receipt_id = $1",
+    )
+    .bind(receipt_id)
+    .fetch_one(&mut **tx)
+    .await?;
+    let pool_id: String = sqlx::query_scalar(
+        "SELECT id FROM operational_pool
+          WHERE site_id = $1 AND group_code IN ('WAREHOUSE', 'STORE_INVENTORY')
+          ORDER BY (group_code = 'WAREHOUSE') DESC, display_order
+          LIMIT 1",
+    )
+    .bind(&site_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .unwrap_or_else(|| format!("{site_id}.warehouse"));
+    super::stock_ledger::cost_layer_create(
+        tx,
+        &super::stock_ledger::NewCostLayer {
+            article_id,
+            quantity,
+            gross_cost_minor: quantity.saturating_mul(unit_cost_minor),
+            discount_minor: 0,
+            economic_date,
+            site_id,
+            to_pool_id: pool_id,
+            receipt_id: Some(receipt_id),
+            receipt_line_id: None,
+            source_reference: None,
+            supplier_id,
+            source_kind: "GOODS_RECEIPT".into(),
+            source_id: format!("{receipt_id}:{article_code}"),
+        },
+        "system:goods-receipt",
+    )
+    .await?;
+    super::stock_ledger::cost_pending_true_up(tx, article_id, economic_date).await
 }
 
 // ---------------------------------------------------------------------------
@@ -361,12 +413,12 @@ async fn receipt_value(
 /// Value a delivery into the ledger.
 ///
 ///     Dr inventory        at the receiving location
-///     Cr supplier_suspend at the same location, carrying the supplier
+///     Cr trade_payable at the same location, carrying the supplier
 ///
 /// The supplier is a dimension on the LINE rather than a qualifier on the
 /// account, exactly as `trade_payable` does it. A qualifier would mean a row in
 /// `account_map` per supplier and a posting that refuses the first time somebody
-/// buys from a new one; `journal_line.supplier_id` already carries the
+/// buys from a new one; `journal_line.party_type`/`party_id` already carry the
 /// sub-ledger, and every ageing projection already reads it.
 ///
 /// Idempotent because `goods_receipt_posting.receipt_id` is a primary key. The
@@ -408,15 +460,35 @@ pub async fn receipt_post(
         rule_version: "goods_receipt/1".into(),
         currency: "IDR".into(),
         memo: Some(format!("{number} {supplier_id}")),
+        // The goods land where they were delivered; the supplier payable is
+        // head office's and only head office's (owner rule, 25 Sep). A delivery
+        // straight to a shop therefore posts inventory at the shop and the
+        // payable at dc, and the poster's balancer adds the affiliate legs:
+        // shop Dr inventory / Cr 2029 Atas Barang, head office Dr 1058 / Cr 2002.
         lines: vec![
             PostingLine::debit("inventory", &site_id, value),
-            PostingLine::credit(SUSPEND, &site_id, value).for_supplier(&supplier_id),
+            PostingLine::credit("trade_payable", HEAD_OFFICE_SITE, value).for_supplier(&supplier_id),
         ],
     };
 
     let mut tx = pool.begin().await?;
     // A delivery is valued once; re-valuing it is a reversal and a new entry.
     let posted = post(&mut tx, &intent, None, actor).await?;
+    payable_opened(
+        &mut tx,
+        "trade_payable",
+        "GOODS_RECEIPT",
+        HEAD_OFFICE_SITE,
+        &supplier_id,
+        None,
+        receipt_id,
+        value,
+        None,
+        date,
+        posted.entry_id,
+        actor,
+    )
+    .await?;
     sqlx::query(
         "INSERT INTO goods_receipt_posting
            (receipt_id, journal_entry_id, value_minor, posting_date, currency, posted_by)
@@ -508,6 +580,14 @@ pub async fn receipt_reverse(
     let date = posting_date.unwrap_or(existing.posting_date);
     let mut tx = pool.begin().await?;
     let mirror = reverse(&mut tx, existing.journal_entry_id, date, reason, actor).await?;
+    ple_delink(
+        &mut tx,
+        "GOODS_RECEIPT",
+        &receipt_id.to_string(),
+        reason,
+        actor,
+    )
+    .await?;
     sqlx::query(
         "UPDATE goods_receipt_posting
             SET reversal_entry_id=$2, reversal_reason=$3, reversed_by=$4, reversed_at=now()
@@ -627,7 +707,7 @@ pub struct BillMatch {
     pub ordered_value_minor: i64,
     /// What the deliveries were actually posted at. Equal to the ordered value
     /// unless a delivery was posted and then had lines added to it.
-    pub suspend_value_minor: i64,
+    pub receipt_value_minor: i64,
     /// Billed minus posted. Positive is a debit to purchase price variance.
     pub price_variance_minor: i64,
     /// Everything that disagreed, in the words somebody has to act on.
@@ -661,9 +741,10 @@ fn fault_sentence(fault: &LineFault) -> String {
 
 /// Tie a bill to the deliveries it covers, line by line.
 ///
-/// DRAFT -> MATCHED. The bill is not in the ledger yet: matching decides what
-/// posting will do, and posting is still a separate act with its own actor, in
-/// the same way a bill is recorded before it is posted.
+/// DRAFT -> MATCHED -> POSTED. Matching checks the delivery, quantities, price,
+/// and variance. Once those checks pass, the bill journal posts in the same
+/// request; unresolved account or period problems leave the matched bill for
+/// correction.
 ///
 /// Everything is written in one transaction. A bill marked MATCHED whose lines
 /// did not survive, or lines against a bill that never changed status, are both
@@ -686,6 +767,16 @@ pub async fn bill_match(
             "say what the bill charges for, line by line; there is nothing to check otherwise"
                 .into(),
         ));
+    }
+
+    // The accepted delivery is the first accounting fact in the procurement
+    // chain. Ensure it is valued before matching its invoice, so a user does
+    // not have to run a separate Finance posting action between receipt and
+    // three-way match.
+    for receipt_id in &request.receipt_ids {
+        if receipt_posting(pool, *receipt_id).await?.is_none() {
+            receipt_post(pool, *receipt_id, None, actor).await?;
+        }
     }
 
     let header = sqlx::query(
@@ -720,7 +811,7 @@ pub async fn bill_match(
     // valued, and must not already answer another bill. The unique index in
     // 0131 is the guarantee for the last of those; this is the sentence.
     let mut receipt_numbers = Vec::with_capacity(request.receipt_ids.len());
-    let mut suspend_value: i64 = 0;
+    let mut receipt_value: i64 = 0;
     for receipt_id in &request.receipt_ids {
         let row = sqlx::query(
             "SELECT r.receipt_number, r.supplier_id, r.site_id,
@@ -766,17 +857,15 @@ pub async fn bill_match(
         match (value, reversed) {
             (None, _) => {
                 return Err(AppError::Conflict(format!(
-                    "delivery {number} is not in the ledger yet; value it first, or the bill will \
-                     clear a suspense credit that was never made"
+                    "delivery {number} is not in the ledger yet; value it before matching the bill"
                 )))
             }
             (Some(_), Some(_)) => {
                 return Err(AppError::Conflict(format!(
-                    "delivery {number} was un-valued; there is nothing on the suspend account for \
-                     this bill to clear"
+                    "delivery {number} was un-valued; there is no receipt liability for this bill to clear"
                 )))
             }
-            (Some(value), None) => suspend_value += value,
+            (Some(value), None) => receipt_value += value,
         }
         receipt_numbers.push(number);
     }
@@ -871,7 +960,7 @@ pub async fn bill_match(
         )));
     }
 
-    let variance = outcome.billed_value_minor - suspend_value;
+    let variance = outcome.billed_value_minor - receipt_value;
 
     let mut tx = pool.begin().await?;
     // Written afresh each time, so re-matching after a correction is the same
@@ -931,7 +1020,7 @@ pub async fn bill_match(
     .await?;
     tx.commit().await?;
 
-    Ok(BillMatch {
+    let mut matched = BillMatch {
         invoice_id,
         invoice_number,
         status: "MATCHED".into(),
@@ -939,11 +1028,20 @@ pub async fn bill_match(
         line_count: request.lines.len() as i64,
         billed_value_minor: outcome.billed_value_minor,
         ordered_value_minor: outcome.ordered_value_minor,
-        suspend_value_minor: suspend_value,
+        receipt_value_minor: receipt_value,
         price_variance_minor: variance,
         disagreements: outcome.faults.iter().map(fault_sentence).collect(),
         matched_by: actor.to_string(),
-    })
+    };
+
+    // A successful three-way match is the procurement approval boundary:
+    // quantity, price variance, supplier, site, receipt valuation, and invoice
+    // totals have all been checked above. Post its journal immediately. If
+    // account resolution or a period check refuses, the matched bill remains
+    // visible for correction and this request reports the refusal.
+    let posted = super::payables::post_bill(pool, invoice_id, None, actor).await?;
+    matched.status = posted.status;
+    Ok(matched)
 }
 
 /// What a merchandise bill debits when it posts.
@@ -951,19 +1049,19 @@ pub async fn bill_match(
 /// The one place `payables::post_bill` reaches into this module. Two answers,
 /// and which one applies is a fact about the bill rather than a setting:
 ///
-///   * matched to deliveries — the goods are already in inventory, put there
-///     when the delivery was valued, and the credit that paid for them is
-///     sitting on `supplier_suspend`. So the bill DEBITS the suspend account,
-///     emptying exactly what the deliveries filled, and the difference between
-///     what was billed and what was posted goes to `purchase_price_variance`.
+///   * matched to deliveries — the goods are already in inventory and the
+///     receipt has raised the supplier payable. The bill debits that payable for
+///     the receipt value, re-credits the invoice value, adds input VAT, and
+///     records any price difference. Historical receipts that credited the old
+///     suspended account are cleared against the exact account their journal
+///     used; new receipts always clear `trade_payable`.
 ///   * matched to nothing — the delivery was never valued, or there was none.
 ///     The bill debits `inventory` as it always did, which is 0052's rule and
 ///     the only honest answer when nothing else has posted.
 ///
-/// A bill and its deliveries therefore leave `2012001002` at zero, which is the
-/// property that makes the account worth keeping: a balance on it at a month end
-/// is deliveries nobody has billed, on the balance sheet, rather than a list
-/// somebody has to remember to run.
+/// The receipt's payable item is transferred to the invoice's payable item in
+/// the Payment Ledger when the bill posts. An uninvoiced delivery therefore
+/// remains visible as an open supplier debt without a suspense account.
 pub async fn merchandise_debit_lines(
     pool: &PgPool,
     invoice_id: Uuid,
@@ -975,7 +1073,7 @@ pub async fn merchandise_debit_lines(
     let row = sqlx::query(
         "SELECT COUNT(*)::bigint AS receipts,
                 COUNT(p.receipt_id)::bigint AS valued,
-                COALESCE(SUM(p.value_minor), 0)::bigint AS suspend_value
+                COALESCE(SUM(p.value_minor), 0)::bigint AS receipt_value
            FROM supplier_invoice_receipt sir
            LEFT JOIN goods_receipt_posting p
                   ON p.receipt_id = sir.receipt_id AND p.reversal_entry_id IS NULL
@@ -986,7 +1084,7 @@ pub async fn merchandise_debit_lines(
     .await?;
     let receipts: i64 = row.try_get("receipts")?;
     let valued: i64 = row.try_get("valued")?;
-    let suspend_value: i64 = row.try_get("suspend_value")?;
+    let receipt_value: i64 = row.try_get("receipt_value")?;
 
     if receipts == 0 {
         return Ok(vec![PostingLine::debit(
@@ -998,32 +1096,237 @@ pub async fn merchandise_debit_lines(
     if valued != receipts {
         return Err(AppError::Conflict(
             "a delivery this bill covers is not in the ledger; value it before posting the bill, \
-             or the bill will clear a suspense credit that was never made"
+             or the bill will clear a supplier payable that was never made"
                 .into(),
         ));
     }
     // The variance was decided at matching and frozen once the bill posts. If
     // the deliveries have moved since — a receipt re-posted, a price amended —
     // recomputing it here would post one figure and record another.
-    if subtotal_minor - suspend_value != price_variance_minor {
+    if subtotal_minor - receipt_value != price_variance_minor {
         return Err(AppError::Conflict(format!(
-            "the deliveries were valued at {suspend_value} and the bill was matched against a \
+            "the deliveries were valued at {receipt_value} and the bill was matched against a \
              variance of {price_variance_minor}; match it again before posting"
         )));
     }
 
-    let mut lines =
-        vec![PostingLine::debit(SUSPEND, site_id, suspend_value).for_supplier(supplier_id)];
-    if price_variance_minor > 0 {
-        lines.push(PostingLine::debit(VARIANCE, site_id, price_variance_minor));
-    } else if price_variance_minor < 0 {
-        lines.push(PostingLine::credit(
-            VARIANCE,
-            site_id,
-            -price_variance_minor,
-        ));
+    let trade_payable_code = super::ledger::resolve_account_code(pool, "trade_payable", site_id, "").await?;
+    let receipt_rows = sqlx::query(
+        "SELECT p.journal_entry_id, p.value_minor,
+                (SELECT jl.account_code
+                   FROM journal_line jl
+                  WHERE jl.entry_id = p.journal_entry_id
+                    AND jl.party_type = 'SUPPLIER'
+                    AND jl.party_id = $2
+                    AND jl.credit_minor > 0
+                  ORDER BY jl.line_number
+                  LIMIT 1) AS payable_account_code
+           FROM supplier_invoice_receipt sir
+           JOIN goods_receipt_posting p ON p.receipt_id = sir.receipt_id
+          WHERE sir.invoice_id = $1 AND p.reversal_entry_id IS NULL
+          ORDER BY p.posting_date, p.receipt_id",
+    )
+    .bind(invoice_id)
+    .bind(supplier_id)
+    .fetch_all(pool)
+    .await?;
+    let mut lines = Vec::with_capacity(receipt_rows.len() + 2);
+    for receipt in &receipt_rows {
+        let account_code: Option<String> = receipt.try_get("payable_account_code")?;
+        let account_code = account_code.ok_or_else(|| {
+            AppError::Conflict(
+                "a received delivery has no supplier-payable credit in its journal; review the \
+                 receipt entry before posting this invoice"
+                    .into(),
+            )
+        })?;
+        let value: i64 = receipt.try_get("value_minor")?;
+        let line = if account_code == trade_payable_code {
+            // The receipt credited the payable at dc (owner rule, 25 Sep), so
+            // the invoice clears it there. The goods may be at a shop; the debt
+            // never was.
+            PostingLine::debit("trade_payable", HEAD_OFFICE_SITE, value).for_supplier(supplier_id)
+        } else {
+            // Clear historical receipts using the exact account code their
+            // original journal credited. New receipts never take this branch.
+            PostingLine::debit(
+                LineAccount::Account {
+                    account_code,
+                    category_code: None,
+                },
+                site_id,
+                value,
+            )
+            .for_supplier(supplier_id)
+        };
+        lines.push(line);
     }
+    // The variance itself is NOT a line here. Owner decision (stage 5): a
+    // supplier billing a different price adjusts the goods' provenance cost —
+    // inventory while they are on hand, cost of sales once they are gone — and
+    // `payables::post_bill` folds that split into this same entry. Landing it in
+    // `8004 Potongan Pembelian` instead, as it used to, would leave the sold
+    // portion of the difference sitting in the profit and loss as income and the
+    // unsold portion out of the stock's value.
+    let _ = price_variance_minor;
     Ok(lines)
+}
+
+/// Fold a matched invoice's price variance into the layer it belongs to.
+///
+/// The variance is allocated across the layers behind the matched receipts by
+/// what each layer originally cost, and each layer is corrected without a
+/// journal of its own: this bill already credits the payable for the invoice,
+/// so the correction contributes only the two halves of the split — inventory
+/// for what is still on hand, cost of sales for what has gone — and the Atas
+/// Barang legs that keep a shop's books balanced against head office.
+pub(super) async fn append_price_correction(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    lines: &mut Vec<PostingLine>,
+    invoice_id: Uuid,
+    effective_date: NaiveDate,
+    variance_minor: i64,
+    actor: &str,
+) -> Result<(), AppError> {
+    let rows = sqlx::query(
+        "SELECT l.layer_id, l.site_id, l.opening_cost_minor
+           FROM cost_layer l
+           JOIN supplier_invoice_receipt sir ON sir.receipt_id = l.receipt_id
+          WHERE sir.invoice_id = $1
+          ORDER BY l.economic_date, l.recorded_at, l.layer_id",
+    )
+    .bind(invoice_id)
+    .fetch_all(&mut **tx)
+    .await?;
+    // An unmatched invoice has no layer behind it; it debits inventory at the
+    // billed price directly, so there is nothing to correct.
+    if rows.is_empty() {
+        return Ok(());
+    }
+    let total: i64 = rows
+        .iter()
+        .map(|row| row.try_get::<i64, _>("opening_cost_minor").unwrap_or(0).max(0))
+        .sum();
+    let mut allocated = 0i64;
+    let last = rows.len() - 1;
+    for (index, row) in rows.iter().enumerate() {
+        let layer_id: Uuid = row.try_get("layer_id")?;
+        let site: String = row.try_get("site_id")?;
+        let opening: i64 = row.try_get("opening_cost_minor")?;
+        let share = if index == last {
+            // The remainder, so independent roundings still sum to the variance.
+            variance_minor - allocated
+        } else if total > 0 {
+            ((i128::from(variance_minor) * i128::from(opening.max(0))) / i128::from(total)) as i64
+        } else {
+            0
+        };
+        allocated += share;
+        if share == 0 {
+            continue;
+        }
+        let outcome = super::stock_ledger::cost_layer_correct_price_without_journal(
+            tx,
+            &super::stock_ledger::LayerPriceCorrection {
+                layer_id,
+                amount_minor: share,
+                effective_date,
+                reason: format!("Harga faktur beda PO: {invoice_id}"),
+                source_id: format!("{invoice_id}:{layer_id}"),
+            },
+            actor,
+        )
+        .await?;
+        if outcome.inventory_minor != 0 {
+            lines.push(if outcome.inventory_minor > 0 {
+                PostingLine::debit("inventory", &site, outcome.inventory_minor)
+            } else {
+                PostingLine::credit("inventory", &site, -outcome.inventory_minor)
+            });
+        }
+        if outcome.cogs_minor != 0 {
+            lines.push(if outcome.cogs_minor > 0 {
+                PostingLine::debit("cogs", &site, outcome.cogs_minor)
+            } else {
+                PostingLine::credit("cogs", &site, -outcome.cogs_minor)
+            });
+        }
+        lines.extend(outcome.affiliate_lines);
+    }
+    Ok(())
+}
+
+/// Replace receipt-level open items with the supplier invoice's open item.
+///
+/// The invoice journal has already debited the receipt liability and credited
+/// the invoice's actual amount. Settling each receipt item and opening the bill
+/// item in this same transaction makes the Payment Ledger move by the same net
+/// amount as the general ledger. Old receipts posted before this rule changed
+/// have no Payment Ledger item, so `ple_settle_claim` correctly treats those as
+/// pre-ledger balances and the invoice item still opens for the amount now in AP.
+#[allow(clippy::too_many_arguments)]
+pub(super) async fn invoice_payable_replaces_receipts(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    invoice_id: Uuid,
+    site_id: &str,
+    supplier_id: &str,
+    supplier_name: Option<&str>,
+    amount_minor: i64,
+    due_date: Option<NaiveDate>,
+    posting_date: NaiveDate,
+    journal_entry_id: Uuid,
+    actor: &str,
+) -> Result<(), AppError> {
+    let receipts = sqlx::query(
+        "SELECT r.receipt_id, p.value_minor
+           FROM supplier_invoice_receipt sir
+           JOIN goods_receipt r USING (receipt_id)
+           JOIN goods_receipt_posting p USING (receipt_id)
+          WHERE sir.invoice_id = $1 AND p.reversal_entry_id IS NULL
+          ORDER BY p.posting_date, r.receipt_id",
+    )
+    .bind(invoice_id)
+    .fetch_all(&mut **tx)
+    .await?;
+    for receipt in &receipts {
+        let receipt_id: Uuid = receipt.try_get("receipt_id")?;
+        let value: i64 = receipt.try_get("value_minor")?;
+        let receipt_voucher = receipt_id.to_string();
+        ple_settle_claim(
+            tx,
+            &PaymentLedgerClaim {
+                account_key: "trade_payable",
+                qualifier: "",
+                site_id,
+                party_type: PaymentLedgerPartyType::Supplier,
+                party_id: supplier_id,
+                voucher_kind: Some("GOODS_RECEIPT"),
+                voucher_id: Some(&receipt_voucher),
+            },
+            BILL_VOUCHER,
+            &invoice_id.to_string(),
+            journal_entry_id,
+            posting_date,
+            value,
+            actor,
+        )
+        .await?;
+    }
+    payable_opened(
+        tx,
+        "trade_payable",
+        BILL_VOUCHER,
+        site_id,
+        supplier_id,
+        supplier_name,
+        invoice_id,
+        amount_minor,
+        due_date,
+        posting_date,
+        journal_entry_id,
+        actor,
+    )
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -1342,7 +1645,8 @@ pub async fn credit_note_post(
                 counter_site_id: None,
                 debit_minor: 0,
                 credit_minor: note.subtotal_minor,
-                supplier_id: None,
+                party_type: None,
+                party_id: None,
                 asset_id: None,
                 bank_account_id: None,
                 memo: None,
@@ -2157,9 +2461,9 @@ pub struct UnmatchedBill {
 pub struct ThreeWayReport {
     pub receipts_not_billed: Vec<ReceiptAging>,
     pub bills_not_matched: Vec<UnmatchedBill>,
-    /// What the suspend account should be carrying: the posted value of every
-    /// delivery nobody has billed. A figure to check `2012001002` against.
-    pub suspense_expected_minor: i64,
+    /// Posted value of delivered merchandise for which no supplier invoice is
+    /// matched yet; this remains open in trade payables.
+    pub unbilled_receipt_payable_minor: i64,
 }
 
 pub async fn three_way_report(pool: &PgPool, limit: i64) -> Result<ThreeWayReport, AppError> {
@@ -2202,10 +2506,8 @@ pub async fn three_way_report(pool: &PgPool, limit: i64) -> Result<ThreeWayRepor
         })
         .collect::<Result<_, AppError>>()?;
 
-    // The whole suspense balance, not only the page above, because it is a
-    // figure somebody checks an account against and a page of it would be
-    // wrong without looking wrong.
-    let suspense_expected_minor: i64 = sqlx::query(
+    // The whole open receipt payable, not only the page above.
+    let unbilled_receipt_payable_minor: i64 = sqlx::query(
         "SELECT COALESCE(SUM(p.value_minor), 0)::bigint AS expected
            FROM goods_receipt_posting p
           WHERE p.reversal_entry_id IS NULL
@@ -2251,7 +2553,7 @@ pub async fn three_way_report(pool: &PgPool, limit: i64) -> Result<ThreeWayRepor
     Ok(ThreeWayReport {
         receipts_not_billed,
         bills_not_matched,
-        suspense_expected_minor,
+        unbilled_receipt_payable_minor,
     })
 }
 

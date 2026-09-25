@@ -15,30 +15,30 @@
 //! same either way — supplier, number, terms, tax, status, ageing, and the
 //! payment that settles it. 0094 makes the argument at length.
 //!
-//! # What posting a merchandise bill actually does
+//! # What the procurement journals do
 //!
-//! Debit inventory and input VAT, credit the supplier payable. That is the
-//! whole entry, and it is worth saying what is NOT in it: nothing was posted
-//! when the goods arrived. The client has no goods-received-not-invoiced
-//! account, so a delivery moves stock in the warehouse and moves nothing in the
-//! books, and both inventory and payables enter together here.
+//! Accepting a delivery first debits inventory and credits trade payable at
+//! the ordered price. A successful three-way match then clears that receipt
+//! payable, records invoice VAT and any price variance, and updates the amount
+//! owed. Coded expense bills post when recorded; recurring-bill forecasts stay
+//! drafts until the real invoice arrives.
 //!
-//! The consequence is stated in 0052 and repeated because it matters at a month
-//! end: stock that has arrived and not been billed is not on the balance sheet.
-//! `unbilled_receipts` below is how somebody sees that exposure anyway.
+//! `unbilled_receipts` still reports accepted deliveries whose supplier bill
+//! has not arrived; their inventory and receipt payable are already in the
+//! books.
 //!
 //! # Why the bill is a row before it is a journal
 //!
-//! Because a bill arrives, gets queried, gets held, and only then gets posted —
-//! and during all of that it is a real document somebody has to be able to find.
-//! Posting is a separate act with its own actor, and once done the amounts are
-//! frozen by a trigger: the journal that quotes them cannot move, so neither can
-//! they.
+//! Because a bill has to be findable while it awaits coding or matching. A
+//! complete coded expense bill or a successful three-way merchandise match
+//! posts automatically; an incomplete or refused bill remains visible for
+//! correction. Once posted, the amounts are frozen by a trigger alongside the
+//! journal that quotes them.
 
 use super::asset_classes::assert_asset_class;
 use super::assets::{asset_cost_accounts, asset_drafts_for_bill, is_asset_account};
 use super::ledger::{assert_category_for_account, assert_postable, Intent};
-use super::poster::{post, LineAccount, PostingIntent, PostingLine};
+use super::poster::{post, LineAccount, PostingIntent, PostingLine, HEAD_OFFICE_SITE};
 use super::{decode_cursor, encode_cursor};
 use crate::cloud::application::AppError;
 use chrono::{DateTime, NaiveDate, Utc};
@@ -130,6 +130,24 @@ pub struct SupplierBill {
     /// Which income tax is kept back when this bill is paid. See
     /// `RecordBillRequest::withholding_code`.
     pub withholding_code: Option<String>,
+    /// Held so that nothing pays it (brief §8.4). A held bill is still a real
+    /// document — posting one is allowed, paying one is not — which is why it
+    /// is a flag and not a status: DRAFT/POSTED says where the paper is, this
+    /// says whether Finance wants money to move yet.
+    pub on_hold: bool,
+    /// Why. Required while `on_hold`, by a CHECK and by the writer, because a
+    /// bill that vanished from the ready-to-pay list with no reason is the
+    /// thing the column exists to prevent.
+    pub hold_reason: Option<String>,
+    /// The day somebody plans to lift the hold; `None` means "until somebody
+    /// decides", which is a real answer.
+    pub release_date: Option<NaiveDate>,
+    /// Where the draft came from: `GA` (brief §8.3) or `PAYMENT_REQUEST`
+    /// (brief §8.4). `None` for a bill Finance keyed itself.
+    pub submitted_by_domain: Option<String>,
+    /// Why Finance sent the draft back to GA (§8.3). The id and this mark stay
+    /// put, so GA reads the sentence on the same bill it will file again.
+    pub returned_reason: Option<String>,
     /// What an expense bill was for, account by account.
     ///
     /// `None` on a list read, where it is not fetched — one query per row to
@@ -176,6 +194,32 @@ pub struct SupplierBillLine {
     /// for. It debits the replacement reserve for its class instead of the
     /// account named on the line, and mints no asset.
     pub draws_reserve: bool,
+    /// The asset this line helped buy or spend on (0160). The five GA
+    /// references live on the LINE and not the header (brief §8.1), and this is
+    /// one of them.
+    pub asset_id: Option<Uuid>,
+    pub contract_id: Option<Uuid>,
+    pub repair_id: Option<Uuid>,
+    pub replacement_id: Option<Uuid>,
+    pub supply_request_id: Option<Uuid>,
+    /// The period the cost covers, when the line has one. A prepaid schedule
+    /// reads THIS and not the contract's window (§8.2).
+    pub service_period_start: Option<NaiveDate>,
+    pub service_period_end: Option<NaiveDate>,
+    /// True when a person chose the account instead of taking the suggestion.
+    /// Finance reads it to tell the two apart.
+    pub account_overridden: bool,
+    /// Where the account came from, in words: "objek perbaikan · AC &
+    /// refrigerator", "akun default vendor", ...
+    ///
+    /// Computed at READ time by `ga_accounts::suggest_account` and not stored.
+    /// WHY: the source is a label for the object the line already names, and
+    /// the refs beside it are the fact. A stored string would be a second copy
+    /// of a sentence derivable from them, free to drift the day a class is
+    /// renamed; computing it keeps the label and the object it describes in one
+    /// place. The cost is a handful of small lookups on a detail read, which
+    /// already fetches lines one query at a time and never runs for a list.
+    pub source: Option<String>,
     pub memo: Option<String>,
 }
 
@@ -213,6 +257,37 @@ pub struct RecordBillLine {
     /// `asset_class_code`, which then says which reserve it comes out of.
     #[serde(default)]
     pub draws_reserve: bool,
+    /// The five GA references (brief §8.1). At most ONE may be set on a line:
+    /// a line is for one object, and `record_bill` refuses two with an example.
+    /// `asset_id` names an asset this line helped buy or spend on; the other
+    /// four name the GA record the cost belongs to.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub asset_id: Option<Uuid>,
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub contract_id: Option<Uuid>,
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub repair_id: Option<Uuid>,
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub replacement_id: Option<Uuid>,
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub supply_request_id: Option<Uuid>,
+    /// The period this cost covers. A prepaid schedule reads the LINE's own
+    /// period, not the contract's window (brief §8.2).
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub service_period_start: Option<NaiveDate>,
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub service_period_end: Option<NaiveDate>,
+    /// True when the caller is choosing the account itself rather than taking
+    /// the suggestion. Finance reads this to see what GA changed.
+    #[serde(default)]
+    pub account_overridden: bool,
     pub memo: Option<String>,
 }
 
@@ -285,6 +360,17 @@ pub struct RecordBillRequest {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub withholding_code: Option<String>,
+    /// Who filed the draft: `GA` (brief §8.3) or `PAYMENT_REQUEST` (§8.4).
+    /// `None` for a bill Finance keyed itself, which is the ordinary case.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub submitted_by_domain: Option<String>,
+    /// Where the scan lives — a reference, not the bytes (0052's
+    /// `document_ref`). Kept on the request so the GA "ajukan tagihan" form can
+    /// say which paper it is holding.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub document_ref: Option<String>,
 }
 
 /// A delivery nobody has billed for.
@@ -450,6 +536,10 @@ pub struct BillScope {
     pub cursor: Option<String>,
     /// Absent asks for everything, unpaged. See `BillPage::next_cursor`.
     pub limit: Option<i64>,
+    /// `submitted_by_domain` to keep, e.g. `GA` for the inbox of drafts GA
+    /// filed (brief §8.3). `None` means every origin. It narrows the
+    /// population, so it is applied in SQL and not by the browser.
+    pub draft_from: Option<String>,
 }
 
 /// Where the previous page stopped — as a ROW, not as a position.
@@ -480,6 +570,7 @@ const BILL_COLUMNS: &str = "i.invoice_id, i.invoice_number, i.supplier_id, i.sup
      i.discount_minor, i.total_minor, i.status, i.journal_entry_id, i.recorded_by,
      i.recorded_at, i.posted_by, i.note, i.kind,
      i.price_variance_minor, i.matched_by, i.matched_at, i.withholding_code,
+     i.on_hold, i.hold_reason, i.release_date, i.submitted_by_domain, i.returned_reason,
      (SELECT e.entry_number FROM journal_entry e WHERE e.entry_id = i.journal_entry_id) AS entry_number,
      -- Age off what falls due NEXT, not off the single date on the paper.
      -- A bill 40% paid whose second instalment falls next month is not late,
@@ -531,16 +622,30 @@ fn to_bill(row: &sqlx::postgres::PgRow) -> Result<SupplierBill, AppError> {
         matched_by: row.try_get("matched_by")?,
         matched_at: row.try_get("matched_at")?,
         withholding_code: row.try_get("withholding_code")?,
+        on_hold: row.try_get("on_hold")?,
+        hold_reason: row.try_get("hold_reason")?,
+        release_date: row.try_get("release_date")?,
+        submitted_by_domain: row.try_get("submitted_by_domain")?,
+        returned_reason: row.try_get("returned_reason")?,
         lines: None,
     })
 }
 
 /// What an expense bill was for, in the order it was keyed.
+///
+/// `source` is computed here rather than stored: see `SupplierBillLine::source`
+/// for why. The supplier comes along for step five of the suggestion, which is
+/// "the vendor's default account" and cannot be answered without it.
 async fn bill_lines(pool: &PgPool, invoice_id: Uuid) -> Result<Vec<SupplierBillLine>, AppError> {
     let rows = sqlx::query(
         "SELECT l.line_id, l.line_number, l.account_code, a.name AS account_name,
                 l.site_id, l.amount_minor, l.category_code, k.name AS category_name,
-                l.asset_class_code, l.draws_reserve, l.memo
+                l.asset_class_code, l.draws_reserve, l.memo,
+                l.asset_id, l.contract_id, l.repair_id, l.replacement_id,
+                l.supply_request_id, l.service_period_start, l.service_period_end,
+                l.account_overridden,
+                (SELECT i.supplier_id FROM supplier_invoice i
+                  WHERE i.invoice_id = l.invoice_id) AS supplier_id
            FROM supplier_invoice_expense_line l
            JOIN ledger_account a ON a.account_code = l.account_code
            LEFT JOIN line_category k ON k.category_code = l.category_code
@@ -550,23 +655,49 @@ async fn bill_lines(pool: &PgPool, invoice_id: Uuid) -> Result<Vec<SupplierBillL
     .bind(invoice_id)
     .fetch_all(pool)
     .await?;
-    rows.iter()
-        .map(|row| {
-            Ok(SupplierBillLine {
-                line_id: row.try_get("line_id")?,
-                line_number: row.try_get("line_number")?,
-                account_code: row.try_get("account_code")?,
-                account_name: row.try_get("account_name")?,
-                site_id: row.try_get("site_id")?,
-                amount_minor: row.try_get("amount_minor")?,
-                category_code: row.try_get("category_code")?,
-                category_name: row.try_get("category_name")?,
-                asset_class_code: row.try_get("asset_class_code")?,
-                draws_reserve: row.try_get("draws_reserve")?,
-                memo: row.try_get("memo")?,
-            })
-        })
-        .collect()
+    let mut out = Vec::with_capacity(rows.len());
+    for row in &rows {
+        let site_id: String = row.try_get("site_id")?;
+        let supplier_id: Option<String> = row.try_get("supplier_id")?;
+        let refs = super::ga_accounts::LineRefs {
+            asset_class_code: row.try_get("asset_class_code")?,
+            repair_id: row.try_get("repair_id")?,
+            contract_id: row.try_get("contract_id")?,
+            supply_request_id: row.try_get("supply_request_id")?,
+            prepaid: false,
+            supplier_id,
+        };
+        // A failed suggestion must not fail the READ: the line already holds
+        // its account and its refs, and the label is a convenience. `None` is
+        // the honest answer when the object it named has since gone.
+        let source = super::ga_accounts::suggest_account(pool, &site_id, &refs)
+            .await
+            .ok()
+            .map(|suggestion| suggestion.source);
+        out.push(SupplierBillLine {
+            line_id: row.try_get("line_id")?,
+            line_number: row.try_get("line_number")?,
+            account_code: row.try_get("account_code")?,
+            account_name: row.try_get("account_name")?,
+            site_id,
+            amount_minor: row.try_get("amount_minor")?,
+            category_code: row.try_get("category_code")?,
+            category_name: row.try_get("category_name")?,
+            asset_class_code: row.try_get("asset_class_code")?,
+            draws_reserve: row.try_get("draws_reserve")?,
+            asset_id: row.try_get("asset_id")?,
+            contract_id: row.try_get("contract_id")?,
+            repair_id: row.try_get("repair_id")?,
+            replacement_id: row.try_get("replacement_id")?,
+            supply_request_id: row.try_get("supply_request_id")?,
+            service_period_start: row.try_get("service_period_start")?,
+            service_period_end: row.try_get("service_period_end")?,
+            account_overridden: row.try_get("account_overridden")?,
+            source,
+            memo: row.try_get("memo")?,
+        });
+    }
+    Ok(out)
 }
 
 /// One bill row, defined once.
@@ -635,6 +766,7 @@ const BILL_FILTERS: &str = "
     ($2::text[] IS NULL OR status = ANY($2))
     AND ($3::text[] IS NULL OR supplier_id = ANY($3))
     AND ($4::text[] IS NULL OR site_id = ANY($4))
+    AND ($5::text IS NULL OR submitted_by_domain = $5)
 ";
 
 /// Supplier bills: a page of them, how many there are, and what they come to.
@@ -655,6 +787,12 @@ pub async fn bill_page(pool: &PgPool, scope: BillScope) -> Result<BillPage, AppE
     let statuses = (!scope.statuses.is_empty()).then(|| scope.statuses.clone());
     let suppliers = (!scope.suppliers.is_empty()).then(|| scope.suppliers.clone());
     let sites = (!scope.sites.is_empty()).then(|| scope.sites.clone());
+    let draft_from = scope
+        .draft_from
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_string);
 
     // The sort, and the tie-break that makes it total. Every order ends in
     // `invoice_id`, so no two rows can ever compare equal — which is what stops
@@ -704,16 +842,17 @@ pub async fn bill_page(pool: &PgPool, scope: BillScope) -> Result<BillPage, AppE
              SELECT * FROM searched WHERE {BILL_FILTERS}
          )
          SELECT * FROM kept
-          WHERE $5::uuid IS NULL
-             OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE invoice_id = $5)
+          WHERE $6::uuid IS NULL
+             OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE invoice_id = $6)
           ORDER BY {order}
-          LIMIT $6"
+          LIMIT $7"
     );
     let rows = sqlx::query(&sql)
         .bind(&needle)
         .bind(&statuses)
         .bind(&suppliers)
         .bind(&sites)
+        .bind(&draft_from)
         .bind(cursor.as_ref().map(|c| c.invoice_id))
         // No limit means no limit. `NULL` is how Postgres spells that in
         // `LIMIT`, which is why this is an Option rather than a large number
@@ -737,7 +876,7 @@ pub async fn bill_page(pool: &PgPool, scope: BillScope) -> Result<BillPage, AppE
 
     let out = rows.iter().map(to_bill).collect::<Result<Vec<_>, _>>()?;
     let (total, total_minor, outstanding_minor, statuses) =
-        bill_facets(pool, needle.as_deref(), &statuses, &suppliers, &sites).await?;
+        bill_facets(pool, needle.as_deref(), &statuses, &suppliers, &sites, &draft_from).await?;
     Ok(BillPage {
         rows: out,
         next_cursor,
@@ -766,6 +905,7 @@ async fn bill_facets(
     statuses: &Option<Vec<String>>,
     suppliers: &Option<Vec<String>>,
     sites: &Option<Vec<String>>,
+    draft_from: &Option<String>,
 ) -> Result<(i64, i64, i64, Vec<PayableFacet>), AppError> {
     let rows_sql = bill_rows();
     let sql = format!(
@@ -786,6 +926,7 @@ async fn bill_facets(
         .bind(statuses)
         .bind(suppliers)
         .bind(sites)
+        .bind(draft_from)
         .fetch_all(pool)
         .await?;
 
@@ -835,6 +976,103 @@ pub async fn bill(pool: &PgPool, invoice_id: Uuid) -> Result<SupplierBill, AppEr
     Ok(bill)
 }
 
+/// Hold a bill so nothing pays it, with the reason it is held.
+///
+/// Holding a POSTED bill is allowed, and that is the point: the ledger already
+/// has it, but Finance does not want money moving yet. Releasing clears the
+/// reason and the planned date with the flag, so "released" and "held with a
+/// blank reason" cannot both be true.
+pub async fn hold_bill(
+    pool: &PgPool,
+    invoice_id: Uuid,
+    reason: &str,
+    release_date: Option<NaiveDate>,
+    _actor: &str,
+) -> Result<SupplierBill, AppError> {
+    if reason.trim().is_empty() {
+        return Err(AppError::Validation(
+            "say why the bill is held; a bill that leaves the ready-to-pay list with no reason \
+             is one nobody can release"
+                .into(),
+        ));
+    }
+    let updated = sqlx::query(
+        "UPDATE supplier_invoice
+            SET on_hold = true, hold_reason = $2, release_date = $3
+          WHERE invoice_id = $1",
+    )
+    .bind(invoice_id)
+    .bind(reason.trim())
+    .bind(release_date)
+    .execute(pool)
+    .await?;
+    if updated.rows_affected() == 0 {
+        return Err(AppError::NotFound("supplier bill".into()));
+    }
+    bill(pool, invoice_id).await
+}
+
+/// Release a held bill. The reason and the planned date go with the flag.
+pub async fn release_bill(pool: &PgPool, invoice_id: Uuid) -> Result<SupplierBill, AppError> {
+    let updated = sqlx::query(
+        "UPDATE supplier_invoice
+            SET on_hold = false, hold_reason = NULL, release_date = NULL
+          WHERE invoice_id = $1",
+    )
+    .bind(invoice_id)
+    .execute(pool)
+    .await?;
+    if updated.rows_affected() == 0 {
+        return Err(AppError::NotFound("supplier bill".into()));
+    }
+    bill(pool, invoice_id).await
+}
+
+/// Return a draft to the domain that filed it, with the reason.
+///
+/// A return is not a delete: the bill keeps its id and its origin mark and
+/// stays a DRAFT, so GA can fix it and file it again (§8.3). The id is the same
+/// document all the way to POSTED, which is the whole reason a return exists
+/// rather than a delete-and-retype.
+pub async fn return_bill(
+    pool: &PgPool,
+    invoice_id: Uuid,
+    reason: &str,
+    _actor: &str,
+) -> Result<SupplierBill, AppError> {
+    if reason.trim().is_empty() {
+        return Err(AppError::Validation(
+            "say why the draft is coming back; a returned draft with no reason is one GA cannot \
+             act on"
+                .into(),
+        ));
+    }
+    let status: Option<String> =
+        sqlx::query_scalar("SELECT status FROM supplier_invoice WHERE invoice_id = $1")
+            .bind(invoice_id)
+            .fetch_optional(pool)
+            .await?;
+    match status.as_deref() {
+        None => return Err(AppError::NotFound("supplier bill".into())),
+        Some("DRAFT") => {}
+        Some(other) => {
+            return Err(AppError::Conflict(format!(
+                "bill is {other}, not a draft waiting to be returned; a return is for a document \
+                 nobody has posted yet"
+            )))
+        }
+    }
+    // The origin mark and the id stay put, deliberately (brief §8.3): a
+    // returned draft is still the same document, and GA files it again rather
+    // than raising a second one. Only the reason moves.
+    sqlx::query("UPDATE supplier_invoice SET returned_reason = $2 WHERE invoice_id = $1")
+        .bind(invoice_id)
+        .bind(reason.trim())
+        .execute(pool)
+        .await?;
+    bill(pool, invoice_id).await
+}
+
 /// Record a bill. It is not in the books yet — posting is a separate act.
 ///
 /// Every refusal below is also enforced by the database — 0094's foreign keys,
@@ -864,11 +1102,66 @@ fn map_bill_write_error(error: sqlx::Error) -> AppError {
     AppError::Database(error)
 }
 
+/// The table each bill-line reference points at, so a missing object is named
+/// in words rather than by a constraint.
+async fn assert_bill_line_ref(pool: &PgPool, column: &str, id: Uuid) -> Result<(), AppError> {
+    let (table, pk, label) = match column {
+        "asset_id" => ("fixed_asset", "asset_id", "asset"),
+        "contract_id" => ("ga_contract", "contract_id", "contract"),
+        "repair_id" => ("ga_repair", "repair_id", "repair"),
+        "replacement_id" => ("ga_replacement", "replacement_id", "replacement"),
+        "supply_request_id" => ("ga_supply_request", "request_id", "supply request"),
+        _ => {
+            return Err(AppError::Validation(format!(
+                "'{column}' is not a bill-line reference"
+            )))
+        }
+    };
+    let sql = format!("SELECT EXISTS (SELECT 1 FROM {table} WHERE {pk} = $1)");
+    let exists: bool = sqlx::query_scalar(&sql).bind(id).fetch_one(pool).await?;
+    if !exists {
+        return Err(AppError::Validation(format!(
+            "there is no {label} {id} in the register to point this line at"
+        )));
+    }
+    Ok(())
+}
+
 pub async fn record_bill(
     pool: &PgPool,
     request: &RecordBillRequest,
     actor: &str,
 ) -> Result<SupplierBill, AppError> {
+    record_bill_with_policy(pool, request, actor, true).await
+}
+
+/// Raise a forecast bill without posting it. Recurring-bill templates are
+/// placeholders for an invoice that has not arrived yet, so they must remain
+/// drafts until somebody records the real document.
+pub async fn record_bill_draft(
+    pool: &PgPool,
+    request: &RecordBillRequest,
+    actor: &str,
+) -> Result<SupplierBill, AppError> {
+    record_bill_with_policy(pool, request, actor, false).await
+}
+
+/// The validated shape of a bill, before anything is written.
+///
+/// Split out from the writer so the payment-request path can put the bill and
+/// the instruction's APPROVED status in ONE transaction without a second
+/// INSERT: `decide_instruction` validates with this and then calls
+/// [`insert_bill`] inside its own transaction.
+pub(super) struct ValidatedBill {
+    pub(super) kind: String,
+    pub(super) total: i64,
+    pub(super) withholding_code: Option<String>,
+}
+
+pub(super) async fn validate_bill(
+    pool: &PgPool,
+    request: &RecordBillRequest,
+) -> Result<ValidatedBill, AppError> {
     if request.invoice_number.trim().is_empty() {
         return Err(AppError::Validation("invoice_number is required".into()));
     }
@@ -882,6 +1175,31 @@ pub async fn record_bill(
         return Err(AppError::Validation(
             "the discount is larger than the bill".into(),
         ));
+    }
+
+    // The supplier's own number, normalised. `INV/1`, `inv / 1` and `INV  1`
+    // are ONE number, and the database's unique index only catches the exact
+    // spelling — so the same invoice keyed with a stray space is a second bill
+    // and twice the payable. Normalising here (spaces removed, letters
+    // upper-cased) is the same expression the index would use, and it lets the
+    // refusal NAME the number already on file, which a bare 23505 cannot.
+    let existing: Option<String> = sqlx::query_scalar(
+        "SELECT invoice_number FROM supplier_invoice
+          WHERE supplier_id = $1
+            AND upper(regexp_replace(invoice_number, '\\s+', '', 'g'))
+              = upper(regexp_replace($2, '\\s+', '', 'g'))",
+    )
+    .bind(request.supplier_id.trim())
+    .bind(request.invoice_number.trim())
+    .fetch_optional(pool)
+    .await?;
+    if let Some(existing) = existing {
+        return Err(AppError::Conflict(format!(
+            "this supplier already has an invoice with this number: {existing} — the number is \
+             compared with spaces removed and letters upper-cased, so {existing} and {} are the \
+             same bill",
+            request.invoice_number.trim()
+        )));
     }
 
     let kind = request
@@ -933,6 +1251,47 @@ pub async fn record_bill(
                     "line {} must say which location the cost belongs to",
                     index + 1
                 )));
+            }
+            // One line, one object (brief §8.1). Two references on one line is
+            // how a mixed bill becomes a bill nobody can count: the sums that
+            // read these columns — a contract's billed total, a repair's actual
+            // cost — would each take the whole line and charge both objects.
+            // The refusal shows the split somebody should make instead.
+            let refs = [
+                ("asset_id", line.asset_id),
+                ("contract_id", line.contract_id),
+                ("repair_id", line.repair_id),
+                ("replacement_id", line.replacement_id),
+                ("supply_request_id", line.supply_request_id),
+            ];
+            let named: Vec<&str> = refs
+                .iter()
+                .filter_map(|(name, id)| id.map(|_| *name))
+                .collect();
+            if named.len() > 1 {
+                return Err(AppError::Validation(format!(
+                    "line {} names {} objects at once; one line is for one object. A bill for an \
+                     AC repair at store-01 and a month's rent at store-04 is TWO lines — put \
+                     repair_id on the first and contract_id on the second — not one line that \
+                     names both",
+                    index + 1,
+                    named.join(" and ")
+                )));
+            }
+            // Every reference must EXIST, checked here rather than left to the
+            // foreign key: a 23503 reaches a person as "database operation
+            // failed", naming neither the line nor the object that is missing.
+            for (name, id) in refs.iter() {
+                if let Some(id) = id {
+                    assert_bill_line_ref(pool, name, *id)
+                        .await
+                        .map_err(|error| match error {
+                            AppError::Validation(message) => {
+                                AppError::Validation(format!("line {}: {message}", index + 1))
+                            }
+                            other => other,
+                        })?;
+                }
             }
             // A line may sit at another location than its bill. One electricity
             // invoice at head office covering four shops is four lines at four
@@ -1050,17 +1409,36 @@ pub async fn record_bill(
         }
     };
 
-    // The header and its lines in one transaction, because 0094's deferred
-    // trigger checks them together at COMMIT: an expense bill without its lines
-    // is not a state that ever exists.
-    let mut tx = pool.begin().await?;
+    Ok(ValidatedBill {
+        kind,
+        total,
+        withholding_code: withholding_code.map(str::to_string),
+    })
+}
+
+/// Write a validated bill's header, its lines and its delivery links.
+///
+/// Takes a transaction it did not open so the caller can put the bill and
+/// something else in one write: `record_bill_with_policy` commits it alone,
+/// and `decide_instruction` commits it beside the APPROVED status that made
+/// it. The rest of the function body is unchanged.
+pub(super) async fn insert_bill(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    request: &RecordBillRequest,
+    actor: &str,
+    kind: &str,
+    total: i64,
+    withholding_code: Option<&str>,
+) -> Result<Uuid, AppError> {
+    let tx = &mut **tx;
+    let lines = request.lines.as_deref().unwrap_or(&[]);
     let invoice_id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO supplier_invoice
            (invoice_id, invoice_number, supplier_id, supplier_name, site_id, invoice_date,
             due_date, currency, subtotal_minor, tax_minor, discount_minor, total_minor,
-            recorded_by, note, kind, withholding_code)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,'IDR',$8,$9,$10,$11,$12,$13,$14,$15)",
+            recorded_by, note, kind, withholding_code, submitted_by_domain, document_ref)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'IDR',$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)",
     )
     .bind(invoice_id)
     .bind(request.invoice_number.trim())
@@ -1075,8 +1453,22 @@ pub async fn record_bill(
     .bind(total)
     .bind(actor)
     .bind(request.note.as_deref())
-    .bind(&kind)
+    .bind(kind)
     .bind(withholding_code)
+    .bind(
+        request
+            .submitted_by_domain
+            .as_deref()
+            .map(str::trim)
+            .filter(|domain| !domain.is_empty()),
+    )
+    .bind(
+        request
+            .document_ref
+            .as_deref()
+            .map(str::trim)
+            .filter(|reference| !reference.is_empty()),
+    )
     .execute(&mut *tx)
     .await
     .map_err(map_bill_write_error)?;
@@ -1085,8 +1477,10 @@ pub async fn record_bill(
         sqlx::query(
             "INSERT INTO supplier_invoice_expense_line
                (line_id, invoice_id, line_number, account_code, site_id, amount_minor,
-                category_code, asset_class_code, draws_reserve, memo)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+                category_code, asset_class_code, draws_reserve, memo,
+                asset_id, contract_id, repair_id, replacement_id, supply_request_id,
+                service_period_start, service_period_end, account_overridden)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)",
         )
         .bind(Uuid::new_v4())
         .bind(invoice_id)
@@ -1108,6 +1502,14 @@ pub async fn record_bill(
         )
         .bind(line.draws_reserve)
         .bind(line.memo.as_deref())
+        .bind(line.asset_id)
+        .bind(line.contract_id)
+        .bind(line.repair_id)
+        .bind(line.replacement_id)
+        .bind(line.supply_request_id)
+        .bind(line.service_period_start)
+        .bind(line.service_period_end)
+        .bind(line.account_overridden)
         .execute(&mut *tx)
         .await?;
     }
@@ -1196,6 +1598,31 @@ pub async fn record_bill(
         .await?;
     }
 
+    Ok(invoice_id)
+}
+
+/// Record a bill under the ordinary policy: an EXPENSE bill posts as part of
+/// recording it, a MERCHANDISE bill waits for its match.
+async fn record_bill_with_policy(
+    pool: &PgPool,
+    request: &RecordBillRequest,
+    actor: &str,
+    auto_post_expense: bool,
+) -> Result<SupplierBill, AppError> {
+    let validated = validate_bill(pool, request).await?;
+    // The header and its lines in one transaction, because 0094's deferred
+    // trigger checks them together at COMMIT: an expense bill without its lines
+    // is not a state that ever exists.
+    let mut tx = pool.begin().await?;
+    let invoice_id = insert_bill(
+        &mut tx,
+        request,
+        actor,
+        &validated.kind,
+        validated.total,
+        validated.withholding_code.as_deref(),
+    )
+    .await?;
     tx.commit().await?;
 
     // Matching is the same person's second sentence, not a second request. It
@@ -1216,7 +1643,14 @@ pub async fn record_bill(
         }
     }
 
-    bill(pool, invoice_id).await
+    if auto_post_expense && validated.kind == EXPENSE {
+        // A completed expense bill already carries its deliberate account and
+        // category coding. The journal is part of recording it; an unresolved
+        // account/map/period refusal leaves the bill visible as a draft.
+        post_bill(pool, invoice_id, None, actor).await
+    } else {
+        bill(pool, invoice_id).await
+    }
 }
 
 /// Post a recorded bill to the ledger.
@@ -1237,6 +1671,20 @@ pub async fn post_bill(
             "bill {} is {}, not waiting to be posted",
             existing.invoice_number,
             existing.status.to_lowercase()
+        )));
+    }
+    // # The one thing that blocks posting
+    //
+    // Brief §8.4, and the decision most easily broken by a later "add a
+    // validation here": the six warnings are WARNINGS and do not stop a post,
+    // and the ONLY state that does is a hold. Do not add a warning to this
+    // list: `post_bill` refuses an on_hold bill and nothing else, so a person
+    // can post with a duplicate number or an over-budget line after reading it.
+    if existing.on_hold {
+        return Err(AppError::Conflict(format!(
+            "bill {} is on hold ({}); release the hold before posting",
+            existing.invoice_number,
+            existing.hold_reason.as_deref().unwrap_or("no reason given")
         )));
     }
 
@@ -1320,7 +1768,8 @@ pub async fn post_bill(
                         counter_site_id: None,
                         debit_minor: line.amount_minor,
                         credit_minor: 0,
-                        supplier_id: None,
+                        party_type: None,
+                        party_id: None,
                         asset_id: None,
                         bank_account_id: None,
                         memo: line.memo.clone(),
@@ -1332,17 +1781,10 @@ pub async fn post_bill(
             })
             .collect()
     } else {
-        // MERCHANDISE — what a merchandise bill debits depends on whether it
-        // answers a delivery, and that is `payables_flow`'s question because it
-        // owns the suspense account the delivery credited.
-        //
-        // A bill matched to deliveries debits `supplier_suspend` for what those
-        // deliveries were valued at and sends the difference to purchase price
-        // variance; the suspense account then empties exactly as it filled,
-        // which is the property that makes it worth having. A bill that answers
-        // no delivery still debits `inventory` for the whole subtotal, exactly
-        // as it did before 0130 — which is every merchandise bill recorded up
-        // to now, so nothing that already works changes.
+        // MERCHANDISE — a receipt already debited inventory and credited the
+        // supplier payable. A matched invoice clears that receipt liability,
+        // recognizes its actual invoice amount, and records any price variance.
+        // An unmatched invoice still debits inventory directly.
         super::payables_flow::merchandise_debit_lines(
             pool,
             invoice_id,
@@ -1353,6 +1795,22 @@ pub async fn post_bill(
         )
         .await?
     };
+    // A merchandise invoice whose matched price differs from the receipt's:
+    // fold the difference into the layer (inventory while on hand, cost of sales
+    // once sold) instead of booking it to 8004. Journal-less — this bill already
+    // credits the payable for the invoice, so the correction contributes only
+    // the split and the Atas Barang legs.
+    if !expense && existing.price_variance_minor != 0 {
+        super::payables_flow::append_price_correction(
+            &mut tx,
+            &mut lines,
+            invoice_id,
+            existing.invoice_date,
+            existing.price_variance_minor,
+            actor,
+        )
+        .await?;
+    }
     if existing.tax_minor > 0 {
         lines.push(PostingLine::debit(
             "vat_in",
@@ -1360,6 +1818,11 @@ pub async fn post_bill(
             existing.tax_minor,
         ));
     }
+    // The supplier is head office's counterparty, never a shop's (owner rule,
+    // 25 Sep). The cost lines keep the site they were keyed at; the payable
+    // lands at dc and the poster's balancer closes the shop's side through the
+    // affiliate accounts, so a shop's electricity bill reads
+    // shop Dr 6045 / Cr 2028, head office Dr 1057 / Cr 2004.
     lines.push(
         PostingLine::credit(
             if expense {
@@ -1367,7 +1830,7 @@ pub async fn post_bill(
             } else {
                 "trade_payable"
             },
-            &existing.site_id,
+            HEAD_OFFICE_SITE,
             existing.total_minor,
         )
         .for_supplier(&existing.supplier_id),
@@ -1420,20 +1883,37 @@ pub async fn post_bill(
     // A posted bill is a debt to a named supplier, due on a named date. In the
     // same transaction as the entry that raised it: a payable item without its
     // journal entry is a figure nobody can trace.
-    super::payables_flow::payable_opened(
-        &mut tx,
-        super::payables_flow::payable_key(expense),
-        &existing.site_id,
-        &existing.supplier_id,
-        existing.supplier_name.as_deref(),
-        invoice_id,
-        existing.total_minor,
-        existing.due_date,
-        intent.posting_date,
-        posted.entry_id,
-        actor,
-    )
-    .await?;
+    if expense {
+        super::payables_flow::payable_opened(
+            &mut tx,
+            super::payables_flow::payable_key(true),
+            "SUPPLIER_INVOICE",
+            &existing.site_id,
+            &existing.supplier_id,
+            existing.supplier_name.as_deref(),
+            invoice_id,
+            existing.total_minor,
+            existing.due_date,
+            intent.posting_date,
+            posted.entry_id,
+            actor,
+        )
+        .await?;
+    } else {
+        super::payables_flow::invoice_payable_replaces_receipts(
+            &mut tx,
+            invoice_id,
+            &existing.site_id,
+            &existing.supplier_id,
+            existing.supplier_name.as_deref(),
+            existing.total_minor,
+            existing.due_date,
+            intent.posting_date,
+            posted.entry_id,
+            actor,
+        )
+        .await?;
+    }
     tx.commit().await?;
 
     bill(pool, invoice_id).await
@@ -1546,9 +2026,9 @@ pub struct AgingBuckets {
 pub struct PayablesAgingRow {
     pub supplier_id: String,
     pub supplier_name: Option<String>,
-    /// How many bills are behind these figures — the difference between one
-    /// disputed invoice and a supplier nobody has paid for a quarter.
-    pub bill_count: i64,
+    /// How many open items are behind these figures: invoices and unbilled
+    /// goods receipts.
+    pub open_document_count: i64,
     /// The age of the oldest thing still outstanding, in days. Negative when
     /// nothing this supplier is owed has fallen due yet.
     pub oldest_days: i32,
@@ -1564,18 +2044,26 @@ pub struct PayablesAging {
     /// Heaviest first: an ageing report is read to decide who to pay next.
     pub suppliers: Vec<PayablesAgingRow>,
     pub total: AgingBuckets,
+    /// How many POSTED bills in this scope are held, and what they come to.
+    ///
+    /// Counted and summed SEPARATELY rather than folded into the buckets: a
+    /// held bill is still owed — it is real money against a real supplier — but
+    /// it cannot be paid until somebody releases it, so a ready-to-pay screen
+    /// has to be able to say "n ditahan" rather than silently hide it.
+    pub on_hold_count: i64,
+    pub on_hold_minor: i64,
 }
 
-/// Ageing over the bills, as at a date.
+/// Ageing over posted supplier invoices and unbilled goods receipts, as at a date.
 ///
 /// # Why this is not summed from `journal_line`
 ///
 /// Every other balance in this module is, and deliberately. This one is not,
-/// because ageing is a question about DOCUMENTS: which bill, dated when, due
-/// when. The ledger carries a supplier on the line and no due date at all, so
-/// a journal-derived ageing would have to guess terms from the posting date.
-/// The two do not disagree — `trade_payable` totals what the outstanding
-/// column below totals, because both move only when a bill or a payment posts.
+/// because ageing is a question about DOCUMENTS: which invoice or goods
+/// receipt, dated when, due when. The ledger carries a supplier on the line and
+/// no due date at all, so a journal-derived ageing would have to guess terms
+/// from the posting date. Unbilled receipts age from their posting date (the
+/// arrival date by default); invoices age from their terms.
 ///
 /// # What "as at" means
 ///
@@ -1628,11 +2116,36 @@ pub async fn payables_aging(
                ) upcoming ON true
               WHERE i.status = 'POSTED'
                 AND i.invoice_date <= $1
+                -- Held bills are excluded from the buckets and counted on
+                -- their own, below — see `PayablesAging::on_hold_count`.
+                AND NOT i.on_hold
                 AND ($2::text IS NULL OR i.site_id = $2)
+         ), open_receipt AS (
+             -- Before its invoice arrives, the receipt itself is the open
+             -- supplier debt. The Payment Ledger carries its receipt date and
+             -- the same supplier/location dimensions as the eventual bill.
+             SELECT i.party_id AS supplier_id,
+                    COALESCE(i.party_name, i.party_id) AS supplier_name,
+                    i.age_days,
+                    i.outstanding_minor
+               FROM payment_ledger_as_of($1) i
+              WHERE i.account_key = 'trade_payable'
+                AND i.party_type = 'SUPPLIER'
+                AND i.side = 'PAYABLE'
+                AND i.voucher_kind = 'GOODS_RECEIPT'
+                AND i.outstanding_minor > 0
+                AND ($2::text IS NULL OR i.site_id = $2)
+         ), open_item AS (
+             SELECT supplier_id, supplier_name, age_days, outstanding_minor
+               FROM open_bill
+              WHERE outstanding_minor > 0
+             UNION ALL
+             SELECT supplier_id, supplier_name, age_days, outstanding_minor
+               FROM open_receipt
          )
          SELECT supplier_id,
                 MAX(supplier_name) AS supplier_name,
-                COUNT(*)::bigint AS bill_count,
+                COUNT(*)::bigint AS open_document_count,
                 MAX(age_days)::int AS oldest_days,
                 SUM(outstanding_minor) FILTER (WHERE age_days <= 0)::bigint AS not_due,
                 SUM(outstanding_minor) FILTER (WHERE age_days BETWEEN 1 AND 30)::bigint AS d1_30,
@@ -1640,8 +2153,7 @@ pub async fn payables_aging(
                 SUM(outstanding_minor) FILTER (WHERE age_days BETWEEN 61 AND 90)::bigint AS d61_90,
                 SUM(outstanding_minor) FILTER (WHERE age_days > 90)::bigint AS d90_plus,
                 SUM(outstanding_minor)::bigint AS total
-           FROM open_bill
-          WHERE outstanding_minor > 0
+           FROM open_item
           GROUP BY supplier_id
           ORDER BY SUM(outstanding_minor) DESC, supplier_id",
     )
@@ -1678,16 +2190,291 @@ pub async fn payables_aging(
         suppliers.push(PayablesAgingRow {
             supplier_id: row.try_get("supplier_id")?,
             supplier_name: row.try_get("supplier_name")?,
-            bill_count: row.try_get("bill_count")?,
+            open_document_count: row.try_get("open_document_count")?,
             oldest_days: row.try_get("oldest_days")?,
             buckets,
         });
     }
+
+    // The held bills, counted and summed on their own. POSTED only, wound back
+    // to `as_of` the same way the buckets are: a bill that was not yet a debt
+    // on that date is not a held debt then either.
+    let held = sqlx::query(
+        "SELECT COUNT(*)::bigint AS n, COALESCE(SUM(i.total_minor), 0)::bigint AS total
+           FROM supplier_invoice i
+          WHERE i.status = 'POSTED'
+            AND i.on_hold
+            AND i.invoice_date <= $1
+            AND ($2::text IS NULL OR i.site_id = $2)",
+    )
+    .bind(as_of)
+    .bind(site_id)
+    .fetch_one(pool)
+    .await?;
 
     Ok(PayablesAging {
         as_of,
         site_id: site_id.map(str::to_string),
         suppliers,
         total,
+        on_hold_count: held.try_get("n")?,
+        on_hold_minor: held.try_get("total")?,
     })
+}
+
+// ---------------------------------------------------------------------------
+// Warnings before posting (brief §8.4)
+// ---------------------------------------------------------------------------
+
+/// One thing worth telling a person BEFORE they post a bill.
+///
+/// A warning is not a block. `post_bill` refuses a held bill and nothing else,
+/// and that is deliberate (brief §8.4): the reader is told what is odd and
+/// decides. A refactor that "adds a validation" on one of these codes is a bug,
+/// not a hardening.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct BillWarning {
+    /// `DUPLICATE_NUMBER`, `OVER_CONTRACT`, `OVER_BUDGET`, `ROUTINE_VARIANCE`,
+    /// `PERIOD_OUTSIDE_CONTRACT`, `VENDOR_MISMATCH`.
+    pub code: String,
+    /// The sentence a person reads.
+    pub message: String,
+    /// The document or figure behind it, when there is one to name.
+    pub detail: Option<String>,
+}
+
+fn warning(code: &str, message: String, detail: Option<String>) -> BillWarning {
+    BillWarning {
+        code: code.into(),
+        message,
+        detail,
+    }
+}
+
+/// The six checks, each on its own so one cannot hide another.
+///
+/// All six run and all six come back; there is no early return, because a bill
+/// with a duplicate number AND an over-budget line is exactly the bill somebody
+/// most needs the whole list for. Nothing here writes and nothing here refuses.
+pub async fn bill_warnings(
+    pool: &PgPool,
+    invoice_id: Uuid,
+) -> Result<Vec<BillWarning>, AppError> {
+    let header = sqlx::query(
+        "SELECT invoice_number, supplier_id, supplier_name FROM supplier_invoice
+          WHERE invoice_id = $1",
+    )
+    .bind(invoice_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound("supplier bill".into()))?;
+    let invoice_number: String = header.try_get("invoice_number")?;
+    let supplier_id: String = header.try_get("supplier_id")?;
+
+    let mut out = Vec::new();
+
+    // 1. The same number, normalised, on another bill of this supplier.
+    let duplicate: Option<String> = sqlx::query_scalar(
+        "SELECT invoice_number FROM supplier_invoice
+          WHERE supplier_id = $1 AND invoice_id <> $2
+            AND upper(regexp_replace(invoice_number, '\\s+', '', 'g'))
+              = upper(regexp_replace($3, '\\s+', '', 'g'))
+          ORDER BY invoice_date
+          LIMIT 1",
+    )
+    .bind(&supplier_id)
+    .bind(invoice_id)
+    .bind(&invoice_number)
+    .fetch_optional(pool)
+    .await?;
+
+    // 2. More than what is left on a contract this bill points at.
+    let contracts = sqlx::query(
+        "SELECT c.contract_id, c.contract_number, c.contract_value_minor,
+                (SELECT COALESCE(SUM(bl.amount_minor), 0)::bigint
+                   FROM supplier_invoice_expense_line bl
+                   JOIN supplier_invoice si ON si.invoice_id = bl.invoice_id
+                  WHERE bl.contract_id = c.contract_id AND si.status = 'POSTED'
+                    AND si.invoice_id <> $1) AS posted,
+                (SELECT COALESCE(SUM(bl.amount_minor), 0)::bigint
+                   FROM supplier_invoice_expense_line bl
+                  WHERE bl.contract_id = c.contract_id AND bl.invoice_id = $1) AS mine
+           FROM ga_contract c
+          WHERE c.contract_id IN (
+                SELECT contract_id FROM supplier_invoice_expense_line
+                 WHERE invoice_id = $1 AND contract_id IS NOT NULL)",
+    )
+    .bind(invoice_id)
+    .fetch_all(pool)
+    .await?;
+
+    // 3. More than the ceiling somebody approved (or estimated) for a repair.
+    let repairs = sqlx::query(
+        "SELECT r.repair_id, r.title, r.approved_budget_minor, r.estimated_cost_minor,
+                (SELECT COALESCE(SUM(bl.amount_minor), 0)::bigint
+                   FROM supplier_invoice_expense_line bl
+                  WHERE bl.repair_id = r.repair_id AND bl.invoice_id = $1) AS mine
+           FROM ga_repair r
+          WHERE r.repair_id IN (
+                SELECT repair_id FROM supplier_invoice_expense_line
+                 WHERE invoice_id = $1 AND repair_id IS NOT NULL)",
+    )
+    .bind(invoice_id)
+    .fetch_all(pool)
+    .await?;
+
+    // 4. A bill a recurring promise raised, reading away from the promised
+    //    figure by more than the promise's own tolerance.
+    let routine = sqlx::query(
+        "SELECT t.label, t.expected_subtotal_minor, t.tolerance_bps,
+                (SELECT COALESCE(SUM(bl.amount_minor), 0)::bigint
+                   FROM supplier_invoice_expense_line bl
+                  WHERE bl.invoice_id = $1) AS mine
+           FROM bill_template_run r
+           JOIN bill_template t ON t.template_id = r.template_id
+          WHERE r.invoice_id = $1",
+    )
+    .bind(invoice_id)
+    .fetch_all(pool)
+    .await?;
+
+    // 5. A service period that leaves the window of the contract it names.
+    let periods = sqlx::query(
+        "SELECT c.contract_number, l.line_number, l.service_period_start,
+                l.service_period_end, c.starts_on, c.ends_on
+           FROM supplier_invoice_expense_line l
+           JOIN ga_contract c ON c.contract_id = l.contract_id
+          WHERE l.invoice_id = $1 AND l.contract_id IS NOT NULL
+            AND ((l.service_period_start IS NOT NULL AND l.service_period_start < c.starts_on)
+              OR (l.service_period_end IS NOT NULL AND c.ends_on IS NOT NULL
+                  AND l.service_period_end > c.ends_on))",
+    )
+    .bind(invoice_id)
+    .fetch_all(pool)
+    .await?;
+
+    // 6. The bill's vendor against the party the contract names.
+    let mismatches = sqlx::query(
+        "SELECT DISTINCT c.contract_id, c.contract_number, c.supplier_id::text AS supplier_id,
+                c.counterparty_name
+           FROM supplier_invoice_expense_line l
+           JOIN ga_contract c ON c.contract_id = l.contract_id
+          WHERE l.invoice_id = $1 AND c.contract_id IS NOT NULL
+            AND c.supplier_id::text IS DISTINCT FROM $2",
+    )
+    .bind(invoice_id)
+    .bind(&supplier_id)
+    .fetch_all(pool)
+    .await?;
+
+    if let Some(existing) = duplicate {
+        out.push(warning(
+            "DUPLICATE_NUMBER",
+            format!(
+                "this supplier already has an invoice numbered {existing}; {} and {existing} are \
+                 the same number once spaces are removed",
+                invoice_number.trim()
+            ),
+            Some(existing),
+        ));
+    }
+
+    for row in &contracts {
+        let value: Option<i64> = row.try_get("contract_value_minor")?;
+        let posted: i64 = row.try_get("posted")?;
+        let mine: i64 = row.try_get("mine")?;
+        if let Some(value) = value {
+            let remaining = value - posted;
+            if mine > remaining {
+                let number: Option<String> = row.try_get("contract_number")?;
+                out.push(warning(
+                    "OVER_CONTRACT",
+                    format!(
+                        "this contract's lines bill {mine} against {remaining} left of a {value} \
+                         contract"
+                    ),
+                    Some(number.unwrap_or_else(|| {
+                        row.try_get::<Uuid, _>("contract_id")
+                            .map(|id| id.to_string())
+                            .unwrap_or_default()
+                    })),
+                ));
+            }
+        }
+    }
+
+    for row in &repairs {
+        let ceiling = row
+            .try_get::<Option<i64>, _>("approved_budget_minor")?
+            .or(row.try_get::<Option<i64>, _>("estimated_cost_minor")?);
+        let mine: i64 = row.try_get("mine")?;
+        if let Some(ceiling) = ceiling {
+            if mine > ceiling {
+                let title: String = row.try_get("title")?;
+                out.push(warning(
+                    "OVER_BUDGET",
+                    format!("this repair's lines bill {mine} against a ceiling of {ceiling}"),
+                    Some(title),
+                ));
+            }
+        }
+    }
+
+    for row in &routine {
+        let expected: i64 = row.try_get("expected_subtotal_minor")?;
+        let tolerance_bps: i32 = row.try_get("tolerance_bps")?;
+        let mine: i64 = row.try_get("mine")?;
+        let allowed = expected.saturating_mul(i64::from(tolerance_bps)) / 10_000;
+        let difference = (mine - expected).abs();
+        if difference > allowed {
+            let label: String = row.try_get("label")?;
+            out.push(warning(
+                "ROUTINE_VARIANCE",
+                format!(
+                    "the recurring bill “{label}” expects {expected} and this bill says {mine}, \
+                     more than the {tolerance_bps} basis-point tolerance"
+                ),
+                Some(label),
+            ));
+        }
+    }
+
+    for row in &periods {
+        let line_number: i32 = row.try_get("line_number")?;
+        let contract_number: Option<String> = row.try_get("contract_number")?;
+        out.push(warning(
+            "PERIOD_OUTSIDE_CONTRACT",
+            format!(
+                "line {line_number}'s service period falls outside the contract's own window"
+            ),
+            Some(
+                contract_number
+                    .unwrap_or_else(|| format!("contract {}", row.try_get::<Uuid, _>("contract_id").map(|id| id.to_string()).unwrap_or_default())),
+            ),
+        ));
+    }
+
+    for row in &mismatches {
+        let counterparty: Option<String> = row.try_get("counterparty_name")?;
+        let contract_supplier: Option<String> = row.try_get("supplier_id")?;
+        let number: Option<String> = row.try_get("contract_number")?;
+        out.push(warning(
+            "VENDOR_MISMATCH",
+            if let Some(counterparty) = counterparty {
+                format!(
+                    "this bill is from {supplier_id} and the contract's other party is \
+                     {counterparty}, who is not a vendor"
+                )
+            } else {
+                format!(
+                    "this bill is from {supplier_id} and the contract's other party is {}",
+                    contract_supplier.as_deref().unwrap_or("another vendor")
+                )
+            },
+            number.or_else(|| contract_supplier),
+        ));
+    }
+
+    Ok(out)
 }

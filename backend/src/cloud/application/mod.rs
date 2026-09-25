@@ -27,6 +27,14 @@ pub struct AppConfig {
     pub observed_window_hours: i64,
     pub lost_risk_window_days: i64,
     pub enable_test_controls: bool,
+    /// Run unattended accounting jobs. Manual Finance actions remain available
+    /// when this is false. Disabled by default while Finance is operated as a
+    /// standalone accounting module.
+    pub finance_automation_enabled: bool,
+    /// The business clock's boot source. `None` is the wall clock — the
+    /// production default. A malformed `ITULAH_CLOCK*` value refuses to boot
+    /// rather than silently running a compressed demo on real time.
+    pub clock: Option<crate::clock::ClockMode>,
     pub frontend_dir: PathBuf,
     // Ordered edge->cloud sync (see migrations/0006_sync_outbox.sql).
     pub sync_upload_url: Option<String>,
@@ -76,6 +84,9 @@ pub struct AppConfig {
     /// id is not something an operator should have to know to start the
     /// server.
     pub assistant_model: String,
+    /// The PO intake extraction doors (`intake::po`). A node without them
+    /// still imports Excel and text-layer PDFs; scans fail honestly.
+    pub po_import: crate::cloud::intake::po::PoImportConfig,
 
     /// Where a purchase order goes when nobody says otherwise.
     ///
@@ -160,6 +171,12 @@ impl AppConfig {
             enable_test_controls: env::var("INVENTORY_ENABLE_TEST_CONTROLS")
                 .map(|v| v.eq_ignore_ascii_case("true"))
                 .unwrap_or(false),
+            // On unless explicitly switched off (owner decision 25 Sep:
+            // depreciation, the OE replacement reserve, prepaid spreading and
+            // amortisation run by default; ops keeps an explicit off switch).
+            finance_automation_enabled: crate::cloud::application::finance_automation_from_env(),
+            clock: crate::clock::ClockMode::from_env_opt()
+                .map_err(|error| AppError::Configuration(error.to_string()))?,
             frontend_dir,
             sync_upload_url: env_opt("SYNC_UPLOAD_URL"),
             sync_upload_key: env_opt("SYNC_UPLOAD_KEY"),
@@ -200,6 +217,7 @@ impl AppConfig {
                 .to_owned(),
             assistant_model: env_opt("ASSISTANT_MODEL")
                 .unwrap_or_else(|| "anthropic/claude-opus-5".into()),
+            po_import: crate::cloud::intake::po::PoImportConfig::from_env(),
         })
     }
 }
@@ -226,6 +244,9 @@ fn parse_env(name: &str, default: i64) -> Result<i64, AppError> {
 pub struct AppState {
     pub db: PgPool,
     pub config: Arc<AppConfig>,
+    /// The business clock every handler stamps and derives from. Shared
+    /// (`Arc`) so the control endpoint moves the one clock everything reads.
+    pub clock: Arc<crate::clock::ClockHandle>,
     /// Present only when object storage is configured; handlers that need it
     /// answer 404 rather than 500 when it is absent.
     pub media: Option<Arc<crate::cloud::media::CatalogueMedia>>,
@@ -263,11 +284,25 @@ impl AppState {
                 }
             }
         });
+        // A clock config that will not construct is a deployment error worth
+        // shouting about, but the same rule as media above applies: it is not
+        // worth refusing to serve inventory over. The clock falls back to the
+        // wall clock, which is the production default anyway.
+        let clock = Arc::new(match &config.clock {
+            Some(mode) => crate::clock::ClockHandle::from_mode(mode.clone()).unwrap_or_else(
+                |error| {
+                    tracing::error!(%error, "business clock config rejected; running on the wall clock");
+                    crate::clock::ClockHandle::system()
+                },
+            ),
+            None => crate::clock::ClockHandle::system(),
+        });
         Self {
             db,
             media,
             attachments,
             config: Arc::new(config),
+            clock,
             sync_wake: Arc::new(tokio::sync::Notify::new()),
         }
     }
@@ -306,6 +341,17 @@ impl IntoResponse for AppError {
                 return (StatusCode::CONFLICT, Json(json!({ "error": db.message() })))
                     .into_response();
             }
+        }
+        // The sqlx error itself, in the log, before it is flattened to
+        // "database operation failed".
+        //
+        // The wire message stays deliberately blank — an SQLSTATE and a column
+        // name are the shape of the schema, and the schema is not the caller's
+        // business. But a 500 whose cause is nowhere is a 500 nobody can fix,
+        // and this one cost an afternoon of bisecting SQL by hand before the
+        // line was written.
+        if let Self::Database(error) = &self {
+            tracing::error!(%error, "database operation failed");
         }
         let status = match self {
             Self::Validation(_) => StatusCode::BAD_REQUEST,
@@ -1410,4 +1456,19 @@ pub struct IssueCommandRequest {
 #[derive(Clone, Debug, Deserialize)]
 pub struct RevokeCommandRequest {
     pub reason: String,
+}
+
+/// Whether the month-end Finance agents run: on unless
+/// `INVENTORY_FINANCE_AUTOMATION_ENABLED` says `false`, `0` or `off`.
+///
+/// One reading for the boot and for the readiness screen, so the screen can
+/// never report a different switch from the one the agents obeyed.
+pub fn finance_automation_from_env() -> bool {
+    match env::var("INVENTORY_FINANCE_AUTOMATION_ENABLED") {
+        Ok(value) => !matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "false" | "0" | "off" | "no"
+        ),
+        Err(_) => true,
+    }
 }

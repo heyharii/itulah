@@ -54,6 +54,9 @@ pub mod giro_print;
 pub mod grievance;
 pub mod hire;
 pub mod holiday;
+/// The clock's own HR surface: the run ledger and a door to run the pass now.
+/// See `http::hr_scheduler` for why it is head office's.
+pub mod hr_scheduler;
 pub mod integrity;
 pub mod interunit;
 pub mod leave;
@@ -67,6 +70,8 @@ pub mod overtime;
 pub mod party;
 pub mod pay;
 pub mod payables_flow;
+/// People's next generation, on the wire. See `domain::people`.
+pub mod people;
 pub mod payment_ledger;
 pub mod payments_lane;
 pub mod performance;
@@ -78,6 +83,7 @@ pub mod roster;
 // lane-A
 pub mod advance;
 pub mod finance_control;
+pub mod finance_setup;
 pub mod financing;
 pub mod prepaid;
 pub mod principal;
@@ -734,6 +740,13 @@ pub fn router(state: AppState) -> Router {
     // than running a query per row to draw a table.
     .route("/api/v1/finance/bills/{id}", get(finance::bill))
     .route("/api/v1/finance/bills/{id}/post", post(finance::post_bill))
+    // The GA handoff's own acts (brief §8.3–§8.4): return a draft, hold a bill
+    // so nothing pays it, release it, and list what is worth warning about
+    // before somebody posts.
+    .route("/api/v1/finance/bills/{id}/return", post(finance::return_bill))
+    .route("/api/v1/finance/bills/{id}/hold", post(finance::hold_bill))
+    .route("/api/v1/finance/bills/{id}/release", post(finance::release_bill))
+    .route("/api/v1/finance/bills/{id}/warnings", get(finance::bill_warnings))
     .route("/api/v1/finance/unbilled", get(finance::unbilled))
     // What is owed and how late. Beside the bills, not in Reports: it is
     // the list somebody works from to decide who gets paid this week.
@@ -935,6 +948,9 @@ pub fn router(state: AppState) -> Router {
     // lane-H routes: a shop's evening against its own EDC slip, and
     // head office settling what the acquirers owe.
     .merge(acquirer::lane_h_routes(Router::new()))
+    // Finance Connect: EDC terminals, MDR rates, settings, "Tambah bank",
+    // the sale-day exception queue and the MDR variance review.
+    .merge(finance_setup::finance_setup_routes(Router::new()))
     // What stock cost, which layers a posting took, and whether the stock
     // ledger and the inventory account still agree. Merged rather than
     // spelled out here because several sessions edit this file at once and
@@ -1987,6 +2003,13 @@ pub fn router(state: AppState) -> Router {
     // lane-L: the cutover. Four routes, added the same way, and gathered
     // because they are one act — the beginning of every balance in the books.
     let router = opening::lane_l_routes(router);
+    // lane-P: People's next generation — swaps, change proposals, checklists,
+    // the pipeline, performance, training, the rule numbers. One call rather
+    // than thirty routes spliced into the chain above.
+    let router = people::lane_p_routes(router);
+    // The clock's own surface, beside the module it drives rather than inside
+    // it: it reads a run ledger no People screen owns.
+    let router = hr_scheduler::routes(router);
     router
         .fallback_service(ServeDir::new(frontend).append_index_html_on_directories(true))
         // Layer order (execution is outermost-last-added): trace -> CORS ->

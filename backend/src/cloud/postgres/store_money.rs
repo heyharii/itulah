@@ -224,7 +224,11 @@ pub async fn store_ledger_outstanding(
 /// The counter row is locked for the length of the caller's transaction, so a
 /// rolled-back document takes its number back with it. See 0110 for why these
 /// are a table and journal numbers are a sequence.
-async fn next_document_number(
+///
+/// `pub(crate)` since the claims lane arrived: its `KKC-` payout documents are
+/// numbered by the same counter for the same reason — two lanes minting
+/// numbers by two rules would produce two documents claiming one position.
+pub(crate) async fn next_document_number(
     tx: &mut Transaction<'_, Postgres>,
     scope: &str,
     prefix: &str,
@@ -858,10 +862,16 @@ pub struct HandOverDepositRequest {
 
 /// The bag has left the shop.
 ///
-///   Dr cash_in_transit [site] / Cr cash [site]
+///   Dr affiliate_receivable [site, counter dc] / Cr cash [site]
 ///
-/// Both at the shop. The money now has a name and an owner on the days it is in
-/// somebody's hands, which is the gap this document exists to close.
+/// The shop's own books, balanced on their own: the cash on hand (1002) is
+/// gone and head office owes the shop for it (1057 Piutang Affiliasi
+/// Pembiayaan). This used to post `Dr cash_in_transit / Cr cash`, and because
+/// `cash_in_transit` also resolves to 1002 the whole step was a no-op that left
+/// the money on the till until the bank agreed. The owner's rule is that money
+/// leaving a shop's balance is an inter-unit balance from that moment, and the
+/// pair sits unmatched in the inter-unit reconciliation until head office's
+/// half (below) is posted.
 pub async fn store_deposit_hand_over(
     pool: &PgPool,
     deposit_id: Uuid,
@@ -894,7 +904,9 @@ pub async fn store_deposit_hand_over(
         currency: row.try_get::<String, _>("currency")?,
         memo: Some(format!("{number} — setoran keluar")),
         lines: vec![
-            PostingLine::debit("cash_in_transit", &site_id, amount),
+            PostingLine::debit("affiliate_receivable", &site_id, amount)
+                .with_qualifier("PEMBIAYAAN:dc")
+                .with_counter_site(HEAD_OFFICE_SITE_ID),
             PostingLine::credit("cash", &site_id, amount),
         ],
     };
@@ -929,11 +941,15 @@ pub struct ConfirmDepositRequest {
 
 /// The bank agrees.
 ///
-///   Dr bank [dc, qualifier] / Cr cash_in_transit [site]
+///   Dr bank [dc, qualifier] / Cr affiliate_payable [dc, counter shop]
 ///
-/// Cross-site: the credit is the shop's cash in transit, the debit is head
-/// office's bank. The entry balances in total and not per location, which is
-/// what the poster's affiliate legs are for. Nothing here writes one.
+/// Head office's own books, balanced on their own: the bank received the money
+/// and head office now owes the shop for it (2028 Hutang Affiliasi Pembiayaan).
+/// The shop's matching half is `store_deposit_hand_over` above. Each entry
+/// balances in its own site, so the poster adds no leg and the pair shows as an
+/// unmatched inter-unit balance until both exist — which is the owner's stated
+/// model (two documents, each balanced where it happened) rather than a single
+/// cross-site entry that hides the gap.
 ///
 /// One endpoint for both callers. The bank matcher calls it with a line id; a
 /// person reading a statement calls it with the line they found, or with
@@ -977,7 +993,9 @@ pub async fn store_deposit_confirm(
         lines: vec![
             PostingLine::debit(&bank_key, HEAD_OFFICE_SITE_ID, amount)
                 .with_qualifier(&bank_qualifier),
-            PostingLine::credit("cash_in_transit", &site_id, amount),
+            PostingLine::credit("affiliate_payable", HEAD_OFFICE_SITE_ID, amount)
+                .with_qualifier(&format!("PEMBIAYAAN:{site_id}"))
+                .with_counter_site(&site_id),
         ],
     };
     let posted = lane_b_post(&mut tx, &intent, Some("IN"), actor).await?;
@@ -1757,41 +1775,35 @@ pub async fn operating_fund_send(
             "{number} — dana operasional {} ({custodian_name})",
             request.site_id
         )),
+        // Client accountant, 25 Sep (rule B): money from head office to a
+        // unit is two halves, each balanced in its own books. This is head
+        // office's half — Dr Piutang Affiliasi Pembiayaan (counter = the unit)
+        // / Cr the bank. The unit books its half when it confirms receipt
+        // (`operating_fund_receive`): Dr Petty Cash / Cr Hutang Affiliasi
+        // Pembiayaan. Until then the pair is visibly unmatched in the
+        // inter-unit reconciliation — money in transit.
         lines: vec![
-            PostingLine::debit(
-                "store_manager_receivable",
-                &request.site_id,
-                request.amount_minor,
-            ),
+            {
+                let mut leg = PostingLine::debit(
+                    "affiliate_receivable",
+                    HEAD_OFFICE_SITE_ID,
+                    request.amount_minor,
+                )
+                .with_qualifier(&format!("PEMBIAYAAN:{}", request.site_id));
+                leg.counter_site_id = Some(request.site_id.clone());
+                leg
+            },
             PostingLine::credit(&request.bank_key, HEAD_OFFICE_SITE_ID, request.amount_minor)
                 .with_qualifier(&request.bank_qualifier),
         ],
     };
     let posted = lane_b_post(&mut tx, &intent, None, actor).await?;
 
-    let ledger_entry_id = lane_b_ple_open(
-        &mut tx,
-        &StoreLedgerItem {
-            account_key: "store_manager_receivable".into(),
-            qualifier: String::new(),
-            site_id: request.site_id.clone(),
-            // A store manager holding head office's money is a person, not a
-            // place. The party is what a handover moves.
-            party_type: "EMPLOYEE".into(),
-            party_id: request.custodian_employee_id.clone(),
-            party_name: Some(custodian_name),
-            voucher_kind: "ADVANCE".into(),
-            voucher_id: fund_id.to_string(),
-            journal_entry_id: posted.entry_id,
-            side: StoreLedgerSide::Receivable,
-            amount_minor: request.amount_minor,
-            currency: "IDR".into(),
-            due_date: request.due_date,
-            posting_date: request.value_date,
-        },
-        actor,
-    )
-    .await?;
+    // The fund no longer sits on Piutang Kepala Toko (owner decision: 1023
+    // is for cash shortages only), so no custodian receivable is opened in the
+    // Payment Ledger; what the custodian still owes is the fund row itself
+    // (`operating_fund_accountability`).
+    let ledger_entry_id: Option<Uuid> = None;
 
     sqlx::query(
         "INSERT INTO operating_fund
@@ -1828,6 +1840,69 @@ pub async fn operating_fund_send(
         "status": "SENT",
         "entry_number": posted.entry_number,
         "payment_ledger_entry_id": ledger_entry_id
+    }))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ReceiveFundRequest {
+    /// The day the money reached the shop's petty cash.
+    pub received_on: NaiveDate,
+}
+
+/// The unit's half of a transfer from head office (client accountant, rule B):
+/// Dr Petty Cash at the shop / Cr Hutang Affiliasi Pembiayaan (counter = head
+/// office), dated the day the shop confirms it. Head office's half was posted
+/// when the money was sent.
+pub async fn operating_fund_receive(
+    pool: &PgPool,
+    fund_id: Uuid,
+    request: &ReceiveFundRequest,
+    actor: &str,
+) -> Result<Value, AppError> {
+    let mut tx = pool.begin().await?;
+    let fund = fund_for_update(&mut tx, fund_id).await?;
+    let received: Option<DateTime<Utc>> = fund.try_get("received_at")?;
+    if received.is_some() {
+        return Err(AppError::Conflict("this fund has already been received".into()));
+    }
+    let site_id: String = fund.try_get("site_id")?;
+    let number: String = fund.try_get("fund_number")?;
+    let amount: i64 = fund.try_get("amount_minor")?;
+    let intent = PostingIntent {
+        posting_date: request.received_on,
+        source_kind: "ADVANCE".into(),
+        source_id: Some(fund_id.to_string()),
+        rule_version: "operating_fund_receive/1".into(),
+        currency: "IDR".into(),
+        memo: Some(format!("{number} — dana diterima di {site_id}")),
+        lines: vec![
+            PostingLine::debit("petty_cash", &site_id, amount),
+            {
+                let mut leg = PostingLine::credit("affiliate_payable", &site_id, amount)
+                    .with_qualifier(&format!("PEMBIAYAAN:{HEAD_OFFICE_SITE_ID}"));
+                leg.counter_site_id = Some(HEAD_OFFICE_SITE_ID.to_string());
+                leg
+            },
+        ],
+    };
+    let posted = lane_b_post(&mut tx, &intent, Some("RECEIVED"), actor).await?;
+    sqlx::query(
+        "UPDATE operating_fund
+            SET received_at = now(), received_by = $2, received_on = $3, receipt_entry_id = $4
+          WHERE fund_id = $1",
+    )
+    .bind(fund_id)
+    .bind(actor)
+    .bind(request.received_on)
+    .bind(posted.entry_id)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(json!({
+        "fund_id": fund_id,
+        "fund_number": number,
+        "received_on": request.received_on,
+        "entry_number": posted.entry_number,
     }))
 }
 
@@ -1930,6 +2005,14 @@ pub async fn fund_settlement_record(
     let returned: i64 = fund.try_get("returned_minor")?;
     let ledger_entry_id: Option<Uuid> = fund.try_get("payment_ledger_entry_id")?;
 
+    let received: Option<DateTime<Utc>> = fund.try_get("received_at")?;
+    if received.is_none() {
+        return Err(AppError::Conflict(format!(
+            "fund {number} has not been confirmed as received at {site_id}; the shop confirms \
+             the money into its petty cash first, then spends it"
+        )));
+    }
+
     let outstanding = sent - settled - returned;
     if request.amount_minor > outstanding {
         return Err(AppError::Conflict(format!(
@@ -1941,11 +2024,11 @@ pub async fn fund_settlement_record(
     let lines = match kind.as_str() {
         "VENDOR_BILL" => vec![
             PostingLine::debit("trade_payable", HEAD_OFFICE_SITE_ID, request.amount_minor),
-            PostingLine::credit("store_manager_receivable", &site_id, request.amount_minor),
+            PostingLine::credit("petty_cash", &site_id, request.amount_minor),
         ],
         "PAYROLL" => vec![
             PostingLine::debit("payroll_payable", &site_id, request.amount_minor),
-            PostingLine::credit("store_manager_receivable", &site_id, request.amount_minor),
+            PostingLine::credit("petty_cash", &site_id, request.amount_minor),
         ],
         "DIRECT_EXPENSE" => {
             let key = request.expense_key.as_deref().ok_or_else(|| {
@@ -1953,7 +2036,7 @@ pub async fn fund_settlement_record(
             })?;
             vec![
                 PostingLine::debit(key, &site_id, request.amount_minor),
-                PostingLine::credit("store_manager_receivable", &site_id, request.amount_minor),
+                PostingLine::credit("petty_cash", &site_id, request.amount_minor),
             ]
         }
         "RETURN" => vec![
@@ -1963,7 +2046,7 @@ pub async fn fund_settlement_record(
                 request.amount_minor,
             )
             .with_qualifier(&fund.try_get::<String, _>("bank_qualifier")?),
-            PostingLine::credit("store_manager_receivable", &site_id, request.amount_minor),
+            PostingLine::credit("petty_cash", &site_id, request.amount_minor),
         ],
         other => {
             return Err(AppError::Validation(format!(
@@ -2286,8 +2369,8 @@ pub struct PayEmployeeRequest {
 ///
 ///   Dr payroll_payable [site] / Cr store_manager_receivable [site]
 ///
-/// and never a second salary expense. The wage was recognised when payroll was
-/// finalised; this discharges the payable and reduces what the manager is
+/// and never a second salary expense. Finance first submits the payroll
+/// accrual draft; this discharges the payable and reduces what the manager is
 /// holding, and that is the whole entry.
 pub async fn payroll_payout_pay(
     pool: &PgPool,
@@ -2298,7 +2381,7 @@ pub async fn payroll_payout_pay(
     let mut tx = pool.begin().await?;
     let task = sqlx::query(
         "SELECT t.task_id, t.allocation_id, t.employee_id, t.net_minor, t.status,
-                a.fund_id
+                a.fund_id, a.reference_id AS run_id
            FROM payroll_payout_task t
            JOIN fund_allocation a ON a.allocation_id = t.allocation_id
           WHERE t.task_id = $1 FOR UPDATE OF t",
@@ -2316,8 +2399,24 @@ pub async fn payroll_payout_pay(
     }
     let fund_id: Uuid = task.try_get("fund_id")?;
     let allocation_id: Uuid = task.try_get("allocation_id")?;
+    let run_id: String = task.try_get("run_id")?;
     let employee_id: String = task.try_get("employee_id")?;
     let net: i64 = task.try_get("net_minor")?;
+    let accrual_posted: bool = sqlx::query_scalar(
+        "SELECT EXISTS (
+             SELECT 1 FROM journal_entry
+              WHERE source_kind = 'PAYROLL_RUN'
+                AND source_id = $1 AND purpose IN ('ACCRUAL', 'MAIN')
+         )",
+    )
+    .bind(&run_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    if !accrual_posted {
+        return Err(AppError::Conflict(
+            "Finance must submit the payroll accrual journal before employee payouts".into(),
+        ));
+    }
     tx.commit().await?;
 
     let settled = fund_settlement_record(

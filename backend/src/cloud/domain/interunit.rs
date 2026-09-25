@@ -70,6 +70,11 @@ pub enum AffiliateKind {
     /// `Piutang/Hutang Affiliasi Pembiayaan`. Head office funding a shop:
     /// paying its costs, topping up its float, advancing it money.
     Financing,
+    /// Neither money nor goods: a fixed asset moved between sites, a cost
+    /// allocation or management fee charged by head office, a correction.
+    /// The client keeps only `1059 Piutang Affiliasi Lain-lain` for it, used
+    /// two-way on both sides (owner decision 25 Sep).
+    Other,
 }
 
 impl AffiliateKind {
@@ -79,6 +84,7 @@ impl AffiliateKind {
         match self {
             Self::Goods => "BARANG",
             Self::Financing => "PEMBIAYAAN",
+            Self::Other => "LAIN",
         }
     }
 }
@@ -96,13 +102,25 @@ pub const AFFILIATE_PAYABLE: &str = "affiliate_payable";
 /// a new source kind that nobody has thought about lands in the column head
 /// office reconciles by hand anyway, rather than quietly joining the goods
 /// balance a shop is asked to agree line by line.
-const GOODS_SOURCES: &[&str] = &[
-    // A shop banking its takings against what it owes for stock.
-    "STORE_DEPOSIT",
-    // A shop paying head office's supplier under an instruction to do so.
-    "REMITTANCE",
-    // Stock leaving one unit and arriving at another.
-    "TRANSFER",
+//
+// The client accountant's rule of 25 Sep: goods cross on Atas Barang
+// (1058/2029) — merchandise and shopping bags moving between units, SJD
+// dispatch and receipt, returns unit -> HO. Money never does: a shop banking
+// its takings into a head-office account, or paying head office's supplier,
+// is money, so it crosses on Pembiayaan (it used to be classed as goods).
+const GOODS_SOURCES: &[&str] = &["TRANSFER", "GOODS_RECEIPT", "CREDIT_NOTE", "LANDED_COST"];
+
+/// Neither money nor goods (owner decision 25 Sep): assets moved between
+/// sites, cost allocations and corrections cross on Lain-lain (1059).
+const OTHER_SOURCES: &[&str] = &[
+    "ASSET_TRANSFER",
+    "RECLASS",
+    "ADJUSTMENT",
+    "WRITE_OFF",
+    "DEPRECIATION",
+    "AMORTIZATION_RUN",
+    "ASSET_RESERVE",
+    "PREPAID_ALLOCATION",
 ];
 
 /// Which column an entry's balance belongs in, from the kind of document
@@ -110,6 +128,8 @@ const GOODS_SOURCES: &[&str] = &[
 pub fn kind_for_source(source_kind: &str) -> AffiliateKind {
     if GOODS_SOURCES.contains(&source_kind) {
         AffiliateKind::Goods
+    } else if OTHER_SOURCES.contains(&source_kind) {
+        AffiliateKind::Other
     } else {
         AffiliateKind::Financing
     }
@@ -214,10 +234,20 @@ pub fn balancing_legs(
         // paid for. A debit excess means value arrived there — a cost, or
         // stock — so the shop owes head office more, and a payable grows by a
         // credit. A credit excess is the mirror: the shop gave up value on head
-        // office's behalf, so what it owes falls.
+        // office's behalf, so head office owes it.
+        // Client accountant, 25 Sep: the side that GAVE value is owed and
+        // books the Piutang; the side that received it owes and books the
+        // Hutang. Head office funding a unit: HO Dr Piutang / unit Cr Hutang.
+        // A unit's takings or card settlement landing in a head-office bank:
+        // unit Dr Piutang / HO Cr Hutang.
+        let (store_key, ho_key) = if net > 0 {
+            (AFFILIATE_PAYABLE, AFFILIATE_RECEIVABLE)
+        } else {
+            (AFFILIATE_RECEIVABLE, AFFILIATE_PAYABLE)
+        };
         let (store_debit, store_credit) = if net > 0 { (0, net) } else { (-net, 0) };
         legs.push(AffiliateLeg {
-            semantic_key: AFFILIATE_PAYABLE,
+            semantic_key: store_key,
             qualifier: format!("{}:{ho_site_id}", kind.as_str()),
             site_id: site.clone(),
             counter_site_id: ho_site_id.to_string(),
@@ -225,14 +255,10 @@ pub fn balancing_legs(
             credit_minor: store_credit,
         });
         legs.push(AffiliateLeg {
-            semantic_key: AFFILIATE_RECEIVABLE,
+            semantic_key: ho_key,
             qualifier: format!("{}:{site}", kind.as_str()),
             site_id: ho_site_id.to_string(),
             counter_site_id: site,
-            // The mirror, so head office's receivable and the shop's payable
-            // are the same number written twice. That equality is what
-            // `interunit_pairs` reports, and it is the only thing that makes an
-            // inter-unit balance worth agreeing about.
             debit_minor: store_credit,
             credit_minor: store_debit,
         });
@@ -286,8 +312,11 @@ mod tests {
             SiteMovement::new("store-01", 0, 5_000_000),
         ];
         let added = balancing_legs(&lines, kind_for_source("STORE_DEPOSIT"), "dc");
-        assert_eq!(added[0].qualifier, "BARANG:dc");
-        // Debited: the payable falls.
+        assert_eq!(added[0].qualifier, "PEMBIAYAAN:dc");
+        // The shop gave the money, so the shop is owed: Dr its Piutang, and
+        // head office owes it back: Cr its Hutang (client accountant, 25 Sep).
+        assert_eq!(added[0].semantic_key, AFFILIATE_RECEIVABLE);
+        assert_eq!(added[1].semantic_key, AFFILIATE_PAYABLE);
         assert_eq!(
             (added[0].debit_minor, added[0].credit_minor),
             (5_000_000, 0)
@@ -349,14 +378,14 @@ mod tests {
 
     #[test]
     fn the_kind_comes_from_the_document_and_defaults_to_financing() {
-        assert_eq!(kind_for_source("STORE_DEPOSIT"), AffiliateKind::Goods);
-        assert_eq!(kind_for_source("REMITTANCE"), AffiliateKind::Goods);
+        assert_eq!(kind_for_source("STORE_DEPOSIT"), AffiliateKind::Financing);
+        assert_eq!(kind_for_source("REMITTANCE"), AffiliateKind::Financing);
         assert_eq!(kind_for_source("TRANSFER"), AffiliateKind::Goods);
         assert_eq!(
             kind_for_source("SUPPLIER_INVOICE"),
             AffiliateKind::Financing
         );
-        assert_eq!(kind_for_source("ASSET_TRANSFER"), AffiliateKind::Financing);
+        assert_eq!(kind_for_source("ASSET_TRANSFER"), AffiliateKind::Other);
         assert_eq!(kind_for_source("anything at all"), AffiliateKind::Financing);
     }
 

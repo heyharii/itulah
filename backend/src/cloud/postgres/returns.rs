@@ -79,6 +79,26 @@ pub async fn create_sale_return(
             "only COMPLETED sales can be returned, this sale is {status}"
         )));
     }
+    // Owner decision 11 (25 Sep): a RETURN references its receipt at the same
+    // store (the return is always booked at the sale's own site) and only
+    // within Finance's window, default 7 days.
+    let too_old: Option<i64> = sqlx::query_scalar(
+        "SELECT COALESCE((SELECT round(value_numeric)::bigint FROM finance_setting
+                           WHERE setting_key = 'return_window_days'), 7)
+           FROM sale
+          WHERE id = $1
+            AND completed_at < now() - make_interval(days => COALESCE((
+                    SELECT round(value_numeric)::int FROM finance_setting
+                     WHERE setting_key = 'return_window_days'), 7))",
+    )
+    .bind(sale_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    if let Some(window) = too_old {
+        return Err(AppError::Conflict(format!(
+            "this receipt is older than the {window}-day return window Finance allows"
+        )));
+    }
     let site_id: String = sale.get("site_id");
     let sale_number: String = sale.get("sale_number");
     let sale_total: i64 = sale.get("total_minor");

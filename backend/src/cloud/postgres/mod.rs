@@ -26,6 +26,7 @@ mod claims;
 mod colours;
 mod commercial;
 mod company_banks;
+mod finance_setup;
 /// The payroll component catalogue, its ratified rates, and the one-off
 /// figures a place files. See `domain::component`.
 mod components;
@@ -83,6 +84,8 @@ mod payments;
 mod performance;
 mod period_close;
 mod poster;
+/// People's next generation, as rows. See `domain::people`.
+mod people;
 /// What a shop has charged for one product and when it changed — replayed
 /// through the engine's own ranking rather than read off the rows.
 /// Pricing changes still scheduled or running — one row per publication,
@@ -102,6 +105,10 @@ mod returns;
 /// the activation table.
 mod rollout;
 mod roster;
+/// The clock's own rows: which HR period has been worked, and the work each
+/// claimed period does. See `0363` for why a claim ledger is not a
+/// `last_run_at` column.
+mod schedule;
 /// A day's takings, carried into the general ledger — the one `source_kind`
 /// the schema has always allowed and nothing ever wrote.
 mod sale_day;
@@ -111,6 +118,26 @@ mod advance;
 mod finance_control;
 mod financial_statements;
 mod ga;
+/// GA's own half of the asset register: sub-location, holder, condition, the
+/// build's fields and the appended history. See the module for why it is not
+/// `postgres::assets`.
+mod ga_assets;
+/// The account a bill line should propose (brief §8.2), written once for the
+/// suggestion endpoint and the pre-posting warnings.
+mod ga_accounts;
+/// GA's contracts: the deals with a window, their meters, and the pointers
+/// Finance's recurring bills keep back at them.
+mod ga_contracts;
+/// GA's places: the site register read as a list of places, the one-to-one
+/// facilities detail beside it, and the hub that reads every reference back at
+/// a place. See the module for why a site without a detail still appears.
+mod ga_locations;
+/// GA's upkeep: the schedule, the walk-round, the repair, the swap and the
+/// disposal. The four facts between "we own this" and "Finance priced it".
+mod ga_maintenance;
+/// GA's supplies: the ask a place files, the seven categories it is filed
+/// under, and the ladder it walks to a bill Finance pays.
+mod ga_supplies;
 mod financing;
 mod prepaid;
 mod principal;
@@ -159,6 +186,7 @@ pub use claims::*;
 pub use colours::*;
 pub use commercial::*;
 pub use company_banks::*;
+pub use finance_setup::*;
 pub use components::*;
 pub use control::*;
 pub use corrections::*;
@@ -192,6 +220,7 @@ pub use member::*;
 pub use membership::*;
 pub use movements::*;
 pub use notifications::*;
+pub use people::*;
 pub use observations::*;
 pub use opening::*;
 pub use overtime::*;
@@ -220,6 +249,7 @@ pub use reserves::*;
 pub use returns::*;
 pub use rollout::*;
 pub use roster::*;
+pub use schedule::*;
 pub use sale_day::*;
 pub use sales::*;
 // lane-A
@@ -227,6 +257,12 @@ pub use advance::*;
 pub use bill_template::*;
 pub use finance_control::*;
 pub use ga::*;
+pub use ga_assets::*;
+pub use ga_accounts::*;
+pub use ga_contracts::*;
+pub use ga_locations::*;
+pub use ga_maintenance::*;
+pub use ga_supplies::*;
 pub use financial_statements::*;
 pub use financing::*;
 pub use prepaid::*;

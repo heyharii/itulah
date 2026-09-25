@@ -1,0 +1,1223 @@
+//! Expense claims, as rows — and the two transactions that put them in the
+//! books.
+//!
+//! # The one write that must not come apart
+//!
+//! [`decide_claim`] stores the sanction **and** posts `Dr employee_expense /
+//! Cr employee_claim_payable` in one transaction, and [`pay_claim`] stores the
+//! payout **and** posts `Dr employee_claim_payable / Cr petty_cash` in one.
+//! Not two statements that usually run together: a crash between them leaves
+//! an approved claim the books have never heard of, and nobody notices because
+//! both halves look fine on their own. The poster's own
+//! `(source_kind, source_id, purpose)` uniqueness is the second guard — a
+//! resent decision or a double-clicked payout rolls back whole, refused by
+//! `ux_journal_entry_source_purpose` rather than by a status check two racing
+//! requests can both pass.
+//!
+//! # Why the transition is a conditional UPDATE
+//!
+//! Every state move here is `UPDATE ... WHERE state = '<from>'`, and a zero
+//! row count is a conflict. The domain has already checked the same
+//! condition, but read-decide-write on a row two requests can load at once is
+//! exactly the guard the poster's comment warns about: the conditional UPDATE
+//! is the one that cannot be passed twice. The loser's transaction — posting
+//! included — rolls back whole.
+//!
+//! # Why the numbering is the imprest lane's counter
+//!
+//! A payout's `KKC-` document and a claim's `KLC-` number come from
+//! `next_document_number`, the same gapless, month-scoped counter the store
+//! expenses use, locked inside the caller's transaction. Two lanes minting
+//! document numbers by two rules would produce two documents claiming one
+//! position.
+
+use crate::cloud::application::AppError;
+use crate::cloud::domain::{
+    actions, Authorization, ClaimError, ClaimEvent, ClaimId, ClaimLine, ClaimLineId, ClaimState,
+    ClaimType, ClaimTypeCatalogue, ClaimTypeCode, EmployeeId, ExpenseClaim, ExpenseClaimWire,
+    PlaceId,
+};
+use crate::cloud::postgres::{next_document_number, poster, PostingIntent, PostingLine};
+use chrono::{DateTime, NaiveDate, Utc};
+use serde::Serialize;
+use sqlx::{PgPool, Postgres, Row, Transaction};
+use std::str::FromStr;
+use uuid::Uuid;
+
+/// Head office, the posting site for a claim whose place has none. The same
+/// constant `poster` keeps; restated because restating it is the convention
+/// this file inherited from `store_money`.
+const HEAD_OFFICE_SITE: &str = "dc";
+
+fn corrupt(what: &str, detail: String) -> AppError {
+    AppError::Validation(format!(
+        "{what} is stored in a shape that cannot be true: {detail}"
+    ))
+}
+
+/// Turn a domain refusal into the right HTTP answer. A withdrawn-only-from
+/// style mismatch of state is a conflict, not a bad request: the payload is
+/// fine and what is wrong is what already happened to the claim.
+pub fn claim_error(error: ClaimError) -> AppError {
+    match error {
+        ClaimError::InvalidId { .. }
+        | ClaimError::NotPositive { .. }
+        | ClaimError::DescriptionRequired
+        | ClaimError::NoLines
+        | ClaimError::SanctionNothing
+        | ClaimError::SanctionMissingLine { .. }
+        | ClaimError::SanctionAboveClaim { .. } => AppError::Validation(error.to_string()),
+        ClaimError::UnknownClaimType { .. } | ClaimError::ClaimTypeRetired { .. } => {
+            AppError::Conflict(error.to_string())
+        }
+        ClaimError::DuplicateClaimType { .. } => AppError::Conflict(error.to_string()),
+        ClaimError::ActionForbidsFiling { .. }
+        | ClaimError::ActionForbidsDecision { .. }
+        | ClaimError::ActionForbidsPayout { .. }
+        | ClaimError::SubmissionNotByFiler
+        | ClaimError::WithdrawalNotByFiler
+        | ClaimError::SameActorFiledAndDecided { .. } => AppError::Forbidden(error.to_string()),
+        _ => AppError::Conflict(error.to_string()),
+    }
+}
+
+// ── the catalogue ────────────────────────────────────────────────────────
+
+fn decode_type(row: &sqlx::postgres::PgRow) -> Result<ClaimType, AppError> {
+    let code = ClaimTypeCode::try_new(&row.try_get::<String, _>("code")?)
+        .map_err(|error| corrupt("claim type code", error.to_string()))?;
+    let name = row.try_get::<String, _>("name")?;
+    let retired_at = row.try_get::<Option<DateTime<Utc>>, _>("retired_at")?;
+    let created_at = row.try_get::<DateTime<Utc>, _>("created_at")?;
+    ClaimType::try_from_parts(code, name, retired_at, created_at)
+        .map_err(|error| corrupt("claim type", error.to_string()))
+}
+
+/// Every type the company has defined, retired ones included.
+pub async fn load_type_catalogue(pool: &PgPool) -> Result<ClaimTypeCatalogue, AppError> {
+    let rows = sqlx::query(
+        "SELECT code, name, retired_at, created_at
+           FROM expense_claim_type
+          ORDER BY code",
+    )
+    .fetch_all(pool)
+    .await?;
+    let mut types = Vec::with_capacity(rows.len());
+    for row in &rows {
+        types.push(decode_type(row)?);
+    }
+    ClaimTypeCatalogue::try_new(types)
+        .map_err(|error| corrupt("claim catalogue", error.to_string()))
+}
+
+/// Define a type. Refuses a code that already exists rather than replacing
+/// it: redefining a type changes what every claim already filed under it
+/// meant, and the code is a map qualifier — its rows are decisions.
+pub async fn define_claim_type(
+    pool: &PgPool,
+    claim_type: &ClaimType,
+    actor: &str,
+) -> Result<(), AppError> {
+    let mut tx = pool.begin().await?;
+    let inserted = sqlx::query(
+        "INSERT INTO expense_claim_type (code, name, created_at)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (code) DO NOTHING",
+    )
+    .bind(claim_type.code().as_str())
+    .bind(claim_type.name())
+    .bind(claim_type.created_at())
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+    if inserted == 0 {
+        return Err(AppError::Conflict(format!(
+            "{} is already a claim type",
+            claim_type.code()
+        )));
+    }
+    // The type is also the `employee_expense` qualifier its postings carry,
+    // and the map resolves a qualifier EXACTLY — so the type's debit rows
+    // arrive with the type, at every site, in the transaction that defines
+    // it. An unmapped type would refuse by name at approval; a type whose
+    // rows were seeded separately from the catalogue would be two facts
+    // about one decision, and the weaker one would drift.
+    //
+    // The qualifier points at a leaf chosen by what the type's code names
+    // (0371 applies the same rule to types defined before it): medical to the
+    // store or head-office Biaya Kesehatan, travel to Perjalanan Dinas,
+    // transport to Lokal Transport, and a claim that names nothing else to
+    // `6064 Miscellaneous Expences` (owner: no new accounts; 0375 retires 0372's
+    // 6076). The category is NULL because 267
+    // leaves carry no family. Finance moves a type to another leaf by
+    // remapping its qualifier, without a rule change.
+    sqlx::query(
+        "INSERT INTO account_map (semantic_key, site_id, qualifier, account_code,
+                                  category_code, set_by)
+         SELECT DISTINCT 'employee_expense', s.id, $1,
+                CASE
+                    WHEN $1 ~* '(MEDIS|MEDIC|KESEHATAN|PENGOBATAN|OBAT|DOKTER)'
+                        THEN CASE WHEN s.kind = 'STORE' THEN '6016' ELSE '6030' END
+                    WHEN $1 ~* '(DINAS|PERJALANAN|TRAVEL|HOTEL|TIKET)' THEN '6047'
+                    WHEN $1 ~* '(TRANSPORT|BENSIN|BBM|TOL|PARKIR|OJEK)' THEN '6048'
+                    WHEN $1 ~* '(ATK|ALAT_TULIS|STATIONERY)' THEN '6041'
+                    WHEN $1 ~* '(PULSA|TELEPON|TELEPHONE|INTERNET)' THEN '6044'
+                    WHEN $1 ~* '(MAKAN|MEAL|KONSUMSI)'
+                        THEN CASE WHEN s.kind = 'STORE' THEN '6014' ELSE '6028' END
+                    ELSE '6064'
+                END,
+                NULL, $3
+           FROM org_place p
+           JOIN site s ON s.id = COALESCE(p.site_id, $2)
+         ON CONFLICT (semantic_key, site_id, qualifier) DO NOTHING",
+    )
+    .bind(claim_type.code().as_str())
+    .bind(HEAD_OFFICE_SITE)
+    .bind(actor)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Retire, never delete: every claim filed under the code keeps resolving,
+/// and no new line may name it.
+pub async fn retire_claim_type(
+    pool: &PgPool,
+    code: &ClaimTypeCode,
+    reason: &str,
+    at: DateTime<Utc>,
+) -> Result<(), AppError> {
+    let affected = sqlx::query(
+        "UPDATE expense_claim_type
+            SET retired_at = $2, retired_reason = $3
+          WHERE code = $1 AND retired_at IS NULL",
+    )
+    .bind(code.as_str())
+    .bind(at)
+    .bind(reason)
+    .execute(pool)
+    .await?
+    .rows_affected();
+    if affected == 0 {
+        return Err(AppError::Conflict(format!(
+            "{} is not an active claim type",
+            code
+        )));
+    }
+    Ok(())
+}
+
+// ── the claim rows ───────────────────────────────────────────────────────
+
+const CLAIM_COLUMNS: &str = "c.claim_id, c.claim_number, c.place_id, c.employee_id,
+                             c.claimed_by, c.posted_on, c.sanctioned_minor, c.state,
+                             c.decided_by, c.decided_at, c.decide_reason, c.paid_at,
+                             c.paid_by, c.approved_entry_id, c.paid_entry_id,
+                             c.history, c.created_at";
+
+fn decode_event(value: serde_json::Value) -> Result<ClaimEvent, AppError> {
+    // The domain's `ClaimEvent` borrows its action from the machine, so the
+    // stored JSON decodes through an owned shadow and the action string is
+    // matched back to its code. Anything else is a word the machine never
+    // wrote, which is a corrupted trail and not an event.
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct StoredEvent {
+        actor: String,
+        action: String,
+        #[serde(default)]
+        reason: Option<String>,
+        at: DateTime<Utc>,
+        #[serde(default)]
+        detail: Option<String>,
+    }
+    let stored: StoredEvent = serde_json::from_value(value)
+        .map_err(|error| corrupt("claim history event", error.to_string()))?;
+    let action = match stored.action.as_str() {
+        "FILED" => "FILED",
+        "SUBMITTED" => "SUBMITTED",
+        "APPROVED" => "APPROVED",
+        "REJECTED" => "REJECTED",
+        "RETURNED" => "RETURNED",
+        "WITHDRAWN" => "WITHDRAWN",
+        "PAID" => "PAID",
+        other => {
+            return Err(corrupt(
+                "claim history event",
+                format!("{other:?} is not an action the machine writes"),
+            ))
+        }
+    };
+    Ok(ClaimEvent {
+        actor: stored.actor,
+        action,
+        reason: stored.reason,
+        at: stored.at,
+        detail: stored.detail,
+    })
+}
+
+/// A claim with the names a screen shows, folded through the domain so a row
+/// no sequence of decisions could reach refuses to load rather than rendering.
+pub struct ClaimRecord {
+    pub claim: ExpenseClaim,
+    pub history: Vec<ClaimEvent>,
+    pub created_at: DateTime<Utc>,
+    pub place_name: Option<String>,
+    pub employee_code: Option<String>,
+    pub employee_name: Option<String>,
+    pub approved_entry_id: Option<Uuid>,
+}
+
+async fn decode_claim(
+    pool: &PgPool,
+    row: &sqlx::postgres::PgRow,
+    catalogue: &ClaimTypeCatalogue,
+) -> Result<ClaimRecord, AppError> {
+    let id: Uuid = row.try_get("claim_id")?;
+    let state_code: String = row.try_get("state")?;
+    let decided_by: Option<String> = row.try_get("decided_by")?;
+    let decided_at: Option<DateTime<Utc>> = row.try_get("decided_at")?;
+    let decide_reason: Option<String> = row.try_get("decide_reason")?;
+    let sanctioned_minor: Option<i64> = row.try_get("sanctioned_minor")?;
+    let approved_entry: Option<Uuid> = row.try_get("approved_entry_id")?;
+    let paid_entry: Option<Uuid> = row.try_get("paid_entry_id")?;
+    let paid_by: Option<String> = row.try_get("paid_by")?;
+    let paid_at: Option<DateTime<Utc>> = row.try_get("paid_at")?;
+
+    fn authorization(
+        actor: Option<String>,
+        at: Option<DateTime<Utc>>,
+        reason: Option<String>,
+    ) -> Result<Authorization, AppError> {
+        let actor = actor.unwrap_or_default();
+        let reason = reason.unwrap_or_default();
+        Authorization::try_new(
+            &actor,
+            actions::CLAIM_DECIDE,
+            at.unwrap_or(DateTime::<Utc>::MIN_UTC),
+            &reason,
+        )
+        .map_err(|error| corrupt("claim decision", error.to_string()))
+    }
+
+    // The inverse of what is written, pairing the state with its evidence.
+    // Anything else is a row whose state and its columns disagree, which the
+    // schema's CHECKs also refuse — this re-statement catches the rows a
+    // CHECK amendment missed.
+    let state = match state_code.as_str() {
+        "DRAFT" => ClaimState::Draft,
+        "SUBMITTED" => ClaimState::Submitted,
+        "APPROVED" => ClaimState::Approved {
+            decided: authorization(decided_by, decided_at, decide_reason)?,
+            sanctioned_minor: sanctioned_minor.unwrap_or(0),
+            approved_entry: approved_entry
+                .ok_or_else(|| corrupt("approved claim", "no sanctioning entry".into()))?
+                .to_string(),
+        },
+        "REJECTED" => ClaimState::Rejected {
+            decided: authorization(decided_by, decided_at, decide_reason)?,
+        },
+        "WITHDRAWN" => ClaimState::Withdrawn {
+            withdrawn: {
+                let actor = decided_by.unwrap_or_default();
+                Authorization::try_new(
+                    &actor,
+                    actions::CLAIM_REQUEST_OWN,
+                    decided_at.unwrap_or(DateTime::<Utc>::MIN_UTC),
+                    &decide_reason.unwrap_or_default(),
+                )
+                .map_err(|error| corrupt("claim withdrawal", error.to_string()))?
+            },
+        },
+        "PAID" => ClaimState::Paid {
+            decided: authorization(decided_by, decided_at, decide_reason)?,
+            sanctioned_minor: sanctioned_minor.unwrap_or(0),
+            approved_entry: approved_entry
+                .ok_or_else(|| corrupt("paid claim", "no sanctioning entry".into()))?
+                .to_string(),
+            paid_by: paid_by.unwrap_or_default(),
+            paid_at: paid_at.unwrap_or(DateTime::<Utc>::MIN_UTC),
+            payout_entry: paid_entry
+                .ok_or_else(|| corrupt("paid claim", "no payout entry".into()))?
+                .to_string(),
+        },
+        other => {
+            return Err(corrupt(
+                "claim state",
+                format!("{other:?} is not a state the machine reaches"),
+            ))
+        }
+    };
+
+    let history: Vec<ClaimEvent> = row
+        .try_get::<serde_json::Value, _>("history")?
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .map(decode_event)
+        .collect::<Result<_, _>>()?;
+
+    let lines = claim_lines(pool, id).await?;
+
+    let claim = ExpenseClaim::try_new(
+        ExpenseClaimWire {
+            id: ClaimId::try_new(&id.to_string())
+                .map_err(|error| corrupt("claim id", error.to_string()))?,
+            place: PlaceId::try_new(&row.try_get::<String, _>("place_id")?)
+                .map_err(|error| corrupt("claim place", error.to_string()))?,
+            employee: EmployeeId::try_new(&row.try_get::<String, _>("employee_id")?)
+                .map_err(|error| corrupt("claim employee", error.to_string()))?,
+            claimed_by: row.try_get::<String, _>("claimed_by")?,
+            posted_on: row.try_get::<NaiveDate, _>("posted_on")?,
+            lines,
+            state,
+            history: history.clone(),
+        },
+        catalogue,
+    )
+    .map_err(claim_error)?;
+
+    Ok(ClaimRecord {
+        created_at: row.try_get("created_at")?,
+        place_name: row.try_get("place_name")?,
+        employee_code: row.try_get("employee_code")?,
+        employee_name: row.try_get("employee_name")?,
+        approved_entry_id: row.try_get("approved_entry_id")?,
+        history,
+        claim: claim.with_claim_number(row.try_get("claim_number")?),
+    })
+}
+
+async fn claim_lines(pool: &PgPool, claim_id: Uuid) -> Result<Vec<ClaimLine>, AppError> {
+    let rows = sqlx::query(
+        "SELECT line_id, type_code, description, spent_on, claimed_minor,
+                sanctioned_minor, line_number
+           FROM expense_claim_line
+          WHERE claim_id = $1
+          ORDER BY line_number",
+    )
+    .bind(claim_id)
+    .fetch_all(pool)
+    .await?;
+    rows.iter()
+        .map(|row| {
+            let line_id: Uuid = row.try_get("line_id")?;
+            let type_code = ClaimTypeCode::try_new(&row.try_get::<String, _>("type_code")?)
+                .map_err(|error| corrupt("claim line type", error.to_string()))?;
+            let description: String = row.try_get("description")?;
+            let spent_on: NaiveDate = row.try_get("spent_on")?;
+            let claimed_minor: i64 = row.try_get("claimed_minor")?;
+            let sanctioned_minor: Option<i64> = row.try_get("sanctioned_minor")?;
+            let line_number: i32 = row.try_get("line_number")?;
+            let mut line = ClaimLine::try_new(
+                ClaimLineId::try_new(&line_id.to_string())
+                    .map_err(|error| corrupt("claim line id", error.to_string()))?,
+                type_code,
+                description,
+                spent_on,
+                claimed_minor,
+                line_number,
+            )
+            .map_err(claim_error)?;
+            if let Some(sanctioned) = sanctioned_minor {
+                line.sanction_for_storage(sanctioned).map_err(claim_error)?;
+            }
+            Ok(line)
+        })
+        .collect()
+}
+
+/// Store a filed claim: the header, its lines, and the history that says who
+/// filed it. One transaction, because a claim with lines missing is not a
+/// claim anybody can decide — and the `KLC-` number is minted inside it, so
+/// a rolled-back claim takes its number back with it.
+pub async fn insert_claim(pool: &PgPool, claim: &ExpenseClaim) -> Result<String, AppError> {
+    let claim_id = Uuid::from_str(claim.id().as_str())
+        .map_err(|error| corrupt("claim id", error.to_string()))?;
+    let history = serde_json::to_value(claim.history())
+        .map_err(|error| corrupt("claim history", error.to_string()))?;
+    let mut tx = pool.begin().await?;
+    let claim_number = next_document_number(
+        &mut tx,
+        &format!("KLC:{}", claim.place().as_str()),
+        &format!("KLC-{}", claim.place().as_str().to_uppercase()),
+        claim.posted_on(),
+    )
+    .await?;
+    sqlx::query(
+        "INSERT INTO expense_claim
+             (claim_id, claim_number, place_id, employee_id, claimed_by, posted_on,
+              state, history)
+         VALUES ($1, $2, $3, $4, $5, $6, 'DRAFT', $7)",
+    )
+    .bind(claim_id)
+    .bind(&claim_number)
+    .bind(claim.place().as_str())
+    .bind(claim.employee().as_str())
+    .bind(claim.claimed_by())
+    .bind(claim.posted_on())
+    .bind(history)
+    .execute(&mut *tx)
+    .await?;
+    for line in claim.lines() {
+        write_line(&mut tx, claim_id, line).await?;
+    }
+    tx.commit().await?;
+    Ok(claim_number)
+}
+
+async fn write_line(
+    tx: &mut Transaction<'_, Postgres>,
+    claim_id: Uuid,
+    line: &ClaimLine,
+) -> Result<(), AppError> {
+    let line_id = Uuid::from_str(line.id().as_str())
+        .map_err(|error| corrupt("claim line id", error.to_string()))?;
+    sqlx::query(
+        "INSERT INTO expense_claim_line
+             (line_id, claim_id, type_code, description, spent_on, claimed_minor,
+              line_number)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)",
+    )
+    .bind(line_id)
+    .bind(claim_id)
+    .bind(line.type_code().as_str())
+    .bind(line.description())
+    .bind(line.spent_on())
+    .bind(line.claimed_minor())
+    .bind(line.line_number())
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+/// The place's posting site: a store's site, or head office's when the place
+/// carries none. The same rule `pay.rs` uses, with the spec's HEAD_OFFICE_SITE
+/// fallback instead of the place's own id.
+async fn posting_site(
+    tx: &mut Transaction<'_, Postgres>,
+    place: &PlaceId,
+) -> Result<String, AppError> {
+    sqlx::query_scalar("SELECT COALESCE(site_id, $2) FROM org_place WHERE id = $1")
+        .bind(place.as_str())
+        .bind(HEAD_OFFICE_SITE)
+        .fetch_optional(&mut **tx)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("there is no place {}", place)))
+}
+
+/// Decide a claim, and put the sanction in the books, in one transaction.
+///
+/// `Dr employee_expense [site, qualifier = type code]` per sanctioned type,
+/// `Cr employee_claim_payable [site, for_employee]` for the total — one
+/// journal, `('EXPENSE_CLAIM', claim_id, 'MAIN')` unique. A rejection posts
+/// nothing and records the decision by itself.
+pub async fn decide_claim(
+    pool: &PgPool,
+    claim: &mut ExpenseClaim,
+    approve: bool,
+    sanctions: &[(ClaimLineId, i64)],
+    authorization: Authorization,
+) -> Result<(), AppError> {
+    // The domain produces the decision and the posting plan together, and
+    // refuses the halfway shapes before any statement runs.
+    let posting = claim
+        .decide(approve, sanctions, authorization.clone())
+        .map_err(claim_error)?;
+
+    let claim_id = Uuid::from_str(claim.id().as_str())
+        .map_err(|error| corrupt("claim id", error.to_string()))?;
+    let history = serde_json::to_value(claim.history())
+        .map_err(|error| corrupt("claim history", error.to_string()))?;
+
+    let mut tx = pool.begin().await?;
+
+    // Posted first, so the entry id can ride the same UPDATE that flips the
+    // state: if anything below fails, the whole transaction — posting
+    // included — rolls back, and there is no instant at which the books hold
+    // a claim's sanction the claim does not.
+    let posted = if let Some(posting) = &posting {
+        let site = posting_site(&mut tx, claim.place()).await?;
+        let mut lines = Vec::with_capacity(posting.by_type.len() + 1);
+        for (type_code, amount) in &posting.by_type {
+            lines.push(
+                PostingLine::debit("employee_expense", &site, *amount)
+                    .with_qualifier(type_code.as_str()),
+            );
+        }
+        // Owner HR decision 5: a medical claim is owed on 2020 Biaya
+        // Pengobatan YMHD, every other claim on 2031 — the liability is split
+        // by the kind of claim, under the `MEDICAL` qualifier (0374).
+        let medical: i64 = posting
+            .by_type
+            .iter()
+            .filter(|(type_code, _)| is_medical_claim(type_code.as_str()))
+            .map(|(_, amount)| *amount)
+            .sum();
+        for (qualifier, amount) in [("MEDICAL", medical), ("", posting.total_minor - medical)] {
+            if amount > 0 {
+                lines.push(
+                    PostingLine::credit("employee_claim_payable", &site, amount)
+                        .with_qualifier(qualifier)
+                        .for_employee(claim.employee().as_str()),
+                );
+            }
+        }
+        Some(
+            poster::post(
+                &mut tx,
+                &PostingIntent {
+                    posting_date: claim.posted_on(),
+                    source_kind: "EXPENSE_CLAIM".into(),
+                    source_id: Some(claim_id.to_string()),
+                    rule_version: "expense_claim/1".into(),
+                    currency: "IDR".into(),
+                    memo: Some(format!("{} — {}", claim.claim_number(), claim.employee())),
+                    lines,
+                },
+                None,
+                authorization.actor().as_str(),
+            )
+            .await?,
+        )
+    } else {
+        None
+    };
+
+    // The transition, claimed by the conditional UPDATE. A zero row count
+    // means another decision got here first: the loser's posting rolls back
+    // with the transaction.
+    let mut approved_entry_id = None;
+    let affected = if approve {
+        let entry_id = posted
+            .as_ref()
+            .map(|posted| posted.entry_id)
+            .ok_or_else(|| corrupt("approved claim", "the domain produced no posting".into()))?;
+        approved_entry_id = Some(entry_id);
+        sqlx::query(
+            "UPDATE expense_claim
+                SET state = 'APPROVED', decided_by = $2, decided_at = $3,
+                    decide_reason = $4, sanctioned_minor = $5,
+                    approved_entry_id = $6, history = $7
+              WHERE claim_id = $1 AND state = 'SUBMITTED'",
+        )
+        .bind(claim_id)
+        .bind(authorization.actor().as_str())
+        .bind(authorization.at())
+        .bind(authorization.reason().as_str())
+        .bind(claim.state().sanctioned_minor())
+        .bind(entry_id)
+        .bind(history)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected()
+    } else {
+        sqlx::query(
+            "UPDATE expense_claim
+                SET state = 'REJECTED', decided_by = $2, decided_at = $3,
+                    decide_reason = $4, history = $5
+              WHERE claim_id = $1 AND state = 'SUBMITTED'",
+        )
+        .bind(claim_id)
+        .bind(authorization.actor().as_str())
+        .bind(authorization.at())
+        .bind(authorization.reason().as_str())
+        .bind(history)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected()
+    };
+    if affected == 0 {
+        return Err(AppError::Conflict(format!(
+            "{} is no longer waiting for a decision",
+            claim.claim_number()
+        )));
+    }
+
+    // The decider's figures, per line, written with the decision.
+    if approve {
+        for line in claim.lines() {
+            if let Some(sanctioned) = line.sanctioned_minor() {
+                sqlx::query(
+                    "UPDATE expense_claim_line SET sanctioned_minor = $2
+                      WHERE line_id = $1",
+                )
+                .bind(Uuid::from_str(line.id().as_str()).ok())
+                .bind(sanctioned)
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
+    }
+
+    claim
+        .mark_approved(
+            approved_entry_id
+                .map(|id| id.to_string())
+                .unwrap_or_default(),
+        )
+        .map_err(claim_error)?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Pay an approved claim from the place's petty cash, in one transaction.
+///
+/// `Dr employee_claim_payable [site, for_employee]` for what was sanctioned,
+/// `Cr petty_cash [site]` — the same meaning the imprest spends from, so the
+/// payout is visible to the cash-position fold with no new table. The
+/// document is the `KKC-` series of the paying site.
+pub async fn pay_claim(
+    pool: &PgPool,
+    claim: &mut ExpenseClaim,
+    authorization: Authorization,
+    paid_on: NaiveDate,
+) -> Result<(String, String), AppError> {
+    let claim_id = Uuid::from_str(claim.id().as_str())
+        .map_err(|error| corrupt("claim id", error.to_string()))?;
+    let total = claim
+        .state()
+        .sanctioned_minor()
+        .ok_or_else(|| corrupt("paid claim", "nothing sanctioned to pay".into()))?;
+
+    let mut tx = pool.begin().await?;
+    let site = posting_site(&mut tx, claim.place()).await?;
+    let document_number = next_document_number(
+        &mut tx,
+        &format!("KKC:{site}"),
+        &format!("KKC-{}", site.to_uppercase()),
+        paid_on,
+    )
+    .await?;
+
+    // Paid out of the same two liabilities the approval raised: the
+    // medical part is read back off the approval entry's credit to
+    // the MEDICAL account, so payment always mirrors approval.
+    let medical: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(l.credit_minor), 0)::bigint
+           FROM journal_line l
+           JOIN journal_entry e ON e.entry_id = l.entry_id
+          WHERE e.source_kind = 'EXPENSE_CLAIM' AND e.source_id = $1
+            AND l.site_id = $2
+            AND l.account_code = (SELECT account_code FROM account_map
+                                   WHERE semantic_key = 'employee_claim_payable'
+                                     AND site_id = $2 AND qualifier = 'MEDICAL')
+            AND l.account_code IS DISTINCT FROM (
+                SELECT account_code FROM account_map
+                 WHERE semantic_key = 'employee_claim_payable'
+                   AND site_id = $2 AND qualifier = '')",
+    )
+    .bind(claim_id.to_string())
+    .bind(&site)
+    .fetch_one(&mut *tx)
+    .await?;
+    let medical = medical.min(total);
+    let mut lines = Vec::with_capacity(3);
+    for (qualifier, amount) in [("MEDICAL", medical), ("", total - medical)] {
+        if amount > 0 {
+            lines.push(
+                PostingLine::debit("employee_claim_payable", &site, amount)
+                    .with_qualifier(qualifier)
+                    .for_employee(claim.employee().as_str()),
+            );
+        }
+    }
+    lines.push(PostingLine::credit("petty_cash", &site, total));
+    let payout_lines = lines;
+
+    let posted = poster::post(
+        &mut tx,
+        &PostingIntent {
+            posting_date: paid_on,
+            source_kind: "EXPENSE_CLAIM_PAYOUT".into(),
+            source_id: Some(claim_id.to_string()),
+            rule_version: "expense_claim_payout/1".into(),
+            currency: "IDR".into(),
+            memo: Some(format!(
+                "{} — klaim {} {}",
+                document_number,
+                claim.employee(),
+                claim.claim_number()
+            )),
+            lines: payout_lines,
+        },
+        None,
+        authorization.actor().as_str(),
+    )
+    .await?;
+
+    // The domain appends its own PAID event — document and entry number in
+    // the detail — and flips to PAID in memory; the UPDATE below stores both
+    // in one statement, guarded by the state still being APPROVED.
+    claim
+        .pay(
+            authorization.actor().as_str(),
+            posted.entry_id.to_string(),
+            &document_number,
+            authorization.clone(),
+        )
+        .map_err(claim_error)?;
+    let history = serde_json::to_value(claim.history())
+        .map_err(|error| corrupt("claim history", error.to_string()))?;
+
+    let affected = sqlx::query(
+        "UPDATE expense_claim
+            SET state = 'PAID', paid_at = $3, paid_by = $4,
+                paid_entry_id = $5, history = $2
+          WHERE claim_id = $1 AND state = 'APPROVED'",
+    )
+    .bind(claim_id)
+    .bind(history)
+    .bind(authorization.at())
+    .bind(authorization.actor().as_str())
+    .bind(posted.entry_id)
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+    if affected == 0 {
+        return Err(AppError::Conflict(format!(
+            "{} is not an approved claim waiting to be paid",
+            claim.claim_number()
+        )));
+    }
+
+    tx.commit().await?;
+    Ok((document_number, posted.entry_number))
+}
+
+/// Submit or withdraw, as the caller asked. Both are the filer's acts from a
+/// state the domain checks; the conditional UPDATE here is the guard the
+/// second racing request cannot pass.
+pub async fn record_submission(
+    pool: &PgPool,
+    claim: &mut ExpenseClaim,
+    authorization: Authorization,
+) -> Result<(), AppError> {
+    claim.submit(authorization.clone()).map_err(claim_error)?;
+    let affected = transition(pool, claim, "SUBMITTED", "WHERE state = 'DRAFT'").await?;
+    if affected == 0 {
+        return Err(AppError::Conflict(format!(
+            "{} is not a draft waiting to be submitted",
+            claim.claim_number()
+        )));
+    }
+    Ok(())
+}
+
+pub async fn record_withdrawal(
+    pool: &PgPool,
+    claim: &mut ExpenseClaim,
+    authorization: Authorization,
+) -> Result<(), AppError> {
+    claim.withdraw(authorization.clone()).map_err(claim_error)?;
+    let affected = transition(
+        pool,
+        claim,
+        "WITHDRAWN",
+        "WHERE state IN ('DRAFT', 'SUBMITTED')",
+    )
+    .await?;
+    if affected == 0 {
+        return Err(AppError::Conflict(format!(
+            "{} can no longer be withdrawn",
+            claim.claim_number()
+        )));
+    }
+    Ok(())
+}
+
+pub async fn record_returnal(
+    pool: &PgPool,
+    claim: &mut ExpenseClaim,
+    authorization: Authorization,
+) -> Result<(), AppError> {
+    claim
+        .return_to_draft(authorization.clone())
+        .map_err(claim_error)?;
+    let affected = transition(pool, claim, "DRAFT", "WHERE state = 'SUBMITTED'").await?;
+    if affected == 0 {
+        return Err(AppError::Conflict(format!(
+            "{} is not waiting to be sent back",
+            claim.claim_number()
+        )));
+    }
+    Ok(())
+}
+
+/// One state move, by conditional UPDATE, with the history appended in the
+/// same statement. None of these transitions decides anything — submission,
+/// withdrawal and a send-back all leave `decided_*` exactly as they were,
+/// which is empty; the decisions live in `decide_claim`.
+async fn transition(
+    pool: &PgPool,
+    claim: &ExpenseClaim,
+    to_state: &str,
+    from: &str,
+) -> Result<u64, AppError> {
+    let claim_id = Uuid::from_str(claim.id().as_str())
+        .map_err(|error| corrupt("claim id", error.to_string()))?;
+    let history = serde_json::to_value(claim.history())
+        .map_err(|error| corrupt("claim history", error.to_string()))?;
+    let sql = format!(
+        "UPDATE expense_claim SET state = '{to_state}', history = $2
+         {from} AND claim_id = $1"
+    );
+    let affected = sqlx::query(&sql)
+        .bind(claim_id)
+        .bind(history)
+        .execute(pool)
+        .await?
+        .rows_affected();
+    Ok(affected)
+}
+
+// ── reads ────────────────────────────────────────────────────────────────
+
+/// One claim, folded.
+pub async fn load_claim(
+    pool: &PgPool,
+    claim_id: Uuid,
+    catalogue: &ClaimTypeCatalogue,
+) -> Result<Option<ClaimRecord>, AppError> {
+    let sql = format!(
+        "SELECT {CLAIM_COLUMNS},
+                COALESCE(p.name, p.id) AS place_name,
+                e.code AS employee_code,
+                COALESCE(pr.full_name, e.id) AS employee_name
+           FROM expense_claim c
+           JOIN org_place p ON p.id = c.place_id
+           JOIN employee e ON e.id = c.employee_id
+      LEFT JOIN employee_profile pr ON pr.employee_id = e.id
+          WHERE c.claim_id = $1"
+    );
+    let row = sqlx::query(&sql)
+        .bind(claim_id)
+        .fetch_optional(pool)
+        .await?;
+    match row {
+        Some(row) => Ok(Some(decode_claim(pool, &row, catalogue).await?)),
+        None => Ok(None),
+    }
+}
+
+/// The queue and the list: filters all optional, and `reach_place` the one
+/// place a bounded caller may see (`None` for head office, which sees every
+/// place's). The partial index in 0341 is the SUBMITTED queue's query.
+pub async fn list_claims(
+    pool: &PgPool,
+    catalogue: &ClaimTypeCatalogue,
+    place: Option<&str>,
+    state: Option<&str>,
+    employee: Option<&str>,
+    reach_place: Option<&str>,
+) -> Result<Vec<ClaimRecord>, AppError> {
+    let rows = sqlx::query(&format!(
+        "SELECT {CLAIM_COLUMNS},
+                COALESCE(p.name, p.id) AS place_name,
+                e.code AS employee_code,
+                COALESCE(pr.full_name, e.id) AS employee_name
+           FROM expense_claim c
+           JOIN org_place p ON p.id = c.place_id
+           JOIN employee e ON e.id = c.employee_id
+      LEFT JOIN employee_profile pr ON pr.employee_id = e.id
+          WHERE ($1::text IS NULL OR c.place_id = $1)
+            AND ($2::text IS NULL OR c.state = $2)
+            AND ($3::text IS NULL OR c.employee_id = $3)
+            AND ($4::text IS NULL OR c.place_id = $4)
+          ORDER BY c.posted_on DESC, c.claim_number DESC
+          LIMIT 500"
+    ))
+    .bind(place)
+    .bind(state)
+    .bind(employee)
+    .bind(reach_place)
+    .fetch_all(pool)
+    .await?;
+    let mut records = Vec::with_capacity(rows.len());
+    for row in &rows {
+        records.push(decode_claim(pool, row, catalogue).await?);
+    }
+    Ok(records)
+}
+
+/// One claim, as the wire carries it: the names resolved, the lines embedded
+/// (the decide sheet needs them, and the spec's table has no single-claim
+/// read to hang them on), the history folded.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ClaimLineView {
+    pub line_id: Uuid,
+    pub type_code: String,
+    pub type_name: String,
+    pub description: String,
+    pub spent_on: NaiveDate,
+    pub claimed_minor: i64,
+    pub sanctioned_minor: Option<i64>,
+    pub line_number: i32,
+}
+
+/// One event of the trail, owned. The domain's `ClaimEvent` borrows its
+/// action from the machine; the wire carries it as the string it is.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ClaimEventView {
+    pub actor: String,
+    pub action: String,
+    pub reason: Option<String>,
+    pub at: DateTime<Utc>,
+    pub detail: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ClaimView {
+    pub claim_id: Uuid,
+    pub claim_number: String,
+    pub place_id: String,
+    pub place_name: Option<String>,
+    pub employee_id: String,
+    pub employee_code: Option<String>,
+    pub employee_name: Option<String>,
+    pub posted_on: NaiveDate,
+    pub claimed_by: String,
+    /// What was asked, as one number.
+    pub claimed_minor: i64,
+    /// What was allowed — `null` while undecided, and on a rejected claim.
+    pub sanctioned_minor: Option<i64>,
+    pub state: String,
+    pub decided_by: Option<String>,
+    pub decided_at: Option<DateTime<Utc>>,
+    pub decide_reason: Option<String>,
+    pub approved_entry_id: Option<Uuid>,
+    pub paid_at: Option<DateTime<Utc>>,
+    pub paid_by: Option<String>,
+    pub paid_entry_id: Option<Uuid>,
+    pub lines: Vec<ClaimLineView>,
+    pub history: Vec<ClaimEventView>,
+    pub created_at: DateTime<Utc>,
+}
+
+pub fn claim_view(
+    record: &ClaimRecord,
+    catalogue: &ClaimTypeCatalogue,
+) -> Result<ClaimView, AppError> {
+    let claim = &record.claim;
+    let type_name = |code: &ClaimTypeCode| -> String {
+        catalogue
+            .require(code)
+            .map(|t| t.name().to_owned())
+            .unwrap_or_else(|_| code.to_string())
+    };
+    let parse = |what: &str, raw: &str| -> Result<Uuid, AppError> {
+        Uuid::from_str(raw).map_err(|error| corrupt(what, error.to_string()))
+    };
+    let (decided_by, decided_at, decide_reason) = match claim.state().decision() {
+        Some(decision) => (
+            Some(decision.actor().to_string()),
+            Some(decision.at()),
+            Some(decision.reason().to_string()),
+        ),
+        None => (None, None, None),
+    };
+    let (paid_at, paid_by, paid_entry_id) = match claim.state() {
+        ClaimState::Paid {
+            paid_at,
+            paid_by,
+            payout_entry,
+            ..
+        } => (
+            Some(*paid_at),
+            Some(paid_by.clone()),
+            Some(parse("payout entry", payout_entry)?),
+        ),
+        _ => (None, None, None),
+    };
+    Ok(ClaimView {
+        claim_id: parse("claim id", claim.id().as_str())?,
+        claim_number: claim.claim_number().to_owned(),
+        place_id: claim.place().to_string(),
+        place_name: record.place_name.clone(),
+        employee_id: claim.employee().to_string(),
+        employee_code: record.employee_code.clone(),
+        employee_name: record.employee_name.clone(),
+        posted_on: claim.posted_on(),
+        claimed_by: claim.claimed_by().to_owned(),
+        claimed_minor: claim.claimed_total_minor(),
+        sanctioned_minor: claim.state().sanctioned_minor(),
+        state: claim.state().code().to_owned(),
+        decided_by,
+        decided_at,
+        decide_reason,
+        approved_entry_id: record.approved_entry_id,
+        paid_at,
+        paid_by,
+        paid_entry_id,
+        lines: claim
+            .lines()
+            .iter()
+            .map(|line| {
+                Ok(ClaimLineView {
+                    line_id: parse("claim line id", line.id().as_str())?,
+                    type_code: line.type_code().to_string(),
+                    type_name: type_name(line.type_code()),
+                    description: line.description().to_owned(),
+                    spent_on: line.spent_on(),
+                    claimed_minor: line.claimed_minor(),
+                    sanctioned_minor: line.sanctioned_minor(),
+                    line_number: line.line_number(),
+                })
+            })
+            .collect::<Result<_, AppError>>()?,
+        history: record
+            .history
+            .iter()
+            .map(|event| ClaimEventView {
+                actor: event.actor.clone(),
+                action: event.action.to_owned(),
+                reason: event.reason.clone(),
+                at: event.at,
+                detail: event.detail.clone(),
+            })
+            .collect(),
+        created_at: record.created_at,
+    })
+}
+
+// ── the advance surface (read-only) ─────────────────────────────────────
+
+/// One open advance the finance lane (0280) is holding for this person.
+///
+/// A read-only projection over the finance lane's own table — People does not
+/// rebuild `advance`; the Directory sheet only needs to see who is holding
+/// company money and how much.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct EmployeeAdvanceView {
+    pub advance_id: Uuid,
+    pub advance_number: String,
+    pub site_id: String,
+    pub purpose: String,
+    pub amount_minor: i64,
+    pub settled_minor: i64,
+    pub refunded_minor: i64,
+    /// What the wage repaid — a settlement the payroll approval made (0347),
+    /// beside the receipts and the change the finance lane books itself.
+    pub recovered_minor: i64,
+    pub outstanding_minor: i64,
+    pub status: String,
+    pub requested_at: DateTime<Utc>,
+    pub paid_at: Option<DateTime<Utc>>,
+}
+
+/// The person's advances, open ones first. Finance keeps the authority over
+/// every mutation; this is the mirror the HR sheet reads.
+///
+/// The settlement figures are a fold over `advance_settlement` (0280), not
+/// columns — an advance's outstanding is the arithmetic of what came back, and
+/// storing it beside the ledger would be the halfway state that crate exists
+/// to make impossible. Three legs come back: receipts (`EXPENSE`), change
+/// (`REFUND`), and the wage line a payroll approval booked (`PAYROLL`,
+/// 0347). `party_type` and not `party_kind`: 0299 renamed the column when it
+/// minted the registry.
+pub async fn advances_of_employee(
+    pool: &PgPool,
+    employee_id: &str,
+) -> Result<Vec<EmployeeAdvanceView>, AppError> {
+    let rows = sqlx::query(
+        "SELECT a.advance_id, a.advance_number, a.site_id, a.purpose,
+                a.amount_minor, a.status, a.requested_at, a.paid_at,
+                COALESCE(SUM(s.amount_minor) FILTER (WHERE s.kind = 'EXPENSE'), 0) AS settled_minor,
+                COALESCE(SUM(s.amount_minor) FILTER (WHERE s.kind = 'REFUND'), 0)  AS refunded_minor,
+                COALESCE(SUM(s.amount_minor) FILTER (WHERE s.kind = 'PAYROLL'), 0) AS recovered_minor
+           FROM advance a
+           LEFT JOIN advance_settlement s ON s.advance_id = a.advance_id
+          WHERE a.party_type = 'EMPLOYEE' AND a.employee_id = $1
+          GROUP BY a.advance_id
+          ORDER BY a.paid_at IS NULL DESC, a.requested_at DESC
+          LIMIT 100",
+    )
+    .bind(employee_id)
+    .fetch_all(pool)
+    .await?;
+    rows.iter()
+        .map(|row| {
+            let amount: i64 = row.try_get("amount_minor")?;
+            let settled: i64 = row.try_get("settled_minor")?;
+            let refunded: i64 = row.try_get("refunded_minor")?;
+            let recovered: i64 = row.try_get("recovered_minor")?;
+            Ok(EmployeeAdvanceView {
+                advance_id: row.try_get("advance_id")?,
+                advance_number: row.try_get("advance_number")?,
+                site_id: row.try_get("site_id")?,
+                purpose: row.try_get("purpose")?,
+                amount_minor: amount,
+                settled_minor: settled,
+                refunded_minor: refunded,
+                recovered_minor: recovered,
+                outstanding_minor: amount - settled - refunded - recovered,
+                status: row.try_get("status")?,
+                requested_at: row.try_get("requested_at")?,
+                paid_at: row.try_get("paid_at")?,
+            })
+        })
+        .collect()
+}
+
+/// One advance, as a payroll recovery against it needs it.
+///
+/// The filing refuses, while the filer is still looking at the form, what
+/// there is nothing to repay — so it reads the advance and its outstanding in
+/// one row. The outstanding half of the check repeats at approval, because
+/// filings sit while months move; the rest is settled fact by then.
+#[derive(Debug)]
+pub struct AdvanceRecoveryRow {
+    pub advance_id: Uuid,
+    pub advance_number: String,
+    pub party_type: String,
+    pub employee_id: Option<String>,
+    pub status: String,
+    pub amount_minor: i64,
+    pub outstanding_minor: i64,
+}
+
+pub async fn advance_for_recovery(
+    pool: &PgPool,
+    advance_id: Uuid,
+) -> Result<Option<AdvanceRecoveryRow>, AppError> {
+    let row = sqlx::query(
+        "SELECT a.advance_id, a.advance_number, a.party_type, a.employee_id, a.status,
+                a.amount_minor,
+                a.amount_minor - COALESCE(SUM(s.amount_minor), 0) AS outstanding_minor
+           FROM advance a
+           LEFT JOIN advance_settlement s ON s.advance_id = a.advance_id
+          WHERE a.advance_id = $1
+          GROUP BY a.advance_id",
+    )
+    .bind(advance_id)
+    .fetch_optional(pool)
+    .await?;
+    let Some(row) = row else {
+        return Ok(None);
+    };
+    Ok(Some(AdvanceRecoveryRow {
+        advance_id: row.try_get("advance_id")?,
+        advance_number: row.try_get("advance_number")?,
+        party_type: row.try_get("party_type")?,
+        employee_id: row.try_get("employee_id")?,
+        status: row.try_get("status")?,
+        amount_minor: row.try_get("amount_minor")?,
+        outstanding_minor: row.try_get("outstanding_minor")?,
+    }))
+}
+
+/// Whether a claim type's code names a medical claim (owner HR decision 5),
+/// by the same words `define_claim_type` and 0371 map to Biaya Kesehatan.
+fn is_medical_claim(code: &str) -> bool {
+    let code = code.to_ascii_uppercase();
+    ["MEDIS", "MEDIC", "KESEHATAN", "PENGOBATAN", "OBAT", "DOKTER"]
+        .iter()
+        .any(|word| code.contains(word))
+}

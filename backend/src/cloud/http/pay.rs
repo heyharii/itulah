@@ -389,6 +389,13 @@ pub struct OpenRunBody {
 #[serde(deny_unknown_fields)]
 pub struct StepBody {
     pub reason: String,
+    /// Settling a head-office payroll: which bank paid it (`bank_giro` or
+    /// `bank_savings`) and which bank (`BCA` …). Ignored by every other step
+    /// and by a store's payroll, which is paid out of its petty cash.
+    #[serde(default)]
+    pub bank_key: Option<String>,
+    #[serde(default)]
+    pub bank_qualifier: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -697,6 +704,16 @@ async fn reachable_run(
     Ok(run)
 }
 
+/// How a step is written. Submitting only moves the state; an approval
+/// settles the advances the batch's adjustments repay, and a reopen takes
+/// those settlements back — each in the same transaction as the state itself,
+/// so a step and what it makes cannot be split by a crash.
+enum StepSave {
+    State,
+    Approval,
+    Reopen,
+}
+
 async fn step(
     state: &AppState,
     principal: &Principal,
@@ -704,13 +721,20 @@ async fn step(
     action_key: &str,
     reason: &str,
     apply: impl FnOnce(&mut PayrollRun, Authorization) -> Result<(), crate::cloud::domain::PayError>,
+    save: StepSave,
 ) -> Result<Json<PayrollRunView>, AppError> {
     require(principal, action_key)?;
     let mut run = reachable_run(state, principal, id).await?;
     let authorization = Authorization::try_new(&principal.username, action_key, Utc::now(), reason)
         .map_err(invalid)?;
     apply(&mut run, authorization).map_err(infrastructure::pay_error)?;
-    infrastructure::save_run(&state.db, &run).await?;
+    match save {
+        StepSave::State => infrastructure::save_run(&state.db, &run).await?,
+        StepSave::Approval => {
+            infrastructure::save_approval(&state.db, &run, &principal.username).await?
+        }
+        StepSave::Reopen => infrastructure::save_reopen(&state.db, &run).await?,
+    }
     read_back(state, id).await
 }
 
@@ -734,6 +758,7 @@ pub async fn submit_run(
         actions::PAYROLL_SUBMIT,
         &body.reason,
         PayrollRun::submit,
+        StepSave::State,
     )
     .await
 }
@@ -745,6 +770,29 @@ pub async fn approve_run(
     Path(id): Path<String>,
     Json(body): Json<StepBody>,
 ) -> Result<Json<PayrollRunView>, AppError> {
+    // The two blockers reconciliation can prove before anybody signs: somebody
+    // on the run has no account to be paid into, or their deductions came to
+    // more than the month earned. Approving either sends Finance a payment file
+    // that cannot be paid. The softer findings — an unratified component, a
+    // line that counted nothing — stay visible on the screen and on the slip
+    // rather than becoming an approval nobody can complete.
+    let run = reachable_run(&state, &principal, &id).await?;
+    let month = AttendanceMonth::parse(run.period())
+        .map_err(infrastructure::attendance_error)?;
+    let first_day = infrastructure::month_first_day(month)?;
+    let reconciliation = infrastructure::reconcile(&state.db, &run, first_day).await?;
+    if reconciliation.unpayable > 0 {
+        return Err(AppError::Conflict(format!(
+            "{} on this run have no account to be paid into; a payment file would fail for everybody in it",
+            reconciliation.unpayable
+        )));
+    }
+    if reconciliation.slips_with_negative_net > 0 {
+        return Err(AppError::Conflict(format!(
+            "{} slip(s) on this run have deductions above the month's earnings; fix the figure before approving",
+            reconciliation.slips_with_negative_net
+        )));
+    }
     step(
         &state,
         &principal,
@@ -752,6 +800,7 @@ pub async fn approve_run(
         actions::PAYROLL_APPROVE,
         &body.reason,
         PayrollRun::approve,
+        StepSave::Approval,
     )
     .await
 }
@@ -778,6 +827,7 @@ pub async fn reopen_run(
         actions::PAYROLL_REOPEN,
         &body.reason,
         PayrollRun::reopen,
+        StepSave::Reopen,
     )
     .await
 }
@@ -820,10 +870,8 @@ pub async fn run_reconciliation(
 /// A caller supplying its own gross would be a caller deciding what the company
 /// owes, which is the whole thing the two signatures above exist to settle.
 ///
-/// It is not a ledger posting, and the reason is written in migration 0231: a
-/// journal line must name a `site`, head office is not one, and head office's
-/// payroll is the reason a run is keyed by `org_place` at all. Finance books
-/// this and Finance says when it has been paid.
+/// The signed handover posts the accrual journal automatically. Finance still
+/// records settlement when the money has actually been paid.
 pub async fn hand_over_run(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
@@ -892,7 +940,13 @@ pub async fn settle_handover(
     handover
         .settle(authorization)
         .map_err(infrastructure::pay_error)?;
-    infrastructure::settle_handover(&state.db, &handover).await?;
+    let paid_from = body
+        .bank_key
+        .as_deref()
+        .map(str::trim)
+        .filter(|key| !key.is_empty())
+        .map(|key| (key, body.bank_qualifier.as_deref().unwrap_or("").trim()));
+    infrastructure::settle_handover(&state.db, &handover, paid_from).await?;
     read_handover_back(&state, &id).await
 }
 

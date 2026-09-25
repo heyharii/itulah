@@ -39,7 +39,9 @@
 //! that they never exceed what is open.
 
 use super::destinations::payment_destination_snapshot_for;
+use super::payment_ledger::{ple_delink, ple_settle, ple_unsettle, PaymentLedgerAllocation};
 use crate::cloud::application::AppError;
+use crate::cloud::domain::{spread, AllocationRefusal};
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Row};
@@ -185,11 +187,11 @@ async fn payment_facts(
 
 /// What has already been put against bills by this payment.
 ///
-/// Reads `supplier_payment_allocation`, which is where allocation lives in this
-/// build. When the Payment Ledger lands this becomes a read of
-/// `payment_ledger_settlement` keyed on `(against_voucher_kind,
-/// against_voucher_id)` — the same question, asked of the ledger that will own
-/// the answer for every party type rather than only for suppliers.
+/// Read from the Payment Ledger when it is in this build — allocation is that
+/// ledger's bookkeeping and there must be one answer to "what is still open".
+/// The `supplier_payment_allocation` rows remain the read only where the
+/// ledger is absent, and only for suppliers, which is all that table ever
+/// knew.
 async fn allocated_so_far(
     pool: &PgPool,
     payment_kind: &str,
@@ -201,6 +203,28 @@ async fn allocated_so_far(
     let Ok(id) = Uuid::parse_str(payment_id) else {
         return Ok(Vec::new());
     };
+    if ledger_present(pool).await {
+        let rows = sqlx::query(
+            "SELECT e.voucher_id AS obligation, SUM(s.amount_minor)::bigint AS allocated
+               FROM payment_ledger_settlement s
+               JOIN payment_ledger_entry e ON e.entry_id = s.entry_id
+              WHERE s.against_voucher_kind = 'PAYMENT' AND s.against_voucher_id = $1
+                AND NOT s.delinked
+              GROUP BY e.voucher_id",
+        )
+        .bind(id.to_string())
+        .fetch_all(pool)
+        .await?;
+        return rows
+            .iter()
+            .map(|row| {
+                Ok((
+                    row.try_get::<String, _>("obligation")?,
+                    row.try_get::<i64, _>("allocated")?,
+                ))
+            })
+            .collect();
+    }
     let rows = sqlx::query(
         "SELECT invoice_id, SUM(amount_minor)::bigint AS allocated
            FROM supplier_payment_allocation WHERE payment_id = $1
@@ -410,27 +434,32 @@ pub async fn payment_allocation_apply(
 
 /// The one call into the ledger that owns allocation.
 ///
-/// # The seam
+/// Three verbs, three ledger calls, one transaction each — the seam the module
+/// described while the ledger was still a sibling lane, now that it is in this
+/// tree:
 ///
-/// The Payment Ledger lands in a sibling lane. When the two are in one tree,
-/// this becomes three lines and nothing above it changes:
+///   ALLOCATE — each line finds the obligation's open item (raised by the
+///              bill's own posting, voucher `SUPPLIER_INVOICE`) and settles
+///              against it through `ple_settle`, spread oldest-first where a
+///              line crosses more than one item;
+///   UNMATCH  — the whole allocation against each named obligation is taken
+///              back through `ple_unsettle`, leaving payment and obligation
+///              both open. Rematching is an UNMATCH and then an ALLOCATE, so a
+///              failure halfway says which half happened;
+///   REVERSE  — every allocation the payment ever made goes at once through
+///              `ple_delink`, which is what undoing the payment means.
 ///
-/// ```text
-/// "ALLOCATE" => ple_settle(&mut tx, &SettlementIntent { .. }, actor).await?,
-/// "UNMATCH"  => ple_settle(&mut tx, &SettlementIntent { negative lines }, actor).await?,
-/// "REVERSE"  => ple_delink(&mut tx, entry_id, reason, actor).await?,
-/// ```
-///
-/// with `against_voucher_kind` = this payment's kind and `against_voucher_id`
-/// its id. The refusals above stay where they are: `ple_settle` refuses
-/// over-settlement as an invariant, and this refuses it as a sentence somebody
-/// can act on, which is the same arrangement `poster::check_balanced` has with
-/// the deferred balance trigger.
+/// Nothing here adds or subtracts a balance: `outstanding_minor` is generated
+/// from the settlement rows and re-summed by trigger, so writing or flipping a
+/// settlement IS the bookkeeping. What this function adds is the sentences —
+/// the ledger's own refusals are invariants, and these are advice a person can
+/// act on, the same arrangement `poster::check_balanced` has with the deferred
+/// balance trigger.
 async fn settle_through_payment_ledger(
     pool: &PgPool,
     surface: &PaymentAllocationSurface,
-    _request: &PaymentAllocationRequest,
-    _actor: &str,
+    request: &PaymentAllocationRequest,
+    actor: &str,
 ) -> Result<(), AppError> {
     if !ledger_present(pool).await {
         return Err(AppError::Configuration(format!(
@@ -440,9 +469,220 @@ async fn settle_through_payment_ledger(
             surface.payment_kind, surface.payment_id
         )));
     }
-    Err(AppError::Configuration(
-        "the Payment Ledger is present but this build has not been rebuilt against it; \
-         allocation writes go through ple_settle and ple_delink and through nothing else"
-            .into(),
-    ))
+    if surface.payment_kind != "SUPPLIER_PAYMENT" {
+        return Err(AppError::Validation(format!(
+            "{} is not a payment this surface can allocate yet. Supplier payments are open \
+             first, because their obligations are the ones the Payment Ledger already holds; \
+             batch items follow when their execution names the journal entry it posted",
+            surface.payment_kind
+        )));
+    }
+    let payment_id = Uuid::parse_str(&surface.payment_id).map_err(|_| {
+        AppError::Validation(format!("'{}' is not a payment's id", surface.payment_id))
+    })?;
+    let party_id = surface
+        .party_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            AppError::Conflict(format!(
+                "payment {} names no supplier, and allocation answers a supplier's open bills",
+                surface.payment_id
+            ))
+        })?;
+
+    let mut tx = pool.begin().await?;
+    match request.action.trim().to_ascii_uppercase().as_str() {
+        "ALLOCATE" => {
+            let (journal_entry_id, posting_date) =
+                payment_journal_entry(&mut tx, payment_id).await?;
+            for line in &request.lines {
+                let obligation = parse_obligation(&line.obligation_id)?;
+                let items = obligation_open_items(&mut tx, obligation, party_id).await?;
+                if items.is_empty() {
+                    return Err(AppError::Conflict(format!(
+                        "invoice {obligation} has no open item in the Payment Ledger for {}. \
+                         A bill that predates the ledger has nothing here to answer, and one \
+                         already answered has nothing left",
+                        surface.party_name.as_deref().unwrap_or("this supplier")
+                    )));
+                }
+                let open: Vec<i64> = items.iter().map(|(_, outstanding)| *outstanding).collect();
+                let apportioned =
+                    spread(&open, line.amount_minor).map_err(|refusal| match refusal {
+                        AllocationRefusal::MoreThanIsOpen {
+                            asked_minor,
+                            open_minor,
+                        } => AppError::Conflict(format!(
+                        "this payment answers {asked_minor} against invoice {obligation}, which \
+                         has {open_minor} open in the Payment Ledger. Over-settling turns a \
+                         bill into a balance the supplier owes us, which is a credit note and \
+                         not a payment"
+                    )),
+                        other => AppError::Validation(other.to_string()),
+                    })?;
+                let allocations: Vec<PaymentLedgerAllocation> = items
+                    .iter()
+                    .zip(&apportioned)
+                    .filter(|(_, &amount)| amount > 0)
+                    .map(|((entry_id, _), &amount)| PaymentLedgerAllocation {
+                        entry_id: *entry_id,
+                        amount_minor: amount,
+                    })
+                    .collect();
+                ple_settle(
+                    &mut tx,
+                    "PAYMENT",
+                    &surface.payment_id,
+                    journal_entry_id,
+                    posting_date,
+                    &allocations,
+                    actor,
+                )
+                .await?;
+            }
+        }
+        "UNMATCH" => {
+            let why = request
+                .reason
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| {
+                    AppError::Validation(
+                        "taking an allocation back needs a reason; it is the only record of \
+                         why the money was pointed somewhere else"
+                            .into(),
+                    )
+                })?;
+            for line in &request.lines {
+                let obligation = parse_obligation(&line.obligation_id)?;
+                let entry_id = obligation_entry(&mut tx, obligation, party_id).await?;
+                ple_unsettle(
+                    &mut tx,
+                    "PAYMENT",
+                    &surface.payment_id,
+                    entry_id,
+                    why,
+                    actor,
+                )
+                .await?;
+            }
+        }
+        // The caller validated the verb and the reason; only the ledger act is
+        // left. `ple_delink` takes every settlement the payment made at once,
+        // which is what undoing the payment means.
+        "REVERSE" => {
+            ple_delink(
+                &mut tx,
+                "PAYMENT",
+                &surface.payment_id,
+                request.reason.as_deref().unwrap_or_default(),
+                actor,
+            )
+            .await?;
+        }
+        _ => {
+            return Err(AppError::Validation(
+                "'that' is not something to do to an allocation; expected ALLOCATE, UNMATCH or \
+                 REVERSE"
+                    .into(),
+            ))
+        }
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
+/// The journal entry the payment posted, and the day it posted on. A
+/// settlement names the GL entry that moved the money, in the same transaction
+/// as the rows that say where it went.
+async fn payment_journal_entry(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    payment_id: Uuid,
+) -> Result<(Uuid, NaiveDate), AppError> {
+    let row = sqlx::query(
+        "SELECT entry_id, posting_date FROM journal_entry
+          WHERE source_kind = 'PAYMENT' AND source_id = $1
+          ORDER BY posted_at DESC LIMIT 1",
+    )
+    .bind(payment_id.to_string())
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or_else(|| {
+        AppError::Conflict(format!(
+            "payment {payment_id} has not posted, so it has no journal entry to settle from; \
+             record it through the payment lane first"
+        ))
+    })?;
+    Ok((row.try_get("entry_id")?, row.try_get("posting_date")?))
+}
+
+fn parse_obligation(raw: &str) -> Result<Uuid, AppError> {
+    Uuid::parse_str(raw.trim())
+        .map_err(|_| AppError::Validation(format!("'{raw}' is not an obligation's id")))
+}
+
+/// The obligation's open item(s) in the ledger, locked, oldest first — the
+/// same lock and order `ple_find_open` takes, so a concurrent settlement
+/// queues behind this one rather than racing it.
+async fn obligation_open_items(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    obligation_id: Uuid,
+    party_id: &str,
+) -> Result<Vec<(Uuid, i64)>, AppError> {
+    let rows = sqlx::query(
+        "SELECT entry_id, outstanding_minor FROM payment_ledger_entry
+          WHERE voucher_kind = 'SUPPLIER_INVOICE' AND voucher_id = $1
+            AND party_type = 'SUPPLIER' AND party_id = $2
+            AND NOT delinked AND outstanding_minor <> 0
+          ORDER BY posting_date, entry_id
+            FOR UPDATE",
+    )
+    // `voucher_id` is text in the Payment Ledger (it names vouchers of every
+    // kind), so the invoice id is bound as its text form, as
+    // `payables_flow::payable_settled` does. Bound as a uuid, Postgres refused
+    // the comparison outright and every ALLOCATE failed.
+    .bind(obligation_id.to_string())
+    .bind(party_id)
+    .fetch_all(&mut **tx)
+    .await?;
+    rows.iter()
+        .map(|row| {
+            Ok((
+                row.try_get::<Uuid, _>("entry_id")?,
+                row.try_get::<i64, _>("outstanding_minor")?,
+            ))
+        })
+        .collect()
+}
+
+/// The obligation's item in the ledger, for taking an allocation back. Unlike
+/// [`obligation_open_items`] this reads a fully-answered bill too: unmatching
+/// is exactly what makes one open again.
+async fn obligation_entry(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    obligation_id: Uuid,
+    party_id: &str,
+) -> Result<Uuid, AppError> {
+    sqlx::query(
+        "SELECT entry_id FROM payment_ledger_entry
+          WHERE voucher_kind = 'SUPPLIER_INVOICE' AND voucher_id = $1
+            AND party_type = 'SUPPLIER' AND party_id = $2 AND NOT delinked
+          ORDER BY posting_date, entry_id LIMIT 1
+            FOR UPDATE",
+    )
+    .bind(obligation_id.to_string())
+    .bind(party_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .map(|row| row.try_get("entry_id"))
+    .transpose()?
+    .ok_or_else(|| {
+        AppError::NotFound(format!(
+            "invoice {obligation_id} has no item in the Payment Ledger, so this payment has no \
+             allocation against it to take back"
+        ))
+    })
 }

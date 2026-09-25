@@ -136,6 +136,13 @@ export const financeNav: AppModule = {
         // Coordinates, one set per bank. Setup rather than Work because it is
         // done once against a real leaf and then not thought about — and when
         // it is wrong, every giro that bank prints is wrong the same way.
+        // Finance Connect: EDC terminals, MDR rates, settings and "Tambah
+        // bank" — what the sales day and the acquirer settlement lean on.
+        {
+          path: "/finance/sales-setup",
+          label: "Sales & banks",
+          icon: Banknote,
+        },
         {
           path: "/finance/giro-print",
           label: "Giro printing",
