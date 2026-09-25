@@ -121,6 +121,9 @@ const OTHER_SOURCES: &[&str] = &[
     "AMORTIZATION_RUN",
     "ASSET_RESERVE",
     "PREPAID_ALLOCATION",
+    // Head office charging a unit (owner decision, 25 Sep): neither money moved
+    // nor goods — a cost allocation across the two books, so Lain-lain 1059.
+    "MANAGEMENT_FEE",
 ];
 
 /// Which column an entry's balance belongs in, from the kind of document

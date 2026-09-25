@@ -500,6 +500,10 @@ pub fn router(state: AppState) -> Router {
     )
     .route("/api/v1/auth/login", post(auth::login))
     .route("/api/v1/auth/me", get(auth::me))
+    .route(
+        "/api/v1/auth/edge-sso-ticket",
+        post(auth::edge_sso_ticket),
+    )
     .route("/api/v1/auth/logout", post(auth::logout))
     .route("/api/v1/auth/change-password", post(auth::change_password))
     .route(
@@ -922,6 +926,11 @@ pub fn router(state: AppState) -> Router {
     .route(
         "/api/v1/finance/journal/{id}/reverse",
         post(finance::reverse_entry),
+    )
+    // Head office charging a unit a management fee (owner decision, 25 Sep).
+    .route(
+        "/api/v1/finance/management-fees",
+        post(finance::post_management_fee),
     )
     // The Payment Ledger: what is open, how old it is, and whether it
     // agrees with the books. Read-only — an open balance is opened by the

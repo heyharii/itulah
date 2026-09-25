@@ -321,6 +321,78 @@ async fn retired_accounts_cannot_be_posted(pool: PgPool) {
     }
 }
 
+/// A signed-in read against Finance.
+async fn get(app: &axum::Router, who: &(String, String), path: &str) -> Response {
+    send(
+        app.clone(),
+        "GET",
+        path,
+        vec![(header::COOKIE.to_string(), who.0.clone())],
+        None,
+    )
+    .await
+}
+
+// 33 -------------------------------------------------------------------------
+
+/// Head office charges a unit a management fee: the unit's cost, head office's
+/// income, crossing on Lain-lain (1059).
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_management_fee_crosses_on_lain_lain(pool: PgPool) {
+    let app = app_with_admin(&pool).await;
+    let admin = sign_in(&app, "admin", ADMIN_PASSWORD).await;
+
+    let posted = send(
+        app.clone(),
+        "POST",
+        "/api/v1/finance/management-fees",
+        write_headers(&admin.0, &admin.1),
+        Some(json!({
+            "unit_site_id": SITE,
+            "amount_minor": 250_000,
+            "effective_date": "2026-09-15",
+            "memo": "management fee September",
+        })),
+    )
+    .await;
+    assert_eq!(posted.status, StatusCode::OK, "post: {:?}", posted.body);
+
+    let store = get(
+        &app,
+        &admin,
+        "/api/v1/finance/trial-balance?site=store-01&as_of=2026-09-30",
+    )
+    .await;
+    assert_eq!(store.status, StatusCode::OK, "store trial: {:?}", store.body);
+    assert!(
+        store.body.to_string().contains("7032"),
+        "the unit carries Biaya Management Fee: {}",
+        store.body
+    );
+
+    let ho = get(
+        &app,
+        &admin,
+        "/api/v1/finance/trial-balance?site=dc&as_of=2026-09-30",
+    )
+    .await;
+    assert_eq!(ho.status, StatusCode::OK, "HO trial: {:?}", ho.body);
+    assert!(
+        ho.body.to_string().contains("4016"),
+        "head office books Management Fee income: {}",
+        ho.body
+    );
+
+    let affiliate: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(debit_minor - credit_minor), 0)::bigint
+           FROM journal_line WHERE account_code = '1059'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("affiliate: {error}"));
+    assert_eq!(affiliate, 0, "1059 nets to zero company-wide");
+}
+
 // 34 -------------------------------------------------------------------------
 
 /// Closing a month seals and validates; it never posts the period's profit to

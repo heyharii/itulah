@@ -829,6 +829,11 @@ pub async fn bills(
                 desc: single_value(&params, "dir").as_deref() == Some("desc"),
                 cursor: single_value(&params, "cursor"),
                 limit: limit_value(&params)?,
+                // The GA inbox (brief §8.3): `?draft_from=GA` narrows the
+                // population on the SERVER, because "what did GA send us" is a
+                // question about a population and not about a page already in
+                // hand.
+                draft_from: single_value(&params, "draft_from"),
             },
         )
         .await?,
@@ -884,6 +889,86 @@ pub async fn post_bill(
             &principal.username,
         )
         .await?,
+    ))
+}
+
+/// Hold a bill so nothing pays it. Posts nothing: a hold is a decision about
+/// money, not an accounting event, and a held bill may already be posted.
+#[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct HoldBillRequest {
+    pub reason: String,
+    /// Absent means "until somebody decides"; a date is a plan to lift it.
+    #[serde(default)]
+    pub release_date: Option<NaiveDate>,
+}
+
+pub async fn hold_bill(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(invoice_id): Path<Uuid>,
+    Json(request): Json<HoldBillRequest>,
+) -> Result<Json<SupplierBill>, AppError> {
+    Ok(Json(
+        infrastructure::hold_bill(
+            &state.db,
+            invoice_id,
+            &request.reason,
+            request.release_date,
+            &principal.username,
+        )
+        .await?,
+    ))
+}
+
+/// Release a held bill. The reason and the planned date go with the flag, so
+/// "released" and "held with a blank reason" cannot both be true.
+pub async fn release_bill(
+    State(state): State<AppState>,
+    Path(invoice_id): Path<Uuid>,
+) -> Result<Json<SupplierBill>, AppError> {
+    Ok(Json(
+        infrastructure::release_bill(&state.db, invoice_id).await?,
+    ))
+}
+
+/// Return a draft to the domain that filed it, with the reason.
+///
+/// The id and the origin mark stay put (brief §8.3): a returned draft is the
+/// same document, and GA files it again rather than raising a second one.
+#[derive(Debug, Deserialize)]
+pub struct ReturnBillRequest {
+    pub reason: String,
+}
+
+pub async fn return_bill(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(invoice_id): Path<Uuid>,
+    Json(request): Json<ReturnBillRequest>,
+) -> Result<Json<SupplierBill>, AppError> {
+    Ok(Json(
+        infrastructure::return_bill(
+            &state.db,
+            invoice_id,
+            &request.reason,
+            &principal.username,
+        )
+        .await?,
+    ))
+}
+
+/// The six things worth telling a person BEFORE they post (brief §8.4).
+///
+/// All six are warnings and NONE blocks: `post_bill` refuses a held bill and
+/// nothing else. A screen that locked its button on one of these would be the
+/// bug this endpoint's contract exists to prevent.
+pub async fn bill_warnings(
+    State(state): State<AppState>,
+    Path(invoice_id): Path<Uuid>,
+) -> Result<Json<Vec<infrastructure::BillWarning>>, AppError> {
+    Ok(Json(
+        infrastructure::bill_warnings(&state.db, invoice_id).await?,
     ))
 }
 
@@ -1903,6 +1988,36 @@ pub async fn period_checklist(
     Ok(Json(
         infrastructure::period_checklist(&state.db, year, month).await?,
     ))
+}
+
+/// Head office charging a unit a management fee (owner decision, 25 Sep).
+#[derive(Debug, Deserialize)]
+pub struct ManagementFeeRequest {
+    pub unit_site_id: String,
+    pub amount_minor: i64,
+    pub effective_date: NaiveDate,
+    pub memo: Option<String>,
+}
+
+pub async fn post_management_fee(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Json(request): Json<ManagementFeeRequest>,
+) -> Result<Json<Value>, AppError> {
+    let fee = infrastructure::management_fee_post(
+        &state.db,
+        &request.unit_site_id,
+        request.amount_minor,
+        request.effective_date,
+        request.memo.as_deref(),
+        &principal.username,
+    )
+    .await?;
+    Ok(Json(json!({
+        "entry_id": fee.entry_id,
+        "entry_number": fee.entry_number,
+        "total_minor": fee.total_minor,
+    })))
 }
 
 #[derive(Debug, Deserialize)]
