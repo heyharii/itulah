@@ -460,19 +460,33 @@ pub fn build(figures: &DayFigures) -> Result<DayPosting, String> {
         .iter()
         .map(|bucket| vat_within(bucket.receipts_minor, figures.vat_rate_bps))
         .sum();
-    let recomputed_returned = vat_within(figures.returns_minor, figures.vat_rate_bps);
+    // PPN is ignored for now (owner decision, 25 Sep): no `vat_out` line is
+    // built, and the whole receipt is revenue. The rate and the recorded figures
+    // are still read and stored for the day's report — only the posting is off.
+    // 0377 removes the `vat_out` map, so a line that still tried to name it
+    // would be refused rather than quietly land somewhere.
+    const PPN_IGNORED: bool = true;
+    let recomputed_returned = if PPN_IGNORED {
+        0
+    } else {
+        vat_within(figures.returns_minor, figures.vat_rate_bps)
+    };
     // A recorded figure is one number for the day and the entry wants one per
     // bucket, so it is split the same way the discount is: largest remainder,
     // which sums back to exactly what the tills recorded. Rounding each bucket
     // at the rate instead is how the recorded total stopped being the posted
     // total in the first place.
-    let bucket_vat: Vec<i64> = match &figures.recorded_vat {
-        Some(recorded) => allocate(recorded.taken_minor, &weights),
-        None => figures
-            .buckets
-            .iter()
-            .map(|bucket| vat_within(bucket.receipts_minor, figures.vat_rate_bps))
-            .collect(),
+    let bucket_vat: Vec<i64> = if PPN_IGNORED {
+        vec![0; figures.buckets.len()]
+    } else {
+        match &figures.recorded_vat {
+            Some(recorded) => allocate(recorded.taken_minor, &weights),
+            None => figures
+                .buckets
+                .iter()
+                .map(|bucket| vat_within(bucket.receipts_minor, figures.vat_rate_bps))
+                .collect(),
+        }
     };
 
     let mut sides: Vec<LedgerSide> = Vec::new();

@@ -1577,6 +1577,9 @@ async fn payroll_accrual_lines(
     let mut credits: BTreeMap<(&'static str, &'static str), i64> = BTreeMap::new();
     let mut thr_accrual = 0i64;
     let mut gross_total = 0i64;
+    // PPh 21 is borne by the company (owner decision, 25 Sep): it is an
+    // employer cost on top of gross, never a deduction from the employee's net.
+    let mut employer_pph = 0i64;
     for slip in &slips {
         let employee: String = slip.try_get("employee_id")?;
         let base: i64 = slip.try_get("base_minor")?;
@@ -1599,7 +1602,13 @@ async fn payroll_accrual_lines(
             let unit: Option<String> = line.try_get("unit")?;
             let amount: i64 = line.try_get("amount_minor")?;
             if kind == "DEDUCTION" {
-                *credits.entry(deduction_meaning(&code)).or_default() += amount;
+                let meaning = deduction_meaning(&code);
+                if meaning.0 == "pph21_payable" {
+                    // Company-borne: an expense, not a withholding.
+                    employer_pph += amount;
+                } else {
+                    *credits.entry(meaning).or_default() += amount;
+                }
             } else {
                 *expense.entry(component_class(&code, unit.as_deref())).or_default() += amount;
                 explained += amount;
@@ -1651,6 +1660,15 @@ async fn payroll_accrual_lines(
     if thr_accrual > 0 {
         lines.push(PostingLine::debit("payroll_expense", site_id, thr_accrual).with_qualifier("THR"));
         lines.push(PostingLine::credit("thr_payable", site_id, thr_accrual));
+    }
+    if employer_pph > 0 {
+        // Dr biaya gaji (6012 toko / 6026 HO) / Cr 2011 Hutang PPh 21. The map
+        // may move to 1045 if the client accountant chooses; payroll code does
+        // not change.
+        lines.push(
+            PostingLine::debit("payroll_expense", site_id, employer_pph).with_qualifier("SALARY"),
+        );
+        lines.push(PostingLine::credit("pph21_payable", site_id, employer_pph));
     }
     Ok(lines)
 }

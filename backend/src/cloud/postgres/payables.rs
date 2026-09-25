@@ -1811,12 +1811,16 @@ pub async fn post_bill(
         )
         .await?;
     }
+    // PPN is ignored for now (owner decision, 25 Sep) and 0377 removes the
+    // `vat_in` map. A bill that carries tax is refused rather than posted with
+    // the tax folded somewhere it does not belong: if the client is chargeable
+    // this needs a decision, and a silent guess is the one thing that is worse.
     if existing.tax_minor > 0 {
-        lines.push(PostingLine::debit(
-            "vat_in",
-            &existing.site_id,
-            existing.tax_minor,
-        ));
+        return Err(AppError::Validation(format!(
+            "bill {} carries {} tax and PPN is ignored for now: record it at the net amount, or \
+             confirm whether this client is chargeable",
+            existing.invoice_number, existing.tax_minor
+        )));
     }
     // The supplier is head office's counterparty, never a shop's (owner rule,
     // 25 Sep). The cost lines keep the site they were keyed at; the payable

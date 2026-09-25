@@ -1231,12 +1231,10 @@ pub async fn sales_posting_exception_resolve(
     if net <= 0 {
         return Err(AppError::Validation("this line nets to nothing; there is nothing to post".into()));
     }
-    let vat = if vat_rate_bps > 0 {
-        i64::try_from(i128::from(net) * i128::from(vat_rate_bps) / (10_000 + i128::from(vat_rate_bps)))
-            .unwrap_or(0)
-    } else {
-        0
-    };
+    // PPN is ignored for now (owner decision, 25 Sep), and 0377 removes the
+    // `vat_out` map: the whole net is revenue and no VAT line is built.
+    let vat = 0i64;
+    let _ = vat_rate_bps;
     let memo = format!("QRIS {bank} takings (exception resolved)");
     let mut lines = vec![
         {
@@ -1250,9 +1248,7 @@ pub async fn sales_posting_exception_resolve(
             line
         },
     ];
-    if vat > 0 {
-        lines.push(PostingLine::credit("vat_out", HEAD_OFFICE_SITE, vat));
-    }
+    let _ = vat;
     let intent = PostingIntent {
         posting_date: business_date,
         source_kind: "SALE_DAY_EXCEPTION".into(),
