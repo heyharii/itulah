@@ -1,13 +1,18 @@
 -- A flow is a template of stages, and a version of it never changes.
 --
 -- The owner's decision of 2026-09-27 (CONTEXT.md, "Flow templates"): flows
--- of goods are TEMPLATES. What a stage means — pick, pack, close koli, load,
--- depart, receive, inspect, ready for pickup, handover with proof, approval,
--- and the receiving stages arrival, blind count, verification, tagging,
--- putaway — is code (`cloud::domain::flow::stage`). Which stages a route runs,
+-- of goods are TEMPLATES. What a stage means — pick, pack, close koli (KOLI),
+-- ship (the surat jalan, SJ, one per destination), load (onto a dispatch,
+-- DSP), depart, receive, inspect, ready for pickup, handover with proof,
+-- approval, and the receiving stages arrival, blind count, verification,
+-- tagging, putaway — is code (`cloud::domain::flow::stage`). Which stages a route runs,
 -- in what order, who starts it, who performs each stage, the proof and the
 -- deadline each asks, what may be skipped and which pool role goods land in
 -- is data, edited by Admin, and it lives here.
+--
+-- A plan is not a stage: the allotment (or, from a supplier, the purchase
+-- order) is the document a flow RUNS (0616's `source_kind`), and a
+-- template's `starters` are who may raise that source for its route.
 --
 -- # Versions
 --
@@ -29,6 +34,9 @@
 --     suppliers); no route runs from one outside party to another;
 --   * each stage kind at most once per version (nothing counted twice), and
 --     the stages that are never skipped are never marked skippable;
+--   * goods travelling between our own sites travel under a surat jalan:
+--     SHIP is present and not skippable (the SJ is what the destination signs
+--     and what the handover is counted from — allotment ALT-D01);
 --   * how it ends (deferred, so a version and its stages are checked
 --     together at commit): a flow to our own site has the stage that accepts
 --     custody — RECEIVE between our sites, VERIFICATION from a supplier — and
@@ -122,7 +130,7 @@ CREATE TABLE flow_template_stage (
     version_id     uuid NOT NULL REFERENCES flow_template_version (id),
     ordinal        integer NOT NULL CHECK (ordinal >= 0),
     stage_kind     text NOT NULL CHECK (stage_kind IN (
-        'APPROVAL', 'PICK', 'PACK', 'CLOSE_KOLI', 'LOAD', 'DEPART', 'RECEIVE', 'INSPECT',
+        'APPROVAL', 'PICK', 'PACK', 'CLOSE_KOLI', 'SHIP', 'LOAD', 'DEPART', 'RECEIVE', 'INSPECT',
         'READY_FOR_PICKUP', 'HANDOVER_WITH_PROOF', 'ARRIVAL', 'BLIND_COUNT', 'VERIFICATION',
         'TAGGING', 'PUTAWAY'
     )),
@@ -141,7 +149,7 @@ CREATE TABLE flow_template_stage (
     -- Nothing counted twice: a stage kind once per version.
     UNIQUE (version_id, stage_kind),
     CONSTRAINT flow_template_stage_never_skipped CHECK (
-        NOT skippable OR stage_kind IN ('LOAD', 'INSPECT', 'READY_FOR_PICKUP', 'TAGGING', 'PUTAWAY')
+        NOT skippable OR stage_kind IN ('SHIP', 'LOAD', 'INSPECT', 'READY_FOR_PICKUP', 'TAGGING', 'PUTAWAY')
     ),
     CONSTRAINT flow_template_stage_one_count_method CHECK (
         NOT ('RFID_SCAN' = ANY (proof) AND 'MANUAL_COUNT' = ANY (proof))
@@ -220,6 +228,12 @@ BEGIN
         IF EXISTS (SELECT 1 FROM flow_template_stage
                     WHERE version_id = checked_version AND stage_kind = 'HANDOVER_WITH_PROOF') THEN
             RAISE EXCEPTION 'a flow to our own site is received, not handed over (version %, 0615)', checked_version;
+        END IF;
+        IF origin IN ('HO', 'STORE')
+           AND NOT EXISTS (SELECT 1 FROM flow_template_stage
+                            WHERE version_id = checked_version AND stage_kind = 'SHIP' AND NOT skippable) THEN
+            RAISE EXCEPTION 'goods between our own sites travel under a surat jalan: SHIP, not skippable (version %, 0615)',
+                checked_version;
         END IF;
     ELSE
         SELECT stage_kind, proof INTO last_kind, handover

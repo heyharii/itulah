@@ -21,6 +21,10 @@
 --     it for the scan;
 --   * the verifier is never the checker, and the approver never the person
 --     who asked;
+--   * a done stage stays done, with two corrections the allotment keeps: a
+--     recount reopens the blind count, and a reversal (unpack, reopen a koli,
+--     unship, unload) reopens PACK, CLOSE_KOLI, SHIP or LOAD — only while
+--     nothing has departed;
 --   * nothing goes negative, and no stage passes on more than the stage
 --     before it handed on — or, before any stage counted, than the document
 --     asked for. A blind count has no ceiling: goods beyond the order are real
@@ -30,7 +34,7 @@ CREATE TABLE flow_stage_state (
     document_id     uuid NOT NULL REFERENCES flow_document (id),
     stage_index     integer NOT NULL CHECK (stage_index >= 0),
     stage_kind      text NOT NULL CHECK (stage_kind IN (
-        'APPROVAL', 'PICK', 'PACK', 'CLOSE_KOLI', 'LOAD', 'DEPART', 'RECEIVE', 'INSPECT',
+        'APPROVAL', 'PICK', 'PACK', 'CLOSE_KOLI', 'SHIP', 'LOAD', 'DEPART', 'RECEIVE', 'INSPECT',
         'READY_FOR_PICKUP', 'HANDOVER_WITH_PROOF', 'ARRIVAL', 'BLIND_COUNT', 'VERIFICATION',
         'TAGGING', 'PUTAWAY'
     )),
@@ -70,7 +74,7 @@ CREATE TABLE flow_stage_state (
         OR (skipped_by IS NOT NULL AND skipped_at IS NOT NULL AND btrim(skip_reason) <> '')
     ),
     CONSTRAINT flow_stage_state_never_skipped CHECK (
-        status <> 'SKIPPED' OR stage_kind IN ('LOAD', 'INSPECT', 'READY_FOR_PICKUP', 'TAGGING', 'PUTAWAY')
+        status <> 'SKIPPED' OR stage_kind IN ('SHIP', 'LOAD', 'INSPECT', 'READY_FOR_PICKUP', 'TAGGING', 'PUTAWAY')
     ),
     CONSTRAINT flow_stage_state_arrival_has_its_number CHECK (
         stage_kind <> 'ARRIVAL' OR status <> 'DONE' OR btrim(delivery_number) <> ''
@@ -172,13 +176,24 @@ BEGIN
                     WHERE d.id = NEW.document_id AND d.requested_by = NEW.done_by) THEN
         RAISE EXCEPTION 'the approver is never the person who asked (0617)';
     END IF;
-    -- A stage that is done stays done. Only a recount reopens the blind count,
-    -- and nothing else moves backwards.
+    -- A stage that is done stays done. A recount reopens the blind count; a
+    -- reversal (unpack, reopen a koli, unship, unload) reopens its step while
+    -- nothing has departed. Nothing else moves backwards.
     IF TG_OP = 'UPDATE' THEN
         IF OLD.status IN ('DONE', 'SKIPPED') AND NEW.status <> OLD.status
-           AND NOT (OLD.stage_kind = 'BLIND_COUNT' AND NEW.status = 'PENDING') THEN
+           AND NOT (NEW.status = 'PENDING'
+                    AND OLD.stage_kind IN ('BLIND_COUNT', 'PACK', 'CLOSE_KOLI', 'SHIP', 'LOAD')) THEN
             RAISE EXCEPTION 'stage % of flow % is % and stays so (0617)',
                 OLD.stage_kind, OLD.document_id, OLD.status;
+        END IF;
+        IF OLD.status = 'DONE' AND NEW.status = 'PENDING'
+           AND OLD.stage_kind IN ('PACK', 'CLOSE_KOLI', 'SHIP', 'LOAD')
+           AND EXISTS (SELECT 1 FROM flow_stage_state d
+                        WHERE d.document_id = NEW.document_id
+                          AND d.stage_kind IN ('DEPART', 'HANDOVER_WITH_PROOF')
+                          AND d.status = 'DONE') THEN
+            RAISE EXCEPTION 'goods of flow % have departed; they are received, not reversed (0617)',
+                NEW.document_id;
         END IF;
     END IF;
     RETURN NEW;
@@ -198,7 +213,7 @@ CREATE TABLE flow_action (
     stage_kind   text NOT NULL,
     action_type  text NOT NULL CHECK (action_type IN (
         'RECORD_COUNT', 'PARK_STAGE', 'COMPLETE_STAGE', 'SKIP_STAGE', 'DECIDE_APPROVAL',
-        'CONFIRM_RECEIVE', 'HANDOVER', 'REQUEST_RECOUNT', 'CANCEL_FLOW'
+        'CONFIRM_RECEIVE', 'HANDOVER', 'REQUEST_RECOUNT', 'CANCEL_FLOW', 'REVERSE_STAGE'
     )),
     details      jsonb NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(details) = 'object'),
     -- Who applied it, and on which rung: a replay reproduces the decision
@@ -226,6 +241,11 @@ CREATE TABLE flow_action (
     ),
     CONSTRAINT flow_action_recount_is_verification_s CHECK (
         action_type <> 'REQUEST_RECOUNT' OR stage_kind = 'VERIFICATION'
+    ),
+    -- Allotment's reversals, and only them: unpack, reopen a koli, unship,
+    -- unload.
+    CONSTRAINT flow_action_reversal_is_a_physical_step CHECK (
+        action_type <> 'REVERSE_STAGE' OR stage_kind IN ('PACK', 'CLOSE_KOLI', 'SHIP', 'LOAD')
     )
 );
 

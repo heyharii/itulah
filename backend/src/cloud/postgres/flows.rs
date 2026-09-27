@@ -11,6 +11,12 @@
 //!
 //! # Documents
 //!
+//! A document is born from the document it runs — an allotment for every
+//! outbound route, a purchase order or delivery for a supplier's goods — and
+//! never creates it: a plan is not a stage. The creation path of that source
+//! starts the flow in its own transaction, and whoever raises the source must
+//! hold one of the template's starter roles ([`authorise_source_tx`]).
+//!
 //! A document is started on the current version of a template and keeps it.
 //! Its state is never read off a column: it is the version's stages and the
 //! document's applied actions replayed through `domain::flow` — the same code
@@ -42,8 +48,9 @@ use super::{begin_idempotent, complete_idempotent, payload_digest};
 use crate::cloud::application::AppError;
 use crate::cloud::domain::flow::{
     self, Actor, Effect, EffectLine, FlowActionInput, FlowError, FlowHeader, FlowRole, FlowRoute,
-    FlowState, FlowStatus, FlowTemplateDraft, PartyKind, PoolRole, ProofKind, ProofRecord,
-    RouteEnd, StageKind, StageRuntime, StageSide, StageStatus, TemplateProblem, TemplateStage,
+    FlowSource, FlowState, FlowStatus, FlowTemplateDraft, PartyKind, PoolRole, ProofKind,
+    ProofRecord, RouteEnd, SourceKind, StageKind, StageRuntime, StageSide, StageStatus,
+    TemplateProblem, TemplateStage,
 };
 use crate::cloud::domain::{DestinationType, Role};
 use crate::ids::SiteKind;
@@ -838,6 +845,46 @@ pub async fn choose_flow_template_tx(
     })
 }
 
+/// Whether `actor`, in `as_role`, may raise the source document for this
+/// route — the allotment, or from a supplier the order — and so start its
+/// flow. The template's starter roles say who; the actor's rung must hold
+/// the role. Answers the template the flow will run.
+///
+/// The allotment and purchase-order creation paths call this BEFORE they
+/// write their own document, in the same transaction, so a source nobody
+/// may run is refused rather than written and left without a flow.
+pub async fn authorise_source_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    route: FlowRoute,
+    template_code: Option<&str>,
+    as_role: FlowRole,
+    actor: &Actor,
+) -> Result<FlowTemplateChoice, AppError> {
+    let choice = choose_flow_template_tx(tx, route, template_code).await?;
+    if !choice.template.starters.contains(&as_role) {
+        let starters: Vec<&str> = choice
+            .template
+            .starters
+            .iter()
+            .map(|role| role.label())
+            .collect();
+        return Err(AppError::Forbidden(format!(
+            "alur {} dimulai oleh {}, bukan {}",
+            choice.template_code,
+            starters.join(" atau "),
+            as_role.label()
+        )));
+    }
+    if !as_role.holds(actor.rung) {
+        return Err(AppError::Forbidden(format!(
+            "{} tidak memegang peran {}",
+            actor.id,
+            as_role.label()
+        )));
+    }
+    Ok(choice)
+}
+
 // --- documents: ends -----------------------------------------------------------
 
 /// One end of a document as a caller names it: our site, or a party.
@@ -951,10 +998,9 @@ pub struct StartFlowRequest {
     /// The role the initiator starts it in: one of the version's starters.
     pub as_role: FlowRole,
     pub lines: Vec<FlowLineInput>,
-    #[serde(default)]
-    pub subject_kind: Option<String>,
-    #[serde(default)]
-    pub subject_id: Option<String>,
+    /// The allotment, order or delivery this flow runs. A plan is not a
+    /// stage: the flow names its source and never creates it.
+    pub source: FlowSource,
     #[serde(default)]
     pub notes: Option<String>,
     pub idempotency_key: String,
@@ -987,27 +1033,30 @@ pub async fn start_flow_document_tx(
         origin: origin.end,
         destination: destination.end,
     };
-    let choice = choose_flow_template_tx(tx, route, request.template_code.as_deref()).await?;
+    let choice = authorise_source_tx(
+        tx,
+        route,
+        request.template_code.as_deref(),
+        request.as_role,
+        actor,
+    )
+    .await?;
 
-    if !choice.template.starters.contains(&request.as_role) {
-        let starters: Vec<&str> = choice
-            .template
-            .starters
-            .iter()
-            .map(|role| role.label())
-            .collect();
-        return Err(AppError::Forbidden(format!(
-            "alur {} dimulai oleh {}, bukan {}",
-            choice.template_code,
-            starters.join(" atau "),
-            request.as_role.label()
-        )));
+    let source = FlowSource {
+        kind: request.source.kind,
+        id: request.source.id.trim().to_owned(),
+    };
+    if source.id.is_empty() {
+        return Err(AppError::Validation(
+            "alur lahir dari dokumen sumbernya: sebut id allotment, PO, atau delivery-nya".into(),
+        ));
     }
-    if !request.as_role.holds(actor.rung) {
-        return Err(AppError::Forbidden(format!(
-            "{} tidak memegang peran {}",
-            actor.id,
-            request.as_role.label()
+    if !source.kind.fits(route) {
+        return Err(AppError::Validation(format!(
+            "alur {} → {} tidak lahir dari {}: keluar dari site kita lahir dari allotment, dari supplier dari PO atau delivery",
+            route.origin.label(),
+            route.destination.label(),
+            source.kind.code()
         )));
     }
 
@@ -1026,17 +1075,6 @@ pub async fn start_flow_document_tx(
             )));
         }
     }
-    let subject_kind = request
-        .subject_kind
-        .as_deref()
-        .map(str::trim)
-        .filter(|kind| !kind.is_empty());
-    let subject_id = request
-        .subject_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|id| !id.is_empty());
-
     let crosses = matches!(
         (&origin.unit_id, &destination.unit_id),
         (Some(from), Some(to)) if from != to
@@ -1046,6 +1084,7 @@ pub async fn start_flow_document_tx(
         FlowHeader {
             document_id,
             route,
+            source: source.clone(),
             initiator: actor.id.clone(),
             crosses_units: crosses,
             destination_party: destination.party,
@@ -1066,7 +1105,7 @@ pub async fn start_flow_document_tx(
             (id, document_number, template_id, template_version_id,
              origin_site_id, origin_party_kind, origin_party_id,
              destination_site_id, destination_party_kind, destination_party_id,
-             origin_unit_id, destination_unit_id, subject_kind, subject_id,
+             origin_unit_id, destination_unit_id, source_kind, source_id,
              initiator_role, status, requested_by, requested_at,
              confirmed_by, confirmed_at, idempotency_key, notes, updated_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
@@ -1084,8 +1123,8 @@ pub async fn start_flow_document_tx(
     .bind(destination.party_id.as_deref())
     .bind(origin.unit_id.as_deref())
     .bind(destination.unit_id.as_deref())
-    .bind(subject_kind)
-    .bind(subject_id)
+    .bind(source.kind.code())
+    .bind(&source.id)
     .bind(request.as_role.code())
     .bind(state.status.code())
     .bind(&actor.id)
@@ -1199,8 +1238,8 @@ pub(super) struct DocumentRow {
     pub origin_unit_id: Option<String>,
     pub destination_unit_id: Option<String>,
     pub crosses_units: bool,
-    pub subject_kind: Option<String>,
-    pub subject_id: Option<String>,
+    pub source_kind: String,
+    pub source_id: String,
     pub initiator_role: String,
     pub status: String,
     pub requested_by: String,
@@ -1233,7 +1272,7 @@ pub(super) async fn load_document(
                 d.origin_site_id, d.origin_party_kind, d.origin_party_id,
                 d.destination_site_id, d.destination_party_kind, d.destination_party_id,
                 d.origin_unit_id, d.destination_unit_id, d.crosses_units,
-                d.subject_kind, d.subject_id, d.initiator_role, d.status,
+                d.source_kind, d.source_id, d.initiator_role, d.status,
                 d.requested_by, d.requested_at, d.confirmed_by, d.confirmed_at,
                 d.completed_by, d.completed_at, d.declined_by, d.declined_at, d.declined_reason,
                 d.canceled_by, d.canceled_at, d.canceled_reason, d.action_seq, d.notes
@@ -1265,8 +1304,8 @@ pub(super) async fn load_document(
         origin_unit_id: row.try_get("origin_unit_id")?,
         destination_unit_id: row.try_get("destination_unit_id")?,
         crosses_units: row.try_get("crosses_units")?,
-        subject_kind: row.try_get("subject_kind")?,
-        subject_id: row.try_get("subject_id")?,
+        source_kind: row.try_get("source_kind")?,
+        source_id: row.try_get("source_id")?,
         initiator_role: row.try_get("initiator_role")?,
         status: row.try_get("status")?,
         requested_by: row.try_get("requested_by")?,
@@ -1312,10 +1351,15 @@ pub(super) async fn load_state(
         Some(other) => return Err(unknown("pihak", other)),
         None => None,
     };
+    let source = FlowSource {
+        kind: stored(SourceKind::parse(&row.source_kind), "sumber", &row.source_kind)?,
+        id: row.source_id.clone(),
+    };
     let mut state = FlowState::start(
         FlowHeader {
             document_id: row.id,
             route: template.route,
+            source,
             initiator: row.requested_by.clone(),
             crosses_units: row.crosses_units,
             destination_party,
@@ -1413,8 +1457,8 @@ pub struct FlowDocumentView {
     pub origin: FlowEndView,
     pub destination: FlowEndView,
     pub crosses_units: bool,
-    pub subject_kind: Option<String>,
-    pub subject_id: Option<String>,
+    /// The allotment, order or delivery this flow runs.
+    pub source: FlowSource,
     pub status: FlowStatus,
     pub initiator_role: String,
     pub requested_by: String,
@@ -1570,8 +1614,7 @@ fn document_view(
             state.header.route.destination,
         ),
         crosses_units: row.crosses_units,
-        subject_kind: row.subject_kind.clone(),
-        subject_id: row.subject_id.clone(),
+        source: state.header.source.clone(),
         status: state.status,
         initiator_role: row.initiator_role.clone(),
         requested_by: row.requested_by.clone(),
@@ -1637,6 +1680,11 @@ pub struct FlowDocumentFilter {
     /// Documents that leave from or arrive at this site.
     #[serde(default)]
     pub site_id: Option<String>,
+    /// Documents that run this source: `?source_kind=ALLOTMENT&source_id=…`.
+    #[serde(default)]
+    pub source_kind: Option<String>,
+    #[serde(default)]
+    pub source_id: Option<String>,
     #[serde(default)]
     pub limit: Option<i64>,
 }
@@ -1647,6 +1695,8 @@ pub struct FlowDocumentSummary {
     pub document_number: String,
     pub template_code: String,
     pub template_name: String,
+    pub source_kind: String,
+    pub source_id: String,
     pub origin_site_id: Option<String>,
     pub origin_party_kind: Option<String>,
     pub destination_site_id: Option<String>,
@@ -1666,7 +1716,7 @@ pub async fn list_flow_documents(
     let limit = filter.limit.unwrap_or(100).clamp(1, 500);
     let rows = sqlx::query(
         "SELECT d.id, d.document_number, t.code AS template_code, t.name AS template_name,
-                d.origin_site_id, d.origin_party_kind, d.destination_site_id, d.destination_party_kind,
+                d.source_kind, d.source_id, d.origin_site_id, d.origin_party_kind, d.destination_site_id, d.destination_party_kind,
                 d.status, d.requested_by, d.requested_at,
                 due.stage_kind AS current_stage, due.status AS current_stage_status, due.deadline_at
            FROM flow_document d
@@ -1681,6 +1731,8 @@ pub async fn list_flow_documents(
           WHERE ($1::text IS NULL OR d.status = $1)
             AND ($2::text IS NULL OR t.code = $2)
             AND ($3::text IS NULL OR d.origin_site_id = $3 OR d.destination_site_id = $3)
+            AND ($5::text IS NULL OR d.source_kind = $5)
+            AND ($6::text IS NULL OR d.source_id = $6)
           ORDER BY d.requested_at DESC, d.id
           LIMIT $4",
     )
@@ -1688,6 +1740,8 @@ pub async fn list_flow_documents(
     .bind(filter.template.as_deref())
     .bind(filter.site_id.as_deref())
     .bind(limit)
+    .bind(filter.source_kind.as_deref())
+    .bind(filter.source_id.as_deref())
     .fetch_all(pool)
     .await?;
     rows.iter()
@@ -1697,6 +1751,8 @@ pub async fn list_flow_documents(
                 document_number: row.try_get("document_number")?,
                 template_code: row.try_get("template_code")?,
                 template_name: row.try_get("template_name")?,
+                source_kind: row.try_get("source_kind")?,
+                source_id: row.try_get("source_id")?,
                 origin_site_id: row.try_get("origin_site_id")?,
                 origin_party_kind: row.try_get("origin_party_kind")?,
                 destination_site_id: row.try_get("destination_site_id")?,
@@ -2178,11 +2234,14 @@ pub async fn resume_parked_stage(
 /// Start one flow per destination of an allotment, inside the allotment's
 /// own transaction.
 ///
-/// An allotment is one source and many destinations; a flow document runs
-/// between two ends. So each destination gets its document, filed under the
-/// allotment as `ALLOTMENT` `<allotment>:<destination>` — which the unique
-/// index on live subjects keeps to one. The route comes from the sites' rows
-/// and the destination type, never from the allotment type's name.
+/// The allotment is the plan; each flow document runs it to one destination
+/// (an allotment is one source and many destinations, a document runs
+/// between two ends). Every document names the allotment as its source, and
+/// the unique index on live sources keeps one per destination. The route
+/// comes from the sites' rows and the destination type, never from the
+/// allotment type's name — so MD's allotment to a store, a store-to-store
+/// transfer, a return to the Gudang and a return to a supplier all come
+/// through here.
 ///
 /// NOT YET CALLED: `postgres::allotments::create_allotment` is being
 /// generalised on another lane; the call belongs right after its lines are
@@ -2229,8 +2288,10 @@ pub async fn start_flow_for_allotment_tx(
                 .into_iter()
                 .map(|(sku_id, quantity)| FlowLineInput { sku_id, quantity })
                 .collect(),
-            subject_kind: Some("ALLOTMENT".into()),
-            subject_id: Some(format!("{allotment_id}:{destination_id}")),
+            source: FlowSource {
+                kind: SourceKind::Allotment,
+                id: allotment_id.to_string(),
+            },
             notes: None,
             idempotency_key: format!("flow:allotment:{allotment_id}:{destination_id}"),
         };
@@ -2267,29 +2328,47 @@ pub async fn start_flow_for_purchase_order_tx(
             .into_iter()
             .map(|(sku_id, quantity)| FlowLineInput { sku_id, quantity })
             .collect(),
-        subject_kind: Some("PURCHASE_ORDER".into()),
-        subject_id: Some(purchase_order_id.to_string()),
+        source: FlowSource {
+            kind: SourceKind::PurchaseOrder,
+            id: purchase_order_id.to_string(),
+        },
         notes: None,
         idempotency_key: format!("flow:purchase-order:{purchase_order_id}"),
     };
     start_flow_document_tx(tx, &request, actor, at).await
 }
 
-/// The live flow a record runs under, if any: what a node fact names when it
-/// resumes a stage (`flow_stages::resume_from_node_fact_tx`).
-pub async fn live_flow_for_subject_tx(
+/// The live flow a source runs under towards one destination, if any: what a
+/// node fact names when it resumes a stage
+/// (`flow_stages::resume_from_node_fact_tx`). `destination_site_id` may be
+/// absent when the source has one destination only (an order, a return to a
+/// supplier).
+pub async fn live_flow_for_source_tx(
     tx: &mut Transaction<'_, Postgres>,
-    subject_kind: &str,
-    subject_id: &str,
+    source: &FlowSource,
+    destination_site_id: Option<&str>,
 ) -> Result<Option<Uuid>, AppError> {
-    Ok(sqlx::query_scalar(
+    let found: Vec<Uuid> = sqlx::query_scalar(
         "SELECT id FROM flow_document
-          WHERE subject_kind = $1 AND subject_id = $2 AND status NOT IN ('DECLINED', 'CANCELED')",
+          WHERE source_kind = $1 AND source_id = $2
+            AND ($3::text IS NULL OR destination_site_id = $3)
+            AND status NOT IN ('DECLINED', 'CANCELED')
+          ORDER BY requested_at",
     )
-    .bind(subject_kind)
-    .bind(subject_id)
-    .fetch_optional(&mut **tx)
-    .await?)
+    .bind(source.kind.code())
+    .bind(&source.id)
+    .bind(destination_site_id)
+    .fetch_all(&mut **tx)
+    .await?;
+    match found.as_slice() {
+        [] => Ok(None),
+        [one] => Ok(Some(*one)),
+        _ => Err(AppError::Conflict(format!(
+            "{} {} berjalan ke beberapa tujuan; sebut tujuannya",
+            source.kind.code(),
+            source.id
+        ))),
+    }
 }
 
 /// Every effect line's quantities, summed per SKU. For an adapter that has to

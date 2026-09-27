@@ -31,7 +31,7 @@
 use super::flows::{self, DocumentRow};
 use crate::cloud::application::AppError;
 use crate::cloud::domain::flow::{
-    Actor, CountRule, Effect, FlowActionInput, FlowState, ProofRecord, StageKind,
+    Actor, CountRule, Effect, FlowActionInput, FlowSource, FlowState, ProofRecord, StageKind,
     FLOW_ACTION_COMPLETE_STAGE, FLOW_ACTION_CONFIRM_RECEIVE, FLOW_ACTION_RECORD_COUNT,
 };
 use chrono::{DateTime, Utc};
@@ -78,25 +78,31 @@ pub fn stage_delegate(kind: StageKind) -> StageDelegate {
             Wiring::ExistingSurface,
             "POST /api/v1/dc/packs · POST /api/v1/dc/packing-boxes/{id}/capture",
             Some("inventory.fulfillment.progress.v1 (PACKED)"),
-            "Pack mengikat barang ke satu tujuan (allotment §1).",
+            "Pack mengikat barang ke satu tujuan (allotment §1). Unpack: ALLOTMENT_UNPACKED.",
         ),
         StageKind::CloseKoli => (
             Wiring::ExistingSurface,
             "POST /api/v1/dc/koli/{koli_id}/seal",
+            None,
+            "Nomor KOLI. Isi koli yang disegel adalah yang kelak dihitung diserahkan (ALT-D01).",
+        ),
+        StageKind::Ship => (
+            Wiring::ExistingSurface,
+            "POST /api/v1/dc/shipments · POST /api/v1/dc/koli/{koli_id}/shipment",
             Some("inventory.fulfillment.progress.v1 (SHIPMENT)"),
-            "Isi koli yang disegel adalah yang kelak dihitung diserahkan (ALT-D01).",
+            "Nomor SJ, satu per tujuan (edge::outbound::NumberKind::Shipment). Unship: ALLOTMENT_UNSHIPPED.",
         ),
         StageKind::Load => (
             Wiring::ExistingSurface,
-            "POST /api/v1/dc/koli/{koli_id}/dispatch",
+            "POST /api/v1/dc/dispatches · POST /api/v1/dc/koli/{koli_id}/dispatch",
             Some("inventory.fulfillment.progress.v1 (LOADED)"),
-            "Masih di halaman: Loaded, bukan Dispatched (ALT-D06).",
+            "Nomor DSP: satu perjalanan, beberapa SJ. Masih di halaman: Loaded, bukan Dispatched (ALT-D06). Unload: ALLOTMENT_UNLOADED.",
         ),
         StageKind::Depart => (
             Wiring::ExistingSurface,
             "POST /api/v1/dc/dispatches/{dispatch_id}/depart",
             Some("inventory.fulfillment.progress.v1 (IN_TRANSIT) + klaim IN_TRANSIT"),
-            "Interunit barang saat berangkat (SJD) ditulis flow_posting; nilainya oleh stock_transfer_post_pending.",
+            "DSP berangkat; bila Muat dilewati, DSP dibuka di sini. Interunit barang (SJD) ditulis flow_posting; nilainya oleh stock_transfer_post_pending.",
         ),
         StageKind::Receive => (
             Wiring::ExistingSurface,
@@ -250,10 +256,10 @@ pub fn actions_for_node_fact(
 
 /// A node's fact resumes the stage it finishes.
 ///
-/// `subject_kind`/`subject_id` name the record the fact is about (an
-/// allotment and its destination, a purchase order); a record that runs
-/// under no flow is not an error — `None` — because flows are being
-/// introduced beside the paths that already work. A stage already done is
+/// `source` names the document the fact is about (the allotment, the
+/// purchase order) and `destination_site_id` which of its destinations; a
+/// source that runs under no flow is not an error — `None` — because flows
+/// are being introduced beside the paths that already work. A stage already done is
 /// answered as it stands, so a fact delivered twice is applied once; a stage
 /// that is not yet due is refused by the flow's own ordering.
 ///
@@ -262,8 +268,8 @@ pub fn actions_for_node_fact(
 #[allow(clippy::too_many_arguments)]
 pub async fn resume_from_node_fact_tx(
     tx: &mut Transaction<'_, Postgres>,
-    subject_kind: &str,
-    subject_id: &str,
+    source: &FlowSource,
+    destination_site_id: Option<&str>,
     kind: StageKind,
     lines: &[(Uuid, i64)],
     proof: &[ProofRecord],
@@ -272,7 +278,7 @@ pub async fn resume_from_node_fact_tx(
     fact_key: &str,
     at: DateTime<Utc>,
 ) -> Result<Option<Uuid>, AppError> {
-    let Some(document_id) = flows::live_flow_for_subject_tx(tx, subject_kind, subject_id).await?
+    let Some(document_id) = flows::live_flow_for_source_tx(tx, source, destination_site_id).await?
     else {
         return Ok(None);
     };

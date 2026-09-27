@@ -3,7 +3,9 @@
 //!
 //! A template is a route (origin kind → destination kind, or an outside
 //! party), an ordered list of stages chosen from the catalogue, who may start
-//! it, who performs each stage, the proof each asks for, a deadline per stage,
+//! it — that is, who may raise the allotment (or, from a supplier, the
+//! order) the flow runs, since a plan is never a stage — who performs each
+//! stage, the proof each asks for, a deadline per stage,
 //! which stages may be skipped, and the pool role goods land in. It is saved
 //! as a new VERSION every time; a running document keeps the version it
 //! started on (`flow_document.template_version_id`, 0616).
@@ -16,6 +18,10 @@
 //!   site (inspect, tagging, putaway).
 //! * A flow to an outside party ends in Handover with proof, and a supplier
 //!   handover carries the supplier's signed return note.
+//! * Goods travelling between our own sites travel under a surat jalan: the
+//!   ship stage (SJ) is present and never skippable there, because the SJ is
+//!   what the destination signs against and what `handed_over` is counted
+//!   from (allotment ALT-D01).
 //! * Crossing units posts inter-unit automatically. Nothing here can say
 //!   otherwise because nothing here names a journal at all: the meaning is the
 //!   stage's ([`super::JournalRule`]) and the account is the map's (I9). A
@@ -410,6 +416,10 @@ impl Problems {
 const PRECEDENCE: &[(StageKind, StageKind)] = &[
     (StageKind::Pick, StageKind::Pack),
     (StageKind::Pack, StageKind::CloseKoli),
+    (StageKind::Pack, StageKind::Ship),
+    (StageKind::CloseKoli, StageKind::Ship),
+    (StageKind::Ship, StageKind::Load),
+    (StageKind::Ship, StageKind::Depart),
     (StageKind::CloseKoli, StageKind::Load),
     (StageKind::Pack, StageKind::Load),
     (StageKind::Pick, StageKind::Depart),
@@ -433,6 +443,7 @@ const PRECEDENCE: &[(StageKind, StageKind)] = &[
 const NEEDS: &[(StageKind, StageKind)] = &[
     (StageKind::Pack, StageKind::Pick),
     (StageKind::CloseKoli, StageKind::Pack),
+    (StageKind::Ship, StageKind::Pack),
     (StageKind::Load, StageKind::Pack),
     (StageKind::Depart, StageKind::Pick),
     (StageKind::BlindCount, StageKind::Arrival),
@@ -589,6 +600,17 @@ pub fn validate_template(draft: &FlowTemplateDraft) -> Vec<TemplateProblem> {
                 "skippable",
                 "stage.never_skipped",
                 format!("{label} tidak pernah boleh dilewati."),
+            );
+        }
+        if stage.skippable
+            && stage.kind == StageKind::Ship
+            && route.destination.site_kind().is_some()
+        {
+            problems.stage(
+                index,
+                "skippable",
+                "stage.ship_to_own_site",
+                "Ke site sendiri, surat jalan tidak boleh dilewati: SJ yang ditandatangani tujuan.",
             );
         }
 
@@ -772,6 +794,13 @@ pub fn validate_template(draft: &FlowTemplateDraft) -> Vec<TemplateProblem> {
                     "Barang yang pindah site harus Berangkat dulu sebelum diterima.",
                 );
             }
+            if route.origin.site_kind().is_some() && position(StageKind::Ship).is_none() {
+                problems.template(
+                    "route",
+                    "end.travel_ships",
+                    "Barang antar site kita berjalan dengan surat jalan: tambahkan Masuk surat jalan.",
+                );
+            }
         }
         RouteEnd::Party(party) => {
             if draft.stages[last].kind != StageKind::HandoverWithProof {
@@ -819,6 +848,7 @@ fn misplaced(kind: StageKind, route: FlowRoute) -> Option<String> {
         StageKind::Pick
         | StageKind::Pack
         | StageKind::CloseKoli
+        | StageKind::Ship
         | StageKind::Load
         | StageKind::Depart
             if !from_own_site =>

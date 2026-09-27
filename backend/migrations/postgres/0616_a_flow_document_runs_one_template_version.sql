@@ -28,11 +28,21 @@
 -- declined, canceled, each with its `_by` and `_at`, and CHECKs that a
 -- status cannot be claimed without them.
 --
+-- # A plan is not a stage: every document names its source
+--
+-- A flow document is born from the document it runs and never creates it.
+-- Every outbound route — to a store, between stores, back to the Gudang,
+-- back to a supplier — runs an ALLOTMENT (MD's decision); goods from a
+-- supplier run a PURCHASE_ORDER or the DELIVERY that arrived against one; a
+-- route to a customer runs the CUSTOMER_ORDER. The template's starter roles
+-- are who may raise that source for the route; the creation path starts the
+-- flow in the same transaction.
+--
 -- # Nothing counted twice
 --
--- A document may name the record it runs for (an allotment, a purchase
--- order, a delivery). One live document per record: two flows moving the
--- same allotment would count its goods twice.
+-- One live document per source and destination: an allotment with thirteen
+-- destinations runs thirteen documents, and two flows moving the same
+-- allotment to the same store would count its goods twice.
 
 CREATE SEQUENCE flow_document_number_sequence;
 
@@ -56,8 +66,11 @@ CREATE TABLE flow_document (
         AND destination_unit_id IS NOT NULL
         AND origin_unit_id <> destination_unit_id
     ) STORED,
-    subject_kind           text CHECK (subject_kind IN ('ALLOTMENT', 'PURCHASE_ORDER', 'DELIVERY', 'RETURN')),
-    subject_id             text,
+    -- The document this flow runs (see the header): never created by it.
+    source_kind            text NOT NULL CHECK (source_kind IN (
+        'ALLOTMENT', 'PURCHASE_ORDER', 'DELIVERY', 'CUSTOMER_ORDER'
+    )),
+    source_id              text NOT NULL CHECK (btrim(source_id) <> ''),
     -- The role the initiator started it in (domain::flow::FlowRole).
     initiator_role         text NOT NULL,
     status                 text NOT NULL CHECK (status IN (
@@ -96,7 +109,13 @@ CREATE TABLE flow_document (
     CONSTRAINT flow_document_touches_our_site CHECK (
         origin_party_kind IS NULL OR destination_party_kind IS NULL
     ),
-    CONSTRAINT flow_document_subject_is_whole CHECK ((subject_kind IS NULL) = (subject_id IS NULL)),
+    CONSTRAINT flow_document_source_fits_route CHECK (
+        CASE
+            WHEN origin_party_kind = 'SUPPLIER' THEN source_kind IN ('PURCHASE_ORDER', 'DELIVERY')
+            WHEN destination_party_kind = 'CUSTOMER' THEN source_kind = 'CUSTOMER_ORDER'
+            ELSE source_kind = 'ALLOTMENT'
+        END
+    ),
     CONSTRAINT flow_document_confirmed_is_whole CHECK ((confirmed_by IS NULL) = (confirmed_at IS NULL)),
     CONSTRAINT flow_document_completed_is_whole CHECK ((completed_by IS NULL) = (completed_at IS NULL)),
     CONSTRAINT flow_document_declined_is_whole CHECK (
@@ -120,9 +139,15 @@ CREATE TABLE flow_document (
     )
 );
 
-CREATE UNIQUE INDEX flow_document_one_live_flow_per_subject
-    ON flow_document (subject_kind, subject_id)
-    WHERE subject_kind IS NOT NULL AND status NOT IN ('DECLINED', 'CANCELED');
+CREATE UNIQUE INDEX flow_document_one_live_flow_per_source
+    ON flow_document (
+        source_kind,
+        source_id,
+        (COALESCE(destination_site_id, destination_party_kind || ':' || destination_party_id))
+    )
+    WHERE status NOT IN ('DECLINED', 'CANCELED');
+
+CREATE INDEX ix_flow_document_source ON flow_document (source_kind, source_id);
 
 CREATE INDEX ix_flow_document_status ON flow_document (status, requested_at DESC);
 CREATE INDEX ix_flow_document_template ON flow_document (template_id);
@@ -203,9 +228,11 @@ BEGIN
        OR NEW.destination_party_id IS DISTINCT FROM OLD.destination_party_id
        OR NEW.origin_unit_id IS DISTINCT FROM OLD.origin_unit_id
        OR NEW.destination_unit_id IS DISTINCT FROM OLD.destination_unit_id
+       OR NEW.source_kind <> OLD.source_kind
+       OR NEW.source_id <> OLD.source_id
        OR NEW.requested_by <> OLD.requested_by
        OR NEW.requested_at <> OLD.requested_at THEN
-        RAISE EXCEPTION 'a flow document keeps its template version, its ends and who asked (0616)';
+        RAISE EXCEPTION 'a flow document keeps its template version, its ends, its source and who asked (0616)';
     END IF;
     IF OLD.status IN ('COMPLETED', 'DECLINED', 'CANCELED') AND NEW.status <> OLD.status THEN
         RAISE EXCEPTION 'a % flow document stays %', OLD.status, OLD.status;

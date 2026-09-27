@@ -11,6 +11,12 @@
 //!   produced — movements between pool stages, claims, journal meanings,
 //!   status changes.
 //!
+//! Allotment's reversals — unpack, reopening a koli, unship, unload — are an
+//! action of their own (`REVERSE_STAGE`): they take goods back one physical
+//! step while nothing has departed, and they are corrections, not an
+//! exception workflow (allotment §4). Nothing after departure is reversed:
+//! goods on the road are received.
+//!
 //! A preview replays the document's applied actions and then the new ones, in
 //! memory, and shows the result. Confirming runs exactly the same code once
 //! more and writes the actions and their effects in ONE database transaction
@@ -164,8 +170,9 @@ pub const FLOW_ACTION_CONFIRM_RECEIVE: &str = "CONFIRM_RECEIVE";
 pub const FLOW_ACTION_HANDOVER: &str = "HANDOVER";
 pub const FLOW_ACTION_REQUEST_RECOUNT: &str = "REQUEST_RECOUNT";
 pub const FLOW_ACTION_CANCEL_FLOW: &str = "CANCEL_FLOW";
+pub const FLOW_ACTION_REVERSE_STAGE: &str = "REVERSE_STAGE";
 
-static REGISTRY: [&dyn ActionType; 9] = [
+static REGISTRY: [&dyn ActionType; 10] = [
     &RecordCount,
     &ParkStage,
     &CompleteStage,
@@ -175,6 +182,7 @@ static REGISTRY: [&dyn ActionType; 9] = [
     &Handover,
     &RequestRecount,
     &CancelFlow,
+    &ReverseStage,
 ];
 
 /// Every action type this build knows.
@@ -705,9 +713,13 @@ impl ActionType for CompleteStage {
         let index = input.stage_index;
         let upstream = state.upstream(index);
         let crosses = state.header.crosses_units;
-        let loaded = state
-            .stage_of(StageKind::Load)
-            .is_some_and(|load| load.status == StageStatus::Done);
+        let done = |kind: StageKind| {
+            state
+                .stage_of(kind)
+                .is_some_and(|stage| stage.status == StageStatus::Done)
+        };
+        let shipped = done(StageKind::Ship);
+        let loaded = done(StageKind::Load);
 
         let stage = &mut state.stages[index];
         let kind = stage.kind();
@@ -757,16 +769,29 @@ impl ActionType for CompleteStage {
                 PoolStage::Packed,
                 &handled,
             )),
-            StageKind::Load => effects.extend(movement(
+            StageKind::Ship => effects.extend(movement(
                 index,
                 kind,
                 PoolStage::Packed,
-                PoolStage::Loaded,
+                PoolStage::Shipment,
                 &handled,
             )),
+            StageKind::Load => {
+                let from = if shipped {
+                    PoolStage::Shipment
+                } else {
+                    PoolStage::Packed
+                };
+                effects.extend(movement(index, kind, from, PoolStage::Loaded, &handled));
+            }
             StageKind::Depart => {
+                // Whatever stage the goods last stood in: the dispatch's
+                // vehicle, or — when load was skipped and depart opens the
+                // dispatch itself — the surat jalan.
                 let from = if loaded {
                     PoolStage::Loaded
+                } else if shipped {
+                    PoolStage::Shipment
                 } else {
                     PoolStage::Packed
                 };
@@ -1465,5 +1490,107 @@ impl ActionType for CancelFlow {
             to: FlowStatus::Canceled,
             reason: Some(reason),
         }])
+    }
+}
+
+// --- REVERSE_STAGE --------------------------------------------------------
+
+/// Take goods back one physical step while nothing has departed: unpack
+/// (packed → picked), reopen a sealed koli, unship (surat jalan → packed),
+/// unload (dispatch → surat jalan). Allotment §4's reversals, and only them:
+/// the step named must be the last one done, and a correction of the last
+/// step is not a workflow for exceptions.
+struct ReverseStage;
+
+impl ActionType for ReverseStage {
+    fn code(&self) -> &'static str {
+        FLOW_ACTION_REVERSE_STAGE
+    }
+
+    fn validate(
+        &self,
+        state: &FlowState,
+        input: &FlowActionInput,
+        actor: &Actor,
+    ) -> Result<(), FlowError> {
+        if state.status.is_terminal() {
+            return Err(FlowError::Refused(format!(
+                "dokumen ini sudah {}",
+                state.status.code()
+            )));
+        }
+        let Some(stage) = state.stages.get(input.stage_index) else {
+            return Err(FlowError::Invalid(format!(
+                "tahap #{} tidak ada",
+                input.stage_index + 1
+            )));
+        };
+        let label = stage.kind().spec().label;
+        if !stage.kind().is_reversible() {
+            return Err(FlowError::Refused(format!(
+                "{label} tidak bisa dibalik; yang bisa hanya kemas, tutup koli, surat jalan, dan muat"
+            )));
+        }
+        if stage.status != StageStatus::Done {
+            return Err(FlowError::Refused(format!("{label} belum selesai")));
+        }
+        if state.goods_have_left() {
+            return Err(FlowError::Refused(
+                "barang sudah berangkat; yang di jalan diterima, tidak dibalik".into(),
+            ));
+        }
+        if state.stages[input.stage_index + 1..]
+            .iter()
+            .any(|later| later.status == StageStatus::Done)
+        {
+            return Err(FlowError::Refused(format!(
+                "balik dulu tahap sesudah {label}: hanya langkah terakhir yang bisa dibalik"
+            )));
+        }
+        may_perform(stage, actor)?;
+        let parsed: ReasonDetails = details(input)?;
+        reason_of(&parsed, "membalik tahap").map(|_| ())
+    }
+
+    fn apply(
+        &self,
+        state: &mut FlowState,
+        input: &FlowActionInput,
+        _actor: &Actor,
+    ) -> Result<Vec<Effect>, FlowError> {
+        let parsed: ReasonDetails = details(input)?;
+        let reason = reason_of(&parsed, "membalik tahap")?;
+        let index = input.stage_index;
+        let shipped = state
+            .stage_of(StageKind::Ship)
+            .is_some_and(|ship| ship.status == StageStatus::Done);
+        let stage = &mut state.stages[index];
+        let kind = stage.kind();
+        let back = quantities(&stage.counts);
+        stage.status = StageStatus::Pending;
+        stage.park_reason = None;
+        stage.counts.clear();
+        stage.counted = false;
+        stage.done_by = None;
+        stage.note = Some(reason.clone());
+
+        let mut effects = Vec::new();
+        let step = match kind {
+            StageKind::Pack => Some((PoolStage::Packed, PoolStage::Picked)),
+            StageKind::Ship => Some((PoolStage::Shipment, PoolStage::Packed)),
+            StageKind::Load if shipped => Some((PoolStage::Loaded, PoolStage::Shipment)),
+            StageKind::Load => Some((PoolStage::Loaded, PoolStage::Packed)),
+            // Opening a seal moves nothing.
+            _ => None,
+        };
+        if let Some((from, to)) = step {
+            effects.extend(movement(index, kind, from, to, &back));
+        }
+        effects.push(Effect::StageReopened {
+            stage_index: index,
+            stage: kind,
+            reason,
+        });
+        Ok(effects)
     }
 }

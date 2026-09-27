@@ -14,7 +14,7 @@
 //!   ([`ExecutedAt`]): a pick happens at the origin and its node writes it; an
 //!   approval happens at head office, in the hub.
 //! * **Custody** ([`Custody`]): whether the stage hands the goods on. Depart
-//!   lets them leave, receive (and, for a supplier's lorry, verification)
+//!   lets the dispatch leave, receive (and, for a supplier's lorry, verification)
 //!   accepts them, handover gives them to somebody outside the company. The
 //!   template invariants are phrased in these terms.
 //! * **What it emits** ([`Emission`]): the pool stages goods move between,
@@ -30,6 +30,31 @@
 //!   differences to Missing and damaged goods to reject; the blind count that
 //!   never sees the ordered quantity; the verifier who is never the checker.
 //!
+//! # The outbound stages, and the numbers they print
+//!
+//! Allotment V1 §3 counts a promise through `TO_PACK → pack → AT_PACKED →
+//! ship → AT_SHIPMENT → load → AT_LOADED → depart → AT_IN_TRANSIT →
+//! receive`, and the Gudang's node prints a number at three of those steps
+//! (`edge::outbound::NumberKind`): KOLI for a sealed box, SJ for the surat
+//! jalan — one shipment for ONE destination, the paper that destination
+//! signs against — and DSP for a dispatch, one vehicle run that may carry
+//! several SJ to several destinations. So the catalogue has them as stages
+//! of their own: close koli (KOLI), ship (SJ), load (onto a DSP), depart (the
+//! DSP leaves; when load is skipped, depart opens the DSP itself).
+//!
+//! Allotment's reversals stay possible: unpack, unship and unload take goods
+//! back one step while nothing has departed (`FLOW_ACTION_REVERSE_STAGE`).
+//! They are corrections of a physical step, not an exception workflow
+//! (allotment §4).
+//!
+//! # A plan is not a stage
+//!
+//! The allotment (MD's decision) is the plan a flow runs, not a step inside
+//! it: every outbound flow document is born from one — to a store, between
+//! stores, back to the Gudang, back to a supplier — and a receiving flow is
+//! born from a purchase order or a delivery. The document names its source
+//! (`super::FlowSource`); no stage "creates" it.
+//!
 //! Pure: no clock, no database. The server that enforces a rule and the editor
 //! that draws it read this one list.
 
@@ -43,6 +68,9 @@ pub enum StageKind {
     Pick,
     Pack,
     CloseKoli,
+    /// Koli into a surat jalan (SJ): one shipment per destination.
+    Ship,
+    /// Onto a dispatch (DSP): one vehicle run.
     Load,
     Depart,
     Receive,
@@ -59,11 +87,12 @@ pub enum StageKind {
 }
 
 impl StageKind {
-    pub const ALL: [StageKind; 15] = [
+    pub const ALL: [StageKind; 16] = [
         Self::Approval,
         Self::Pick,
         Self::Pack,
         Self::CloseKoli,
+        Self::Ship,
         Self::Load,
         Self::Depart,
         Self::Receive,
@@ -83,6 +112,7 @@ impl StageKind {
             Self::Pick => "PICK",
             Self::Pack => "PACK",
             Self::CloseKoli => "CLOSE_KOLI",
+            Self::Ship => "SHIP",
             Self::Load => "LOAD",
             Self::Depart => "DEPART",
             Self::Receive => "RECEIVE",
@@ -109,6 +139,7 @@ impl StageKind {
             Self::Pick => &PICK,
             Self::Pack => &PACK,
             Self::CloseKoli => &CLOSE_KOLI,
+            Self::Ship => &SHIP,
             Self::Load => &LOAD,
             Self::Depart => &DEPART,
             Self::Receive => &RECEIVE,
@@ -122,6 +153,12 @@ impl StageKind {
             Self::Tagging => &TAGGING,
             Self::Putaway => &PUTAWAY,
         }
+    }
+
+    /// The stages a correction may take back one step while nothing has
+    /// departed: unpack, reopen a koli, unship, unload (allotment §4).
+    pub const fn is_reversible(self) -> bool {
+        matches!(self, Self::Pack | Self::CloseKoli | Self::Ship | Self::Load)
     }
 
     /// The stages that come after goods are ours at the destination and move
@@ -139,6 +176,7 @@ impl StageKind {
             self,
             Self::Pick
                 | Self::Pack
+                | Self::Ship
                 | Self::Load
                 | Self::Depart
                 | Self::Receive
@@ -197,6 +235,9 @@ pub enum PoolStage {
     OriginStock,
     Picked,
     Packed,
+    /// In a surat jalan for one destination (`AT_SHIPMENT`).
+    Shipment,
+    /// On a dispatch's vehicle, still on the yard (`AT_LOADED`).
     Loaded,
     InTransit,
     /// The template's destination pool role (a store's stockroom, the
@@ -367,6 +408,11 @@ pub enum FixedRule {
     ProofOfHandover,
     /// A supplier handover needs the supplier's signed return note.
     SupplierSignsReturnNote,
+    /// A surat jalan is for one destination: what that destination signs.
+    OneShipmentPerDestination,
+    /// Taken back one step (unpack, unship, unload) only while nothing has
+    /// departed.
+    ReversibleUntilDeparture,
 }
 
 impl FixedRule {
@@ -383,6 +429,8 @@ impl FixedRule {
             Self::ApproverIsNotInitiator => "Penyetuju bukan orang yang mengajukan.",
             Self::ProofOfHandover => "Barang lepas dari tangan kita hanya dengan bukti serah terima.",
             Self::SupplierSignsReturnNote => "Serah terima ke supplier wajib nota retur bertanda tangan.",
+            Self::OneShipmentPerDestination => "Satu surat jalan untuk satu tujuan: itu yang ditandatangani tujuan.",
+            Self::ReversibleUntilDeparture => "Bisa dibalik satu langkah (unpack, unship, unload) selama belum berangkat.",
         }
     }
 }
@@ -476,7 +524,7 @@ static PICK: StageSpec = StageSpec {
 static PACK: StageSpec = StageSpec {
     kind: StageKind::Pack,
     label: "Kemas (pack)",
-    meaning: "Barang masuk karton untuk satu tujuan. Di sinilah sepotong barang terikat ke satu toko.",
+    meaning: "Barang masuk karton untuk satu tujuan. Di sinilah sepotong barang terikat ke satu toko. Bisa dibongkar lagi (unpack) selama belum berangkat.",
     side: StageSide::Origin,
     executed_at: ExecutedAt::Node,
     custody: Custody::None,
@@ -486,7 +534,7 @@ static PACK: StageSpec = StageSpec {
     blind: false,
     allowed_proof: COUNTING,
     required_proof: RequiredProof::CountMethod,
-    fixed_rules: &[FixedRule::NotMoreThanUpstream],
+    fixed_rules: &[FixedRule::NotMoreThanUpstream, FixedRule::ReversibleUntilDeparture],
     may_skip: false,
     parks: Some(ParkReason::Scan),
 };
@@ -494,35 +542,65 @@ static PACK: StageSpec = StageSpec {
 static CLOSE_KOLI: StageSpec = StageSpec {
     kind: StageKind::CloseKoli,
     label: "Tutup koli",
-    meaning: "Karton disegel menjadi koli bernomor. Isinya yang kelak dihitung sebagai yang diserahkan.",
+    meaning: "Karton disegel menjadi koli bernomor (KOLI). Isinya yang kelak dihitung sebagai yang diserahkan. Segel bisa dibuka lagi selama belum berangkat.",
     side: StageSide::Origin,
     executed_at: ExecutedAt::Node,
     custody: Custody::None,
-    emits: &[Emission::Record { record: "koli" }],
+    emits: &[Emission::Record { record: "koli (KOLI)" }],
     journal: JournalRule::Never,
     count: CountRule::CarriesUpstream,
     blind: false,
     allowed_proof: &[ProofKind::RfidScan, ProofKind::ManualCount, ProofKind::Photo],
     required_proof: RequiredProof::None,
-    fixed_rules: &[FixedRule::NotMoreThanUpstream],
+    fixed_rules: &[FixedRule::NotMoreThanUpstream, FixedRule::ReversibleUntilDeparture],
     may_skip: false,
+    parks: None,
+};
+
+static SHIP: StageSpec = StageSpec {
+    kind: StageKind::Ship,
+    label: "Masuk surat jalan",
+    meaning: "Koli yang sudah disegel masuk satu surat jalan (SJ) untuk satu tujuan: dokumen yang ditandatangani tujuan. Bisa ditarik lagi (unship) selama belum berangkat.",
+    side: StageSide::Origin,
+    executed_at: ExecutedAt::Node,
+    custody: Custody::None,
+    emits: &[
+        Emission::Movement { from: PoolStage::Packed, to: PoolStage::Shipment },
+        Emission::Record { record: "surat jalan (SJ)" },
+    ],
+    journal: JournalRule::Never,
+    count: CountRule::CarriesUpstream,
+    blind: false,
+    allowed_proof: &[ProofKind::Signature, ProofKind::Photo],
+    required_proof: RequiredProof::None,
+    fixed_rules: &[
+        FixedRule::OneShipmentPerDestination,
+        FixedRule::NotMoreThanUpstream,
+        FixedRule::ReversibleUntilDeparture,
+    ],
+    // Skippable on a route to a customer; never on one to our own site,
+    // where the SJ is what the destination signs (`validate_template`).
+    may_skip: true,
     parks: None,
 };
 
 static LOAD: StageSpec = StageSpec {
     kind: StageKind::Load,
-    label: "Muat",
-    meaning: "Koli naik ke kendaraan yang belum berangkat. Masih di halaman, belum di jalan.",
+    label: "Muat (dispatch)",
+    meaning: "Koli dan SJ naik ke satu dispatch (DSP): satu perjalanan kendaraan, bisa membawa beberapa SJ ke beberapa tujuan. Masih di halaman, belum di jalan; bisa diturunkan lagi (unload) sebelum berangkat.",
     side: StageSide::Origin,
     executed_at: ExecutedAt::Node,
     custody: Custody::None,
-    emits: &[Emission::Movement { from: PoolStage::Packed, to: PoolStage::Loaded }],
+    emits: &[
+        Emission::Movement { from: PoolStage::Shipment, to: PoolStage::Loaded },
+        Emission::Record { record: "dispatch (DSP)" },
+    ],
     journal: JournalRule::Never,
     count: CountRule::CarriesUpstream,
     blind: false,
     allowed_proof: COUNTING,
     required_proof: RequiredProof::None,
-    fixed_rules: &[FixedRule::NotMoreThanUpstream],
+    fixed_rules: &[FixedRule::NotMoreThanUpstream, FixedRule::ReversibleUntilDeparture],
     may_skip: true,
     parks: Some(ParkReason::Scan),
 };
@@ -530,12 +608,13 @@ static LOAD: StageSpec = StageSpec {
 static DEPART: StageSpec = StageSpec {
     kind: StageKind::Depart,
     label: "Berangkat",
-    meaning: "Kendaraan berangkat. Barang dalam perjalanan; bila lintas unit, interunit barang dibukukan otomatis.",
+    meaning: "Dispatch (DSP) berangkat: barang dalam perjalanan. Bila Muat dilewati, dispatch dibuka di sini. Bila lintas unit, interunit barang dibukukan otomatis.",
     side: StageSide::Origin,
     executed_at: ExecutedAt::Node,
     custody: Custody::Leaves,
     emits: &[
         Emission::Movement { from: PoolStage::Loaded, to: PoolStage::InTransit },
+        Emission::Record { record: "dispatch (DSP)" },
         Emission::Claim { claim: ClaimKind::InTransit },
     ],
     journal: JournalRule::WhenCrossingUnits(JournalMeaning::InterunitGoodsDispatched),

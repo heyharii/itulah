@@ -1,6 +1,15 @@
 //! A flow document: one run of one template version between two ends, and
 //! the state its actions build.
 //!
+//! # Born from a plan
+//!
+//! A document runs a source document it does not create ([`FlowSource`]):
+//! an allotment for every outbound route — to a store, between stores, back
+//! to the Gudang, back to a supplier — and a purchase order or delivery for a
+//! supplier's goods arriving. Whoever raises that source for the route must
+//! hold one of the template's starter roles; the creation path starts the
+//! flow in the same transaction as the allotment or the order.
+//!
 //! # Statuses, and who and when for each
 //!
 //! Borrowed from Medusa's order change: a document is `REQUESTED` by
@@ -112,11 +121,73 @@ pub struct ProofRecord {
     pub reference: String,
 }
 
+/// The kind of document a flow is born from.
+///
+/// A plan is not a stage. The allotment — MD's decision of what goes where —
+/// is the plan every outbound flow runs: to a store, between stores, back to
+/// the Gudang, back to a supplier. A flow from a supplier runs a purchase
+/// order or the delivery that arrived against one. The flow document names
+/// that source and does not create it; the template's starter roles are who
+/// may raise the source for the route.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum SourceKind {
+    Allotment,
+    PurchaseOrder,
+    Delivery,
+    /// A customer's order, for a flow that ends at a customer.
+    CustomerOrder,
+}
+
+impl SourceKind {
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::Allotment => "ALLOTMENT",
+            Self::PurchaseOrder => "PURCHASE_ORDER",
+            Self::Delivery => "DELIVERY",
+            Self::CustomerOrder => "CUSTOMER_ORDER",
+        }
+    }
+
+    pub fn parse(code: &str) -> Option<Self> {
+        match code.trim() {
+            "ALLOTMENT" => Some(Self::Allotment),
+            "PURCHASE_ORDER" => Some(Self::PurchaseOrder),
+            "DELIVERY" => Some(Self::Delivery),
+            "CUSTOMER_ORDER" => Some(Self::CustomerOrder),
+            _ => None,
+        }
+    }
+
+    /// Whether a flow on this route may be born from this kind of document:
+    /// from a supplier, an order or its delivery; to a customer, the
+    /// customer's order; everything else, an allotment.
+    pub fn fits(self, route: FlowRoute) -> bool {
+        match (route.origin.party(), route.destination.party()) {
+            (Some(PartyKind::Supplier), _) => {
+                matches!(self, Self::PurchaseOrder | Self::Delivery)
+            }
+            (_, Some(PartyKind::Customer)) => self == Self::CustomerOrder,
+            _ => self == Self::Allotment,
+        }
+    }
+}
+
+/// The document a flow runs: its kind and its id.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FlowSource {
+    pub kind: SourceKind,
+    pub id: String,
+}
+
 /// The document's fixed facts, as it was started.
 #[derive(Clone, Debug, Serialize)]
 pub struct FlowHeader {
     pub document_id: Uuid,
     pub route: FlowRoute,
+    /// The allotment, order or delivery this flow runs. Never created by it.
+    pub source: FlowSource,
     /// Who started it. An approval is never theirs to give.
     pub initiator: String,
     /// Whether the origin's unit is not the destination's. Decided by the
