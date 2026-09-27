@@ -230,6 +230,9 @@ export const systemKeys = {
   nodeHealth: () => ["system", "node-health"] as const,
   nodeIncidents: (originId: string) =>
     ["system", "node-incidents", originId] as const,
+  devices: () => ["system", "devices"] as const,
+  deviceHistory: (deviceId: string) =>
+    ["system", "device-history", deviceId] as const,
 }
 
 // ---- The node register ----------------------------------------------------
@@ -481,6 +484,89 @@ export function nodeIncidents(originId: string, signal?: AbortSignal) {
       { signal }
     )
     .then((body) => body.items)
+}
+
+// ---- Devices ------------------------------------------------------------------
+//
+// Every machine enrolled to a node — tills, printers, readers — as the nodes
+// report them in their heartbeats. Transcribed by hand from
+// `cloud/postgres/devices.rs` (`RegistryDevice`, `DeviceStatusEvent`).
+
+export type DeviceKind =
+  | "TILL"
+  | "HANDHELD"
+  | "RFID_READER"
+  | "PRINTER"
+  | "EDC"
+  | "ATTENDANCE_TERMINAL"
+
+export type DeviceStatus = "ACTIVE" | "SUSPENDED" | "REVOKED"
+
+export interface RegistryDevice {
+  readonly device_id: string
+  readonly kind: DeviceKind
+  readonly origin_id: string
+  readonly node_label: string | null
+  readonly site_id: string
+  readonly site_name: string | null
+  readonly label: string
+  /// What the node last reported. The node is the authority for a till and a
+  /// printer; head office's ask is `requested_status` until it agrees.
+  readonly status: DeviceStatus
+  readonly requested_status: DeviceStatus | null
+  readonly requested_by: string | null
+  readonly requested_at: string | null
+  readonly requested_reason: string | null
+  readonly last_seen_at: string | null
+  /// Kind-specific and never secret: a printer's host and port, a till's
+  /// peripherals and machine, a reader's pools.
+  readonly config: Readonly<Record<string, unknown>>
+  readonly replaces_device_id: string | null
+  readonly rfid_device_id: string | null
+  readonly attendance_terminal_id: string | null
+  readonly registered_at: string | null
+  readonly registered_by: string | null
+  readonly first_reported_at: string
+  readonly updated_at: string
+  /// Whether head office can suspend, reactivate or revoke it from here.
+  readonly switchable: boolean
+}
+
+export interface DeviceStatusEvent {
+  readonly source: "NODE" | "HUB"
+  readonly from_status: DeviceStatus | null
+  readonly to_status: DeviceStatus
+  readonly actor: string
+  readonly reason: string | null
+  readonly at: string
+}
+
+export function listDevices(signal?: AbortSignal) {
+  return node
+    .get<{ items: RegistryDevice[] }>("/api/v1/sync/devices", { signal })
+    .then((body) => body.items)
+}
+
+export function deviceHistory(deviceId: string, signal?: AbortSignal) {
+  return node
+    .get<{ items: DeviceStatusEvent[] }>(
+      `/api/v1/sync/devices/${encodeURIComponent(deviceId)}/history`,
+      { signal }
+    )
+    .then((body) => body.items)
+}
+
+/// Ask a device's node to suspend, reactivate or revoke it. The answer is the
+/// device with `requested_status` set; its `status` changes when the node's
+/// next heartbeat reports it.
+export function setDeviceStatus(
+  deviceId: string,
+  request: { readonly status: DeviceStatus; readonly reason?: string }
+) {
+  return node.post<RegistryDevice>(
+    `/api/v1/sync/devices/${encodeURIComponent(deviceId)}/status`,
+    request
+  )
 }
 
 export function fleetStatus(signal?: AbortSignal) {

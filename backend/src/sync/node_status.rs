@@ -108,6 +108,16 @@ pub struct NodeStatus {
     pub till: TillFacts,
     /// Newest last.
     pub incidents: Vec<Incident>,
+    /// Every device enrolled to this node — tills, printers, readers — with
+    /// its status and when it was last heard from. Head office's device
+    /// registry is fed from this (`cloud/postgres/devices.rs`).
+    ///
+    /// `None` from a node that predates the registry, which is how the cloud
+    /// tells "this node reports no devices" (`Some(vec![])`) from "this node
+    /// cannot report them, nor take a device command" — skipped when absent so
+    /// the stored snapshot keeps that difference too.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_list: Option<Vec<crate::sync::device::DeviceReport>>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -472,6 +482,7 @@ mod tests {
             devices: DeviceFacts::default(),
             till: TillFacts::default(),
             incidents: vec![],
+            device_list: None,
         }
     }
 

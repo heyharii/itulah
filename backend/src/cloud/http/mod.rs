@@ -648,6 +648,17 @@ pub fn router(state: AppState) -> Router {
         "/api/v1/sync/nodes/{origin_id}/incidents",
         get(fleet::incidents),
     )
+    // The machines enrolled to those nodes, as their heartbeats report them,
+    // and head office's suspend / reactivate / revoke of a till or printer.
+    .route("/api/v1/sync/devices", get(fleet::devices))
+    .route(
+        "/api/v1/sync/devices/{device_id}/history",
+        get(fleet::device_history),
+    )
+    .route(
+        "/api/v1/sync/devices/{device_id}/status",
+        post(fleet::device_status),
+    )
     .route("/api/v1/sync/enroll/claim", post(enrolment::claim))
     .route("/api/v1/sync/enroll/status", post(enrolment::status))
     .route("/api/v1/sync/commands", post(sync_issue_command))

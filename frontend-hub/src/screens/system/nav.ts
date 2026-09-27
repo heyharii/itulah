@@ -5,6 +5,7 @@ import {
   HeartPulse,
   KeyRound,
   LayoutGrid,
+  Printer,
   RefreshCcw,
   Settings2,
   UserRound,
@@ -39,6 +40,9 @@ export const systemNav: AppModule = {
         // and is anything stuck.
         { path: "/system/health", label: "Health", icon: HeartPulse },
         { path: "/system", label: "Nodes", icon: LayoutGrid },
+        // What is enrolled to those nodes: tills, printers, readers, per
+        // site, as each node last reported them.
+        { path: "/system/devices", label: "Devices", icon: Printer },
         { path: "/system/sync", label: "Sync", icon: RefreshCcw },
         // Edge assignments and RFID readers: the identity policy the centre
         // publishes to a node. Its own entry rather than a third tab on

@@ -6,15 +6,16 @@
 //! are Admin routes under `/api/v1/sync/nodes`. See `postgres/node_health.rs`
 //! and `sync/node_status.rs`.
 
+use super::auth::Principal;
 use crate::cloud::{
     application::{AppError, AppState},
     postgres as infrastructure,
 };
 use crate::sync::node_status::NodeStatus;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::HeaderMap,
-    Json,
+    Extension, Json,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -53,4 +54,56 @@ pub async fn incidents(
     Ok(Json(json!({
         "items": infrastructure::node_incidents(&state.db, origin_id.trim()).await?
     })))
+}
+
+// ---- Devices ---------------------------------------------------------------
+//
+// Every machine enrolled to a node, as the nodes report them in their
+// heartbeats, and head office's suspend / reactivate / revoke. Admin routes
+// under `/api/v1/sync/devices`. See `postgres/devices.rs`.
+
+#[derive(Deserialize)]
+pub struct DeviceFilter {
+    #[serde(default)]
+    pub site_id: Option<String>,
+}
+
+pub async fn devices(
+    State(state): State<AppState>,
+    Query(filter): Query<DeviceFilter>,
+) -> Result<Json<Value>, AppError> {
+    let site_id = filter
+        .site_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|site| !site.is_empty());
+    Ok(Json(json!({
+        "items": infrastructure::device_registry(&state.db, site_id).await?
+    })))
+}
+
+pub async fn device_history(
+    State(state): State<AppState>,
+    Path(device_id): Path<String>,
+) -> Result<Json<Value>, AppError> {
+    Ok(Json(json!({
+        "items": infrastructure::device_history(&state.db, device_id.trim()).await?
+    })))
+}
+
+pub async fn device_status(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(device_id): Path<String>,
+    Json(request): Json<infrastructure::DeviceStatusRequest>,
+) -> Result<Json<infrastructure::RegistryDevice>, AppError> {
+    Ok(Json(
+        infrastructure::request_device_status(
+            &state.db,
+            device_id.trim(),
+            request,
+            &principal.username,
+        )
+        .await?,
+    ))
 }

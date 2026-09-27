@@ -1,0 +1,24 @@
+-- A person is signed in on one device at a node.
+--
+-- The owner's rule for staff (2026-09-26, confirmed 2026-09-27): one user, one
+-- device. Head office enforces it since postgres `0395`; a shop's node did
+-- not — `edge/auth.rs::write_session` opened a new session beside every one
+-- the person already had, so a cashier could be signed in at two tills and a
+-- handheld at once.
+--
+-- Now a sign-in at this node (a password, or head office's single sign-on
+-- ticket) revokes every other live session of the same person here, in the
+-- same transaction that opens the new one. `revoked_reason` says why a
+-- session ended, so the device that was pushed out is told "signed in on
+-- another device" rather than "expired" — the same column and the same word,
+-- `SIGNED_IN_ELSEWHERE`, as the cloud's.
+--
+-- Not covered, on purpose: a fingerprint at a till is an identity assertion,
+-- not a sign-in, and does not push anybody out; and whether a sign-in here
+-- should also end the person's session at head office (or the reverse) is an
+-- open owner decision. The customer app has its own sessions and is exempt.
+--
+-- An `ADD COLUMN`, so applied once, guarded by its own presence
+-- (`edge/auth.rs::ensure_session_reason`).
+
+ALTER TABLE edge_auth_session ADD COLUMN revoked_reason TEXT;

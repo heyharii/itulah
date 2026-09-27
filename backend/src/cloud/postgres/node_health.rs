@@ -133,6 +133,11 @@ pub async fn record_heartbeat(
     .bind(tone_text(assessment.tone))
     .execute(&mut *tx)
     .await?;
+    // The node's devices, into the registry (`devices.rs`). Absent from a
+    // node that predates it, which then files nothing here.
+    if let Some(devices) = &status.device_list {
+        super::devices::record_reported_devices(&mut tx, origin_id, devices).await?;
+    }
     for incident in &status.incidents {
         let payload = serde_json::to_value(incident)?;
         let kind = payload["kind"].as_str().unwrap_or("UNKNOWN").to_owned();

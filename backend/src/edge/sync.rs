@@ -2701,6 +2701,15 @@ fn apply_command_effect(tx: &Transaction<'_>, command: &PushedCommand) -> Result
             crate::edge::inbound::apply_announcement(tx, command.command_id, &payload)
                 .map_err(|error| err(error.to_string()))
         }
+        // Head office suspended, reactivated or revoked a till or a printer.
+        // Only ever sent to a node whose heartbeat carries a device list, so
+        // an older build never receives it — see `sync/device.rs`.
+        crate::sync::device::COMMAND_DEVICE_STATUS_SET => {
+            let decision =
+                crate::sync::device::parse_device_status_command(&command.payload).map_err(err)?;
+            crate::edge::devices::apply_status_command(tx, &decision)
+                .map_err(|error| err(error.to_string()))
+        }
         // An unknown type BLOCKS rather than being skipped: it means the cloud
         // is ahead of this edge's build, and quietly discarding an instruction
         // is worse than stopping and being seen.

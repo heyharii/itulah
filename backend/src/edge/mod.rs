@@ -6,6 +6,9 @@
 pub mod attendance;
 pub mod auth;
 pub mod contracts;
+/// The machines enrolled to this node: a till joining by code and a
+/// supervisor's yes, printers recorded once, and all of it reported upward.
+pub mod devices;
 pub mod diagnose;
 pub mod domain;
 pub mod enrolment;

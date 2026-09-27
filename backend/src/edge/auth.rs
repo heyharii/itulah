@@ -25,6 +25,32 @@ const EDGE_SSO_SCHEMA: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/migrations/sqlite/0042_cloud_to_dc_sso.sql"
 ));
+/// Written on every session a new sign-in pushed out. The cloud's word
+/// (`cloud/postgres/users.rs`, migration 0395), so a device that talks to both
+/// reads one reason.
+pub const SIGNED_IN_ELSEWHERE: &str = "SIGNED_IN_ELSEWHERE";
+
+/// Add `edge_auth_session.revoked_reason` once, and do nothing when it is
+/// there. Called from both places a node's auth tables are opened — the full
+/// node schema in `edge/sqlite.rs` and [`EdgeAuth::new`], whose connection in
+/// the auth-disabled routers carries only `0004` — because an `ADD COLUMN`
+/// cannot be written to replay.
+pub(crate) fn ensure_session_reason(connection: &Connection) -> Result<(), EdgeError> {
+    let present: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('edge_auth_session')
+              WHERE name='revoked_reason'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(db)?;
+    if present == 0 {
+        connection
+            .execute_batch(crate::edge::sqlite::SESSION_REASON_SCHEMA)
+            .map_err(db)?;
+    }
+    Ok(())
+}
 
 #[derive(Clone, Debug)]
 pub struct EdgeAuthConfig {
@@ -102,6 +128,11 @@ pub enum EdgePermission {
     StoreReceive,
     InventoryMove,
     RfidObserve,
+    /// Record a printer, refuse a waiting till, suspend or revoke a device.
+    /// A supervisor's, because a till switched off at nine in the evening
+    /// cannot wait for head office. Letting a till *in* is decided inside
+    /// `edge::devices::approve_join`, which also accepts a supervisor's finger.
+    DeviceAdmin,
     AuthAdmin,
 }
 
@@ -111,7 +142,7 @@ impl EdgePermission {
             Self::InventoryRead | Self::DcOperate | Self::StoreSale | Self::RfidObserve => {
                 Role::Cashier
             }
-            Self::StoreReceive | Self::InventoryMove => Role::Supervisor,
+            Self::StoreReceive | Self::InventoryMove | Self::DeviceAdmin => Role::Supervisor,
             Self::AuthAdmin => Role::Admin,
         }
     }
@@ -193,7 +224,11 @@ impl EdgeAuth {
             node,
             config,
         };
-        auth.lock()?.execute_batch(EDGE_SSO_SCHEMA).map_err(db)?;
+        {
+            let connection = auth.lock()?;
+            connection.execute_batch(EDGE_SSO_SCHEMA).map_err(db)?;
+            ensure_session_reason(&connection)?;
+        }
         auth.bootstrap_admin()?;
         Ok(auth)
     }
@@ -356,6 +391,8 @@ impl EdgeAuth {
             }
             return Err(denied());
         }
+        // A password sign-in is a sign-in: it ends this person's other
+        // sessions at this node (one user, one device — migration 0054).
         self.start_session(
             &mut connection,
             id,
@@ -364,6 +401,7 @@ impl EdgeAuth {
             role,
             auth_version,
             source,
+            true,
         )
     }
 
@@ -451,6 +489,11 @@ impl EdgeAuth {
         {
             return Err(denied());
         }
+        // Not a sign-in in the one-device sense, by the owner's ruling: a
+        // finger at a till asserts who is standing there, and pushing the
+        // same person out of a handheld because they pressed a scanner is not
+        // what the rule is for. A later password sign-in still ends this
+        // session like any other.
         self.start_session(
             &mut connection,
             id,
@@ -459,6 +502,7 @@ impl EdgeAuth {
             role,
             auth_version,
             source,
+            false,
         )
     }
 
@@ -587,6 +631,7 @@ impl EdgeAuth {
             role,
             auth_version,
             "CLOUD".into(),
+            true,
         )?;
         transaction.commit().map_err(db)?;
         Ok(issued)
@@ -602,6 +647,9 @@ impl EdgeAuth {
     ///
     /// The other caller is a fingerprint claim, which proves identity with a
     /// finger and a terminal's credential instead of a password.
+    ///
+    /// `supersede` is the one-device rule: see [`Self::write_session`].
+    #[allow(clippy::too_many_arguments)]
     fn start_session(
         &self,
         connection: &mut Connection,
@@ -611,6 +659,7 @@ impl EdgeAuth {
         role: String,
         auth_version: i64,
         source: String,
+        supersede: bool,
     ) -> Result<IssuedEdgeSession, EdgeError> {
         let transaction = connection.transaction().map_err(db)?;
         let issued = self.write_session(
@@ -621,11 +670,21 @@ impl EdgeAuth {
             role,
             auth_version,
             source,
+            supersede,
         )?;
         transaction.commit().map_err(db)?;
         Ok(issued)
     }
 
+    /// Write the session row and mint its tokens.
+    ///
+    /// With `supersede`, first revoke every other live session this person
+    /// has at this node, as `SIGNED_IN_ELSEWHERE` — one user, one device
+    /// (migration 0054), the node's half of what head office does in
+    /// `cloud/postgres/users.rs::create_session`. In the caller's transaction,
+    /// so two sign-ins racing each other cannot both survive: SQLite has one
+    /// writer, and whichever commits second revokes the first.
+    #[allow(clippy::too_many_arguments)]
     fn write_session(
         &self,
         transaction: &Transaction<'_>,
@@ -635,12 +694,23 @@ impl EdgeAuth {
         role: String,
         auth_version: i64,
         source: String,
+        supersede: bool,
     ) -> Result<IssuedEdgeSession, EdgeError> {
         let now = Utc::now();
         let user_id = Uuid::parse_str(&id)
             .map_err(|error| EdgeError::Persistence(format!("invalid edge user id: {error}")))?;
         let role =
             Role::from_str(&role).map_err(|error| EdgeError::Persistence(error.to_string()))?;
+        if supersede {
+            transaction
+                .execute(
+                    "UPDATE edge_auth_session
+                        SET revoked_at=?2, revoked_reason=?3
+                      WHERE user_id=?1 AND revoked_at IS NULL",
+                    params![id, time_text(now), SIGNED_IN_ELSEWHERE],
+                )
+                .map_err(db)?;
+        }
         let token = security::random_token();
         let csrf_token = security::random_token();
         let session_id = Uuid::new_v4();
@@ -730,7 +800,24 @@ impl EdgeAuth {
             valid_until,
         }) = row
         else {
-            return Err(EdgeError::Unauthorized("invalid or expired session".into()));
+            // Say why when the reason is one the person can act on: a device
+            // pushed out by a sign-in elsewhere should say so, not "expired".
+            let reason: Option<String> = connection
+                .query_row(
+                    "SELECT revoked_reason FROM edge_auth_session WHERE token_sha256=?1",
+                    params![security::sha256_hex(token)],
+                    |row| row.get::<_, Option<String>>(0),
+                )
+                .optional()
+                .map_err(db)?
+                .flatten();
+            return Err(EdgeError::Unauthorized(
+                if reason.as_deref() == Some(SIGNED_IN_ELSEWHERE) {
+                    "this account was signed in on another device".into()
+                } else {
+                    "invalid or expired session".into()
+                },
+            ));
         };
         let idle_cutoff = Utc::now() - Duration::minutes(self.config.session_idle_minutes);
         if parse_time(&last_seen)? <= idle_cutoff

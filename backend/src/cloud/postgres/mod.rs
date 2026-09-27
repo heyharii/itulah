@@ -47,6 +47,8 @@ mod coupons;
 mod customer;
 mod deposits;
 mod destinations;
+/// Every machine enrolled to a node, fed by heartbeats. See migration 0475.
+mod devices;
 mod discussion;
 mod documents;
 mod eligibility;
@@ -228,6 +230,7 @@ pub use coupons::*;
 pub use customer::*;
 pub use deposits::*;
 pub use destinations::*;
+pub use devices::*;
 pub use discussion::*;
 pub use documents::*;
 pub use eligibility::*;
