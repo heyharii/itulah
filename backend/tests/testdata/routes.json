@@ -247,8 +247,6 @@ cloud	GET	/api/v1/suppliers/{id}/contacts	Supervisor	-
 cloud	GET	/api/v1/suppliers/{id}/items	Supervisor	-
 cloud	GET	/api/v1/sync/commands/{id}	Admin	-
 cloud	GET	/api/v1/sync/dead-letters	Admin	-
-cloud	GET	/api/v1/sync/devices	Admin	-
-cloud	GET	/api/v1/sync/devices/{device_id}/history	Admin	-
 cloud	GET	/api/v1/sync/fleet	Cashier	-
 cloud	GET	/api/v1/sync/health	Admin	-
 cloud	GET	/api/v1/sync/origins	Admin	-
@@ -526,7 +524,6 @@ cloud	POST	/api/v1/suppliers/{id}/items	Supervisor	supplier_item
 cloud	POST	/api/v1/sync/breaker/reset	Admin	-
 cloud	POST	/api/v1/sync/commands	Admin	-
 cloud	POST	/api/v1/sync/commands/{id}/revoke	Admin	sync_command
-cloud	POST	/api/v1/sync/devices/{device_id}/status	Admin	-
 cloud	POST	/api/v1/sync/ingest	Supervisor	-
 cloud	POST	/api/v1/sync/origins	Admin	-
 cloud	POST	/api/v1/sync/points/redeem-requests/lookup	Supervisor	-
@@ -650,13 +647,10 @@ edge-common	GET	/api/v1/catalog/identities	-	-
 edge-common	GET	/api/v1/catalog/image	-	-
 edge-common	GET	/api/v1/catalog/snapshot	-	-
 edge-common	GET	/api/v1/catalog/snapshot/items	-	-
-edge-common	GET	/api/v1/devices	-	-
-edge-common	GET	/api/v1/devices/joins	-	-
 edge-common	GET	/api/v1/health	-	-
 edge-common	GET	/api/v1/inventory/control/clock	-	-
 edge-common	GET	/api/v1/inventory/movements	-	-
 edge-common	GET	/api/v1/inventory/pools	-	-
-edge-common	GET	/api/v1/node/identity	-	-
 edge-common	GET	/api/v1/rfid/sessions	-	-
 edge-common	GET	/api/v1/rfid/sessions/{session_id}	-	-
 edge-common	GET	/api/v1/sync/status	-	-
@@ -672,14 +666,6 @@ edge-common	POST	/api/v1/auth/pin/claim	-	-
 edge-common	POST	/api/v1/auth/pins	-	-
 edge-common	POST	/api/v1/auth/pins/{username}/clear	-	-
 edge-common	POST	/api/v1/auth/terminals	-	-
-edge-common	POST	/api/v1/devices/join	-	-
-edge-common	POST	/api/v1/devices/join/status	-	-
-edge-common	POST	/api/v1/devices/joins/{join_id}/approve	-	-
-edge-common	POST	/api/v1/devices/joins/{join_id}/refuse	-	-
-edge-common	POST	/api/v1/devices/printers	-	-
-edge-common	POST	/api/v1/devices/printers/{printer_id}	-	-
-edge-common	POST	/api/v1/devices/self/peripherals	-	-
-edge-common	POST	/api/v1/devices/status	-	-
 edge-common	POST	/api/v1/inventory/control/clock	-	-
 edge-common	POST	/api/v1/rfid/observations	-	-
 edge-common	POST	/api/v1/sync/trigger	-	-
