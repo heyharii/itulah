@@ -834,9 +834,22 @@ impl PushAgent {
     pub async fn run(self, interval: Duration) {
         let mut ticker = tokio::time::interval(interval);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        let mut last_beat: Option<std::time::Instant> = None;
         loop {
             ticker.tick().await;
-            match self.drain_once().await {
+            let drained = self.drain_once().await;
+            // The fleet page's "notifications & push" (`fleet_job_beat`): a
+            // beat a minute is plenty for a loop that runs every two seconds.
+            if drained.is_err() || last_beat.is_none_or(|at| at.elapsed() >= Duration::from_secs(60)) {
+                infrastructure::fleet_job_beat(
+                    &self.pool,
+                    infrastructure::JOB_PUSH,
+                    drained.as_ref().err().map(ToString::to_string).as_deref(),
+                )
+                .await;
+                last_beat = Some(std::time::Instant::now());
+            }
+            match drained {
                 Ok(report) if report.is_empty() => {}
                 Ok(report) => info!(
                     delivered = report.delivered,
