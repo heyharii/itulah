@@ -1039,7 +1039,7 @@ function ComposerSheet({
       // reserves against the bills it names, which is what `allocated_minor`
       // reports and what the candidate list below is built from.
       client.invalidateQueries({ queryKey: ["finance", "payments"] })
-      client.invalidateQueries({ queryKey: financeKeys.bills(null) })
+      client.invalidateQueries({ queryKey: ["finance", "bills"] })
     },
   })
 

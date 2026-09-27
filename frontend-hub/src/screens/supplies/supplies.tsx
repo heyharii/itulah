@@ -1,6 +1,11 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 import { Check, Plus, X } from "lucide-react"
-import { useState } from "react"
+import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
@@ -10,14 +15,25 @@ import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState, LoadingState } from "@/components/ui/states"
+import {
+  Banner,
+  EmptyState,
+  LoadingState,
+  LoadMore,
+  type Pageable,
+} from "@/components/ui/states"
 import { count, day, money } from "@/lib/format"
-import { gaKeys, gaSupplies, moveGaSupplyRequest } from "@/lib/queries/ga"
+import {
+  gaKeys,
+  gaSupply,
+  gaSupplyBook,
+  moveGaSupplyRequest,
+} from "@/lib/queries/ga"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { FinanceMark } from "@/screens/contracts/parts"
 import { SupplyComposer } from "@/screens/supplies/composer"
-import type { GaSupplyRequestRow } from "@itulah/contract"
+import type { GaMaintenanceFacet, GaSupplyRequestRow } from "@itulah/contract"
 
 /// Supplies — what the places run out of.
 ///
@@ -43,16 +59,29 @@ import type { GaSupplyRequestRow } from "@itulah/contract"
 /// stage has a different owner: GA approves, Procurement orders and receives,
 /// Finance records the bill. The words name who has it now, and the move
 /// button offers only the step the server itself would accept.
+/// How many requests one page of the register asks for.
+const PAGE = 100
+
 export function Supplies() {
   const open = useSheet("supply")
   const [adding, setAdding] = useState(false)
 
-  const requests = useQuery({
-    queryKey: gaKeys.supplies({}),
-    queryFn: ({ signal }) => gaSupplies({ limit: 200 }, signal),
+  /// The register, a page at a time as its foot nears view — the paged
+  /// reading of the list, which used to stop at the two-hundredth request.
+  const requests = useInfiniteQuery({
+    queryKey: [...gaKeys.supplies({}), "pages"] as const,
+    queryFn: ({ pageParam, signal }) =>
+      gaSupplyBook({ limit: PAGE, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    placeholderData: (previous) => previous,
   })
 
-  const rows = requests.data ?? []
+  const rows = useMemo(
+    () => requests.data?.pages.flatMap((page) => page.rows) ?? [],
+    [requests.data]
+  )
+  const head = requests.data?.pages[0]
 
   return (
     <PageContent>
@@ -73,7 +102,7 @@ export function Supplies() {
         yet. The order number is recorded on this request.
       </Banner>
 
-      {requests.data !== undefined && <SummaryStrip rows={rows} />}
+      {head !== undefined && <SummaryStrip statuses={head.statuses} />}
 
       {queryState(requests, {
         loading: "Opening supply requests…",
@@ -93,7 +122,7 @@ export function Supplies() {
               </EmptyState>
             </Card>
           ) : (
-            <SupplyTable rows={rows} onOpen={open.open} />
+            <SupplyTable rows={rows} onOpen={open.open} more={requests} />
           ),
       })}
 
@@ -116,15 +145,23 @@ export function Supplies() {
   )
 }
 
-/// The three figures the screen is managed by, counted over the SAME rows the
-/// table draws. "With Procurement" is the three middle stages together, because
-/// from GA's side they are one answer to "where is it" — out of our hands.
-function SummaryStrip({ rows }: { rows: readonly GaSupplyRequestRow[] }) {
-  const asked = rows.filter((row) => row.status === "REQUESTED").length
-  const inProcurement = rows.filter((row) =>
-    ["APPROVED", "ORDERED", "RECEIVED"].includes(row.status)
-  ).length
-  const billed = rows.filter((row) => row.status === "BILLED").length
+/// The three figures the screen is managed by, read off the server's stage
+/// counts over the WHOLE register — the table pages as it scrolls, and a strip
+/// counted over the rows it holds would change with the scroll position.
+/// "With Procurement" is the three middle stages together, because from GA's
+/// side they are one answer to "where is it" — out of our hands.
+function SummaryStrip({
+  statuses,
+}: {
+  statuses: readonly GaMaintenanceFacet[]
+}) {
+  const of = (...wanted: string[]) =>
+    statuses
+      .filter((one) => wanted.includes(one.value))
+      .reduce((sum, one) => sum + one.count, 0)
+  const asked = of("REQUESTED")
+  const inProcurement = of("APPROVED", "ORDERED", "RECEIVED")
+  const billed = of("BILLED")
 
   return (
     <KpiStrip className="md:grid-cols-3 xl:grid-cols-3">
@@ -149,9 +186,11 @@ function SummaryStrip({ rows }: { rows: readonly GaSupplyRequestRow[] }) {
 function SupplyTable({
   rows,
   onOpen,
+  more,
 }: {
   rows: readonly GaSupplyRequestRow[]
   onOpen: (requestId: string) => void
+  more: Pageable
 }) {
   return (
     <Card className="overflow-hidden">
@@ -173,6 +212,9 @@ function SupplyTable({
           ))}
         </div>
       </div>
+      {/* Outside the sideways-scrolling box, which computes as a vertical
+          scroller too — see `<LoadMore>`. The page scrolls. */}
+      <LoadMore query={more} />
     </Card>
   )
 }
@@ -333,12 +375,12 @@ function SupplyStageLine({ status }: { status: string }) {
 /// One request: what was asked for, how far it has got, the account its bills
 /// will propose, and the Finance figure that lands when a bill points here.
 ///
-/// # Why this reads its row from the list's cache
+/// # Why this reads its own row
 ///
-/// There is no `GET /ga/supplies/{id}` — the list is the whole record, and the
-/// sheet finds its row in the same answer the table drew. The screen's own
-/// query is `enabled` regardless, so a link straight to `?supply=…` pulls the
-/// list before the sheet has a row to show.
+/// The register pages now, so the request a link names may be on a page the
+/// table has not loaded. The sheet reads `GET /ga/supplies/{id}` instead of
+/// searching the list's cache, and a link straight to `?supply=…` lands
+/// wherever in the register the request sits.
 export function SupplySheet({
   requestId,
   open,
@@ -349,11 +391,11 @@ export function SupplySheet({
   onClose: () => void
 }) {
   const requests = useQuery({
-    queryKey: gaKeys.supplies({}),
-    queryFn: ({ signal }) => gaSupplies({ limit: 200 }, signal),
-    enabled: open,
+    queryKey: gaKeys.supply(requestId ?? ""),
+    queryFn: ({ signal }) => gaSupply(requestId!, signal),
+    enabled: open && requestId !== undefined,
   })
-  const row = (requests.data ?? []).find((one) => one.request_id === requestId)
+  const row = requests.data
 
   return (
     <Sheet
@@ -398,13 +440,11 @@ export function SupplySheet({
             ]
       }
     >
-      {requests.isLoading && (
-        <LoadingState>Opening the request…</LoadingState>
-      )}
+      {requests.isLoading && <LoadingState>Opening the request…</LoadingState>}
       {row === undefined && !requests.isLoading && (
         <p className="text-meta text-body">
-          This request isn't in the list. It may have been deleted, or the
-          link points to a request this screen no longer reads.
+          This request couldn&rsquo;t be opened. It may have been deleted, or
+          the link points to a request this screen can&rsquo;t read.
         </p>
       )}
     </Sheet>
@@ -649,9 +689,9 @@ function BillingTab({ row }: { row: GaSupplyRequestRow }) {
         </div>
       </figure>
       <p className="text-pill text-mute">
-        Calculated from POSTED bills that point to this request. A bill line
-        can only point to a supply request from stage 6 onward; before that
-        the figure genuinely doesn't exist yet, not zero.
+        Calculated from POSTED bills that point to this request. A bill line can
+        only point to a supply request from stage 6 onward; before that the
+        figure genuinely doesn't exist yet, not zero.
       </p>
     </div>
   )
@@ -672,9 +712,9 @@ function AccountsTab({ row }: { row: GaSupplyRequestRow }) {
         <AccountRow role="Payable" code="2004" />
       </div>
       <p className="flex items-center gap-1.5 text-pill text-mute">
-        <FinanceMark className="align-[0.0625rem]" /> The accounts are
-        proposed from the request category. Finance can still change them on
-        the bill line.
+        <FinanceMark className="align-[0.0625rem]" /> The accounts are proposed
+        from the request category. Finance can still change them on the bill
+        line.
       </p>
     </div>
   )

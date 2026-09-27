@@ -364,7 +364,10 @@ pub async fn ga_supply_page(
         .bind(limit)
         .fetch_all(pool)
         .await?;
-    let out = rows.iter().map(to_supply_row).collect::<Result<Vec<_>, _>>()?;
+    let out = rows
+        .iter()
+        .map(to_supply_row)
+        .collect::<Result<Vec<_>, _>>()?;
     let next_cursor = match out.last() {
         Some(last) if out.len() as i64 == limit => Some(super::encode_cursor(&GaSupplyCursor {
             request_id: last.request_id,

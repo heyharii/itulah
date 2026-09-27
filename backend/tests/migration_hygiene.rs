@@ -251,11 +251,11 @@ const RESERVED: &[(u32, u32, &str)] = &[
          rather than race for the next number",
     ),
     (
-        502,
+        503,
         519,
         "held open between the assistant lane (0500 cost ceiling, 0501 verdicts \
-         and glossary) and the setup lane, which claimed 0520 in the same hours \
-         of 27 Sep 2026",
+         and glossary, 0502 morning brief) and the setup lane, which claimed \
+         0520 in the same hours of 27 Sep 2026",
     ),
     (
         522,

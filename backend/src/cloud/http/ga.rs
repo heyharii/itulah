@@ -286,7 +286,10 @@ pub async fn note_asset(
 /// (BELUM_MULAI, AKTIF, SEGERA_HABIS, HABIS, DIHENTIKAN, DRAFT), because a
 /// standing the client computed is a standing that can disagree with the
 /// list it filters. `archived` is a tri-state like the register's `draft`:
-/// `true` only archived, `false` none, absent both. `limit` caps the answer.
+/// `true` only archived, `false` none, absent both. `sort=site` reads the
+/// register place first (the Subscriptions reading); anything else is the
+/// house order. `limit` is the page size and `cursor` the previous page's
+/// `next_cursor`.
 pub async fn contracts(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
@@ -295,7 +298,9 @@ pub async fn contracts(
     allowed(&principal, Role::Supervisor, "read the contract register")?;
     refuse_unknown_parameters(
         &params,
-        &["q", "type", "group", "site", "standing", "archived", "limit"],
+        &[
+            "q", "type", "group", "site", "standing", "archived", "sort", "cursor", "limit",
+        ],
     )?;
     let archived = match single_value(&params, "archived").as_deref() {
         None => None,
@@ -307,8 +312,12 @@ pub async fn contracts(
             )))
         }
     };
+    let order = match single_value(&params, "sort").as_deref() {
+        Some("site") => infrastructure::GaContractOrder::Site,
+        _ => infrastructure::GaContractOrder::Register,
+    };
     Ok(Json(
-        infrastructure::ga_contract_page(
+        infrastructure::ga_contract_book(
             &state.db,
             infrastructure::GaContractScope {
                 needle: single_value(&params, "q"),
@@ -320,6 +329,8 @@ pub async fn contracts(
                 today: state.clock.now().date_naive(),
                 limit: limit_value(&params)?.unwrap_or(DEFAULT_GA_CONTRACT_LIMIT),
             },
+            single_value(&params, "cursor").as_deref(),
+            order,
         )
         .await?,
     ))

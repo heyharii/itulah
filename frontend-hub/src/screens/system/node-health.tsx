@@ -1,9 +1,9 @@
-import { useQuery } from "@tanstack/react-query"
+import { useInfiniteQuery } from "@tanstack/react-query"
 
 import { Pill } from "@/components/ui/pill"
 import { MiniTable } from "@/components/ui/rows"
 import { Fact, Facts } from "@/components/ui/sheet"
-import { Banner } from "@/components/ui/states"
+import { Banner, LoadMore } from "@/components/ui/states"
 import { ago, moment } from "@/lib/format"
 import {
   describeIncident,
@@ -91,9 +91,12 @@ export function NodeHealthSection({
   originId: string
   health: FleetNodeHealth | null
 }) {
-  const incidents = useQuery({
+  const incidents = useInfiniteQuery({
     queryKey: systemKeys.nodeIncidents(originId),
-    queryFn: ({ signal }) => nodeIncidents(originId, signal),
+    queryFn: ({ pageParam, signal }) =>
+      nodeIncidents(originId, pageParam, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
   })
 
   if (!health) {
@@ -167,38 +170,42 @@ export function NodeHealthSection({
       <Section title="History">
         {queryState(incidents, {
           loading: "Loading…",
-          render: (items) => {
-            const lines = items
+          render: (data) => {
+            const lines = data.pages
+              .flatMap((page) => page.items)
               .map(describeIncident)
               .filter((line): line is Line => line !== null)
-              .slice(0, 20)
-            if (lines.length === 0)
+            if (lines.length === 0 && !incidents.hasNextPage)
               return (
                 <p className="text-[0.875rem] text-body">
                   Nothing recorded this week.
                 </p>
               )
             return (
-              <MiniTable head={["When", "What happened"]}>
-                {lines.map((line, index) => (
-                  <tr key={index} className="border-t border-hairline">
-                    <td className="py-2 pr-3 align-top font-mono text-meta whitespace-nowrap text-mute">
-                      {line.when}
-                    </td>
-                    <td className="py-2">
-                      <div className="flex items-center gap-2 font-medium text-ink">
-                        <span
-                          className={`size-[5px] shrink-0 rounded-full ${DOT[line.tone]}`}
-                        />
-                        {line.what}
-                      </div>
-                      <div className="mt-1 text-meta text-body">
-                        {line.detail}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </MiniTable>
+              <>
+                <MiniTable head={["When", "What happened"]}>
+                  {lines.map((line, index) => (
+                    <tr key={index} className="border-t border-hairline">
+                      <td className="py-2 pr-3 align-top font-mono text-meta whitespace-nowrap text-mute">
+                        {line.when}
+                      </td>
+                      <td className="py-2">
+                        <div className="flex items-center gap-2 font-medium text-ink">
+                          <span
+                            className={`size-[5px] shrink-0 rounded-full ${DOT[line.tone]}`}
+                          />
+                          {line.what}
+                        </div>
+                        <div className="mt-1 text-meta text-body">
+                          {line.detail}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </MiniTable>
+                {/* Inside the sheet body, which is the box that scrolls. */}
+                <LoadMore query={incidents} />
+              </>
             )
           },
         })}

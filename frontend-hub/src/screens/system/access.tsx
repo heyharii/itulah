@@ -1,5 +1,10 @@
 import { useForm } from "@tanstack/react-form"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
@@ -18,27 +23,32 @@ import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { Tag } from "@/components/ui/tag"
-import { useFilters } from "@/lib/filters"
-import { day, moment } from "@/lib/format"
 import {
-  listEdgeAssignments,
+  useFilterState,
+  type Filter,
+  type FilterField,
+  type FilterParam,
+} from "@/lib/filters"
+import { count, day, moment } from "@/lib/format"
+import {
+  edgeAssignmentsPage,
   listOrigins,
-  listRfidDevices,
   listUsers,
+  rfidDevicesPage,
   registerRfidDevice,
   rotateRfidDeviceKey,
   setEdgeAssignmentActive,
   setRfidDeviceActive,
   systemKeys,
   upsertEdgeAssignment,
+  type AccessScope,
   type EdgeAssignment,
-  type EdgeAssignmentList,
   type RfidDevice,
-  type RfidDeviceList,
   type SyncOrigin,
 } from "@/lib/queries/system"
 import { queryState } from "@/lib/query-state"
 import { tableSetup, type TableSetup } from "@/lib/table"
+import { useDebounced } from "@/lib/use-debounced"
 import { Secret } from "@/screens/system/shared"
 import { saying, span } from "@/screens/system/units"
 import type { Role } from "@itulah/contract"
@@ -84,14 +94,13 @@ function peopleColumns(on: {
       header: "Node",
       size: 150,
       // "Who may sign in at this shop" is the question this list is opened
-      // with, and it is the one a sort cannot answer: a node's grants are
-      // adjacent rows, never a prefix somebody can read down to.
-      meta: { filter: { kind: "option", label: "Node" } },
+      // with — the Node chip, answered by the server.
     },
     {
       accessorKey: "display_name",
       header: "Person",
       size: 190,
+      enableSorting: false,
       cell: ({ row }) => (
         <span className="font-medium text-ink">
           {row.original.display_name}
@@ -114,8 +123,8 @@ function peopleColumns(on: {
       size: 120,
       // The role AT THE NODE, which is not the role at the centre — the whole
       // reason this list exists apart from Account. "Every till administrator"
-      // is the clause an audit starts with.
-      meta: { filter: { kind: "option", label: "Role here" } },
+      // is the clause an audit starts with — the Role chip.
+      enableSorting: false,
       cell: ({ row }) => (
         <Tag tone={row.original.role === "ADMIN" ? "accent" : "neutral"}>
           {row.original.role}
@@ -130,10 +139,7 @@ function peopleColumns(on: {
       // friendlier unit here would mean the number somebody types and the
       // number the row carries are two different things. 86400 is the day the
       // cell already marks in amber.
-      meta: {
-        align: "right",
-        filter: { kind: "number", label: "Offline lease", unit: "seconds" },
-      },
+      meta: { align: "right" },
       // The decision metric. A lease is how long a node keeps honouring this
       // person after it stops being able to ask the centre, so the longest
       // ones are the ones worth looking at first.
@@ -154,7 +160,7 @@ function peopleColumns(on: {
       accessorFn: (row) => (row.active ? "Active" : "Suspended"),
       header: "State",
       size: 110,
-      meta: { filter: { kind: "option", label: "State" } },
+      enableSorting: false,
       cell: ({ row }) => (
         <Pill tone={row.original.active ? "ok" : "bad"}>
           {row.original.active ? "Active" : "Suspended"}
@@ -166,18 +172,15 @@ function peopleColumns(on: {
       header: "Changed",
       size: 120,
       // "What was granted or suspended since Monday" — the question somebody
-      // asks of an access list after an incident, and the one a search box
-      // cannot be made to answer at all.
-      meta: {
-        align: "right",
-        filter: { kind: "date", label: "Changed" },
-      },
+      // asks of an access list after an incident: sort by it, newest first.
+      meta: { align: "right" },
       cell: ({ row }) => day(row.original.updated_at),
     },
     {
       id: "act",
       header: "",
       size: 170,
+      enableSorting: false,
       cell: ({ row }) => (
         <ButtonGroup className="[&>button:disabled]:opacity-50">
           <button
@@ -228,13 +231,13 @@ function readerColumns(on: {
       accessorKey: "origin_id",
       header: "Node",
       size: 140,
-      meta: { filter: { kind: "option", label: "Node" } },
     },
     {
       id: "pools",
       accessorFn: (row) => row.pools.join(" "),
       header: "Pools",
       size: 200,
+      enableSorting: false,
       // **Not filterable, and the accessor is why.** The pools are joined into
       // one string for sorting, so `multi` would test the sentence rather than
       // the list and "includes SELLABLE" would match a reader scoped only to
@@ -254,10 +257,7 @@ function readerColumns(on: {
       accessorKey: "offline_ttl_seconds",
       header: "Offline lease",
       size: 120,
-      meta: {
-        align: "right",
-        filter: { kind: "number", label: "Offline lease", unit: "seconds" },
-      },
+      meta: { align: "right" },
       cell: ({ row }) => span(row.original.offline_ttl_seconds),
     },
     {
@@ -288,7 +288,7 @@ function readerColumns(on: {
       accessorFn: (row) => (row.active ? "Active" : "Off"),
       header: "State",
       size: 100,
-      meta: { filter: { kind: "option", label: "State" } },
+      enableSorting: false,
       cell: ({ row }) => (
         <Pill tone={row.original.active ? "ok" : "neutral"}>
           {row.original.active ? "Active" : "Off"}
@@ -299,6 +299,7 @@ function readerColumns(on: {
       id: "act",
       header: "",
       size: 180,
+      enableSorting: false,
       cell: ({ row }) => (
         <ButtonGroup className="[&>button:disabled]:opacity-50">
           <button
@@ -330,15 +331,6 @@ export function Access() {
   const [granting, setGranting] = useState<EdgeAssignment | null | "new">(null)
   const [registering, setRegistering] = useState(false)
   const [rotatingReader, setRotatingReader] = useState<RfidDevice | null>(null)
-
-  const assignments = useQuery({
-    queryKey: systemKeys.edgeAssignments(),
-    queryFn: ({ signal }) => listEdgeAssignments(signal),
-  })
-  const devices = useQuery({
-    queryKey: systemKeys.rfidDevices(),
-    queryFn: ({ signal }) => listRfidDevices(signal),
-  })
 
   const suspendPerson = useMutation({
     mutationFn: (input: { row: EdgeAssignment; active: boolean }) =>
@@ -433,21 +425,9 @@ export function Access() {
       />
 
       {tab === "people" ? (
-        <PeopleTab
-          rows={assignments.data?.rows ?? []}
-          query={query}
-          onQuery={setQuery}
-          actions={peopleActions}
-          state={assignments}
-        />
+        <PeopleTab query={query} actions={peopleActions} />
       ) : (
-        <ReadersTab
-          rows={devices.data?.rows ?? []}
-          query={query}
-          onQuery={setQuery}
-          actions={readerActions}
-          state={devices}
-        />
+        <ReadersTab query={query} actions={readerActions} />
       )}
 
       <GrantSheet
@@ -473,27 +453,121 @@ export function Access() {
   )
 }
 
-/// The state shape `queryState` needs, without naming Query's own generics.
-interface Loadable<T> {
-  isPending: boolean
-  isError: boolean
-  error: unknown
-  data: T | undefined
-  refetch: () => void
+/// Which column means which order each endpoint names. A column not in here
+/// cannot be sorted — sorting it would sort the loaded pages.
+const PEOPLE_SORTS: Record<string, string> = {
+  origin_id: "origin",
+  username: "username",
+  updated_at: "updated",
+  offline_ttl_seconds: "lease",
+}
+const READER_SORTS: Record<string, string> = {
+  origin_id: "origin",
+  device_id: "device",
+  label: "label",
+  last_seen: "last_seen",
+  offline_ttl_seconds: "lease",
+}
+
+const NODE: FilterField = {
+  column: "origin_id",
+  label: "Node",
+  spec: { kind: "option", single: true, operators: ["isAnyOf"] },
+}
+const ROLE: FilterField = {
+  column: "role",
+  label: "Role here",
+  spec: { kind: "option", single: true, operators: ["isAnyOf"] },
+}
+const STATE: FilterField = {
+  column: "state",
+  label: "State",
+  spec: {
+    kind: "option",
+    single: true,
+    operators: ["isAnyOf"],
+    format: (value) =>
+      value === "ACTIVE"
+        ? "Active"
+        : value === "SUSPENDED"
+          ? "Suspended"
+          : value,
+  },
+}
+const PEOPLE_FIELDS: FilterField[] = [NODE, ROLE, STATE]
+const READER_FIELDS: FilterField[] = [NODE, STATE]
+
+/// The chips as the parameters both endpoints answer. One value each: the
+/// routes compare one column to one value, and every field is `single`.
+function accessScopeFromFilters(filters: readonly Filter[]): AccessScope {
+  const scope: { origin_id?: string; role?: string; active?: boolean } = {}
+  for (const { column, operator, values } of filters) {
+    if (values.length === 0 || operator !== "isAnyOf") continue
+    if (column === "origin_id") scope.origin_id = values[0]
+    else if (column === "role") scope.role = values[0]
+    else if (column === "state") scope.active = values[0] === "ACTIVE"
+  }
+  return scope
+}
+
+/// Search, chips and order, as one request. Shared by the two tabs, which
+/// differ only in which endpoint answers and which orders it names.
+function useAccessScope(
+  query: string,
+  fields: FilterField[],
+  sorts: Record<string, string>,
+  sorting: SortingState,
+  param: FilterParam
+) {
+  const filters = useFilterState(fields, param)
+  // Debounced: every keystroke is a round trip.
+  const needle = useDebounced(query.trim(), 400)
+  const scope = useMemo<AccessScope>(() => {
+    const by = sorting[0]
+    return {
+      ...accessScopeFromFilters(filters.filters),
+      ...(needle === "" ? {} : { q: needle }),
+      sort: by === undefined ? undefined : sorts[by.id],
+      desc: by?.desc === true,
+    }
+  }, [filters.filters, needle, sorting, sorts])
+  const narrowed = needle !== "" || filters.filters.length > 0
+  return { filters, scope, narrowed }
+}
+
+/// The fields, carrying the server's exact tally for each.
+function countedFields(
+  fields: FilterField[],
+  facets:
+    | {
+        readonly origins: readonly { value: string; count: number }[]
+        readonly states: readonly { value: string; count: number }[]
+        readonly roles?: readonly { value: string; count: number }[]
+      }
+    | undefined
+): FilterField[] {
+  if (facets === undefined) return fields
+  return fields.map((field) => {
+    const counted =
+      field.column === "origin_id"
+        ? facets.origins
+        : field.column === "state"
+          ? facets.states
+          : field.column === "role"
+            ? facets.roles
+            : undefined
+    return counted === undefined
+      ? field
+      : { ...field, spec: { ...field.spec, counted } }
+  })
 }
 
 function PeopleTab({
-  rows,
   query,
-  onQuery,
   actions,
-  state,
 }: {
-  rows: readonly EdgeAssignment[]
   query: string
-  onQuery: (value: string) => void
   actions: Parameters<typeof peopleColumns>[0]
-  state: Loadable<EdgeAssignmentList>
 }) {
   const [sorting, setSorting] = useState<SortingState>([
     { id: "offline_ttl_seconds", desc: true },
@@ -501,60 +575,91 @@ function PeopleTab({
   const columns = useMemo(() => peopleColumns(actions), [actions])
 
   /// `?f=`, while the readers below take `?f2=`. Two keys because the two tabs
-  /// share three column names — Node, Offline lease, State — so one key would
-  /// let a clause meant for a person half-apply itself to a device the moment
-  /// somebody changed tab. `lib/filters.ts` names this screen as the case the
-  /// second key exists for.
-  const filters = useFilters(columns)
+  /// share column names — Node, State — so one key would let a clause meant
+  /// for a person half-apply itself to a device the moment somebody changed
+  /// tab. `lib/filters.ts` names this screen as the case the second key exists
+  /// for.
+  const { filters, scope, narrowed } = useAccessScope(
+    query,
+    PEOPLE_FIELDS,
+    PEOPLE_SORTS,
+    sorting,
+    "f"
+  )
+
+  const assignments = useInfiniteQuery({
+    queryKey: systemKeys.edgeAssignments(scope),
+    queryFn: ({ pageParam, signal }) =>
+      edgeAssignmentsPage({ ...scope, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    placeholderData: (previous) => previous,
+  })
+  const rows = useMemo(
+    () => assignments.data?.pages.flatMap((page) => page.rows) ?? [],
+    [assignments.data]
+  )
+  const head = assignments.data?.pages[0]
+  const model = useMemo(
+    () => ({ ...filters, fields: countedFields(PEOPLE_FIELDS, head?.facets) }),
+    [filters, head]
+  )
 
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
-        data: rows as EdgeAssignment[],
-        columns: filters.columns,
+        data: rows,
+        columns,
         getRowId: (row: EdgeAssignment) => `${row.origin_id}/${row.user_id}`,
-        state: {
-          columnFilters: filters.columnFilters,
-          globalFilter: query,
-          sorting,
-        },
+        state: { sorting },
+        // The rows arrive in the order the request asked for.
+        manualSorting: true,
         onSortingChange: setSorting,
-        onGlobalFilterChange: onQuery,
       }),
-      [rows, filters.columns, filters.columnFilters, query, sorting, onQuery]
+      [rows, columns, sorting]
     )
   )
 
   return (
     <>
       <Toolbar>
-        <FilterPanel model={filters} table={table} />
+        <FilterPanel model={model} />
+        <Toolbar.Spacer />
+        {head && (
+          <span className="text-[0.875rem] text-mute tabular-nums">
+            {count(head.total)} grants
+          </span>
+        )}
       </Toolbar>
 
       <Card className="overflow-hidden">
-        {queryState(state, {
+        {queryState(assignments, {
           loading: "Loading who may sign in where…",
           render: () =>
             rows.length === 0 ? (
-              <EmptyState
-                action={
-                  <AppLink
-                    to="/system/account"
-                    className="text-meta font-medium text-accent hover:underline"
-                  >
-                    See who has an account
-                  </AppLink>
-                }
-              >
-                Nobody has been given access at a node yet. A centre account
-                does not sign anybody in at a till — that is a separate grant,
-                with its own credential.
-              </EmptyState>
+              narrowed ? (
+                <EmptyState>Nobody matches what you asked for.</EmptyState>
+              ) : (
+                <EmptyState
+                  action={
+                    <AppLink
+                      to="/system/account"
+                      className="text-meta font-medium text-accent hover:underline"
+                    >
+                      See who has an account
+                    </AppLink>
+                  }
+                >
+                  Nobody has been given access at a node yet. A centre account
+                  does not sign anybody in at a till — that is a separate grant,
+                  with its own credential.
+                </EmptyState>
+              )
             ) : (
               <DataTable<EdgeAssignment>
                 table={table}
-                empty="Nobody matches that search."
+                more={assignments}
                 className="max-h-[calc(100vh-18rem)]"
               />
             ),
@@ -565,17 +670,11 @@ function PeopleTab({
 }
 
 function ReadersTab({
-  rows,
   query,
-  onQuery,
   actions,
-  state,
 }: {
-  rows: readonly RfidDevice[]
   query: string
-  onQuery: (value: string) => void
   actions: Parameters<typeof readerColumns>[0]
-  state: Loadable<RfidDeviceList>
 }) {
   const [sorting, setSorting] = useState<SortingState>([
     { id: "last_seen", desc: false },
@@ -584,46 +683,74 @@ function ReadersTab({
 
   /// `?f2=`, so a clause about a person and a clause about a reader can both
   /// stand while somebody moves between the tabs. See the people tab above.
-  const filters = useFilters(columns, "f2")
+  const { filters, scope, narrowed } = useAccessScope(
+    query,
+    READER_FIELDS,
+    READER_SORTS,
+    sorting,
+    "f2"
+  )
+
+  const devices = useInfiniteQuery({
+    queryKey: systemKeys.rfidDevices(scope),
+    queryFn: ({ pageParam, signal }) =>
+      rfidDevicesPage({ ...scope, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    placeholderData: (previous) => previous,
+  })
+  const rows = useMemo(
+    () => devices.data?.pages.flatMap((page) => page.rows) ?? [],
+    [devices.data]
+  )
+  const head = devices.data?.pages[0]
+  const model = useMemo(
+    () => ({ ...filters, fields: countedFields(READER_FIELDS, head?.facets) }),
+    [filters, head]
+  )
 
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
-        data: rows as RfidDevice[],
-        columns: filters.columns,
+        data: rows,
+        columns,
         getRowId: (row: RfidDevice) => row.device_id,
-        state: {
-          columnFilters: filters.columnFilters,
-          globalFilter: query,
-          sorting,
-        },
+        state: { sorting },
+        // The rows arrive in the order the request asked for.
+        manualSorting: true,
         onSortingChange: setSorting,
-        onGlobalFilterChange: onQuery,
       }),
-      [rows, filters.columns, filters.columnFilters, query, sorting, onQuery]
+      [rows, columns, sorting]
     )
   )
 
   return (
     <>
       <Toolbar>
-        <FilterPanel model={filters} table={table} />
+        <FilterPanel model={model} />
+        <Toolbar.Spacer />
+        {head && (
+          <span className="text-[0.875rem] text-mute tabular-nums">
+            {count(head.total)} readers
+          </span>
+        )}
       </Toolbar>
 
       <Card className="overflow-hidden">
-        {queryState(state, {
+        {queryState(devices, {
           loading: "Loading the readers…",
           render: () =>
             rows.length === 0 ? (
               <EmptyState>
-                No reader has been registered. A node will not accept tag reads
-                from a device the centre has not vouched for.
+                {narrowed
+                  ? "No reader matches what you asked for."
+                  : "No reader has been registered. A node will not accept tag reads from a device the centre has not vouched for."}
               </EmptyState>
             ) : (
               <DataTable<RfidDevice>
                 table={table}
-                empty="No reader matches that search."
+                more={devices}
                 className="max-h-[calc(100vh-18rem)]"
               />
             ),

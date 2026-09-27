@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query"
+import { useInfiniteQuery } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
@@ -21,6 +21,7 @@ import { accountLedger, financeKeys, trialBalance } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
+import { useDebounced } from "@/lib/use-debounced"
 import { ROOT_CLASSES } from "@/screens/finance/chart"
 import { useAsOf, useWindow } from "@/screens/finance/hooks"
 import {
@@ -147,6 +148,7 @@ const trialColumns: ColumnDef<TableSetup, TrialBalanceRow>[] = [
     accessorKey: "root_class",
     header: "Class",
     size: 190,
+    enableSorting: false,
     // The one narrowing a trial balance is actually read with: "show me the
     // liabilities" is how somebody checks one half of the identity without
     // scrolling past the other. The client's own name for each class, so the
@@ -170,6 +172,7 @@ const trialColumns: ColumnDef<TableSetup, TrialBalanceRow>[] = [
     accessorKey: "site_id",
     header: "Location",
     size: 130,
+    enableSorting: false,
     // Nullable on purpose: an account that is not scoped to a location has no
     // site, which is a different thing from one whose site we could not name.
     cell: ({ row }) => (
@@ -226,6 +229,22 @@ const trialColumns: ColumnDef<TableSetup, TrialBalanceRow>[] = [
   },
 ]
 
+/// How many accounts one page of the trial balance asks for. A step, not a
+/// ceiling: the table asks for the next page as its last rows scroll into view.
+const TRIAL_PAGE = 200
+
+/// The columns the server can order the trial balance by, and the word it
+/// knows each one as. `code` is not a word the server knows — anything it does
+/// not know is the house order, by account code, which it reads in either
+/// direction. Every other column carries `enableSorting: false`.
+const TRIAL_SORTS: Record<string, string> = {
+  account_code: "code",
+  name: "name",
+  debit_minor: "debit",
+  credit_minor: "credit",
+  net: "net",
+}
+
 function TrialBalanceList({ onPick }: { onPick: (code: string) => void }) {
   const [query, setQuery] = useState("")
   const [site, setSite] = useState("")
@@ -234,15 +253,58 @@ function TrialBalanceList({ onPick }: { onPick: (code: string) => void }) {
     { id: "net", desc: true },
   ])
 
-  const balance = useQuery({
-    queryKey: financeKeys.trialBalance(asOf.value, site || null),
-    queryFn: ({ signal }) =>
-      trialBalance({ as_of: asOf.value, site: site || undefined }, signal),
+  const filters = useFilters(trialColumns)
+
+  /// Debounced, because every keystroke is a round trip over the books.
+  const needle = useDebounced(query.trim(), 400)
+  const by = sorting[0]
+  const known = by === undefined ? undefined : TRIAL_SORTS[by.id]
+  /// The class clause is the one column question the server answers; the
+  /// same clause still runs in the browser, where it can only agree.
+  const classes = filters.filters.find(
+    (filter) =>
+      filter.column === "root_class" &&
+      filter.operator === "isAnyOf" &&
+      filter.values.length > 0
+  )
+  const scope = {
+    as_of: asOf.value,
+    site: site || undefined,
+    q: needle === "" ? undefined : needle,
+    class: classes?.values.join(","),
+    sort: known,
+    dir: known !== undefined && by?.desc === true ? "desc" : undefined,
+    limit: TRIAL_PAGE,
+  }
+
+  // A page at a time, searched and ordered on the SERVER. It used to be the
+  // first five hundred accounts, searched and sorted in the browser over only
+  // those. The totals and `balanced` are the whole ledger's on every page.
+  const pages = useInfiniteQuery({
+    queryKey: [
+      ...financeKeys.trialBalance(asOf.value, site || null),
+      "pages",
+      scope,
+    ],
+    queryFn: ({ pageParam, signal }) =>
+      trialBalance({ ...scope, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    // The previous answer stays on screen while the next is fetched. Without
+    // it every keystroke empties the table to a loading line.
+    placeholderData: (previous) => previous,
   })
 
-  const rows = useMemo(() => balance.data?.rows ?? [], [balance.data])
-
-  const filters = useFilters(trialColumns)
+  const rows = useMemo(
+    () => pages.data?.pages.flatMap((page) => page.rows) ?? [],
+    [pages.data]
+  )
+  const first = pages.data?.pages[0]
+  const data = useMemo(
+    () => (first === undefined ? undefined : { ...first, rows }),
+    [first, rows]
+  )
+  const balance = { ...pages, data }
 
   const table = useTable(
     useMemo(
@@ -256,13 +318,15 @@ function TrialBalanceList({ onPick }: { onPick: (code: string) => void }) {
           `${row.account_code}-${row.site_id ?? ""}`,
         state: {
           columnFilters: filters.columnFilters,
-          globalFilter: query,
           sorting,
         },
+        // The rows arrive in the order the request asked for, and the search
+        // box is the server's. Doing either again here would do it to the
+        // pages in hand and call it the trial balance.
+        manualSorting: true,
         onSortingChange: setSorting,
-        onGlobalFilterChange: setQuery,
       }),
-      [rows, filters.columns, filters.columnFilters, query, sorting]
+      [rows, filters.columns, filters.columnFilters, sorting]
     )
   )
 
@@ -343,7 +407,12 @@ function TrialBalanceList({ onPick }: { onPick: (code: string) => void }) {
         {queryState(balance, {
           loading: "Adding up the books…",
           render: () =>
-            rows.length === 0 ? (
+            rows.length === 0 &&
+            (needle !== "" || filters.filters.length > 0) ? (
+              <EmptyState>
+                No account matches the search and filters in force.
+              </EmptyState>
+            ) : rows.length === 0 ? (
               <EmptyState>
                 Nothing has been posted as at this date, at any location.
               </EmptyState>
@@ -352,6 +421,7 @@ function TrialBalanceList({ onPick }: { onPick: (code: string) => void }) {
                 table={table}
                 onRowClick={(row) => onPick(row.account_code)}
                 empty="No account matches the search and filters in force."
+                more={pages}
                 className="max-h-[calc(100vh-30rem)]"
               />
             ),
@@ -530,6 +600,10 @@ const movementColumns: ColumnDef<TableSetup, GeneralLedgerRow>[] = [
   },
 ]
 
+/// How many movements one page of an account's ledger asks for. A step, not a
+/// ceiling: the table asks for the next page as its last rows scroll into view.
+const LEDGER_PAGE = 100
+
 function AccountMovements({
   code,
   onClear,
@@ -541,21 +615,51 @@ function AccountMovements({
   const [site, setSite] = useState("")
   const range = useWindow()
 
-  const ledger = useQuery({
-    queryKey: financeKeys.ledger(code, site || null, range.from, range.to),
-    queryFn: ({ signal }) =>
+  /// Debounced, because every keystroke is a round trip over the window.
+  const needle = useDebounced(query.trim(), 400)
+
+  // A page at a time, in the order the running balance was accumulated in,
+  // searched on the SERVER (entry number, memo, source document). It used to
+  // be the first two hundred movements of the window with nothing saying so,
+  // searched in the browser over only those.
+  const pages = useInfiniteQuery({
+    queryKey: [
+      ...financeKeys.ledger(code, site || null, range.from, range.to),
+      "pages",
+      needle,
+    ],
+    queryFn: ({ pageParam, signal }) =>
       accountLedger(
         code,
         {
           site: site || undefined,
           from: range.from,
           to: range.to,
+          q: needle === "" ? undefined : needle,
+          limit: LEDGER_PAGE,
+          cursor: pageParam,
         },
         signal
       ),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    // The previous answer stays on screen while the next is fetched. Without
+    // it every keystroke empties the table to a loading line.
+    placeholderData: (previous) => previous,
   })
 
-  const rows = useMemo(() => ledger.data?.rows ?? [], [ledger.data])
+  /// The window's own figures — opening, closing, name — are the same on
+  /// every page, so they are read off the first; the rows are every page's.
+  const rows = useMemo(
+    () => pages.data?.pages.flatMap((page) => page.rows) ?? [],
+    [pages.data]
+  )
+  const first = pages.data?.pages[0]
+  const data = useMemo(
+    () => (first === undefined ? undefined : { ...first, rows }),
+    [first, rows]
+  )
+  const ledger = { ...pages, data }
 
   const filters = useFilters(movementColumns)
 
@@ -613,10 +717,11 @@ function AccountMovements({
         // itself — so `entry_id` alone is not a key.
         getRowId: (row: GeneralLedgerRow) =>
           `${row.entry_id}-${row.posting_date}-${row.debit_minor}-${row.credit_minor}-${row.running_minor}`,
-        state: { columnFilters: filters.columnFilters, globalFilter: query },
-        onGlobalFilterChange: setQuery,
+        // The search box is the server's; the column clauses narrow the pages
+        // in hand, and the table keeps reading while they leave its end in view.
+        state: { columnFilters: filters.columnFilters },
       }),
-      [rows, filters.columns, filters.columnFilters, query]
+      [rows, filters.columns, filters.columnFilters]
     )
   )
 
@@ -671,6 +776,11 @@ function AccountMovements({
             <CardTitle>Running balance</CardTitle>
             <span className="text-[0.875rem] text-mute">
               Where the account closed on each day that moved
+              {/* Drawn from the movements read so far, which run in date
+                  order — so while more remain it stops short, and says where. */}
+              {pages.hasNextPage &&
+                rows.length > 0 &&
+                ` · through ${day(rows[rows.length - 1].posting_date)}, as far as the list below has read`}
             </span>
           </CardHeader>
           <div className="px-4 pb-3.5">
@@ -715,7 +825,12 @@ function AccountMovements({
                 </span>
               </div>
 
-              {data.rows.length === 0 ? (
+              {data.rows.length === 0 && needle !== "" ? (
+                <EmptyState>
+                  No movement between {day(data.from)} and {day(data.to)}{" "}
+                  matches “{needle}”.
+                </EmptyState>
+              ) : data.rows.length === 0 ? (
                 <EmptyState>
                   Nothing moved in this account between {day(data.from)} and{" "}
                   {day(data.to)}.
@@ -724,6 +839,7 @@ function AccountMovements({
                 <DataTable<GeneralLedgerRow>
                   table={table}
                   empty="No movement matches the search and filters in force."
+                  more={pages}
                   className={
                     running.length > 2
                       ? "max-h-[calc(100vh-40rem)]"

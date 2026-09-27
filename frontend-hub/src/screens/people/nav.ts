@@ -1,11 +1,9 @@
 import {
-  BadgeDollarSign,
   CalendarCheck,
   CalendarRange,
   ChartColumn,
   Clock4,
   Fingerprint,
-  HeartHandshake,
   LayoutGrid,
   MessageSquareWarning,
   Receipt,
@@ -52,7 +50,9 @@ import { usePeopleAudience } from "@/screens/people/scope"
 ///    request from Employees;
 ///  - a plan act is a button on the plan: Overtime from the Roster;
 ///  - monthly work is a button on the screen it closes: Period close from
-///    Attendance, pay agreements and benefits from Payroll;
+///    Attendance;
+///  - a fact about one person is a tab on that person's sheet: their pay
+///    agreement and their uniforms, under Employees;
 ///  - setup opened a few times a year is one Settings row, with Punch
 ///    stations and the Scheduler opened from its header;
 ///  - and Leave, Rule numbers and Salary structures were removed as
@@ -181,24 +181,6 @@ export const peopleNav: AppModule = {
           path: "/people/payroll",
           label: "Payroll",
           icon: Receipt,
-          alsoLights: ["/people/pay", "/people/benefits"],
-        },
-        {
-          /// One employee's pay, as a history. Opened from Payroll, where the
-          /// agreements it holds are spent.
-          path: "/people/pay",
-          label: "Pay agreements",
-          icon: BadgeDollarSign,
-          audience: "employer",
-          hidden: true,
-        },
-        {
-          /// What the company hands over — the uniform ledger a store records —
-          /// and the rules it hands it out by. Opened from Payroll.
-          path: "/people/benefits",
-          label: "Benefits",
-          icon: HeartHandshake,
-          hidden: true,
         },
       ],
     },

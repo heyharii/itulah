@@ -36,23 +36,45 @@ pub struct PrepaidQuery {
     pub site: Option<String>,
     pub status: Option<String>,
     pub limit: Option<i64>,
+    /// `true` answers a keyset page in an envelope (`PrepaidSchedulePage`)
+    /// rather than the bare array. A `cursor` implies it.
+    pub paged: Option<bool>,
+    pub cursor: Option<String>,
+    /// Paged only: the month (any day in it) whose due schedules are counted
+    /// into `due_in_period`.
+    pub period: Option<NaiveDate>,
 }
 
+/// Two answers from one route. Asked plainly it is the bare array it has
+/// always been — the newest `limit`, 100 unless asked. `paged=true` (or a
+/// `cursor`) answers `PrepaidSchedulePage`: a keyset page with `next_cursor`,
+/// and the card figures over every schedule the filters match.
 pub async fn schedules(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
     Query(query): Query<PrepaidQuery>,
-) -> Result<Json<Vec<PrepaidSchedule>>, AppError> {
+) -> Result<Json<serde_json::Value>, AppError> {
     allowed(&principal, Role::Supervisor, "read prepaid schedules")?;
-    Ok(Json(
-        infrastructure::prepaid_schedules(
+    if query.paged == Some(true) || query.cursor.is_some() {
+        let page = infrastructure::prepaid_schedule_page(
             &state.db,
             query.site.as_deref(),
             query.status.as_deref(),
-            query.limit.unwrap_or(100),
+            query.period,
+            query.cursor.as_deref(),
+            query.limit,
         )
-        .await?,
-    ))
+        .await?;
+        return Ok(Json(serde_json::to_value(page)?));
+    }
+    let rows: Vec<PrepaidSchedule> = infrastructure::prepaid_schedules(
+        &state.db,
+        query.site.as_deref(),
+        query.status.as_deref(),
+        query.limit.unwrap_or(100),
+    )
+    .await?;
+    Ok(Json(serde_json::to_value(rows)?))
 }
 
 pub async fn schedule(

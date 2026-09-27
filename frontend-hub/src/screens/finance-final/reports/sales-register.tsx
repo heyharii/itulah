@@ -1,10 +1,10 @@
-import { useQuery } from "@tanstack/react-query"
+import { useInfiniteQuery } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { PageHeader } from "@/components/ui/page-header"
 import { Toolbar } from "@/components/ui/segmented"
-import { EmptyState } from "@/components/ui/states"
+import { EmptyState, LoadMore } from "@/components/ui/states"
 import { count, moment, money } from "@/lib/format"
 import { analyticsKeys, salesWindow } from "@/lib/queries/analytics"
 import { queryState } from "@/lib/query-state"
@@ -19,7 +19,11 @@ import {
   TotalRow,
 } from "@/screens/finance-final/parts"
 import { useWindow } from "@/screens/finance/hooks"
-import { LocationSelect, SiteName, WindowControl } from "@/screens/finance/parts"
+import {
+  LocationSelect,
+  SiteName,
+  WindowControl,
+} from "@/screens/finance/parts"
 
 /// Every sale as a row, with what it posted to.
 ///
@@ -64,14 +68,32 @@ import { LocationSelect, SiteName, WindowControl } from "@/screens/finance/parts
 ///    credits: the GROSS. Nothing splits the output tax into a liability,
 ///    because no tax meaning is mapped — so the ledger recognises more revenue
 ///    than the till's own net, and the Sales screen says so on its face.
+/// One page of receipts. The register scrolls on — a step, not a ceiling.
+const RECEIPTS_PAGE = 100
+
 export function SalesRegister() {
   const range = useWindow()
   const [site, setSite] = useState("")
 
-  const register = useQuery({
-    queryKey: analyticsKeys.window(site, range.from, range.to),
-    queryFn: ({ signal }) =>
-      salesWindow({ siteId: site, from: range.from, to: range.to }, signal),
+  // The receipts a page at a time; every page carries the whole span's
+  // totals, and the first page's are the ones drawn. The same key and page
+  // size the Sales screen's window sheet walks, so the two share pages.
+  const register = useInfiniteQuery({
+    queryKey: analyticsKeys.windowPages(site, range.from, range.to),
+    queryFn: ({ pageParam, signal }) =>
+      salesWindow(
+        {
+          siteId: site,
+          from: range.from,
+          to: range.to,
+          limit: RECEIPTS_PAGE,
+          cursor: pageParam,
+        },
+        signal
+      ),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.transactions_next_cursor ?? undefined,
+    placeholderData: (previous) => previous,
     // No `enabled` guard: an empty select is a legitimate question now — the
     // whole chain — and guarding it left the page saying "loading" forever
     // about a request nobody had sent. That guard was right while the endpoint
@@ -113,226 +135,209 @@ export function SalesRegister() {
         </span>
       </Toolbar>
 
-      {(
-        queryState(register, {
-          loading: "Reading the receipts…",
-          render: (takings) => {
-            const sales = takings.sales
-            return (
-              <div className="flex flex-col gap-4">
-                <CardRow columns={4}>
-                  <NumberCard
-                    label="Net"
-                    value={sales.net_minor}
-                    note="Before tax, over the whole window"
-                  />
-                  <NumberCard
-                    label="Tax"
-                    value={sales.tax_minor}
-                    note="What the receipts charged"
-                  />
-                  <NumberCard
-                    label="Total"
-                    value={sales.gross_minor}
-                    note={`${count(sales.count)} completed sales, averaging ${money(sales.average_minor)}`}
-                  />
-                  <NumberCard
-                    label="Refunds"
-                    value={takings.returns.refund_total_minor}
-                    note={`${count(takings.returns.count)} returns in the window`}
-                  />
-                </CardRow>
+      {queryState(register, {
+        loading: "Reading the receipts…",
+        render: (data) => {
+          const takings = data.pages[0]
+          const transactions = data.pages.flatMap((page) => page.transactions)
+          const sales = takings.sales
+          return (
+            <div className="flex flex-col gap-4">
+              <CardRow columns={4}>
+                <NumberCard
+                  label="Net"
+                  value={sales.net_minor}
+                  note="Before tax, over the whole window"
+                />
+                <NumberCard
+                  label="Tax"
+                  value={sales.tax_minor}
+                  note="What the receipts charged"
+                />
+                <NumberCard
+                  label="Total"
+                  value={sales.gross_minor}
+                  note={`${count(sales.count)} completed sales, averaging ${money(sales.average_minor)}`}
+                />
+                <NumberCard
+                  label="Refunds"
+                  value={takings.returns.refund_total_minor}
+                  note={`${count(takings.returns.count)} returns in the window`}
+                />
+              </CardRow>
 
-                {takings.transactions.length === 0 ? (
-                  <EmptyState>
-                    This shop rang up nothing in this window. Nothing to
-                    register, which is a fact about the window rather than a
-                    fault.
-                  </EmptyState>
-                ) : (
-                  <Grid>
-                    <thead>
-                      <tr>
-                        <Th width="11rem">Date</Th>
-                        <Th width="14rem">Document</Th>
-                        <Th width="10rem">Customer</Th>
-                        <Th width="9rem">Unit</Th>
-                        <Th width="10rem">Mode of payment</Th>
-                        <Th align="right" width="9rem">
-                          Net
-                        </Th>
-                        <Th align="right" width="8rem">
-                          Tax
-                        </Th>
-                        <Th align="right" width="9rem">
-                          Total
-                        </Th>
-                        <Th width="12rem">Income account</Th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {takings.transactions.map((sale) => (
-                        <tr key={sale.id}>
-                          <Td>{moment(sale.completed_at)}</Td>
-                          <Td>
-                            <Code>{sale.sale_number}</Code>
-                          </Td>
-                          {/* `customer_id` reaches the wire as of
+              {transactions.length === 0 ? (
+                <EmptyState>
+                  This shop rang up nothing in this window. Nothing to register,
+                  which is a fact about the window rather than a fault.
+                </EmptyState>
+              ) : (
+                <Grid>
+                  <thead>
+                    <tr>
+                      <Th width="11rem">Date</Th>
+                      <Th width="14rem">Document</Th>
+                      <Th width="10rem">Customer</Th>
+                      <Th width="9rem">Unit</Th>
+                      <Th width="10rem">Mode of payment</Th>
+                      <Th align="right" width="9rem">
+                        Net
+                      </Th>
+                      <Th align="right" width="8rem">
+                        Tax
+                      </Th>
+                      <Th align="right" width="9rem">
+                        Total
+                      </Th>
+                      <Th width="12rem">Income account</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {transactions.map((sale) => (
+                      <tr key={sale.id}>
+                        <Td>{moment(sale.completed_at)}</Td>
+                        <Td>
+                          <Code>{sale.sale_number}</Code>
+                        </Td>
+                        {/* `customer_id` reaches the wire as of
                               2026-09-14; it used to be selected for the detail
                               read and dropped from this one. Most sales have
                               none — a walk-in is not a member — and that is a
                               fact about the sale, so it draws as a dash. */}
-                          <Td>
-                            {sale.customer_id === null ? (
-                              <span className="text-faint">—</span>
-                            ) : (
-                              <Code>{sale.customer_id}</Code>
-                            )}
-                          </Td>
-                          {/* The ROW's unit, not the window's. While this
+                        <Td>
+                          {sale.customer_id === null ? (
+                            <span className="text-faint">—</span>
+                          ) : (
+                            <Code>{sale.customer_id}</Code>
+                          )}
+                        </Td>
+                        {/* The ROW's unit, not the window's. While this
                               report insisted on one shop they were the same
                               string; now that an empty select means the whole
                               chain, `takings.site_id` is the filter that was
                               asked for — null — and every row would have
                               claimed to belong to the same place. */}
-                          <Td>
-                            <SiteName id={sale.site_id} />
-                          </Td>
-                          <Td>
-                            {sale.methods.length === 0 ? (
-                              <span className="text-faint">—</span>
-                            ) : (
-                              sale.methods.join(" + ")
-                            )}
-                          </Td>
-                          <Td align="right">{money(sale.net_minor)}</Td>
-                          <Td align="right">{money(sale.tax_minor)}</Td>
-                          <Td align="right">{money(sale.total_minor)}</Td>
-                          {/* Sales DO reach the ledger as of 2026-09-14 —
+                        <Td>
+                          <SiteName id={sale.site_id} />
+                        </Td>
+                        <Td>
+                          {sale.methods.length === 0 ? (
+                            <span className="text-faint">—</span>
+                          ) : (
+                            sale.methods.join(" + ")
+                          )}
+                        </Td>
+                        <Td align="right">{money(sale.net_minor)}</Td>
+                        <Td align="right">{money(sale.tax_minor)}</Td>
+                        <Td align="right">{money(sale.total_minor)}</Td>
+                        {/* Sales DO reach the ledger as of 2026-09-14 —
                               `SALE_DAY` posts one entry per unit per trading
                               day — but the posting is per DAY, not per sale, so
                               no row here can name an entry of its own. What it
                               can name is the account every sale in a posted day
                               lands in. A day nobody has posted shows nothing,
                               which is the honest difference between the two. */}
-                          <Td>
-                            <span className="text-mute">
-                              per day, not per sale
-                            </span>
-                          </Td>
-                        </tr>
-                      ))}
-
-                      {/* The window's totals, not the list's. `sales/window`
-                          adds up over the whole span and caps the receipts it
-                          returns, so a truncated list still foots to a true
-                          figure — which is the only reason truncating it is
-                          tolerable at all. */}
-                      <TotalRow>
-                        <Td>Window total</Td>
                         <Td>
-                          <span className="font-normal text-mute">
-                            {count(sales.count)} sales
+                          <span className="text-mute">
+                            per day, not per sale
                           </span>
                         </Td>
-                        <Td />
-                        <Td />
-                        <Td />
-                        <Td align="right">{money(sales.net_minor)}</Td>
-                        <Td align="right">{money(sales.tax_minor)}</Td>
-                        <Td align="right">{money(sales.gross_minor)}</Td>
-                        <Td />
-                      </TotalRow>
-                    </tbody>
-                  </Grid>
-                )}
+                      </tr>
+                    ))}
 
-                {takings.transactions_truncated && (
-                  <Note>
-                    <b>
-                      The list stops at {count(takings.transactions_limit)}{" "}
-                      receipts; {count(sales.count)} were rung up.
-                    </b>{" "}
-                    The totals above and below are over the whole window
-                    regardless — the server adds them up before it cuts the
-                    list — so the foot of this table is right even though the
-                    rows above it are not all of them. Narrow the dates to see
-                    the rest.
-                  </Note>
-                )}
+                    {/* The window's totals, not the list's. `sales/window`
+                          adds up over the whole span on every page, so the
+                          foot is true however far the list has scrolled. */}
+                    <TotalRow>
+                      <Td>Window total</Td>
+                      <Td>
+                        <span className="font-normal text-mute">
+                          {count(sales.count)} sales
+                        </span>
+                      </Td>
+                      <Td />
+                      <Td />
+                      <Td />
+                      <Td align="right">{money(sales.net_minor)}</Td>
+                      <Td align="right">{money(sales.tax_minor)}</Td>
+                      <Td align="right">{money(sales.gross_minor)}</Td>
+                      <Td />
+                    </TotalRow>
+                  </tbody>
+                </Grid>
+              )}
+              <LoadMore query={register} />
 
-                {sales.voided_count > 0 && (
-                  <Note>
-                    {count(sales.voided_count)} sales were voided in this window
-                    and are not rows here.{" "}
-                    <code className="font-mono text-[0.875rem]">
-                      sales/window
-                    </code>{" "}
-                    counts them and lists only completed receipts, which is the
-                    right register — a void is not a sale — but it does mean
-                    this page cannot show you <i>which</i> ones.
-                  </Note>
-                )}
-
+              {sales.voided_count > 0 && (
                 <Note>
-                  <b>Two columns are drawn empty, and neither is guesswork.</b>{" "}
-                  <b>Customer:</b>{" "}
+                  {count(sales.voided_count)} sales were voided in this window
+                  and are not rows here.{" "}
                   <code className="font-mono text-[0.875rem]">
-                    sale.customer_id
+                    sales/window
                   </code>{" "}
-                  is on the record — the till fills it in when a member signs in
-                  — but neither{" "}
-                  <code className="font-mono text-[0.875rem]">
-                    GET /reports/sales/window
-                  </code>{" "}
-                  nor{" "}
-                  <code className="font-mono text-[0.875rem]">
-                    GET /sales
-                  </code>{" "}
-                  puts it on the wire. <b>Income account:</b> no sale has ever
-                  reached the general ledger.{" "}
-                  <code className="font-mono text-[0.875rem]">
-                    journal_entry.source_kind
-                  </code>{" "}
-                  reserves{" "}
-                  <code className="font-mono text-[0.875rem]">SALE_DAY</code>{" "}
-                  for exactly this posting and nothing writes one, so there is
-                  no account for a receipt to have landed in — and that is the
-                  same reason Profit &amp; Loss shows nothing under class 4
-                  PENDAPATAN. Until a sales posting exists, what the till took
-                  and what the books earned are two different questions with one
-                  answer between them.
+                  counts them and lists only completed receipts, which is the
+                  right register — a void is not a sale — but it does mean this
+                  page cannot show you <i>which</i> ones.
                 </Note>
+              )}
 
-                <Note>
-                  <b>One unit at a time, and that is the endpoint's rule rather
-                  than this page's.</b>{" "}
-                  <code className="font-mono text-[0.875rem]">
-                    GET /reports/sales/window
-                  </code>{" "}
-                  requires{" "}
-                  <code className="font-mono text-[0.875rem]">site_id</code>,
-                  so unlike every other report here the unit is not an optional
-                  filter.{" "}
-                  <code className="font-mono text-[0.875rem]">
-                    GET /api/v1/sales
-                  </code>{" "}
-                  does answer across every unit, but it takes no dates at all —
-                  only{" "}
-                  <code className="font-mono text-[0.875rem]">site_id</code>,{" "}
-                  <code className="font-mono text-[0.875rem]">status</code> and{" "}
-                  <code className="font-mono text-[0.875rem]">limit</code> — so
-                  a register over a window cannot stand on it without cutting a
-                  wider answer up in the browser. A chain-wide receipt register
-                  needs the windowed endpoint to take an optional{" "}
-                  <code className="font-mono text-[0.875rem]">site_id</code>,
-                  or the list endpoint to take a window.
-                </Note>
-              </div>
-            )
-          },
-        })
-      )}
+              <Note>
+                <b>Two columns are drawn empty, and neither is guesswork.</b>{" "}
+                <b>Customer:</b>{" "}
+                <code className="font-mono text-[0.875rem]">
+                  sale.customer_id
+                </code>{" "}
+                is on the record — the till fills it in when a member signs in —
+                but neither{" "}
+                <code className="font-mono text-[0.875rem]">
+                  GET /reports/sales/window
+                </code>{" "}
+                nor{" "}
+                <code className="font-mono text-[0.875rem]">GET /sales</code>{" "}
+                puts it on the wire. <b>Income account:</b> no sale has ever
+                reached the general ledger.{" "}
+                <code className="font-mono text-[0.875rem]">
+                  journal_entry.source_kind
+                </code>{" "}
+                reserves{" "}
+                <code className="font-mono text-[0.875rem]">SALE_DAY</code> for
+                exactly this posting and nothing writes one, so there is no
+                account for a receipt to have landed in — and that is the same
+                reason Profit &amp; Loss shows nothing under class 4 PENDAPATAN.
+                Until a sales posting exists, what the till took and what the
+                books earned are two different questions with one answer between
+                them.
+              </Note>
+
+              <Note>
+                <b>
+                  One unit at a time, and that is the endpoint's rule rather
+                  than this page's.
+                </b>{" "}
+                <code className="font-mono text-[0.875rem]">
+                  GET /reports/sales/window
+                </code>{" "}
+                requires{" "}
+                <code className="font-mono text-[0.875rem]">site_id</code>, so
+                unlike every other report here the unit is not an optional
+                filter.{" "}
+                <code className="font-mono text-[0.875rem]">
+                  GET /api/v1/sales
+                </code>{" "}
+                does answer across every unit, but it takes no dates at all —
+                only <code className="font-mono text-[0.875rem]">site_id</code>,{" "}
+                <code className="font-mono text-[0.875rem]">status</code> and{" "}
+                <code className="font-mono text-[0.875rem]">limit</code> — so a
+                register over a window cannot stand on it without cutting a
+                wider answer up in the browser. A chain-wide receipt register
+                needs the windowed endpoint to take an optional{" "}
+                <code className="font-mono text-[0.875rem]">site_id</code>, or
+                the list endpoint to take a window.
+              </Note>
+            </div>
+          )
+        },
+      })}
     </PageContent>
   )
 }

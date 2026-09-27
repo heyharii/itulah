@@ -2206,8 +2206,10 @@ function RecordSheet({
       form.setFieldValue("discount", "")
       form.setFieldValue("note", "")
       form.setFieldValue("lines", [])
-      // Recording writes no journal entry, so only the bill list moved.
-      client.invalidateQueries({ queryKey: financeKeys.bills(null) })
+      // Recording writes no journal entry, so only the bill lists moved —
+      // every one of them, at every location: the register's tabs are keyed
+      // by location and kind, so the unfiltered key alone would miss them.
+      client.invalidateQueries({ queryKey: ["finance", "bills"] })
     },
   })
 

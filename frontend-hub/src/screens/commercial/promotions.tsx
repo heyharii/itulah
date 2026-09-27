@@ -26,7 +26,7 @@ import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState, ErrorState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
-import { useFilters } from "@/lib/filters"
+import { useFilters, type Filter, type Operator } from "@/lib/filters"
 import { useDebounced } from "@/lib/use-debounced"
 import { count, moment, money } from "@/lib/format"
 import { toast } from "@/lib/toast"
@@ -49,6 +49,7 @@ import {
   promotionPage,
   publishUsageToFleet,
   setRuleStatus,
+  type Band,
   type CampaignInput,
   type CampaignRow,
   type PromotionListScope,
@@ -211,6 +212,60 @@ function Reached({
   )
 }
 
+/// The number questions the server can carry as an inclusive band
+/// (`*_min`/`*_max`). "Is not", "not between" and emptiness are not bands, and
+/// a chip offering them would narrow nothing — so they are not offered.
+const BAND_OPERATORS: readonly Operator[] = [
+  "is",
+  "gte",
+  "lte",
+  "gt",
+  "lt",
+  "between",
+]
+
+/// A number clause as the whole-number band the server takes, or `undefined`
+/// for no clause on that column.
+///
+/// Rounded INWARD, because the counts are whole: "at least 2.5" is at least
+/// 3, and "is 2.5" is a band nothing fits (min 3, max 2), which is the honest
+/// answer rather than a 400 for a decimal point.
+function bandOf(
+  filters: readonly Filter[],
+  column: string
+): Band | undefined {
+  const clause = filters.find((one) => one.column === column)
+  if (clause === undefined) return undefined
+  const [first, second] = clause.values.map(Number)
+  if (first === undefined || !Number.isFinite(first)) return undefined
+  switch (clause.operator) {
+    case "is":
+      return { min: Math.ceil(first), max: Math.floor(first) }
+    case "gte":
+      return { min: Math.ceil(first) }
+    case "gt":
+      return { min: Math.floor(first) + 1 }
+    case "lte":
+      return { max: Math.floor(first) }
+    case "lt":
+      return { max: Math.ceil(first) - 1 }
+    case "between":
+      return second === undefined || !Number.isFinite(second)
+        ? undefined
+        : {
+            min: Math.ceil(Math.min(first, second)),
+            max: Math.floor(Math.max(first, second)),
+          }
+    default:
+      return undefined
+  }
+}
+
+/// The columns whose clauses the SERVER applies. They are lifted out of the
+/// table's own filters, which would otherwise narrow the loaded rows a second
+/// time — and, worse, narrow only the loaded rows.
+const SERVER_FILTERED = new Set(["reached", "usage"])
+
 // Columns are declared outside the component, so they never close over props.
 // The switch is the exception the shape allows for: it needs a callback, so it
 // is reached through `meta` on the table rather than through a closure here.
@@ -305,16 +360,22 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
     accessorFn: (row) => row.reached,
     header: "Stores",
     size: 190,
-    // Joined in the browser from the book's rollout, so the server cannot
-    // order by it — and sorting the loaded pages would lie about the first row.
-    enableSorting: false,
+    // Sorted and filtered by the SERVER (`stores`, `stores_min`/`stores_max`),
+    // which counts the same `activated_by` this cell counts.
+    //
     // Published and in force are different things, and this is the clause that
     // separates them: a promotion used 0 times in 13 shops has not caught on,
     // and one used 0 times in 0 shops was never carried anywhere. They look
     // identical until somebody asks.
     meta: {
       align: "right",
-      filter: { kind: "number", label: "Stores", unit: "shops" },
+      filter: {
+        kind: "number",
+        label: "Stores",
+        unit: "shops",
+        operators: BAND_OPERATORS,
+        single: true,
+      },
       card: "hide",
       priority: 2,
     },
@@ -331,10 +392,11 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
     accessorFn: (row) => row.usage?.uses ?? 0,
     header: "Usage",
     size: 170,
-    // Joined from the usage counter, which the rules endpoint does not carry:
-    // not a sort the server can answer. The overspend banner, which reads the
-    // counter whole, is what finds the row that has run past its budget.
-    enableSorting: false,
+    // Sorted and filtered by the SERVER (`usage`, `used_min`/`used_max`),
+    // which joins the same usage counter this cell reads. The overspend
+    // banner, which reads the counter whole, is what finds the row that has
+    // run past its budget.
+    //
     // **Sorted and filtered on uses, not on spend.** The cell says both, and
     // only one of them can be the number underneath it. Uses wins because
     // "is 0" is the question this screen was built to be able to answer — a
@@ -345,7 +407,13 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
     // past what it was allowed to spend is not found by sorting anyway: the
     // banner above the table names it.
     meta: {
-      filter: { kind: "number", label: "Used", unit: "times" },
+      filter: {
+        kind: "number",
+        label: "Used",
+        unit: "times",
+        operators: BAND_OPERATORS,
+        single: true,
+      },
       card: "metric",
       priority: 2,
     },
@@ -365,7 +433,8 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
     },
     header: "Period",
     size: 150,
-    enableSorting: false,
+    // Sorted by the server's `ends` — the rule's own end date, with no end
+    // sorting as infinity, which is this accessor's rule too.
     // The first column to go when the table is in a narrow card. Every other
     // column answers "is this offer working"; this one answers "until when",
     // which is the question somebody asks after they have picked a row — and
@@ -422,6 +491,9 @@ const PHASE_TONE: Record<Phase, "ok" | "warn" | "neutral" | "done"> = {
   ENDED: "done",
 }
 
+/// **Mirrored in SQL** as `PROMOTION_PHASE` in `postgres/catalogue.rs`, which
+/// is what the tabs filter and count by. Change one, change both — a row whose
+/// pill says Live under the Ended tab is the two of them disagreeing.
 function phaseOf(line: PromotionLine, at: number): Phase {
   // A window that has closed wins over a switch that is off. Both say the
   // offer is not running; only one of them says resuming it would change
@@ -452,23 +524,14 @@ const PAGE = 100
 /// the table would otherwise sort the pages it holds, not the list.
 const SORTS: Record<string, PromotionSort> = {
   promotion: "name",
+  usage: "usage",
+  reached: "stores",
+  period: "ends",
 }
 
-/// The stored statuses a tab can hold, asked of the server.
-///
-/// A phase is read off the dates as well as the status (see `phaseOf`), and
-/// the server filters on status alone — so this is the NARROWEST server
-/// request that still contains every row of the tab, and the tab keeps its
-/// exact meaning by reading the phase of each row that comes back. Live and
-/// Scheduled are both `ACTIVE`; Paused is anything not yet `ACTIVE` or ended;
-/// Ended is every status, because nothing writes `EXPIRED` when a date passes.
-const PHASE_STATUSES: Record<(typeof PHASES)[number]["value"], string[]> = {
-  ALL: [],
-  ACTIVE: ["ACTIVE"],
-  SCHEDULED: ["ACTIVE"],
-  PAUSED: ["PAUSED", "DRAFT"],
-  ENDED: [],
-}
+/// What the list opens on: Usage, highest first — the order it had before it
+/// paged, and the one that puts the offers doing the most work at the top.
+const DEFAULT_SORT: SortingState = [{ id: "usage", desc: true }]
 
 /// The tiles and the time series at the top of this screen, parked.
 ///
@@ -510,29 +573,40 @@ export function Promotions() {
   const [receipt, setReceipt] = useState<PublishReceipt | null>(null)
   /// The live promotion somebody asked to pause, waiting on a yes.
   const [pausing, setPausing] = useState<PromotionLine | null>(null)
-  /// Nothing chosen is the server's house order, by rule id. It used to open
-  /// on Usage, highest first — a join the server does not hold, so it cannot
-  /// order a list it hands back a page at a time.
-  const [sorting, setSorting] = useState<SortingState>([])
+  /// Usage, highest first, ordered by the server — which joins the usage
+  /// counter now, so it can order a list it hands back a page at a time.
+  /// Cleared, it is the server's house order, by rule id.
+  const [sorting, setSorting] = useState<SortingState>(DEFAULT_SORT)
 
-  /// The search, the tab, the campaign and the sort, as the one request that
-  /// answers all four. Debounced: every keystroke is a round trip.
+  const filters = useFilters(promotionColumns)
+  /// The Stores and Usage clauses, as the bands the server takes.
+  const used = useMemo(() => bandOf(filters.filters, "usage"), [filters.filters])
+  const stores = useMemo(
+    () => bandOf(filters.filters, "reached"),
+    [filters.filters]
+  )
+
+  /// The search, the tab, the campaign, the clauses and the sort, as the one
+  /// request that answers all of them. Debounced: every keystroke is a round
+  /// trip.
   const needle = useDebounced(query.trim(), 300)
   const order = sorting[0]
   const scope = useMemo<PromotionListScope>(
     () => ({
       ...(needle === "" ? {} : { q: needle }),
-      ...(PHASE_STATUSES[phase].length === 0
-        ? {}
-        : { statuses: PHASE_STATUSES[phase] }),
+      // The phase itself, read by the server off the status AND the dates —
+      // no longer a status superset narrowed again row by row in here.
+      ...(phase === "ALL" ? {} : { phases: [phase] }),
       ...(campaignFilter.value === undefined
         ? {}
         : { campaigns: [campaignFilter.value] }),
+      ...(used === undefined ? {} : { used }),
+      ...(stores === undefined ? {} : { stores }),
       ...(order === undefined || SORTS[order.id] === undefined
         ? {}
         : { sort: SORTS[order.id], desc: order.desc }),
     }),
-    [needle, phase, campaignFilter.value, order]
+    [needle, phase, campaignFilter.value, used, stores, order]
   )
 
   /// The promotions, a page at a time, the next one fetched as the last rows
@@ -767,10 +841,9 @@ export function Promotions() {
   // rebuild the whole table each time somebody flipped a switch.
   const flip = toggle.mutate
 
-  /// Narrowed before the table is built rather than as a column clause, so
-  /// every facet count under the Filter button counts the tab somebody is
-  /// looking at. A chip saying "3 shops" over a list of thirteen is how a
-  /// filter bar loses people\'s trust.
+  /// The instant each row's pill is read at. The TAB is the server's — it
+  /// filters and counts by `PROMOTION_PHASE`, the SQL copy of `phaseOf`, at its
+  /// own business clock — and this is only what the row and the sheet say.
   ///
   /// The instant is the READ\'s, not the render\'s. `Date.now()` in a render is
   /// impure — the compiler says so and it is right: the same rows would land in
@@ -780,19 +853,13 @@ export function Promotions() {
   /// asked" is the honest reading anyway. It is 0 before the first answer, and
   /// there are no rows to place then.
   const at = list.dataUpdatedAt
-  /// The campaign is narrowed by the server; the tab's statuses are too
-  /// (`PHASE_STATUSES`). What is left here is the part of a phase only the
-  /// dates can say — an `ACTIVE` rule whose window has closed is Ended, not
-  /// Live — read row by row as each page lands.
-  const shown = useMemo(() => {
-    if (phase === "ALL") return promotions
-    return promotions.filter((line) => phaseOf(line, at) === phase)
-  }, [promotions, phase, at])
 
   /// Every promotion the search leaves — within the campaign when narrowed —
-  /// whatever the tab. Counted by the server: the status facets are taken over
-  /// the search alone, and the campaign facet is that same count per campaign.
-  /// `null` until the first page lands.
+  /// whatever the tab and the clauses. It decides the two "nothing published"
+  /// empty states, which are about the book, not about a filter. Counted by
+  /// the server: the status facets are taken over the search alone, and the
+  /// campaign facet is that same count per campaign. `null` until the first
+  /// page lands.
   const everyCount =
     first === undefined
       ? null
@@ -802,19 +869,31 @@ export function Promotions() {
             (one) => one.value === campaignFilter.value
           )?.count ?? 0)
 
-  /// The All tab carries the server's count. The phase tabs carry none: a
-  /// phase is read off the dates and the server counts statuses, so any number
-  /// on them would be a count of something else under that tab's name.
+  /// Every tab carries the server's count: the phase facets, taken over every
+  /// filter but the phase — the search, the campaign, Stores and Usage — so
+  /// the number on a tab is the number of rows clicking it shows. All is
+  /// their sum. `null` until the first page lands.
+  const phaseCounts = useMemo(() => {
+    if (first === undefined) return null
+    const held = new Map(first.facets.phases.map((one) => [one.value, one.count]))
+    let all = 0
+    for (const one of first.facets.phases) all += one.count
+    held.set("ALL", all)
+    return held
+  }, [first])
+
   const tabs = PHASES.map((one) => ({
     value: one.value,
     label:
-      one.value === "ALL" && everyCount !== null ? (
+      phaseCounts === null ? (
+        one.label
+      ) : (
         <>
           {one.label}{" "}
-          <span className="text-mute tabular-nums">{count(everyCount)}</span>
+          <span className="text-mute tabular-nums">
+            {count(phaseCounts.get(one.value) ?? 0)}
+          </span>
         </>
-      ) : (
-        one.label
       ),
   }))
 
@@ -847,20 +926,25 @@ export function Promotions() {
       ? lineOf(openRule.data)
       : null)
 
-  const filters = useFilters(promotionColumns)
+  /// The table's own clauses, without the ones the server has applied — which
+  /// today is all of them. Kept as a subtraction rather than dropped, so a
+  /// browser-side clause added to a column later still narrows.
+  const tableFilters = useMemo(
+    () => filters.columnFilters.filter((one) => !SERVER_FILTERED.has(one.id)),
+    [filters.columnFilters]
+  )
 
   const promotionTable = useTable(
     useMemo(
       () => ({
         features: tableSetup,
-        data: shown,
+        data: promotions,
         columns: filters.columns,
         getRowId: (row: PromotionLine) => row.row.rule_id,
-        // The two clauses left — Stores and Usage — are joins the server does
-        // not hold, so they narrow the loaded rows. The search and the sort
-        // are the server's, and the rows arrive already ordered.
+        // The search, the tab, the clauses and the sort are the server's, and
+        // the rows arrive already narrowed and ordered.
         state: {
-          columnFilters: filters.columnFilters,
+          columnFilters: tableFilters,
           sorting,
         },
         manualSorting: true,
@@ -883,9 +967,9 @@ export function Promotions() {
         },
       }),
       [
-        shown,
+        promotions,
         filters.columns,
-        filters.columnFilters,
+        tableFilters,
         sorting,
         busy,
         shops,
@@ -1022,13 +1106,13 @@ export function Promotions() {
                     No promotion has been published yet. A promotion is listed
                     here once it has been sent to the shops.
                   </EmptyState>
-                ) : shown.length === 0 &&
+                ) : promotions.length === 0 &&
                   phase !== "ALL" &&
                   needle === "" &&
-                  !list.hasNextPage ? (
-                  // Only once every page is in: until then the next one may
-                  // hold the first row of this tab, and the table below is
-                  // already asking for it.
+                  filters.filters.length === 0 ? (
+                  // The server filtered by the phase, so an empty first page is
+                  // an empty tab. Not when a clause is set: then the clause is
+                  // the reason, and the table's own empty line says so.
                   <EmptyState>
                     No promotion is{" "}
                     {PHASES.find(
@@ -1051,8 +1135,8 @@ export function Promotions() {
                     isSelected={(row) => row.row.rule_id === sheet.value}
                     more={list}
                     empty={
-                      list.hasNextPage
-                        ? "Nothing here on the pages read so far."
+                      filters.filters.length > 0
+                        ? "No promotion matches those filters."
                         : "No promotion matches that search."
                     }
                     className="max-h-[calc(100dvh-19rem)]"

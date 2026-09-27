@@ -25,6 +25,7 @@ import type { FinanceSetting } from "@itulah/contract"
 /// value its rule cannot use and says why.
 const NAMES: Record<string, string> = {
   assistant_monthly_budget_usd: "Assistant monthly budget",
+  assistant_brief_hour: "Morning brief hour",
   "sales.discount_accounting": "Discount accounting",
   "payroll.thr_accrual_months": "THR accrual months",
   "store_expense.manager_limit_minor": "Store manager approval limit",

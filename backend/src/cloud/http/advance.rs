@@ -32,23 +32,41 @@ pub struct AdvanceQuery {
     pub site: Option<String>,
     pub status: Option<String>,
     pub limit: Option<i64>,
+    /// `true` answers a keyset page in an envelope (`AdvancePage`) rather
+    /// than the bare array. A `cursor` implies it.
+    pub paged: Option<bool>,
+    pub cursor: Option<String>,
 }
 
+/// Two answers from one route. Asked plainly it is the bare array it has
+/// always been — the newest `limit`, 100 unless asked — which the seed and
+/// demo scripts read. `paged=true` (or a `cursor`) answers `AdvancePage`: a
+/// keyset page with `next_cursor`, and the card figures over the whole book.
 pub async fn list(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
     Query(query): Query<AdvanceQuery>,
-) -> Result<Json<Vec<Advance>>, AppError> {
+) -> Result<Json<serde_json::Value>, AppError> {
     allowed(&principal, Role::Supervisor, "read the advances")?;
-    Ok(Json(
-        infrastructure::advances(
+    if query.paged == Some(true) || query.cursor.is_some() {
+        let page = infrastructure::advance_page(
             &state.db,
             query.site.as_deref(),
             query.status.as_deref(),
-            query.limit.unwrap_or(100),
+            query.cursor.as_deref(),
+            query.limit,
         )
-        .await?,
-    ))
+        .await?;
+        return Ok(Json(serde_json::to_value(page)?));
+    }
+    let rows: Vec<Advance> = infrastructure::advances(
+        &state.db,
+        query.site.as_deref(),
+        query.status.as_deref(),
+        query.limit.unwrap_or(100),
+    )
+    .await?;
+    Ok(Json(serde_json::to_value(rows)?))
 }
 
 pub async fn detail(

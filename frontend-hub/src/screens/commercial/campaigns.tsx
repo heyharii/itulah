@@ -26,7 +26,12 @@ import { DockedFilters } from "@/components/ui/list-chrome"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState, ErrorState } from "@/components/ui/states"
 import { AppLink } from "@/components/ui/app-link"
-import { useFilters, type FilterField } from "@/lib/filters"
+import {
+  useFilters,
+  type Filter,
+  type FilterField,
+  type Operator,
+} from "@/lib/filters"
 import { useDebounced } from "@/lib/use-debounced"
 import { count, day, label, money, moment } from "@/lib/format"
 import { toast } from "@/lib/toast"
@@ -44,6 +49,7 @@ import {
   NOTHING_TO_PUBLISH,
   offerCounts,
   setCampaignStatus,
+  type Band,
   type CampaignListScope,
   type CampaignSort,
   writeAndPublish,
@@ -154,6 +160,11 @@ function stateOf(status: string) {
 /// back. A draft, a scheduled or an ended campaign flipped to Live by a stray
 /// click is not, so those read as a pill. An ACTIVE campaign whose window has
 /// closed has ended, whatever the stored status says.
+///
+/// **Mirrored in SQL** as `CAMPAIGN_PHASE` in `postgres/catalogue.rs`, which is
+/// what the Status filter asks and counts by — spelled there as the status
+/// code whose word this draws: Ended is `EXPIRED`, "Starts …" is `SCHEDULED`.
+/// Change one, change both.
 function phaseOf(campaign: BookCampaign, now: number) {
   const state = stateOf(campaign.status)
   const ended =
@@ -204,6 +215,107 @@ interface CampaignLine {
   readonly intent: CampaignIntent | null
 }
 
+/// The objective facet's word for "nobody has said" — the server's `none`,
+/// which is not an objective code (those are upper-case and closed).
+const NOT_STATED = "none"
+
+/// The number questions the server can carry as an inclusive band. The same
+/// set, and the same `bandOf`, as the Promotions screen's — kept beside each
+/// list because each list's columns are declared at module level and read
+/// them before any shared module would be worth the import.
+const BAND_OPERATORS: readonly Operator[] = [
+  "is",
+  "gte",
+  "lte",
+  "gt",
+  "lt",
+  "between",
+]
+
+/// A number clause as the whole-number band the server takes, rounded inward.
+function bandOf(
+  filters: readonly Filter[],
+  column: string
+): Band | undefined {
+  const clause = filters.find((one) => one.column === column)
+  if (clause === undefined) return undefined
+  const [first, second] = clause.values.map(Number)
+  if (first === undefined || !Number.isFinite(first)) return undefined
+  switch (clause.operator) {
+    case "is":
+      return { min: Math.ceil(first), max: Math.floor(first) }
+    case "gte":
+      return { min: Math.ceil(first) }
+    case "gt":
+      return { min: Math.floor(first) + 1 }
+    case "lte":
+      return { max: Math.floor(first) }
+    case "lt":
+      return { max: Math.ceil(first) - 1 }
+    case "between":
+      return second === undefined || !Number.isFinite(second)
+        ? undefined
+        : {
+            min: Math.ceil(Math.min(first, second)),
+            max: Math.floor(Math.max(first, second)),
+          }
+    default:
+      return undefined
+  }
+}
+
+/// The Ends clause as the server's day range and open/set test. A value that
+/// is not a `YYYY-MM-DD` day is no clause rather than a 400.
+function endsOf(filters: readonly Filter[]): CampaignListScope["ends"] {
+  const clause = filters.find((one) => one.column === "window")
+  if (clause === undefined) return undefined
+  if (clause.operator === "isEmpty") return { open: true }
+  if (clause.operator === "isNotEmpty") return { open: false }
+  const days = clause.values
+    .map((one) => one.slice(0, 10))
+    .filter((one) => /^\d{4}-\d{2}-\d{2}$/.test(one))
+  const [first, second] = days
+  if (first === undefined) return undefined
+  switch (clause.operator) {
+    case "is":
+      return { from: first, to: first }
+    case "onOrAfter":
+      return { from: first }
+    case "onOrBefore":
+      return { to: first }
+    case "between":
+      // `YYYY-MM-DD` orders as text, so the smaller string is the earlier day.
+      return second === undefined
+        ? undefined
+        : first <= second
+          ? { from: first, to: second }
+          : { from: second, to: first }
+    default:
+      return undefined
+  }
+}
+
+/// The objective clause as the server's list: codes, `none`, or `stated`.
+function objectivesOf(filters: readonly Filter[]): readonly string[] {
+  const clause = filters.find((one) => one.column === "objective")
+  if (clause === undefined) return []
+  if (clause.operator === "isEmpty") return [NOT_STATED]
+  if (clause.operator === "isNotEmpty") return ["stated"]
+  if (clause.operator === "isAnyOf" || clause.operator === "is")
+    return clause.values.map((one) => (one === "" ? NOT_STATED : one))
+  return []
+}
+
+/// The columns whose clauses the SERVER applies — lifted out of the table's
+/// own filters, which could only narrow the rows already loaded.
+const SERVER_FILTERED = new Set([
+  "live",
+  "objective",
+  "rules",
+  "reached",
+  "window",
+])
+
 const columns: ColumnDef<TableSetup, CampaignLine>[] = [
   {
     id: "campaign",
@@ -236,16 +348,16 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
     // the other states, which all used to draw as "off" and flip to Live on
     // one click. See `phaseOf`.
     //
-    // Campaign keeps the clause a facet, where Promotions moved it to tabs.
-    // The two are not inconsistent: a rule has four states and two of them —
-    // ended, scheduled — are read off dates rather than stored, which is what
-    // tabs were needed for. A campaign's six states are all stored, and a facet
-    // over six values is exactly what a facet is good at.
+    // Campaign keeps the clause a facet, where Promotions moved it to tabs:
+    // six states are what a facet is good at.
     //
-    // Asked of the SERVER (`status` on `GET /commercial/campaigns`), which is
-    // why it offers "is any of" and nothing else, as one clause: that is the
-    // question the request can carry. The screen lifts the clause out of the
-    // table's own filters and counts the options from the server's facets.
+    // Asked of the SERVER as the PHASE (`phase` on `GET /commercial/campaigns`)
+    // rather than the stored status, so "Ended" also finds the ACTIVE campaign
+    // whose window has closed — the word the row wears, not the one it was
+    // stored with. That is why it offers "is any of" and nothing else, as one
+    // clause: that is the question the request can carry. The screen lifts the
+    // clause out of the table's own filters and counts the options from the
+    // server's phase facets.
     meta: {
       filter: {
         kind: "option",
@@ -278,17 +390,28 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
     accessorFn: (row) => row.intent?.objective ?? "",
     header: "Objective",
     size: 170,
-    // Joined from the intents read; the campaigns endpoint cannot order by it.
+    // Joined from the intents read for the cell. Not a sort: an objective is a
+    // category, and ordering by its code orders nothing anybody asked about.
     enableSorting: false,
     // The column this screen exists for. Everything else here — a window, a
     // budget, a switch, a count of offers — is a CONSTRAINT on promotions, and
     // a thing whose entire content is constraints on another thing is a folder.
     // This is the half that makes it a business initiative.
+    //
+    // Asked of the SERVER (`objective`), which joins `campaign_intent` and
+    // counts every objective — `none` included, the campaign nobody has said
+    // the purpose of. Hence "is any of" and the two emptiness tests only.
     meta: {
       filter: {
         kind: "option",
         label: "Objective",
-        format: (value: string) => objectiveOf(value)?.label ?? value,
+        format: (value: string) =>
+          value === NOT_STATED || value === ""
+            ? "Not stated"
+            : (objectiveOf(value)?.label ?? value),
+        operators: ["isAnyOf", "isEmpty", "isNotEmpty"],
+        emptyValue: NOT_STATED,
+        single: true,
       },
     },
     cell: ({ row }) => {
@@ -337,13 +460,22 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
     accessorFn: (row) => row.offers,
     header: "Offers",
     size: 80,
-    enableSorting: false,
+    // Sorted and filtered by the SERVER (`offers`, `offers_min`/`offers_max`),
+    // which counts the live promotions naming the campaign exactly as the
+    // `campaign` facet this cell reads does.
+    //
     // "is 0" is a campaign with a window and a budget and nothing to spend it
     // on — published, switchable, and incapable of doing anything. That is a
     // fault, and it is invisible in a list sorted by spend.
     meta: {
       align: "right",
-      filter: { kind: "number", label: "Offers", unit: "offers" },
+      filter: {
+        kind: "number",
+        label: "Offers",
+        unit: "offers",
+        operators: BAND_OPERATORS,
+        single: true,
+      },
     },
     cell: ({ row }) => count(row.original.offers),
   },
@@ -354,9 +486,11 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
       UNLIMITED,
     header: "Budget used",
     size: 200,
-    // A share of spend, joined from the usage counter: not an order the server
-    // holds. (Its `budget` sort is the limit, not what is left of it.)
-    enableSorting: false,
+    // Sorted by the SERVER's `budget_used`: this accessor's share, spent ÷
+    // budget off the same usage counter, with a campaign that has no limit
+    // sorting last whichever way round. (Its `budget` sort is the limit, not
+    // what is left of it.)
+    //
     // `Budget` and `Spent` were two columns and one answer. Nobody reads a
     // campaign's limit without reading what is left of it, and reading across
     // to do it is how a campaign gets topped up on the wrong figure.
@@ -401,12 +535,20 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
     accessorFn: (row) => row.reached,
     header: "Stores",
     size: 110,
-    enableSorting: false,
+    // Sorted and filtered by the SERVER (`stores`, `stores_min`/`stores_max`),
+    // which counts the same `activated_by` this cell counts.
+    //
     // "is 0" is the warning pill this cell already draws, asked as a question
     // instead of read one row at a time: a campaign published to nobody.
     meta: {
       align: "right",
-      filter: { kind: "number", label: "Stores", unit: "shops" },
+      filter: {
+        kind: "number",
+        label: "Stores",
+        unit: "shops",
+        operators: BAND_OPERATORS,
+        single: true,
+      },
     },
     cell: ({ row, table }) => {
       const total = actionsOf<CampaignLine>(table)?.shops ?? null
@@ -432,10 +574,30 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
     // one running until somebody remembers to stop it, which is the row worth
     // finding on a screen about budgets.
     //
+    // Asked of the SERVER (`ends_from`/`ends_to`, `ends=open|set`), on the
+    // Jakarta day the window ends. The operators are the ones that are an
+    // inclusive range or an emptiness test; "before" and "after" are the
+    // "on or" pair a day earlier or later, and "not between" is not a range.
+    //
     // Last, and first to go when the table is in a narrow card: every column
     // to its left says whether the campaign is working, and this one says
     // until when — which is the question asked after a row is picked.
-    meta: { priority: 2, filter: { kind: "date", label: "Ends" } },
+    meta: {
+      priority: 2,
+      filter: {
+        kind: "date",
+        label: "Ends",
+        operators: [
+          "is",
+          "onOrBefore",
+          "onOrAfter",
+          "between",
+          "isEmpty",
+          "isNotEmpty",
+        ],
+        single: true,
+      },
+    },
     cell: ({ row }) => (
       <span className="text-body">
         {row.original.row.campaign.valid_from
@@ -480,7 +642,15 @@ const PAGE = 100
 const SORTS: Record<string, CampaignSort> = {
   campaign: "name",
   window: "ends",
+  spent: "budget_used",
+  rules: "offers",
+  reached: "stores",
 }
+
+/// What the list opens on: Budget used, highest first — the order it had
+/// before it paged, and the one that puts the campaign closest to its limit
+/// at the top.
+const DEFAULT_SORT: SortingState = [{ id: "spent", desc: true }]
 
 export function Campaigns() {
   const client = useQueryClient()
@@ -493,10 +663,9 @@ export function Campaigns() {
   const [writing, setWriting] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [receipt, setReceipt] = useState<PublishReceipt | null>(null)
-  /// Nothing chosen is the server's house order, by campaign id. It used to
-  /// open on Budget used, highest first — a share joined from the usage
-  /// counter, which the server cannot order a paged list by.
-  const [sorting, setSorting] = useState<SortingState>([])
+  /// Budget used, highest first, ordered by the server — which joins the usage
+  /// counter now. Cleared, it is the server's house order, by campaign id.
+  const [sorting, setSorting] = useState<SortingState>(DEFAULT_SORT)
   /// Which campaign is open — in the URL, as PATTERN.md wants, so it can be
   /// linked to, survives a reload, and the palette can open it.
   const sheet = useSheet("campaign")
@@ -519,9 +688,10 @@ export function Campaigns() {
 
   const filters = useFilters(columns)
 
-  /// The Status clause, lifted out for the server. At most one (`single`), and
-  /// only "is any of" (`operators`) — the one question `status=` can carry.
-  const statuses = useMemo(() => {
+  /// The Status clause, lifted out for the server as the PHASE. At most one
+  /// (`single`), and only "is any of" (`operators`) — the one question
+  /// `phase=` can carry.
+  const phases = useMemo(() => {
     const clause = filters.filters.find(
       (one) =>
         one.column === "live" &&
@@ -530,19 +700,38 @@ export function Campaigns() {
     return clause === undefined ? [] : [...clause.values]
   }, [filters.filters])
 
-  /// The search, the status and the sort, as the one request that answers all
-  /// three. Debounced: every keystroke is a round trip.
+  /// The other clauses, as the server takes them.
+  const objectives = useMemo(
+    () => objectivesOf(filters.filters),
+    [filters.filters]
+  )
+  const offerBand = useMemo(
+    () => bandOf(filters.filters, "rules"),
+    [filters.filters]
+  )
+  const storeBand = useMemo(
+    () => bandOf(filters.filters, "reached"),
+    [filters.filters]
+  )
+  const ends = useMemo(() => endsOf(filters.filters), [filters.filters])
+
+  /// The search, the clauses and the sort, as the one request that answers all
+  /// of them. Debounced: every keystroke is a round trip.
   const needle = useDebounced(query.trim(), 300)
   const order = sorting[0]
   const scope = useMemo<CampaignListScope>(
     () => ({
       ...(needle === "" ? {} : { q: needle }),
-      ...(statuses.length === 0 ? {} : { statuses }),
+      ...(phases.length === 0 ? {} : { phases }),
+      ...(objectives.length === 0 ? {} : { objectives }),
+      ...(offerBand === undefined ? {} : { offers: offerBand }),
+      ...(storeBand === undefined ? {} : { stores: storeBand }),
+      ...(ends === undefined ? {} : { ends }),
       ...(order === undefined || SORTS[order.id] === undefined
         ? {}
         : { sort: SORTS[order.id], desc: order.desc }),
     }),
-    [needle, statuses, order]
+    [needle, phases, objectives, offerBand, storeBand, ends, order]
   )
 
   /// The campaigns, a page at a time, the next one fetched as the last rows
@@ -572,20 +761,26 @@ export function Campaigns() {
       ? null
       : first.facets.statuses.reduce((sum, one) => sum + one.count, 0)
 
-  /// The Status field, carrying the server's tally.
+  /// The Status and Objective fields, carrying the server's tally — the phase
+  /// and objective facets, each counted over every filter but its own.
   const counted = useMemo<readonly FilterField[]>(() => {
-    const facets = first?.facets.statuses
+    const facets = first?.facets
     if (facets === undefined) return filters.fields
     return filters.fields.map((field) =>
       field.column === "live"
-        ? { ...field, spec: { ...field.spec, counted: facets } }
-        : field
+        ? { ...field, spec: { ...field.spec, counted: facets.phases } }
+        : field.column === "objective"
+          ? { ...field, spec: { ...field.spec, counted: facets.objectives } }
+          : field
     )
   }, [filters.fields, first])
 
-  /// The table's own clauses, without Status: the server has applied it.
+  /// The table's own clauses, without the ones the server has applied —
+  /// which today is all of them. A subtraction rather than nothing, so a
+  /// browser-side clause added to a column later still narrows.
   const tableFilters = useMemo(
-    () => filters.columnFilters.filter((one) => one.id !== "live"),
+    () =>
+      filters.columnFilters.filter((one) => !SERVER_FILTERED.has(one.id)),
     [filters.columnFilters]
   )
 
@@ -758,10 +953,8 @@ export function Campaigns() {
         data: lines,
         columns: filters.columns,
         getRowId: (row: CampaignLine) => row.row.campaign.campaign_id,
-        // The search, the status and the sort are the server's, and the rows
-        // arrive already ordered. The clauses left — objective, offers,
-        // stores, ends — are joins or fields the endpoint cannot narrow by,
-        // so they narrow the loaded rows.
+        // The search, every clause and the sort are the server's, and the
+        // rows arrive already narrowed and ordered.
         state: {
           columnFilters: tableFilters,
           sorting,
@@ -866,8 +1059,8 @@ export function Campaigns() {
                     }
                     more={list}
                     empty={
-                      list.hasNextPage
-                        ? "Nothing here on the pages read so far."
+                      filters.filters.length > 0
+                        ? "No campaign matches those filters."
                         : "No campaign matches that search."
                     }
                     className="max-h-[calc(100vh-15rem)]"

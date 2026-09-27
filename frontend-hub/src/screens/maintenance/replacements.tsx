@@ -14,10 +14,7 @@ import { useSheet } from "@/lib/sheets"
 import { FinanceMark } from "@/screens/contracts/parts"
 import { ReplacementSheet } from "@/screens/maintenance/hub"
 import { ReplacementStagePill } from "@/screens/maintenance/parts"
-import type {
-  GaMaintenanceFacet,
-  GaReplacementRow,
-} from "@itulah/contract"
+import type { GaMaintenanceFacet, GaReplacementRow } from "@itulah/contract"
 
 /// Replacement — the swaps: one asset replaced by another, with the reason
 /// and the repair that led there.
@@ -65,9 +62,7 @@ export function Replacements() {
         sub="A replacement proposal links the old asset with the new one and the reason for the swap."
       />
 
-      {head !== undefined && (
-        <SummaryStrip statuses={head.facets.statuses} />
-      )}
+      {head !== undefined && <SummaryStrip statuses={head.facets.statuses} />}
 
       {queryState(book, {
         loading: "Loading the replacement list…",

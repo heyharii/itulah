@@ -228,6 +228,98 @@ pub async fn advances(
     rows.iter().map(to_advance).collect()
 }
 
+/// A page of advances, newest first, beside what the whole book says.
+///
+/// The bare list above stops at `limit` (100 unless asked) and says nothing,
+/// so a screen adding up what is still out with people over it was adding up
+/// the newest hundred. This pages on a keyset and carries the figures a screen
+/// puts in its cards, computed over every advance at the unit rather than over
+/// the page — and over every STATUS too, because "how much is still in
+/// people's hands" does not change when somebody lists only the settled ones.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct AdvancePage {
+    pub rows: Vec<Advance>,
+    pub next_cursor: Option<String>,
+    /// Every advance the unit and status filters match.
+    pub total: i64,
+    /// Still out with somebody — PAID or PARTIALLY_SETTLED, less what came
+    /// back as receipts or as money — across the unit, whatever status is
+    /// listed.
+    pub outstanding_minor: i64,
+    /// How many of those left more than thirty days ago.
+    pub over_thirty_days: i64,
+}
+
+/// Where the previous page stopped: the last advance's request time and id.
+#[derive(Serialize, Deserialize)]
+struct AdvanceCursor {
+    requested_at: chrono::DateTime<Utc>,
+    advance_id: Uuid,
+}
+
+pub async fn advance_page(
+    pool: &PgPool,
+    site_id: Option<&str>,
+    status: Option<&str>,
+    cursor: Option<&str>,
+    limit: Option<i64>,
+) -> Result<AdvancePage, AppError> {
+    let cursor: Option<AdvanceCursor> = cursor.map(super::decode_cursor).transpose()?;
+    let limit = limit.unwrap_or(100).clamp(1, 500);
+    let sql = format!(
+        "SELECT {ADVANCE_COLUMNS} {ADVANCE_FROM}
+          WHERE ($1::text IS NULL OR a.site_id = $1)
+            AND ($2::text IS NULL OR a.status = $2)
+            AND ($3::timestamptz IS NULL
+                 OR (a.requested_at, a.advance_id) < ($3::timestamptz, $4::uuid))
+          ORDER BY a.requested_at DESC, a.advance_id DESC
+          LIMIT $5"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(site_id)
+        .bind(status)
+        .bind(cursor.as_ref().map(|c| c.requested_at))
+        .bind(cursor.as_ref().map(|c| c.advance_id))
+        .bind(limit)
+        .fetch_all(pool)
+        .await?;
+    let next_cursor = match rows.last() {
+        Some(row) if rows.len() as i64 == limit => Some(super::encode_cursor(&AdvanceCursor {
+            requested_at: row.try_get("requested_at")?,
+            advance_id: row.try_get("advance_id")?,
+        })?),
+        _ => None,
+    };
+    let out = rows.iter().map(to_advance).collect::<Result<Vec<_>, _>>()?;
+
+    // Thirty days the way `age_days` counts them: whole days since the money
+    // left, and "more than thirty" is the thirty-first.
+    let totals = sqlx::query(&format!(
+        "SELECT COUNT(*) FILTER (WHERE $2::text IS NULL OR a.status = $2)::bigint AS total,
+                COALESCE(SUM(a.amount_minor - COALESCE(t.expense_minor, 0)
+                                            - COALESCE(t.refund_minor, 0))
+                         FILTER (WHERE a.status IN ('PAID', 'PARTIALLY_SETTLED')), 0)::bigint
+                    AS outstanding,
+                COUNT(*) FILTER (WHERE a.status IN ('PAID', 'PARTIALLY_SETTLED')
+                                   AND a.paid_at <= now() - interval '31 days')::bigint
+                    AS over_thirty
+           {ADVANCE_FROM}
+          WHERE ($1::text IS NULL OR a.site_id = $1)"
+    ))
+    .bind(site_id)
+    .bind(status)
+    .fetch_one(pool)
+    .await?;
+    Ok(AdvancePage {
+        rows: out,
+        next_cursor,
+        total: totals.try_get("total")?,
+        outstanding_minor: totals.try_get("outstanding")?,
+        over_thirty_days: totals.try_get("over_thirty")?,
+    })
+}
+
 pub async fn advance_detail(pool: &PgPool, advance_id: Uuid) -> Result<AdvanceDocument, AppError> {
     let sql = format!("SELECT {ADVANCE_COLUMNS} {ADVANCE_FROM} WHERE a.advance_id = $1");
     let row = sqlx::query(&sql)

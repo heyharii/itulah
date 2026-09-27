@@ -423,16 +423,35 @@ pub async fn account_link_history(
     role: Option<&str>,
     limit: i64,
 ) -> Result<Vec<AccountLinkChange>, AppError> {
+    account_link_history_before(pool, role, None, limit).await
+}
+
+/// The same history, a page at a time: the changes that come after `before`
+/// (a `history_id` the previous page ended on) in the history's own order.
+/// The seek re-reads that row's `changed_at`, so the page boundary is the
+/// same pair the `ORDER BY` sorts on and no two rows can tie across it. A
+/// caller has a next page exactly when a page comes back full.
+pub async fn account_link_history_before(
+    pool: &PgPool,
+    role: Option<&str>,
+    before: Option<i64>,
+    limit: i64,
+) -> Result<Vec<AccountLinkChange>, AppError> {
     let rows = sqlx::query(
         "SELECT history_id, link_id, action, role, source_id, scope_type, scope_key,
                 old_account_code, new_account_code, changed_by, changed_at, note
            FROM account_link_history
-          WHERE $1::text IS NULL OR role = $1
+          WHERE ($1::text IS NULL OR role = $1)
+            AND ($3::bigint IS NULL
+                 OR (changed_at, history_id) < (SELECT h.changed_at, h.history_id
+                                                  FROM account_link_history h
+                                                 WHERE h.history_id = $3))
           ORDER BY changed_at DESC, history_id DESC
           LIMIT $2",
     )
     .bind(role)
     .bind(limit.clamp(1, 1000))
+    .bind(before)
     .fetch_all(pool)
     .await?;
     rows.iter()

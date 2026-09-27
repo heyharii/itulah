@@ -1,15 +1,25 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
-import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states"
+import {
+  EmptyState,
+  ErrorState,
+  LoadMore,
+  LoadingState,
+} from "@/components/ui/states"
 import { money } from "@/lib/format"
 import {
   allocatePrepaidMonth,
   domainKeys,
-  listPrepaidSchedules,
+  prepaidSchedulePage,
 } from "@/lib/queries/finance-domains"
 import {
   Code,
@@ -36,9 +46,24 @@ export function PrepaidSchedules() {
   })
   const [status, setStatus] = useState<string | undefined>("ACTIVE")
 
-  const schedules = useQuery({
-    queryKey: domainKeys.prepaidSchedules(undefined, status),
-    queryFn: ({ signal }) => listPrepaidSchedules(signal, { status }),
+  const asked = `${month.year}-${String(month.month).padStart(2, "0")}`
+
+  // A page at a time, newest first. The cards read the server's figures over
+  // every schedule the filter matches, never a sum of the pages loaded.
+  const schedules = useInfiniteQuery({
+    queryKey: [...domainKeys.prepaidSchedules(undefined, status), "pages"],
+    queryFn: ({ pageParam, signal }) =>
+      prepaidSchedulePage({ status, cursor: pageParam, limit: 100 }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    placeholderData: (previous) => previous,
+  })
+  // How many are due in the chosen month, asked separately so picking a month
+  // re-asks one small question rather than reloading the list.
+  const dueIn = useQuery({
+    queryKey: [...domainKeys.prepaidSchedules(undefined, status), "due", asked],
+    queryFn: ({ signal }) =>
+      prepaidSchedulePage({ status, period: `${asked}-01`, limit: 1 }, signal),
   })
 
   const allocate = useMutation({
@@ -49,14 +74,13 @@ export function PrepaidSchedules() {
     },
   })
 
-  const rows = useMemo(() => schedules.data ?? [], [schedules.data])
-  const remaining = rows.reduce((total, row) => total + row.remaining_minor, 0)
-  const due = rows.filter((row) => {
-    const start = row.start_period.slice(0, 7)
-    const end = row.end_period.slice(0, 7)
-    const asked = `${month.year}-${String(month.month).padStart(2, "0")}`
-    return row.status === "ACTIVE" && start <= asked && asked <= end
-  }).length
+  const rows = useMemo(
+    () => schedules.data?.pages.flatMap((page) => page.rows) ?? [],
+    [schedules.data]
+  )
+  const head = schedules.data?.pages[0]
+  const remaining = head?.remaining_minor ?? null
+  const due = dueIn.data?.due_in_period ?? null
 
   return (
     <PageContent>
@@ -90,12 +114,12 @@ export function PrepaidSchedules() {
       />
 
       <Grid>
-        <NumberCard label="Jadwal berjalan" value={rows.length} />
+        <NumberCard label="Jadwal berjalan" value={head?.total ?? null} />
         <NumberCard label="Sisa belum dibebankan" value={remaining} />
         <NumberCard
           label="Menunggu bulan dipilih"
           value={due}
-          tone={due === 0 ? "ok" : "warn"}
+          tone={due === null ? undefined : due === 0 ? "ok" : "warn"}
         />
       </Grid>
 
@@ -127,7 +151,7 @@ export function PrepaidSchedules() {
 
       {schedules.isPending ? (
         <LoadingState />
-      ) : schedules.isError ? (
+      ) : schedules.isError && schedules.data === undefined ? (
         <ErrorState error={schedules.error} />
       ) : rows.length === 0 ? (
         <EmptyState>Belum ada jadwal</EmptyState>
@@ -185,6 +209,7 @@ export function PrepaidSchedules() {
           </tbody>
         </table>
       )}
+      <LoadMore query={schedules} />
     </PageContent>
   )
 }

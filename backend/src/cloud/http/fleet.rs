@@ -47,13 +47,31 @@ pub async fn nodes(State(state): State<AppState>) -> Result<Json<Value>, AppErro
     Ok(Json(json!({ "items": infrastructure::fleet(&state.db).await? })))
 }
 
+/// A page of one node's history. `deny_unknown_fields`, so a misspelt
+/// parameter is refused rather than silently answering page one.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct IncidentQuery {
+    /// A `next_cursor` from the previous page, verbatim.
+    #[serde(default)]
+    pub cursor: Option<String>,
+    #[serde(default)]
+    pub limit: Option<i64>,
+}
+
 pub async fn incidents(
     State(state): State<AppState>,
     Path(origin_id): Path<String>,
+    Query(query): Query<IncidentQuery>,
 ) -> Result<Json<Value>, AppError> {
-    Ok(Json(json!({
-        "items": infrastructure::node_incidents(&state.db, origin_id.trim()).await?
-    })))
+    let (items, next_cursor) = infrastructure::node_incidents(
+        &state.db,
+        origin_id.trim(),
+        query.cursor.as_deref(),
+        query.limit,
+    )
+    .await?;
+    Ok(Json(json!({ "items": items, "next_cursor": next_cursor })))
 }
 
 // ---- Devices ---------------------------------------------------------------

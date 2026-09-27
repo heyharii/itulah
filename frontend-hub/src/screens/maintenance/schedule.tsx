@@ -347,8 +347,10 @@ function TaskComposer({
   const submit = () => {
     const next: Record<string, string> = {}
     if ((form.title ?? "").trim() === "") next.title = "Enter the task first."
-    if (forAsset && (form.asset ?? "") === "") next.asset = "Choose an asset first."
-    if (!forAsset && (form.site ?? "") === "") next.site = "Choose a location first."
+    if (forAsset && (form.asset ?? "") === "")
+      next.asset = "Choose an asset first."
+    if (!forAsset && (form.site ?? "") === "")
+      next.site = "Choose a location first."
     if ((form.value ?? "") === "" || Number(form.value) <= 0)
       next.value = "Enter the interval number."
     if (!nextDueHidden && (form.next_due ?? "") === "")
@@ -431,7 +433,11 @@ function TaskComposer({
               </Select>
             </Field>
           ) : (
-            <Field label="Location" required problem={problems.site || undefined}>
+            <Field
+              label="Location"
+              required
+              problem={problems.site || undefined}
+            >
               <Select
                 value={form.site ?? ""}
                 onChange={(next) => set("site", next)}
@@ -455,7 +461,10 @@ function TaskComposer({
           </Field>
         </Section>
 
-        <Section title="Interval" aside="the next due date is calculated from this">
+        <Section
+          title="Interval"
+          aside="the next due date is calculated from this"
+        >
           <div className="grid grid-cols-[1fr_10rem] items-start gap-4">
             <Choices
               label="Interval unit"
@@ -468,11 +477,7 @@ function TaskComposer({
                 { value: "KM", label: "Kilometres" },
               ]}
             />
-            <Field
-              label="Every"
-              required
-              problem={problems.value || undefined}
-            >
+            <Field label="Every" required problem={problems.value || undefined}>
               <Input
                 inputMode="numeric"
                 value={form.value ?? ""}

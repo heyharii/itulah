@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 import { ChevronDown, ChevronRight, Plus } from "lucide-react"
 import { useState } from "react"
 
@@ -10,7 +15,7 @@ import { KeyValue } from "@/components/ui/rows"
 import { PageHeader } from "@/components/ui/page-header"
 import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { EmptyState, Problem } from "@/components/ui/states"
+import { EmptyState, LoadMore, Problem } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { Tag } from "@/components/ui/tag"
 import { count, label, moment, money } from "@/lib/format"
@@ -60,6 +65,10 @@ import type {
 /// balance still leans on. Its sentence is shown as it is written. Every
 /// change is kept with the account before and after, who, and why — the
 /// History tab.
+/// How many matches one page of a chart search asks for. A step, not a
+/// ceiling: the card asks for the next page as its last rows scroll into view.
+const SEARCH_PAGE = 100
+
 export function ChartOfAccounts() {
   const [needle, setNeedle] = useState("")
   const [inactive, setInactive] = useState(false)
@@ -70,14 +79,19 @@ export function ChartOfAccounts() {
   const trimmed = needle.trim()
   const searching = trimmed.length >= 2
 
-  const results = useQuery({
-    queryKey: financeKeys.accountSearch(trimmed, inactive),
-    // 500 is the server's ceiling for one request, and `total` is what the
-    // screen now says out loud when the needle matches more than that — `101`
-    // matches 1,248 accounts in this client's chart. It used to ask for 2,000,
-    // get 500, and render them as if they were all of it.
-    queryFn: ({ signal }) =>
-      searchAccounts(trimmed, { inactive, limit: 500 }, signal),
+  // A page at a time, read on as the card scrolls. `101` matches 1,248
+  // accounts in this client's chart; this used to stop at the server's 500
+  // and ask somebody to narrow the search to see the rest.
+  const results = useInfiniteQuery({
+    queryKey: [...financeKeys.accountSearch(trimmed, inactive), "pages"],
+    queryFn: ({ pageParam, signal }) =>
+      searchAccounts(
+        trimmed,
+        { inactive, limit: SEARCH_PAGE, cursor: pageParam },
+        signal
+      ),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
     enabled: searching,
     staleTime: 60_000,
   })
@@ -143,8 +157,9 @@ export function ChartOfAccounts() {
             {searching ? (
               queryState(results, {
                 loading: "Searching the chart…",
-                render: (page) =>
-                  page.rows.length === 0 ? (
+                render: (data) => {
+                  const rows = data.pages.flatMap((page) => page.rows)
+                  return rows.length === 0 ? (
                     <EmptyState>
                       No account matches “{trimmed}”. Codes are matched from the
                       start, so a fragment from the middle of one will not find
@@ -152,7 +167,7 @@ export function ChartOfAccounts() {
                     </EmptyState>
                   ) : (
                     <div>
-                      {page.rows.map((row) => (
+                      {rows.map((row) => (
                         <AccountRow
                           key={`${row.account_code}-${row.site_id ?? ""}`}
                           account={row}
@@ -161,15 +176,11 @@ export function ChartOfAccounts() {
                           onOpen={() => account.open(row.account_code)}
                         />
                       ))}
-                      {page.total > page.rows.length && (
-                        <p className="border-t border-hairline px-4 py-3 text-[0.875rem] text-mute">
-                          Showing the first {count(page.rows.length)} of{" "}
-                          {count(page.total)} matches. Narrow the search — a
-                          longer code prefix, or more of the name.
-                        </p>
-                      )}
+                      {/* Inside the card, which is the box that scrolls. */}
+                      <LoadMore query={results} />
                     </div>
-                  ),
+                  )
+                },
               })
             ) : (
               <Branch
@@ -1103,17 +1114,32 @@ function ChangeLine({
   )
 }
 
-function ChartHistory({ onOpen }: { onOpen: (code: string) => void }) {
-  const history = useQuery({
-    queryKey: financeKeys.chartChanges(null),
-    queryFn: ({ signal }) => chartChanges(null, signal, 200),
+/// How many changes one page of the chart's history asks for. The endpoint
+/// answers a bare list, so a page that comes back full is the only sign there
+/// may be another — and the last `change_id` on it is where the next starts.
+const HISTORY_PAGE = 100
+
+/// The chart's history (or one account's), newest first, a page at a time.
+function useChartHistory(code: string | null, size: number) {
+  return useInfiniteQuery({
+    queryKey: [...financeKeys.chartChanges(code), "pages", size],
+    queryFn: ({ pageParam, signal }) =>
+      chartChanges(code, signal, size, pageParam),
+    initialPageParam: undefined as number | undefined,
+    getNextPageParam: (last) =>
+      last.length < size ? undefined : last[last.length - 1]?.change_id,
   })
+}
+
+function ChartHistory({ onOpen }: { onOpen: (code: string) => void }) {
+  const history = useChartHistory(null, HISTORY_PAGE)
   return (
     <Card className="max-h-[calc(100vh-16rem)] overflow-auto">
       {queryState(history, {
         loading: "Reading the chart's history…",
-        render: (changes) =>
-          changes.length === 0 ? (
+        render: (data) => {
+          const changes = data.pages.flat()
+          return changes.length === 0 ? (
             <EmptyState>
               Nobody has changed the chart from this screen yet.
             </EmptyState>
@@ -1126,28 +1152,31 @@ function ChartHistory({ onOpen }: { onOpen: (code: string) => void }) {
                   onOpen={onOpen}
                 />
               ))}
+              {/* Inside the card, which is the box that scrolls. */}
+              <LoadMore query={history} />
             </div>
-          ),
+          )
+        },
       })}
     </Card>
   )
 }
 
-/// This account's own changes, at the foot of its sheet.
+/// This account's own changes, at the foot of its sheet — read on as the
+/// sheet scrolls rather than stopping at the last twenty.
 function AccountChanges({ code }: { code: string }) {
-  const history = useQuery({
-    queryKey: financeKeys.chartChanges(code),
-    queryFn: ({ signal }) => chartChanges(code, signal, 20),
-  })
-  if (history.data === undefined || history.data.length === 0) return null
+  const history = useChartHistory(code, 20)
+  const changes = history.data?.pages.flat() ?? []
+  if (changes.length === 0) return null
   return (
     <div>
       <h4 className="mb-2 text-card-title font-semibold text-ink">Changes</h4>
       <div className="rounded-inner border border-hairline">
-        {history.data.map((change) => (
+        {changes.map((change) => (
           <ChangeLine key={change.change_id} change={change} />
         ))}
       </div>
+      <LoadMore query={history} />
     </div>
   )
 }

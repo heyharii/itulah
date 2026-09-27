@@ -362,7 +362,8 @@ pub struct EdgeAssignmentScope {
     pub role: Option<String>,
     #[serde(default)]
     pub active: Option<bool>,
-    /// `origin`, `username` or `updated`. Anything else is `origin` rather than
+    /// `origin`, `username`, `updated` or `lease` (the offline lease, the
+    /// access screen's decision metric). Anything else is `origin` rather than
     /// a 400, so a stale bookmark still opens.
     #[serde(default)]
     pub sort: Option<String>,
@@ -462,6 +463,8 @@ pub async fn list_edge_assignments(
     let lead = match scope.sort.as_deref() {
         Some("username") => "username",
         Some("updated") => "updated_at",
+        // NOT NULL in the table, so no sentinel is needed — see above.
+        Some("lease") => "offline_ttl_seconds",
         _ => "origin_id",
     };
     let descending = scope.dir.as_deref() == Some("desc");
@@ -798,8 +801,8 @@ pub struct RfidDeviceScope {
     pub origin_id: Option<String>,
     #[serde(default)]
     pub active: Option<bool>,
-    /// `origin`, `device`, `label` or `last_seen`. Anything else is `origin`
-    /// rather than a 400, so a stale bookmark still opens.
+    /// `origin`, `device`, `label`, `last_seen` or `lease`. Anything else is
+    /// `origin` rather than a 400, so a stale bookmark still opens.
     #[serde(default)]
     pub sort: Option<String>,
     /// `desc` and nothing else. Absent means ascending.
@@ -892,6 +895,8 @@ pub async fn list_rfid_devices(
         Some("device") => "device_id",
         Some("label") => "label",
         Some("last_seen") => "last_key",
+        // NOT NULL in the table (`0015`), so no sentinel is needed.
+        Some("lease") => "offline_ttl_seconds",
         _ => "origin_id",
     };
     let descending = scope.dir.as_deref() == Some("desc");

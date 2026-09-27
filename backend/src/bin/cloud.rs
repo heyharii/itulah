@@ -79,6 +79,11 @@ async fn main() -> Result<(), AppError> {
     // it is on; off is a missing key, never a refusal to boot. See
     // `cloud::push`.
     inventory_backend::cloud::push::spawn_agent(state.db.clone());
+    // Yesterday, told to every Admin once a morning at the hour Finance set —
+    // takings against the same weekday, the shops that moved, what is still
+    // missing. Arithmetic only; no model is asked. See the morning brief in
+    // `postgres::assistant` and `0502`.
+    tokio::spawn(postgres::run_morning_brief_agent(state.db.clone()));
     if state.config.sync_apply_enabled {
         tokio::spawn(sync_agent::run_apply_agent(state.clone()));
         // Head office told what its promotions are doing that no sale causes:

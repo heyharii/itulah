@@ -27,6 +27,7 @@ import type {
   GaReplacementPage,
   GaReplacementRow,
   GaSupplyCategory,
+  GaSupplyPage,
   GaSupplyRequestRow,
   MoveGaRepairRequest,
   MoveGaReplacementRequest,
@@ -204,6 +205,11 @@ export const gaKeys = {
   supplies: (scope: { site?: string; status?: string }) =>
     ["ga", "supplies", scope.site ?? null, scope.status ?? null] as const,
 
+  /// One supply request, as the request sheet opens it. Its own singular
+  /// segment, as `repair` and `contract` have, so it cannot collide with the
+  /// list above.
+  supply: (requestId: string) => ["ga", "supply", requestId] as const,
+
   /// The seven GA supply categories, with the account each one proposes. One
   /// key, no arguments, like `builds` and `repairObjects`: the server
   /// VALIDATES `category_code` against this table, so a form that read its
@@ -330,7 +336,11 @@ export function gaContracts(
     site?: string
     standing?: string
     archived?: boolean
+    /// `site` reads the register place first; absent is the house order.
+    sort?: "site"
     limit?: number
+    /// The previous page's `next_cursor`, verbatim.
+    cursor?: string
   } = {},
   signal?: AbortSignal
 ): Promise<GaContractPage> {
@@ -734,6 +744,38 @@ export function gaSupplies(
 ): Promise<readonly GaSupplyRequestRow[]> {
   return node.get<readonly GaSupplyRequestRow[]>(
     `/api/v1/ga/supplies${search(scope)}`,
+    { signal }
+  )
+}
+
+/// The supply register a page at a time, with the total and the stage counts.
+///
+/// A route of its own rather than a cursor on `/ga/supplies`: that one is the
+/// plain array a shop's till and the site hub read, and wrapping it in a page
+/// would change their answer under them.
+export function gaSupplyBook(
+  scope: {
+    site?: string
+    status?: string
+    q?: string
+    limit?: number
+    cursor?: string
+  } = {},
+  signal?: AbortSignal
+): Promise<GaSupplyPage> {
+  return node.get<GaSupplyPage>(`/api/v1/ga/supply-book${search(scope)}`, {
+    signal,
+  })
+}
+
+/// One supply request, wherever in the register it sits — what the request
+/// sheet opens, so a link to one past the first page still lands.
+export function gaSupply(
+  requestId: string,
+  signal?: AbortSignal
+): Promise<GaSupplyRequestRow> {
+  return node.get<GaSupplyRequestRow>(
+    `/api/v1/ga/supplies/${encodeURIComponent(requestId)}`,
     { signal }
   )
 }

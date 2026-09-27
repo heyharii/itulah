@@ -1,15 +1,20 @@
-import { useQuery } from "@tanstack/react-query"
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
-import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states"
+import {
+  EmptyState,
+  ErrorState,
+  LoadMore,
+  LoadingState,
+} from "@/components/ui/states"
 import { money } from "@/lib/format"
 import {
   advanceControl,
+  advancePage,
   domainKeys,
-  listAdvances,
 } from "@/lib/queries/finance-domains"
 import {
   Code,
@@ -26,26 +31,28 @@ import {
 /// disagree with the balance beside it.
 export function Advances() {
   const [status, setStatus] = useState<string | undefined>(undefined)
-  const advances = useQuery({
-    queryKey: domainKeys.advances(undefined, status),
-    queryFn: ({ signal }) => listAdvances(signal, { status }),
+  // A page at a time, newest first. The cards read the server's figures over
+  // the whole book, never a sum of the pages loaded.
+  const advances = useInfiniteQuery({
+    queryKey: [...domainKeys.advances(undefined, status), "pages"],
+    queryFn: ({ pageParam, signal }) =>
+      advancePage({ status, cursor: pageParam, limit: 100 }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    placeholderData: (previous) => previous,
   })
   const control = useQuery({
     queryKey: domainKeys.advanceControl(),
     queryFn: ({ signal }) => advanceControl(signal),
   })
 
-  const rows = useMemo(() => advances.data ?? [], [advances.data])
-  const outstanding = rows
-    .filter(
-      (row) => row.status === "PAID" || row.status === "PARTIALLY_SETTLED"
-    )
-    .reduce((total, row) => total + row.outstanding_minor, 0)
-  const old = rows.filter(
-    (row) =>
-      (row.status === "PAID" || row.status === "PARTIALLY_SETTLED") &&
-      (row.age_days ?? 0) > 30
+  const rows = useMemo(
+    () => advances.data?.pages.flatMap((page) => page.rows) ?? [],
+    [advances.data]
   )
+  const head = advances.data?.pages[0]
+  const outstanding = head?.outstanding_minor ?? null
+  const old = head?.over_thirty_days ?? null
   const difference = (control.data ?? []).reduce(
     (total, row) => total + row.difference_minor,
     0
@@ -63,8 +70,8 @@ export function Advances() {
         <NumberCard label="Masih di tangan orang" value={outstanding} />
         <NumberCard
           label="Lebih dari 30 hari"
-          value={old.length}
-          tone={old.length === 0 ? "ok" : "warn"}
+          value={old}
+          tone={old === null ? undefined : old === 0 ? "ok" : "warn"}
         />
         <NumberCard
           label="Selisih dengan buku besar"
@@ -105,7 +112,7 @@ export function Advances() {
 
       {advances.isPending ? (
         <LoadingState />
-      ) : advances.isError ? (
+      ) : advances.isError && advances.data === undefined ? (
         <ErrorState error={advances.error} />
       ) : rows.length === 0 ? (
         <EmptyState>Belum ada uang muka</EmptyState>
@@ -162,6 +169,7 @@ export function Advances() {
           </tbody>
         </table>
       )}
+      <LoadMore query={advances} />
     </PageContent>
   )
 }
