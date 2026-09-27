@@ -16,10 +16,15 @@ import {
   setSitePaymentMethods,
   sitePaymentMethods,
 } from "@/lib/queries/finance"
+import { siteLabel, useUnits } from "@/lib/queries/organisation"
 import { queryState } from "@/lib/query-state"
-import { useLocations } from "@/screens/finance/hooks"
 import { usePaymentMethods } from "@/screens/finance/master-data"
 import type { SitePaymentMethod } from "@itulah/contract"
+
+/// The kinds of site that sell: `STORE` today, `SHOP` in the premises
+/// vocabulary the register is moving to. A site's kind is data; its id says
+/// nothing.
+const SELLING_SITE_KINDS = new Set(["STORE", "SHOP"])
 
 /// Which payment methods each shop takes (ERPNext POS Profile → Payments).
 ///
@@ -29,21 +34,35 @@ import type { SitePaymentMethod } from "@itulah/contract"
 /// not Debit Mandiri. The shop's tills read the list from the store node, so a
 /// method switched off here disappears from the payment screen and a sale that
 /// names it is refused.
+///
+/// The list is the shops — the selling sites of the units register — and not
+/// the units the books are kept for: a till stands at a site.
 export function ShopPaymentMethods() {
-  const locations = useLocations()
+  const units = useUnits()
   const methods = usePaymentMethods()
   const [site, setSite] = useState<string | null>(null)
   const [needle, setNeedle] = useState("")
 
+  const allShops = useMemo(
+    () =>
+      (units.data ?? []).flatMap((unit) =>
+        unit.sites
+          .filter((one) => SELLING_SITE_KINDS.has(one.kind))
+          .map((one) => ({
+            site_id: one.id,
+            label: siteLabel(unit, one),
+            unit_status: unit.status,
+          }))
+      ),
+    [units.data]
+  )
+
   const shops = useMemo(() => {
     const text = needle.trim().toLowerCase()
-    return (locations.data?.locations ?? []).filter(
-      (one) =>
-        text === "" ||
-        one.site_id.toLowerCase().includes(text) ||
-        one.name.toLowerCase().includes(text)
+    return allShops.filter(
+      (one) => text === "" || one.label.toLowerCase().includes(text)
     )
-  }, [locations.data, needle])
+  }, [allShops, needle])
 
   /// How many active methods each shop takes, from the company list.
   const taken = useMemo(() => {
@@ -57,8 +76,7 @@ export function ShopPaymentMethods() {
 
   const chosen = site ?? shops[0]?.site_id ?? null
   const chosenName =
-    (locations.data?.locations ?? []).find((one) => one.site_id === chosen)
-      ?.name ?? chosen
+    allShops.find((one) => one.site_id === chosen)?.label ?? "…"
 
   return (
     <PageContent>
@@ -78,7 +96,7 @@ export function ShopPaymentMethods() {
 
       <div className="grid gap-4 lg:grid-cols-[18rem_1fr]">
         <Card className="overflow-hidden">
-          {queryState(locations, {
+          {queryState(units, {
             loading: "Reading the shops…",
             render: () =>
               shops.length === 0 ? (
@@ -95,10 +113,12 @@ export function ShopPaymentMethods() {
                         }`}
                       >
                         <span>
-                          <span className="block text-ink">{one.name}</span>
-                          <span className="font-mono text-[0.75rem] text-faint">
-                            {one.site_id} · {one.kind}
-                          </span>
+                          <span className="block text-ink">{one.label}</span>
+                          {one.unit_status === "CLOSED" && (
+                            <span className="text-[0.75rem] text-faint">
+                              Closed
+                            </span>
+                          )}
                         </span>
                         <span className="text-[0.875rem] text-mute">
                           {count(taken.get(one.site_id) ?? 0)}
@@ -116,7 +136,7 @@ export function ShopPaymentMethods() {
             <EmptyState>Pick a shop.</EmptyState>
           </Card>
         ) : (
-          <ShopMethods key={chosen} site={chosen} name={chosenName ?? chosen} />
+          <ShopMethods key={chosen} site={chosen} name={chosenName} />
         )}
       </div>
     </PageContent>
