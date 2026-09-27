@@ -568,4 +568,71 @@ export type DeviceRow = {
 export const devices = () =>
   edge<{ items?: DeviceRow[] }>("GET", "/api/v1/devices")
 
+/// One till waiting for a supervisor — `PendingJoin` in
+/// `backend/src/edge/devices.rs`. Nothing in it is a secret: the code and the
+/// number are on the waiting till's own screen.
+export type PendingJoin = {
+  readonly join_id: string
+  readonly kind: string
+  /// Display form, `7K4-P9Q`.
+  readonly code: string
+  readonly verification: string
+  /// What the till said about itself. Shown, trusted for nothing.
+  readonly machine?: {
+    readonly hostname?: string
+    readonly os?: string
+    readonly arch?: string
+    readonly version?: string
+  } | null
+  readonly issued_at: string
+  readonly expires_at: string
+}
+
+/// `GET /api/v1/devices/joins` — the tills waiting at this node, oldest
+/// first. Readable by anybody signed in here, because the till that shows the
+/// prompt is usually a cashier's.
+export const pendingJoins = () =>
+  edge<{ items?: PendingJoin[] }>("GET", "/api/v1/devices/joins")
+
+/// `ApprovedTill` in `backend/src/edge/devices.rs`.
+export type ApprovedTill = {
+  readonly join_id: string
+  readonly terminal_id: string
+  readonly label: string
+  readonly approved_by: string
+  /// `GRANT` (a finger or a PIN) or `SESSION`.
+  readonly approved_via: string
+  readonly replaced_terminal_id: string | null
+}
+
+/// `POST /api/v1/devices/joins/{id}/approve` — `ApproveJoinRequest`.
+///
+/// `authorization` is a supervisor's one-shot grant from a finger or a PIN
+/// pressed at this till (`supervisorByFinger`, `supervisorByPin`), spent by
+/// the node in the same transaction that lets the till in. Without one, the
+/// node accepts the session alone only from an Admin — or a supervisor, for a
+/// shop's first till. `replaces_terminal_id` names the till this one takes
+/// over from; it is revoked and its label inherited.
+export const approveJoin = (
+  joinId: string,
+  body: {
+    label?: string | null
+    replaces_terminal_id?: string | null
+    authorization?: string | null
+  },
+) =>
+  edge<ApprovedTill>(
+    "POST",
+    `/api/v1/devices/joins/${encodeURIComponent(joinId)}/approve`,
+    body,
+  )
+
+/// `POST /api/v1/devices/joins/{id}/refuse`. The waiting till hears
+/// `REJECTED` on its next poll and throws its key away.
+export const refuseJoin = (joinId: string) =>
+  edge<unknown>(
+    "POST",
+    `/api/v1/devices/joins/${encodeURIComponent(joinId)}/refuse`,
+  )
+
 export type { EdgeReply }

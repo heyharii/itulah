@@ -220,6 +220,9 @@ export type Where =
   | "peripherals"
   /// Finding the shop's node and asking it to let this till in.
   | "join"
+  /// The tills waiting to join, approved from here with a supervisor's finger
+  /// or PIN. Signed in only.
+  | "joins"
 
 export function Till({
   actorId,

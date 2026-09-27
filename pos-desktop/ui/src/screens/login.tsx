@@ -291,10 +291,14 @@ export function SetupScreen({
   onDone,
   onPeripherals,
   onJoin,
+  onJoins,
 }: {
   onDone: () => void
   onPeripherals?: () => void
   onJoin?: () => void
+  /// The tills waiting to join this shop. Only offered to somebody signed in:
+  /// the list is the node's, and approving needs a supervisor at this till.
+  onJoins?: () => void
 }) {
   const { ready, problem: shellProblem } = useSession()
   const { config, save } = useNodeConfig()
@@ -454,6 +458,19 @@ export function SetupScreen({
                   {config?.pairing_id != null ? "Gabung ulang" : "Gabungkan ke node"}
                 </button>
               </span>
+            </div>
+          )}
+
+          {/* A new till is let in from a till that already belongs: the
+              supervisor's finger or PIN is pressed here, on a machine the node
+              trusts to say whose it was. */}
+          {onJoins !== undefined && (
+            <div className="kv">
+              <span className="muted">Kasir baru yang meminta bergabung</span>
+              <button className="btn" type="button" onClick={onJoins}>
+                <Icon name="list" />
+                Kasir menunggu
+              </button>
             </div>
           )}
 

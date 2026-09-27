@@ -3,6 +3,7 @@ import { useCallback, useState } from "react"
 import { useIdleLock, LockScreen } from "@/lock"
 import { CustomerScreen } from "@/screens/customer"
 import { JoinScreen } from "@/screens/join"
+import { WaitingTillsScreen } from "@/screens/joins"
 import { LoginScreen, SetupScreen } from "@/screens/login"
 import { PeripheralsScreen } from "@/screens/peripherals"
 import { RedeemScreen } from "@/screens/redeem"
@@ -125,9 +126,12 @@ function Counter() {
         onDone={() => setWhere("sale")}
         onPeripherals={() => setWhere("peripherals")}
         onJoin={() => setWhere("join")}
+        onJoins={() => setWhere("joins")}
       />
     ) : where === "peripherals" ? (
       <PeripheralsScreen onBack={() => setWhere("setup")} />
+    ) : where === "joins" ? (
+      <WaitingTillsScreen onBack={() => setWhere("setup")} />
     ) : where === "join" ? (
       <JoinScreen
         onDone={() => setWhere("sale")}
