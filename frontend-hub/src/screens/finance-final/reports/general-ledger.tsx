@@ -30,9 +30,9 @@ import {
 import { useWindow } from "@/screens/finance/hooks"
 import {
   AccountPicker,
-  LocationSelect,
-  SiteName,
   SupplierName,
+  UnitName,
+  UnitSelect,
   WindowControl,
 } from "@/screens/finance/parts"
 import type { JournalEntryDetail } from "@itulah/contract"
@@ -55,7 +55,7 @@ import type { JournalEntryDetail } from "@itulah/contract"
 /// a filtered view of a wider one, and everybody who has used their old system
 /// thinks of it that way.
 ///
-/// Here `site` is a dimension on the ledger row, and the server narrows the
+/// Here `unit` is a dimension on the ledger row, and the server narrows the
 /// OPENING BALANCE with it as well as the movements. So choosing a unit does
 /// not filter this report; it changes which ledger is being read. That is why
 /// the unit sits in the first row of controls beside the account, why the
@@ -81,7 +81,7 @@ export function GeneralLedger() {
   // chart and the older ledger open with, so a link works from either side.
   const account = useSheet("account")
   const code = account.value ?? null
-  const [site, setSite] = useState("")
+  const [unit, setUnit] = useState("")
   const [picking, setPicking] = useState(false)
   const range = useWindow()
   // Which vouchers the reader has opened. A set rather than one id: opening
@@ -102,14 +102,14 @@ export function GeneralLedger() {
 
   const ledger = useInfiniteQuery({
     queryKey: [
-      ...financeKeys.ledger(code ?? "", site || null, range.from, range.to),
+      ...financeKeys.ledger(code ?? "", unit || null, range.from, range.to),
       "pages",
     ],
     queryFn: ({ pageParam, signal }) =>
       accountLedger(
         code ?? "",
         {
-          site: site || undefined,
+          unit: unit || undefined,
           from: range.from,
           to: range.to,
           // A step, not a ceiling: the ledger scrolls on. Paging cannot leave
@@ -177,9 +177,9 @@ export function GeneralLedger() {
       <Toolbar>
         {/* First, and beside the account rather than after the dates: at this
             client a unit is not a refinement of a ledger, it is which ledger. */}
-        <LocationSelect
-          value={site}
-          onChange={setSite}
+        <UnitSelect
+          value={unit}
+          onChange={setUnit}
           className="h-8 w-44"
           aria-label="Unit"
         />
@@ -191,10 +191,10 @@ export function GeneralLedger() {
         {head && (
           <span className="text-[0.875rem] text-mute">
             {day(head.from)} – {day(head.to)} ·{" "}
-            {head.site_id === null ? (
+            {head.unit_id === null ? (
               "every unit"
             ) : (
-              <SiteName id={head.site_id} />
+              <UnitName id={head.unit_id} />
             )}
           </span>
         )}
@@ -283,29 +283,29 @@ export function GeneralLedger() {
                   fourteen it could be. Narrowed, the server sends the one and
                   it becomes the caption for a window already narrowed, which is
                   what the contract says it is for. */}
-                {data.facets.sites.length > 0 && (
+                {data.facets.units.length > 0 && (
                   <div className="flex flex-wrap items-center gap-1.5">
                     <span className="mr-0.5 text-[0.875rem] text-mute">
-                      Moved at
+                      Moved in
                     </span>
-                    {data.facets.sites.map((one) => (
+                    {data.facets.units.map((one) => (
                       <button
                         key={one.value}
                         type="button"
-                        onClick={() => setSite(one.value)}
-                        disabled={site === one.value}
+                        onClick={() => setUnit(one.value)}
+                        disabled={unit === one.value}
                         className="disabled:cursor-default"
                       >
-                        <Pill tone={site === one.value ? "accent" : "neutral"}>
-                          {one.label ?? one.value} · {count(one.count)}
+                        <Pill tone={unit === one.value ? "accent" : "neutral"}>
+                          <UnitName id={one.value} /> · {count(one.count)}
                         </Pill>
                       </button>
                     ))}
-                    {site !== "" && (
+                    {unit !== "" && (
                       <Button
                         variant="quiet"
                         size="sm"
-                        onClick={() => setSite("")}
+                        onClick={() => setUnit("")}
                       >
                         Every unit
                       </Button>
@@ -317,7 +317,7 @@ export function GeneralLedger() {
                   <EmptyState>
                     Nothing moved in this account between {day(data.from)} and{" "}
                     {day(data.to)}
-                    {data.site_id === null ? ", at any unit" : ""}. The opening
+                    {data.unit_id === null ? ", in any unit" : ""}. The opening
                     balance above is still what it held.
                   </EmptyState>
                 ) : (
@@ -422,7 +422,7 @@ export function GeneralLedger() {
                               {voucher !== undefined ? (
                                 <AgainstAccounts
                                   voucher={voucher}
-                                  lineSite={row.site_id}
+                                  lineUnit={row.unit_id}
                                   debit={row.debit_minor}
                                   credit={row.credit_minor}
                                   want="own"
@@ -456,10 +456,16 @@ export function GeneralLedger() {
                               )}
                             </Td>
                             <Td>
-                              <SiteName
-                                id={row.site_id}
+                              <UnitName
+                                id={row.unit_id}
                                 className="text-body"
                               />
+                              {/* Who the balance is with, on an affiliate leg. */}
+                              {row.counter_unit_id !== null && (
+                                <span className="block text-[0.875rem] text-mute">
+                                  with <UnitName id={row.counter_unit_id} />
+                                </span>
+                              )}
                             </Td>
                             <Td>
                               {voucher === undefined ? (
@@ -475,7 +481,7 @@ export function GeneralLedger() {
                               ) : (
                                 <AgainstAccounts
                                   voucher={voucher}
-                                  lineSite={row.site_id}
+                                  lineUnit={row.unit_id}
                                   debit={row.debit_minor}
                                   credit={row.credit_minor}
                                   want="against"
@@ -567,20 +573,20 @@ export function GeneralLedger() {
 /// both, which is why this prints every match rather than picking one.
 function AgainstAccounts({
   voucher,
-  lineSite,
+  lineUnit,
   debit,
   credit,
   want,
 }: {
   voucher: JournalEntryDetail
-  lineSite: string
+  lineUnit: string
   debit: number
   credit: number
   want: "own" | "against"
 }) {
   const mine = voucher.lines.filter(
     (line) =>
-      line.site_id === lineSite &&
+      line.unit_id === lineUnit &&
       line.debit_minor === debit &&
       line.credit_minor === credit
   )
@@ -681,7 +687,7 @@ function Voucher({ voucher }: { voucher: JournalEntryDetail }) {
                 )}
               </Td>
               <Td>
-                <SiteName id={line.site_id} className="text-body" />
+                <UnitName id={line.unit_id} className="text-body" />
               </Td>
               <Td>
                 {line.party_type === "SUPPLIER" && line.party_id !== null ? (

@@ -24,8 +24,8 @@ import {
   type SalesPosting,
 } from "@/lib/queries/sales-postings"
 import { financeKeys } from "@/lib/queries/finance"
-import { useLocations } from "@/screens/finance/hooks"
-import { LocationSelect } from "@/screens/finance/parts"
+import { useUnits } from "@/lib/queries/organisation"
+import { SiteName, SiteSelect } from "@/screens/finance/parts"
 import { Grid, Td, Th, TotalRow } from "@/screens/finance-final/parts"
 import { todayIso } from "@/screens/finance/chart"
 
@@ -43,7 +43,8 @@ export function SalesPostings() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [confirmPostId, setConfirmPostId] = useState<string | null>(null)
   const queryClient = useQueryClient()
-  const locations = useLocations()
+  // A posting is a site's trading day; the sites are read off the units.
+  const register = useUnits()
 
   const list = useQuery({
     queryKey: salesPostingKeys.list(site, month),
@@ -102,13 +103,13 @@ export function SalesPostings() {
       />
 
       <Toolbar>
-        <LocationSelect
+        <SiteSelect
           value={site}
           onChange={(value) => {
             setSite(value)
             setSelectedId(null)
           }}
-          emptyLabel="Choose a location"
+          emptyLabel="Choose a site"
           className="h-8 w-44"
         />
         <label className="flex items-center gap-2 text-[0.875rem] text-mute">
@@ -140,7 +141,7 @@ export function SalesPostings() {
         </label>
         <Button
           variant="primary"
-          pending={generate.isPending || locations.isPending}
+          pending={generate.isPending || register.isPending}
           disabled={site === "" || businessDate === ""}
           onClick={() =>
             generate.mutate({ site_id: site, business_date: businessDate })
@@ -179,7 +180,7 @@ export function SalesPostings() {
           <LoadingState>Reading Cloud sales postings…</LoadingState>
         ) : rows.length === 0 ? (
           <EmptyState>
-            No sales posting exists for this location and month. Choose a day
+            No sales posting exists for this site and month. Choose a day
             above to generate a draft from synced POS sales.
           </EmptyState>
         ) : (
@@ -225,7 +226,8 @@ export function SalesPostings() {
                 <div>
                   <div className="flex items-center gap-2">
                     <h2 className="text-[0.875rem] font-semibold text-ink">
-                      {day(selected.business_date)} · {selected.site_id}
+                      {day(selected.business_date)} ·{" "}
+                      <SiteName id={selected.site_id} />
                     </h2>
                     <Status status={selected.status} />
                   </div>

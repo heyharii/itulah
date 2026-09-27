@@ -17,13 +17,14 @@ import { cn } from "@/lib/utils"
 ///    and a finance screen that renders them the same has told a lie about a
 ///    period nobody has posted to yet.
 ///
-/// Controls that already exist — `LocationSelect`, `SiteName`, `AsOfControl`,
-/// `WindowControl`, `AccountPicker`, `AccountAndCategory`, `SupplierPicker` —
-/// are imported from `@/screens/finance/parts` rather than copied. They are the
-/// unit dimension's controls, and a second copy would be a second opinion about
-/// what a unit is.
+/// Controls that already exist — `UnitSelect`, `SiteSelect`, `UnitName`,
+/// `SiteName`, `AsOfControl`, `WindowControl`, `AccountPicker`,
+/// `AccountAndCategory`, `SupplierPicker` — are imported from
+/// `@/screens/finance/parts` rather than copied. They are the unit and site
+/// dimensions' controls, and a second copy would be a second opinion about
+/// what a unit or a site is.
 ///
-/// `AccountAndCategory` matters most of the six. An account and the category
+/// `AccountAndCategory` matters most of them. An account and the category
 /// its family asks for are one answer, not two fields, and a screen here that
 /// drew its own pair would be a screen that can post a line the database
 /// refuses.

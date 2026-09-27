@@ -61,7 +61,7 @@ import { monthLabel } from "@/screens/finance/chart"
 /// Because a month belongs to the book and the unit is a dimension on the rows
 /// inside it. ERPNext can close per unit only because its sweep is written once
 /// per dimension tuple, which needs cost centres — a thing this project has
-/// deliberately refused. `journal_line.site_id` is not null on every posting, so
+/// deliberately refused. `journal_line.unit_id` is not null on every posting, so
 /// every report here can be read per unit without the book ever having been
 /// split into fourteen books.
 ///

@@ -17,7 +17,7 @@ import {
   Th,
 } from "@/screens/finance-final/parts"
 import { useAsOf } from "@/screens/finance/hooks"
-import { AsOfControl, LocationSelect, SiteName } from "@/screens/finance/parts"
+import { AsOfControl, UnitName, UnitSelect } from "@/screens/finance/parts"
 
 /// Accounts receivable — what we are actually owed.
 ///
@@ -62,7 +62,7 @@ export function AccountsReceivable() {
   // On the wire, never across an answer already in hand. Inter-unit balances
   // are the case that makes this matter: "who owes whom" is meaningless until
   // somebody says which unit is asking.
-  const [site, setSite] = useState("")
+  const [unit, setUnit] = useState("")
 
   // One query per ACCOUNT, folded back into one row per family. A family that
   // spans three accounts asks three questions and adds them; the alternative —
@@ -77,11 +77,11 @@ export function AccountsReceivable() {
       // The one-day window is how a ledger is asked for a balance:
       // `closing_minor` is a property of the window's end, so `from == to`
       // says "as at this date" and `limit: 1` keeps movements nobody is
-      // reading off the wire. The key carries the unit, so two locations are
-      // two cache entries and never one answer wearing both names.
+      // reading off the wire. The key carries the unit, so two units are two
+      // cache entries and never one answer wearing both names.
       queryKey: financeKeys.ledger(
         familyCode,
-        site || null,
+        unit || null,
         asOf.value,
         asOf.value
       ),
@@ -89,7 +89,7 @@ export function AccountsReceivable() {
         accountLedger(
           familyCode,
           {
-            site: site || undefined,
+            unit: unit || undefined,
             from: asOf.value,
             to: asOf.value,
             limit: 1,
@@ -147,21 +147,21 @@ export function AccountsReceivable() {
 
       <Toolbar>
         <AsOfControl asOf={asOf} />
-        <LocationSelect
-          value={site}
-          onChange={setSite}
+        <UnitSelect
+          value={unit}
+          onChange={setUnit}
           className="h-8 w-44"
-          aria-label="Location"
+          aria-label="Unit"
         />
         <Toolbar.Spacer />
         <span className="text-[0.875rem] text-mute">
           {asOf.chip}
-          {site === "" ? (
-            " · every location"
+          {unit === "" ? (
+            " · every unit"
           ) : (
             <>
               {" · "}
-              <SiteName id={site} />
+              <UnitName id={unit} />
             </>
           )}
         </span>
@@ -265,7 +265,7 @@ export function AccountsReceivable() {
             before they reach this page.
           </Note>
 
-          <Settlement asOf={asOf.value} site={site} />
+          <Settlement asOf={asOf.value} unit={unit} />
 
           <Note>
             <b>Why the settlement rows read nothing.</b> The accounts are there
@@ -290,9 +290,9 @@ export function AccountsReceivable() {
             drawing empty <i>1–30 / 31–60 / 61–90</i> columns here would say the
             figures are missing when in fact the question cannot yet be asked. A{" "}
             <code>GET /finance/receivables-aging</code> would have to mirror the
-            payable one exactly: <code>as_of</code> and <code>site</code> as
+            payable one exactly: <code>as_of</code> and <code>unit</code> as
             query parameters, both sides wound back to the reporting date, and
-            an answer of <code>as_of</code>, <code>site_id</code>, a{" "}
+            an answer of <code>as_of</code>, <code>unit_id</code>, a{" "}
             <code>parties</code> array of{" "}
             <code>
               {
@@ -429,11 +429,11 @@ function Balance({ minor }: { minor: number | null }) {
 /// The pot is the server's decision and not a substring of the semantic key: a
 /// screen that worked it out by looking for "card" in the name would get it
 /// wrong the first time somebody added a key containing the word.
-function Settlement({ asOf, site }: { asOf: string; site: string }) {
+function Settlement({ asOf, unit }: { asOf: string; unit: string }) {
   const overview = useQuery({
-    queryKey: financeKeys.money(asOf, site || null),
+    queryKey: financeKeys.money(asOf, unit || null),
     queryFn: ({ signal }) =>
-      moneyOverview({ as_of: asOf, site: site || undefined }, signal),
+      moneyOverview({ as_of: asOf, unit: unit || undefined }, signal),
   })
 
   const rows = useMemo(
@@ -451,7 +451,7 @@ function Settlement({ asOf, site }: { asOf: string; site: string }) {
   if (rows.length === 0) {
     return (
       <EmptyState>
-        No settlement account is mapped at this location. A place money can be
+        No settlement account is mapped in this unit. A place money can be
         owed is a meaning bound to an account on the Account map, and until one
         is bound there is nowhere for a card sale to sit.
       </EmptyState>
@@ -485,7 +485,7 @@ function Settlement({ asOf, site }: { asOf: string; site: string }) {
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr key={`${row.account_code}@${row.site_id}`}>
+            <tr key={`${row.account_code}@${row.unit_id}`}>
               <Td>
                 {/* The client's name, untrimmed, ending in their own code for
                     the shop — `… C001`. That suffix is THEIR name for the
@@ -493,7 +493,7 @@ function Settlement({ asOf, site }: { asOf: string; site: string }) {
                 <span className="font-medium text-ink">{row.account_name}</span>
               </Td>
               <Td>
-                <SiteName id={row.site_id} />
+                <UnitName id={row.unit_id} />
               </Td>
               <Td>
                 <Code>{row.account_code}</Code>

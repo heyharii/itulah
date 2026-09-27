@@ -20,7 +20,7 @@ import {
 } from "@/screens/finance-final/parts"
 import { asPresented, ladderLevel, periodResult } from "@/screens/finance/chart"
 import { useAsOf } from "@/screens/finance/hooks"
-import { AsOfControl, LocationSelect, SiteName } from "@/screens/finance/parts"
+import { AsOfControl, UnitName, UnitSelect } from "@/screens/finance/parts"
 import type { StatementSection } from "@itulah/contract"
 
 /// What is held, what is owed, and what is left, as at a date.
@@ -61,14 +61,14 @@ import type { StatementSection } from "@itulah/contract"
 /// sheet out by everything that happened before it.
 export function BalanceSheet() {
   const asOf = useAsOf()
-  const [site, setSite] = useState("")
+  const [unit, setUnit] = useState("")
 
   const report = useQuery({
     queryKey: financeKeys.statement(
       "BALANCE_SHEET",
       null,
       asOf.value,
-      site || null
+      unit || null
     ),
     queryFn: ({ signal }) =>
       statement(
@@ -76,7 +76,7 @@ export function BalanceSheet() {
         // No `from`. The server would drop it anyway — a balance sheet is
         // cumulative — and sending one would put a date in the query key that
         // changes nothing about the answer.
-        { to: asOf.value, site: site || undefined },
+        { to: asOf.value, unit: unit || undefined },
         signal
       ),
   })
@@ -91,21 +91,21 @@ export function BalanceSheet() {
 
       <Toolbar>
         <AsOfControl asOf={asOf} />
-        <LocationSelect
-          value={site}
-          onChange={setSite}
+        <UnitSelect
+          value={unit}
+          onChange={setUnit}
           className="h-8 w-44"
-          aria-label="Location"
+          aria-label="Unit"
         />
         <Toolbar.Spacer />
         <span className="text-[0.875rem] text-mute">
           {asOf.chip}
-          {site === "" ? (
+          {unit === "" ? (
             " · every unit"
           ) : (
             <>
               {" · "}
-              <SiteName id={site} />
+              <UnitName id={unit} />
             </>
           )}
         </span>
@@ -230,7 +230,7 @@ export function BalanceSheet() {
                   GET /finance/statement?kind=BALANCE_SHEET
                 </code>{" "}
                 takes an as-at date and a{" "}
-                <code className="font-mono text-[0.875rem]">site</code>, and
+                <code className="font-mono text-[0.875rem]">unit</code>, and
                 the unit is a filter on the ledger row rather than part of the
                 account code — so <i>Cash on Hand</i> is named once here and the
                 shop is a column, where the client's legacy chart keeps fourteen

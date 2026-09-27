@@ -16,6 +16,7 @@ import {
   listPayments,
   payablesAging,
 } from "@/lib/queries/finance"
+import { useUnits } from "@/lib/queries/organisation"
 import { queryState } from "@/lib/query-state"
 import {
   CardRow,
@@ -28,10 +29,11 @@ import {
 } from "@/screens/finance-final/parts"
 import { parseMinor } from "@/screens/finance/chart"
 import {
-  LocationSelect,
   SiteName,
   SupplierName,
   SupplierPicker,
+  UnitName,
+  UnitSelect,
 } from "@/screens/finance/parts"
 import type { SupplierBill, SupplierPayment } from "@itulah/contract"
 
@@ -102,7 +104,7 @@ interface Pairing {
 }
 
 export function PaymentReconciliation() {
-  const [site, setSite] = useState("")
+  const [unit, setUnit] = useState("")
   const [party, setParty] = useState("")
   const [invoiceNeedle, setInvoiceNeedle] = useState("")
   const [paymentNeedle, setPaymentNeedle] = useState("")
@@ -116,9 +118,9 @@ export function PaymentReconciliation() {
 
   // The unit goes on the wire here, where the key has a slot for it.
   const payments = useQuery({
-    queryKey: financeKeys.payments(null, site || null, null),
+    queryKey: financeKeys.payments(null, unit || null, null),
     queryFn: ({ signal }) =>
-      listPayments({ site: site || undefined, limit: CAP }, signal).then(
+      listPayments({ unit: unit || undefined, limit: CAP }, signal).then(
         (page) => page.rows
       ),
   })
@@ -139,14 +141,38 @@ export function PaymentReconciliation() {
     staleTime: 60_000,
   })
 
+  // A bill stays at the site it was received at; whose debt it is — for the
+  // unit filter and for pairing — is the unit that owns that site.
+  const register = useUnits()
+  const owner = useMemo(() => {
+    const table = new Map<string, string>()
+    for (const one of register.data ?? []) {
+      for (const premises of one.sites) table.set(premises.id, one.id)
+    }
+    return table
+  }, [register.data])
+  const unitOf = (bill: SupplierBill) => owner.get(bill.site_id) ?? ""
+  // The invoice side waits for the register as well as the bills: without it
+  // no bill knows its unit.
+  const debts = {
+    isPending: bills.isPending || register.isPending,
+    isError: bills.isError || register.isError,
+    error: bills.error ?? register.error,
+    data: bills.data,
+    refetch: () => {
+      void bills.refetch()
+      void register.refetch()
+    },
+  }
+
   // The server's own ageing, as at today, narrowed by unit ON THE WIRE. It is
   // the honest figure for "what is open" — it winds payments back and ages what
   // is outstanding rather than what was invoiced — and it is deliberately shown
   // beside a list narrowed in the browser, so the two can be compared.
   const aging = useQuery({
-    queryKey: financeKeys.payablesAging(null, site || null),
+    queryKey: financeKeys.payablesAging(null, unit || null),
     queryFn: ({ signal }) =>
-      payablesAging({ site: site || undefined }, signal),
+      payablesAging({ unit: unit || undefined }, signal),
   })
 
   /// The money side. Posted only: a draft has moved nothing, and ERPNext's tool
@@ -178,7 +204,7 @@ export function PaymentReconciliation() {
         (bill) =>
           bill.status === "POSTED" &&
           bill.outstanding_minor > 0 &&
-          (site === "" || bill.site_id === site) &&
+          (unit === "" || owner.get(bill.site_id) === unit) &&
           (party === "" || bill.supplier_id === party) &&
           (text === "" ||
             bill.invoice_number.toLowerCase().includes(text) ||
@@ -187,7 +213,15 @@ export function PaymentReconciliation() {
           (ceiling === null || bill.outstanding_minor <= ceiling)
       )
       .sort((a, b) => b.days_overdue - a.days_overdue)
-  }, [bills.data, site, party, invoiceNeedle, minOutstanding, maxOutstanding])
+  }, [
+    bills.data,
+    owner,
+    unit,
+    party,
+    invoiceNeedle,
+    minOutstanding,
+    maxOutstanding,
+  ])
 
   const listedPayments = openPayments.slice(0, paymentLimit)
   const listedInvoices = openInvoices.slice(0, invoiceLimit)
@@ -203,7 +237,7 @@ export function PaymentReconciliation() {
   /// cannot be paired with them, so its box is drawn dead with the reason
   /// rather than hidden.
   const tickedUnits = new Set(
-    tickedPayments.map((id) => paymentById.get(id)?.site_id ?? "")
+    tickedPayments.map((id) => paymentById.get(id)?.unit_id ?? "")
   )
 
   /// What a pairing has already claimed, so a second pairing on the same
@@ -239,7 +273,7 @@ export function PaymentReconciliation() {
       let purse = unallocated(payment)
       for (const bill of chosenInvoices) {
         if (purse <= 0) break
-        if (bill.site_id !== payment.site_id) continue
+        if (unitOf(bill) !== payment.unit_id) continue
         const owing = left.get(bill.invoice_id) ?? 0
         if (owing <= 0) continue
         const take = Math.min(purse, owing)
@@ -302,10 +336,10 @@ export function PaymentReconciliation() {
             placeholder="Every supplier"
           />
         </span>
-        <LocationSelect
-          value={site}
+        <UnitSelect
+          value={unit}
           onChange={(next) => {
-            setSite(next)
+            setUnit(next)
             // A pairing crosses no unit, so a change of unit invalidates every
             // one that is open.
             setTickedPayments([])
@@ -313,12 +347,11 @@ export function PaymentReconciliation() {
             setPairings([])
           }}
           className="h-8 w-44"
-          emptyLabel="Every unit"
           aria-label="Unit"
         />
         <Toolbar.Spacer />
         <span className="text-[0.875rem] text-mute">
-          {site === "" ? "Every unit" : <SiteName id={site} />}
+          {unit === "" ? "Every unit" : <UnitName id={unit} />}
           {` · ${count(openInvoices.length)} open ${
             openInvoices.length === 1 ? "invoice" : "invoices"
           } · ${count(openPayments.length)} unallocated ${
@@ -439,7 +472,7 @@ export function PaymentReconciliation() {
                 listedPayments.length === 0 ? (
                   <EmptyState>
                     No posted payment has money left on it
-                    {site === "" ? "" : " at this unit"}. This list is
+                    {unit === "" ? "" : " in this unit"}. This list is
                     structurally empty, not merely quiet: a payment here must
                     name the bills it settles and takes its total from them, so
                     nothing can be paid on account.
@@ -499,7 +532,7 @@ export function PaymentReconciliation() {
                             </Td>
                             <Td>{day(row.payment_date)}</Td>
                             <Td>
-                              <SiteName id={row.site_id} />
+                              <UnitName id={row.unit_id} />
                             </Td>
                             <Td align="right">
                               <span className="font-medium text-ink">
@@ -538,7 +571,7 @@ export function PaymentReconciliation() {
               Outstanding invoices
             </SubHead>
 
-            {queryState(bills, {
+            {queryState(debts, {
               loading: "Reading what is still open…",
               refused: (
                 <NoAccessState
@@ -571,7 +604,7 @@ export function PaymentReconciliation() {
                         const on = tickedInvoices.includes(bill.invoice_id)
                         const pairable =
                           tickedUnits.size === 0 ||
-                          tickedUnits.has(bill.site_id)
+                          tickedUnits.has(unitOf(bill))
                         return (
                           <tr key={bill.invoice_id}>
                             <Td>

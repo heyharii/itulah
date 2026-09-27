@@ -40,6 +40,7 @@ import {
   recordPayment,
   type AllocateToBill,
 } from "@/lib/queries/finance"
+import { useUnits } from "@/lib/queries/organisation"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { useDebounced } from "@/lib/use-debounced"
@@ -61,9 +62,9 @@ import {
 } from "@/screens/finance/hooks"
 import {
   AccountMeaning,
-  LocationSelect,
-  SiteName,
   SupplierName,
+  UnitName,
+  UnitSelect,
 } from "@/screens/finance/parts"
 import { idempotencyKey } from "@itulah/contract/client"
 import type { SupplierBill, SupplierPayment } from "@itulah/contract"
@@ -155,7 +156,7 @@ function partiesOf(payment: SupplierPayment): readonly string[] {
 }
 
 export function Payments() {
-  const [site, setSite] = useState("")
+  const [unit, setUnit] = useState("")
   const [status, setStatus] = useState("")
   const [needle, setNeedle] = useState("")
   // In the URL rather than in state, so a bill's "paid by" link
@@ -169,7 +170,7 @@ export function Payments() {
   const q = useDebounced(needle.trim(), 300)
   const payments = useInfiniteQuery({
     queryKey: [
-      ...financeKeys.payments(status || null, site || null, null),
+      ...financeKeys.payments(status || null, unit || null, null),
       "pages",
       q,
     ],
@@ -177,7 +178,7 @@ export function Payments() {
       listPayments(
         {
           status: status || undefined,
-          site: site || undefined,
+          unit: unit || undefined,
           q: q || undefined,
           limit: PAGE,
           cursor: pageParam,
@@ -193,12 +194,12 @@ export function Payments() {
   // adding up the drafts among the loaded rows would be a figure about how far
   // somebody scrolled. One row is asked for; the sum is what is wanted.
   const drafts = useQuery({
-    queryKey: [...financeKeys.payments("DRAFT", site || null, null), "sum", q],
+    queryKey: [...financeKeys.payments("DRAFT", unit || null, null), "sum", q],
     queryFn: ({ signal }) =>
       listPayments(
         {
           status: "DRAFT",
-          site: site || undefined,
+          unit: unit || undefined,
           q: q || undefined,
           limit: 1,
         },
@@ -239,11 +240,10 @@ export function Payments() {
       />
 
       <Toolbar>
-        <LocationSelect
-          value={site}
-          onChange={setSite}
+        <UnitSelect
+          value={unit}
+          onChange={setUnit}
           className="h-8 w-44"
-          emptyLabel="Every unit"
           aria-label="Unit"
         />
         <span className="inline-flex w-40 shrink-0">
@@ -260,7 +260,7 @@ export function Payments() {
         </span>
         <Toolbar.Spacer />
         <span className="text-[0.875rem] text-mute">
-          {site === "" ? "Every unit" : <SiteName id={site} />}
+          {unit === "" ? "Every unit" : <UnitName id={unit} />}
           {status !== "" && ` · ${label(status)}`}
           {` · ${count(matched)} ${matched === 1 ? "payment" : "payments"}`}
         </span>
@@ -301,7 +301,7 @@ export function Payments() {
             rows.length === 0 && q === "" ? (
               <EmptyState>
                 No payment is recorded
-                {site === "" ? "" : " at this unit"}
+                {unit === "" ? "" : " in this unit"}
                 {status === "" ? "" : ` in ${label(status).toLowerCase()}`}.
                 Recording one writes it down; it is not in the books until
                 somebody posts it.
@@ -361,7 +361,7 @@ export function Payments() {
                           />
                         </Td>
                         <Td>
-                          <SiteName id={row.site_id} />
+                          <UnitName id={row.unit_id} />
                         </Td>
                         <Td align="right">
                           <span className="font-medium text-ink">
@@ -546,7 +546,7 @@ function PaymentPanel({
               <Facts>
                 <Fact term="Payment date">{day(payment.payment_date)}</Fact>
                 <Fact term="Unit">
-                  <SiteName id={payment.site_id} />
+                  <UnitName id={payment.unit_id} />
                 </Fact>
                 <Fact term="Paid from">
                   <AccountMeaning
@@ -771,7 +771,7 @@ function ComposerPanel({
   onClose: () => void
 }) {
   const client = useQueryClient()
-  const [site, setSite] = useState("")
+  const [unit, setUnit] = useState("")
   const [paymentDate, setPaymentDate] = useState(todayIso)
   // Giro by default: suppliers are paid by bilyet giro unless Finance says
   // otherwise, and Finance chooses the instrument here, at payment — not on
@@ -799,26 +799,32 @@ function ComposerPanel({
     enabled: open,
     staleTime: 60_000,
   })
+  // A bill stays at the site it was received at; the unit whose debt it is
+  // owns that site.
+  const register = useUnits()
 
   /// What can be paid from here, oldest first.
   ///
-  /// Posted bills with something still outstanding, at this unit and no other:
+  /// Posted bills with something still outstanding, in this unit and no other:
   /// the database refuses a payment that crosses units — *"pay a location's
   /// bills from that location"* — because the entry debits the payable at the
   /// payment's unit, and settling a shop's bill out of head office would clear
   /// a payable the shop still carries.
-  const candidates = useMemo(
-    () =>
-      (bills.data ?? [])
-        .filter(
-          (bill) =>
-            bill.status === "POSTED" &&
-            bill.outstanding_minor > 0 &&
-            (site === "" || bill.site_id === site)
-        )
-        .sort((a, b) => b.days_overdue - a.days_overdue),
-    [bills.data, site]
-  )
+  const candidates = useMemo(() => {
+    const sites = new Set(
+      (register.data?.find((one) => one.id === unit)?.sites ?? []).map(
+        (premises) => premises.id
+      )
+    )
+    return (bills.data ?? [])
+      .filter(
+        (bill) =>
+          bill.status === "POSTED" &&
+          bill.outstanding_minor > 0 &&
+          (unit === "" || sites.has(bill.site_id))
+      )
+      .sort((a, b) => b.days_overdue - a.days_overdue)
+  }, [bills.data, register.data, unit])
 
   const paidMinor = total.trim() === "" ? null : parseMinor(total)
   const chosen = new Map(references.map((row) => [row.invoice_id, row.amount]))
@@ -836,7 +842,7 @@ function ComposerPanel({
   )
   const unallocatedMinor = (paidMinor ?? 0) - allocatedMinor
   const ready =
-    site !== "" &&
+    unit !== "" &&
     paymentDate !== "" &&
     account !== "" &&
     references.length > 0 &&
@@ -855,7 +861,7 @@ function ComposerPanel({
       const parsed = parseMoneyAccountValue(account)
       return recordPayment(
         {
-          site_id: site,
+          unit_id: unit,
           payment_date: paymentDate,
           method,
           account_key: parsed.account_key,
@@ -968,10 +974,10 @@ function ComposerPanel({
 
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Unit" required hint="A unit pays its own bills.">
-            <LocationSelect
-              value={site}
+            <UnitSelect
+              value={unit}
               onChange={(next) => {
-                setSite(next)
+                setUnit(next)
                 // The accounts belong to a unit, and so do the bills. Keeping
                 // either would send a mapping that does not exist there.
                 setAccount("")
@@ -992,7 +998,7 @@ function ComposerPanel({
               ))}
             </Select>
           </Field>
-          <AccountField site={site} value={account} onChange={setAccount} />
+          <AccountField unit={unit} value={account} onChange={setAccount} />
           {/* The paper, and only when there is paper. A giro is a promise
               before it is money, and the number is how the bank finds it
               again — which is why the server requires both. */}
@@ -1063,9 +1069,9 @@ function ComposerPanel({
             References
           </SubHead>
 
-          {bills.isPending ? (
+          {bills.isPending || register.isPending ? (
             <p className="text-[0.875rem] text-mute">Reading the bills…</p>
-          ) : site === "" ? (
+          ) : unit === "" ? (
             <p className="text-[0.875rem] text-mute">
               Choose a unit first — a payment answers that unit&rsquo;s debts,
               and the database refuses one that crosses units.
@@ -1218,7 +1224,7 @@ function ComposerPanel({
                 Record actually needs to read. */}
             {ready
               ? `Allocated in full at ${money(allocatedMinor)}`
-              : site === ""
+              : unit === ""
                 ? "No unit chosen yet"
                 : references.length === 0
                   ? "No bill chosen yet"
@@ -1260,15 +1266,15 @@ function ComposerPanel({
 /// account the posting rules do not know, and offering every meaning would let
 /// them pick one nobody has mapped, whose posting is refused outright.
 function AccountField({
-  site,
+  unit,
   value,
   onChange,
 }: {
-  site: string
+  unit: string
   value: string
   onChange: (value: string) => void
 }) {
-  const accounts = useMoneyAccounts(site)
+  const accounts = useMoneyAccounts(unit)
   const meaning = useMeaningLabel()
 
   return (
@@ -1276,7 +1282,7 @@ function AccountField({
       label="Paid from"
       required
       hint={
-        site === ""
+        unit === ""
           ? "Choose a unit first."
           : accounts.length === 0
             ? "No cash or bank meaning is mapped at this unit. Map one first — a posting that needs it is refused."
