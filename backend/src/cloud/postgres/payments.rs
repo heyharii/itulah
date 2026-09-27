@@ -354,7 +354,8 @@ async fn attach_allocations(
 ///
 /// Binds: `$1` the search pattern, or NULL for no search.
 ///
-/// It stops at the SEARCH. Status, site and supplier are applied outside it.
+/// It stops at the SEARCH and the date window (`$5`/`$6`, see
+/// `PaymentScope::from`). Status, site and supplier are applied outside it.
 fn payment_rows() -> String {
     format!(
         "SELECT {PAYMENT_COLUMNS} {PAYMENT_FROM}

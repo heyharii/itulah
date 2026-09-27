@@ -232,8 +232,14 @@ export const systemKeys = {
   /// `[…, "bell", 8]`, whose answer is a single page, not an infinite one.
   notificationFeed: (unread: boolean) =>
     ["system", "notifications", "feed", unread] as const,
-  edgeAssignments: () => ["system", "edge-assignments"] as const,
-  rfidDevices: () => ["system", "rfid-devices"] as const,
+  edgeAssignments: (scope?: AccessScope) =>
+    scope === undefined
+      ? (["system", "edge-assignments"] as const)
+      : (["system", "edge-assignments", scope] as const),
+  rfidDevices: (scope?: AccessScope) =>
+    scope === undefined
+      ? (["system", "rfid-devices"] as const)
+      : (["system", "rfid-devices", scope] as const),
   enrolments: () => ["system", "enrolments"] as const,
   nodeHealth: () => ["system", "node-health"] as const,
   uptime: () => ["system", "uptime"] as const,
@@ -496,13 +502,21 @@ export function listNodeHealth(signal?: AbortSignal) {
     .then((body) => body.items)
 }
 
-export function nodeIncidents(originId: string, signal?: AbortSignal) {
-  return node
-    .get<{ items: NodeIncident[] }>(
-      `/api/v1/sync/nodes/${encodeURIComponent(originId)}/incidents`,
-      { signal }
-    )
-    .then((body) => body.items)
+/// One page of a node's week, newest first, walking `next_cursor`.
+export function nodeIncidents(
+  originId: string,
+  cursor?: string,
+  signal?: AbortSignal
+) {
+  const params = new URLSearchParams({ limit: "50" })
+  if (cursor) params.set("cursor", cursor)
+  return node.get<{
+    items: NodeIncident[]
+    next_cursor: string | null
+  }>(
+    `/api/v1/sync/nodes/${encodeURIComponent(originId)}/incidents?${params.toString()}`,
+    { signal }
+  )
 }
 
 // ---- Uptime: the status-page view ---------------------------------------------
@@ -850,10 +864,43 @@ export interface EdgeAssignmentList {
   readonly facets: EdgeAssignmentFacets
 }
 
-export function listEdgeAssignments(signal?: AbortSignal) {
-  return node.get<EdgeAssignmentList>("/api/v1/auth/edge-assignments", {
-    signal,
-  })
+/// What the two access lists can be asked for — the parameters
+/// `GET /api/v1/auth/edge-assignments` and `GET /api/v1/auth/rfid-devices`
+/// share. `role` is the grants' alone; the readers have none.
+export interface AccessScope {
+  /// Free text over the node, the login and the name (or the reader's id and
+  /// label).
+  readonly q?: string
+  readonly origin_id?: string
+  readonly role?: string
+  readonly active?: boolean
+  /// Grants: `origin`, `username`, `updated` or `lease`. Readers: `origin`,
+  /// `device`, `label`, `last_seen` or `lease`.
+  readonly sort?: string
+  readonly desc?: boolean
+}
+
+function accessParams(scope: AccessScope & { readonly cursor?: string }) {
+  const params = new URLSearchParams({ limit: "200" })
+  if (scope.q) params.set("q", scope.q)
+  if (scope.origin_id) params.set("origin_id", scope.origin_id)
+  if (scope.role) params.set("role", scope.role)
+  if (scope.active !== undefined) params.set("active", String(scope.active))
+  if (scope.sort) params.set("sort", scope.sort)
+  if (scope.desc === true) params.set("dir", "desc")
+  if (scope.cursor) params.set("cursor", scope.cursor)
+  return params.toString()
+}
+
+/// One page of who may sign in where, walking `next_cursor`.
+export function edgeAssignmentsPage(
+  scope: AccessScope & { readonly cursor?: string },
+  signal?: AbortSignal
+) {
+  return node.get<EdgeAssignmentList>(
+    `/api/v1/auth/edge-assignments?${accessParams(scope)}`,
+    { signal }
+  )
 }
 
 /// Grant somebody access at one node, or rotate the password they use there.
@@ -918,8 +965,15 @@ export interface RfidDeviceList {
   readonly facets: RfidDeviceFacets
 }
 
-export function listRfidDevices(signal?: AbortSignal) {
-  return node.get<RfidDeviceList>("/api/v1/auth/rfid-devices", { signal })
+/// One page of the readers the centre vouches for, walking `next_cursor`.
+export function rfidDevicesPage(
+  scope: AccessScope & { readonly cursor?: string },
+  signal?: AbortSignal
+) {
+  return node.get<RfidDeviceList>(
+    `/api/v1/auth/rfid-devices?${accessParams({ ...scope, role: undefined })}`,
+    { signal }
+  )
 }
 
 export interface RegisterRfidDeviceRequest {

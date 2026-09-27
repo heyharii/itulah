@@ -2,6 +2,7 @@ import { node } from "@/lib/api"
 import type {
   Advance,
   AdvanceDocument,
+  AdvancePage,
   AdvanceReconciliationRow,
   BalanceSheet,
   ControlRow,
@@ -11,6 +12,7 @@ import type {
   PrepaidAllocationRun,
   PrepaidSchedule,
   PrepaidScheduleDocument,
+  PrepaidSchedulePage,
   Principal,
   PrincipalDocument,
   ProfitAndLoss,
@@ -80,6 +82,28 @@ export function listPrepaidSchedules(
   )
 }
 
+/// The same schedules a keyset page at a time, newest first, with the card
+/// figures computed over every schedule the filters match. `period` is any
+/// day in the month whose due schedules are counted into `due_in_period`.
+///
+/// A sibling rather than a change to `listPrepaidSchedules`: the route answers
+/// the bare array to a plain ask, and the envelope only to `paged=true`.
+export function prepaidSchedulePage(
+  options: {
+    site?: string
+    status?: string
+    period?: string
+    cursor?: string
+    limit?: number
+  } = {},
+  signal?: AbortSignal
+): Promise<PrepaidSchedulePage> {
+  return node.get<PrepaidSchedulePage>(
+    `/api/v1/finance/prepaid/schedules${search({ paged: true, ...options })}`,
+    { signal }
+  )
+}
+
 export function readPrepaidSchedule(
   id: string,
   signal?: AbortSignal
@@ -140,6 +164,26 @@ export function listAdvances(
   options: { site?: string; status?: string; limit?: number } = {}
 ): Promise<Advance[]> {
   return node.get<Advance[]>(`/api/v1/finance/advances${search(options)}`, { signal })
+}
+
+/// The same advances a keyset page at a time, newest first, with the card
+/// figures computed over the whole book rather than over the page.
+///
+/// A sibling rather than a change to `listAdvances`: the route answers the
+/// bare array to a plain ask, and the envelope only to `paged=true`.
+export function advancePage(
+  options: {
+    site?: string
+    status?: string
+    cursor?: string
+    limit?: number
+  } = {},
+  signal?: AbortSignal
+): Promise<AdvancePage> {
+  return node.get<AdvancePage>(
+    `/api/v1/finance/advances${search({ paged: true, ...options })}`,
+    { signal }
+  )
 }
 
 export function readAdvance(id: string, signal?: AbortSignal): Promise<AdvanceDocument> {

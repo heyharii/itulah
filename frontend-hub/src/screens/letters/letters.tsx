@@ -184,7 +184,9 @@ function Register({ onOpen }: { onOpen: (id: string) => void }) {
             {head.drafts > 0 && (
               <>
                 {" · "}
-                <b className="font-medium text-ink">{count(head.drafts)}</b>{" "}
+                <b className="font-medium text-ink">
+                  {count(head.drafts)}
+                </b>{" "}
                 awaiting issue
               </>
             )}
@@ -204,8 +206,8 @@ function Register({ onOpen }: { onOpen: (id: string) => void }) {
                   </Button>
                 }
               >
-                No letters yet. Create one from a goods receipt, a delivery to
-                a store, or start with a blank letter.
+                No letters yet. Create one from a goods receipt, a delivery to a
+                store, or start with a blank letter.
               </EmptyState>
             </Card>
           ) : (

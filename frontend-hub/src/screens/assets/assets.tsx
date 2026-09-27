@@ -364,7 +364,9 @@ function Chip({
   return (
     <AppLink
       to="/assets"
-      sheet={view === undefined ? undefined : { key: "asset-view", value: view }}
+      sheet={
+        view === undefined ? undefined : { key: "asset-view", value: view }
+      }
       aria-current={active ? "page" : undefined}
       className={cn(
         "inline-flex h-8 items-center gap-2 rounded-full border px-3 text-meta font-medium transition-colors",

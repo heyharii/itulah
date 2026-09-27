@@ -97,6 +97,8 @@ import type {
   ProfileAmendmentView,
 } from "@itulah/contract"
 import { Quiet } from "@/screens/people/parts"
+import { PayPanel } from "@/screens/people/pay"
+import { UniformTab } from "@/screens/people/uniforms"
 
 /// The workforce: who works here, under what contract, and where they are
 /// posted.
@@ -584,6 +586,8 @@ const TABS = [
   { value: "leave", label: "Leave" },
   { value: "claims", label: "Claims" },
   { value: "contracts", label: "Contracts" },
+  { value: "pay", label: "Pay" },
+  { value: "uniforms", label: "Uniforms" },
   { value: "exit", label: "Exit" },
   { value: "change", label: "Change" },
 ] as const
@@ -603,6 +607,12 @@ const TABS = [
 /// "not offered": a tab that appears a moment late is better than one that is
 /// drawn and then taken away under the reader's cursor.
 ///
+/// **Pay** is head office's the same way, and for a second reason: a shop
+/// manager who could read the team's salaries would know what everybody
+/// earns. It and **Uniforms** were screens of their own until 2026-09-27 —
+/// pick a person from a list, then read their pay or their uniform ledger —
+/// and a fact about one person belongs on that person's sheet.
+///
 /// The exit tab is a leaver's tab: an exit interview exists for somebody whose
 /// employment ended, so it is offered only when the record says TERMINATED —
 /// a tab beside an active record promises something that cannot exist.
@@ -610,7 +620,9 @@ function tabsFor(
   employer: boolean,
   status?: string
 ): readonly (typeof TABS)[number][] {
-  const base = employer ? TABS : TABS.filter((one) => one.value !== "change")
+  const base = employer
+    ? TABS
+    : TABS.filter((one) => one.value !== "change" && one.value !== "pay")
   return status === "TERMINATED"
     ? base
     : base.filter((one) => one.value !== "exit")
@@ -809,6 +821,12 @@ function EmployeeSheetBody({
         {shown === "claims" && <ClaimsTab employeeId={person.employee_id} />}
 
         {shown === "contracts" && <Contracts employeeId={person.employee_id} />}
+
+        {shown === "pay" && <PayPanel employeeId={person.employee_id} />}
+
+        {shown === "uniforms" && (
+          <UniformTab employeeId={person.employee_id} />
+        )}
 
         {shown === "exit" && (
           <ExitTab employeeId={person.employee_id} employer={employer} />
@@ -2251,11 +2269,13 @@ function ClaimsTab({ employeeId }: { employeeId: string }) {
 /// What this person left behind: the interview and the statement.
 ///
 /// Shown only for the terminated — the tab is offered only when the record
-/// says TERMINATED — and read-only, like the Claims tab beside which it sits:
-/// conducting an interview and settling a statement are the Exits screen's
-/// work, and a sheet that offered a second place to do them would be a second
-/// place to get a different answer. The statement rows link there, one click,
-/// because DESIGN.md asks for no dead ends.
+/// says TERMINATED — and read-only, like the Claims tab beside which it sits.
+///
+/// Conducting an interview and settling a statement have no screen in the hub.
+/// An Exits screen was drafted (`exits.tsx`) but never routed, and it was
+/// removed on 2026-09-27 with the other unrouted HR drafts; the backend routes
+/// are untouched. If exits are to be worked here, the place is this tab —
+/// the one a leaver's record already opens — not a sidebar row.
 ///
 /// # The statement is the employer's read
 ///
@@ -2289,10 +2309,7 @@ function ExitTab({
           render: (rows) => {
             const one = rows[0] ?? null
             return one === null ? (
-              <Quiet>
-                No exit interview — they left before the hook existed, and head
-                office can open one on the Exits screen.
-              </Quiet>
+              <Quiet>No exit interview has been recorded.</Quiet>
             ) : (
               <>
                 <div className="flex items-center gap-2 py-1">

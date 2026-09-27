@@ -1,28 +1,35 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
-import { PageContent } from "@/components/shell/app-shell"
 import { Day } from "@/components/ui/day"
 import { Button } from "@/components/ui/button"
-import { Card, CardHeader, CardTitle } from "@/components/ui/card"
-import { Field, Input, Select } from "@/components/ui/field"
-import { PageHeader } from "@/components/ui/page-header"
-import { KeyValue } from "@/components/ui/rows"
-import { Banner, EmptyState } from "@/components/ui/states"
+import { Field, Input } from "@/components/ui/field"
+import { KeyValue, SubHead } from "@/components/ui/rows"
+import { Banner } from "@/components/ui/states"
 import { Timeline } from "@/components/ui/timeline"
 import { day, money, moment } from "@/lib/format"
 import {
   agreePay,
   amendPayrollIdentity,
-  listEmployees,
   payKeys,
-  peopleKeys,
   readPay,
   readPayrollIdentity,
 } from "@/lib/queries/people"
 import { queryState } from "@/lib/query-state"
+import { Quiet } from "@/screens/people/parts"
 
-/// What somebody is paid, and who they are to payroll.
+/// What somebody is paid, and who they are to payroll — the Pay tab of the
+/// employee's sheet.
+///
+/// # On the person, not on a screen of its own
+///
+/// This was the Pay agreements screen: pick somebody from a list, then read
+/// and write their pay. The owner asked for a shorter menu on 2026-09-27, and
+/// a salary is one person's fact, so it is a tab on that person's sheet in
+/// Employees — where the rest of their employment already is — and the
+/// screen, its route and the button to it from Payroll are gone. Head office
+/// alone is offered the tab (`tabsFor` in `directory.tsx`); the server's own
+/// bound on pay is the control.
 ///
 /// # A salary is a history
 ///
@@ -38,130 +45,82 @@ import { queryState } from "@/lib/query-state"
 /// digits, and a directory that carried whole account numbers is a directory
 /// worth stealing. There is no route that serves the number, so there is
 /// nothing here to reveal.
-
-export function Pay() {
-  const [employeeId, setEmployeeId] = useState("")
-
-  const team = useQuery({
-    queryKey: peopleKeys.employees({ limit: 1000 }),
-    queryFn: ({ signal }) => listEmployees({ limit: 1000 }, signal),
-  })
+export function PayPanel({ employeeId }: { employeeId: string }) {
   const records = useQuery({
     queryKey: payKeys.pay(employeeId),
     queryFn: ({ signal }) => readPay(employeeId, signal),
-    enabled: employeeId !== "",
   })
   const identity = useQuery({
     queryKey: payKeys.identity(employeeId),
     queryFn: ({ signal }) => readPayrollIdentity(employeeId, signal),
-    enabled: employeeId !== "",
   })
 
   return (
-    <PageContent>
-      <PageHeader
-        crumb="People · Payroll"
-        title="Pay agreements"
-        sub="What somebody is on, from when, and who agreed it."
-        actions={
-          <Select
-            value={employeeId}
-            onChange={setEmployeeId}
-            aria-label="Employee"
-          >
-            <option value="">Choose somebody…</option>
-            {(team.data ?? []).map((person) => (
-              <option key={person.employee_id} value={person.employee_id}>
-                {person.full_name ?? person.employee_code}
-              </option>
-            ))}
-          </Select>
-        }
-      />
+    <div className="flex flex-col gap-5">
+      <div>
+        <SubHead>Agreements</SubHead>
+        {queryState(records, {
+          loading: "Reading the history…",
+          render: (rows) =>
+            rows.length === 0 ? (
+              <Quiet>
+                No agreement yet. That is not an agreement worth nothing — it is
+                a person nobody has agreed terms with.
+              </Quiet>
+            ) : (
+              <Timeline
+                events={rows.map((record, index) => ({
+                  id: record.effective_from,
+                  title: `${money(record.base_minor)} base · ${money(record.statutory_base_minor)} with allowances`,
+                  detail: `${day(record.effective_from)} · ${record.agreed_by} · ${record.reason}`,
+                  at: moment(record.agreed_at),
+                  // The last is the one in force, unless it is dated ahead —
+                  // which the server permits and a reader should be able to
+                  // see from the date beside it.
+                  state: index === rows.length - 1 ? "current" : "done",
+                }))}
+              />
+            ),
+        })}
+      </div>
 
-      {employeeId === "" ? (
-        <Card className="overflow-hidden">
-          <EmptyState>
-            Choose somebody to see what they are paid. Pay is head office's to
-            read as well as to write — a shop manager who could read the team's
-            salaries would know what everybody earns, and that is not a rota
-            question.
-          </EmptyState>
-        </Card>
-      ) : (
-        <>
-          <Card className="mb-4 overflow-hidden">
-            <CardHeader>
-              <CardTitle>Agreements</CardTitle>
-            </CardHeader>
-            {queryState(records, {
-              loading: "Reading the history…",
-              render: (rows) =>
-                rows.length === 0 ? (
-                  <EmptyState>
-                    No agreement yet. That is not an agreement worth nothing —
-                    it is a person nobody has agreed terms with.
-                  </EmptyState>
-                ) : (
-                  <div className="px-4 pb-4">
-                    <Timeline
-                      events={rows.map((record, index) => ({
-                        id: record.effective_from,
-                        title: `${money(record.base_minor)} base · ${money(record.statutory_base_minor)} with allowances`,
-                        detail: `${day(record.effective_from)} · ${record.agreed_by} · ${record.reason}`,
-                        at: moment(record.agreed_at),
-                        // The last is the one in force, unless it is dated
-                        // ahead — which the server permits and a reader should
-                        // be able to see from the date beside it.
-                        state: index === rows.length - 1 ? "current" : "done",
-                      }))}
-                    />
-                  </div>
-                ),
-            })}
-          </Card>
+      <div>
+        <SubHead>Payroll identity</SubHead>
+        {queryState(identity, {
+          loading: "Reading the record…",
+          render: (record) => (
+            <>
+              {!record.payable && (
+                <Banner tone="bad" className="mb-3">
+                  No account on record, so this person cannot be paid — and a
+                  payment file that fails at the bank fails for everybody in
+                  it.
+                </Banner>
+              )}
+              <KeyValue term="Bank">{record.bank_name ?? "—"}</KeyValue>
+              {/* Four digits. There is no route that serves the rest. */}
+              <KeyValue term="Account">
+                {record.bank_account_masked ?? "—"}
+              </KeyValue>
+              <KeyValue term="Account holder">
+                {record.bank_holder ?? "—"}
+              </KeyValue>
+              <KeyValue term="NPWP">{record.npwp ?? "—"}</KeyValue>
+              <KeyValue term="PTKP">{record.ptkp ?? "—"}</KeyValue>
+              <KeyValue term="BPJS Kesehatan">
+                {record.bpjs_kesehatan ?? "—"}
+              </KeyValue>
+              <KeyValue term="BPJS Ketenagakerjaan">
+                {record.bpjs_ketenagakerjaan ?? "—"}
+              </KeyValue>
+            </>
+          ),
+        })}
+      </div>
 
-          <Card className="mb-4 overflow-hidden">
-            <CardHeader>
-              <CardTitle>Payroll identity</CardTitle>
-            </CardHeader>
-            {queryState(identity, {
-              loading: "Reading the record…",
-              render: (record) => (
-                <div className="px-4 pb-4">
-                  {!record.payable && (
-                    <Banner tone="bad" className="mb-3">
-                      No account on record, so this person cannot be paid — and
-                      a payment file that fails at the bank fails for everybody
-                      in it.
-                    </Banner>
-                  )}
-                  <KeyValue term="Bank">{record.bank_name ?? "—"}</KeyValue>
-                  {/* Four digits. There is no route that serves the rest. */}
-                  <KeyValue term="Account">
-                    {record.bank_account_masked ?? "—"}
-                  </KeyValue>
-                  <KeyValue term="Account holder">
-                    {record.bank_holder ?? "—"}
-                  </KeyValue>
-                  <KeyValue term="NPWP">{record.npwp ?? "—"}</KeyValue>
-                  <KeyValue term="PTKP">{record.ptkp ?? "—"}</KeyValue>
-                  <KeyValue term="BPJS Kesehatan">
-                    {record.bpjs_kesehatan ?? "—"}
-                  </KeyValue>
-                  <KeyValue term="BPJS Ketenagakerjaan">
-                    {record.bpjs_ketenagakerjaan ?? "—"}
-                  </KeyValue>
-                </div>
-              ),
-            })}
-          </Card>
-
-          <AgreePay employeeId={employeeId} />
-          <SetAccount employeeId={employeeId} />
-        </>
-      )}
-    </PageContent>
+      <AgreePay employeeId={employeeId} />
+      <SetAccount employeeId={employeeId} />
+    </div>
   )
 }
 
@@ -189,53 +148,49 @@ function AgreePay({ employeeId }: { employeeId: string }) {
   })
 
   return (
-    <Card className="mb-4 overflow-hidden">
-      <CardHeader>
-        <CardTitle>Agree new pay</CardTitle>
-      </CardHeader>
-      <div className="flex flex-col gap-3 px-4 pb-4">
-        {failed !== null && <Banner tone="bad">{failed}</Banner>}
-        <Banner tone="info">
-          A new agreement supersedes the one before it from its own date. It
-          cannot be filed behind the latest — a backdated raise is paid as a
-          rapel, not by rewriting a month already settled.
-        </Banner>
-        <Field label="Effective from" required>
-          <Day value={effectiveFrom} onChange={setEffectiveFrom} />
-        </Field>
-        <Field label="Base" hint="Whole rupiah." required>
-          <Input
-            type="number"
-            min={1}
-            value={base}
-            onChange={(event) => setBase(event.target.value)}
-          />
-        </Field>
-        <Field
-          label="Why"
-          hint="Recorded against the agreement, and required."
-          required
+    <div className="flex flex-col gap-3">
+      <SubHead>Agree new pay</SubHead>
+      {failed !== null && <Banner tone="bad">{failed}</Banner>}
+      <Banner tone="info">
+        A new agreement supersedes the one before it from its own date. It
+        cannot be filed behind the latest — a backdated raise is paid as a
+        rapel, not by rewriting a month already settled.
+      </Banner>
+      <Field label="Effective from" required>
+        <Day value={effectiveFrom} onChange={setEffectiveFrom} />
+      </Field>
+      <Field label="Base" hint="Whole rupiah." required>
+        <Input
+          type="number"
+          min={1}
+          value={base}
+          onChange={(event) => setBase(event.target.value)}
+        />
+      </Field>
+      <Field
+        label="Why"
+        hint="Recorded against the agreement, and required."
+        required
+      >
+        <Input
+          value={reason}
+          onChange={(event) => setReason(event.target.value)}
+          placeholder="annual raise"
+        />
+      </Field>
+      <div>
+        <Button
+          variant="primary"
+          pending={agree.isPending}
+          disabled={
+            effectiveFrom === "" || Number(base) <= 0 || reason.trim() === ""
+          }
+          onClick={() => agree.mutate()}
         >
-          <Input
-            value={reason}
-            onChange={(event) => setReason(event.target.value)}
-            placeholder="kenaikan tahunan"
-          />
-        </Field>
-        <div>
-          <Button
-            variant="primary"
-            pending={agree.isPending}
-            disabled={
-              effectiveFrom === "" || Number(base) <= 0 || reason.trim() === ""
-            }
-            onClick={() => agree.mutate()}
-          >
-            Agree it
-          </Button>
-        </div>
+          Agree it
+        </Button>
       </div>
-    </Card>
+    </div>
   )
 }
 
@@ -267,67 +222,59 @@ function SetAccount({ employeeId }: { employeeId: string }) {
   })
 
   return (
-    <Card className="overflow-hidden">
-      <CardHeader>
-        <CardTitle>Where the money goes</CardTitle>
-      </CardHeader>
-      <div className="flex flex-col gap-3 px-4 pb-4">
-        {failed !== null && <Banner tone="bad">{failed}</Banner>}
-        <Banner tone="info">
-          The holder's name matters as much as the number: an Indonesian
-          transfer is rejected on a name mismatch, and one rejection fails the
-          whole payroll file.
-        </Banner>
-        <Field label="Bank" required>
-          <Input
-            value={bank}
-            onChange={(event) => setBank(event.target.value)}
-            placeholder="BCA"
-          />
-        </Field>
-        <Field
-          label="Account number"
-          hint="Digits only. Shown back as four."
-          required
+    <div className="flex flex-col gap-3">
+      <SubHead>Where the money goes</SubHead>
+      {failed !== null && <Banner tone="bad">{failed}</Banner>}
+      <Banner tone="info">
+        The holder's name matters as much as the number: an Indonesian transfer
+        is rejected on a name mismatch, and one rejection fails the whole
+        payroll file.
+      </Banner>
+      <Field label="Bank" required>
+        <Input
+          value={bank}
+          onChange={(event) => setBank(event.target.value)}
+          placeholder="BCA"
+        />
+      </Field>
+      <Field label="Account number" hint="Digits only. Shown back as four." required>
+        <Input
+          value={number}
+          onChange={(event) => setNumber(event.target.value)}
+        />
+      </Field>
+      <Field label="Account holder" required>
+        <Input
+          value={holder}
+          onChange={(event) => setHolder(event.target.value)}
+        />
+      </Field>
+      <Field
+        label="Why"
+        hint="Recorded against the amendment, and required."
+        required
+      >
+        <Input
+          value={reason}
+          onChange={(event) => setReason(event.target.value)}
+          placeholder="salary account"
+        />
+      </Field>
+      <div>
+        <Button
+          variant="primary"
+          pending={save.isPending}
+          disabled={
+            bank.trim() === "" ||
+            number.trim() === "" ||
+            holder.trim() === "" ||
+            reason.trim() === ""
+          }
+          onClick={() => save.mutate()}
         >
-          <Input
-            value={number}
-            onChange={(event) => setNumber(event.target.value)}
-          />
-        </Field>
-        <Field label="Account holder" required>
-          <Input
-            value={holder}
-            onChange={(event) => setHolder(event.target.value)}
-          />
-        </Field>
-        <Field
-          label="Why"
-          hint="Recorded against the amendment, and required."
-          required
-        >
-          <Input
-            value={reason}
-            onChange={(event) => setReason(event.target.value)}
-            placeholder="rekening gaji"
-          />
-        </Field>
-        <div>
-          <Button
-            variant="primary"
-            pending={save.isPending}
-            disabled={
-              bank.trim() === "" ||
-              number.trim() === "" ||
-              holder.trim() === "" ||
-              reason.trim() === ""
-            }
-            onClick={() => save.mutate()}
-          >
-            Record it
-          </Button>
-        </div>
+          Record it
+        </Button>
       </div>
-    </Card>
+    </div>
   )
 }

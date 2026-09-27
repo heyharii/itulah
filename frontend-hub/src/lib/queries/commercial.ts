@@ -1098,6 +1098,20 @@ export type PromotionSort =
   | "priority"
   | "campaign"
   | "book"
+  /// Times used — the Usage column's number. Zero for a rule never fired.
+  | "usage"
+  /// Shops carrying the book it came in.
+  | "stores"
+  /// The rule's own window; an open end sorts as ±infinity.
+  | "starts"
+  | "ends"
+
+/// An inclusive whole-number band, either end optional. `{ max: 0 }` is
+/// "none at all".
+export interface Band {
+  readonly min?: number
+  readonly max?: number
+}
 
 /// What the Promotions list is narrowed and ordered by — all of it applied by
 /// the server, so a search finds a promotion that is not on a loaded page.
@@ -1108,6 +1122,14 @@ export interface PromotionListScope {
   readonly statuses?: readonly string[]
   /// Campaign ids to keep. Empty is every campaign, and no campaign.
   readonly campaigns?: readonly string[]
+  /// Phases to keep — `ACTIVE`, `PAUSED`, `SCHEDULED`, `ENDED` — read by the
+  /// server from the status AND the dates at its business clock
+  /// (`PROMOTION_PHASE` in `postgres/catalogue.rs`, a copy of `phaseOf`).
+  readonly phases?: readonly string[]
+  /// How many times it has been used, inclusive.
+  readonly used?: Band
+  /// How many shops carry its book, inclusive.
+  readonly stores?: Band
   readonly sort?: PromotionSort
   readonly desc?: boolean
 }
@@ -1120,9 +1142,11 @@ export interface PromotionListPage {
   /// Every promotion the search and the filters match, not just this page.
   readonly total: number
   readonly book_count: number
-  /// Counted over what the SEARCH leaves, ignoring the filters — "Paused 4"
-  /// means there are four paused promotions, not four among those already
-  /// narrowed to paused.
+  /// `statuses` and `campaigns` are counted over what the SEARCH leaves,
+  /// ignoring the filters — "Paused 4" means there are four paused
+  /// promotions, not four among those already narrowed to paused. `phases`
+  /// are counted over every filter except the phase, so each tab's number is
+  /// what clicking it shows.
   readonly facets: PromotionFacets
 }
 
@@ -1134,12 +1158,33 @@ export type CampaignSort =
   | "starts"
   | "ends"
   | "budget"
+  /// The "Budget used" meter's share, spent ÷ budget. Unlimited sorts last
+  /// in either direction.
+  | "budget_used"
+  | "offers"
+  | "stores"
   | "book"
 
 export interface CampaignListScope {
   /// Campaign id or name.
   readonly q?: string
   readonly statuses?: readonly string[]
+  /// Status codes read against the dates at the server's clock: an `ACTIVE`
+  /// campaign past its end is `EXPIRED`, one before its start `SCHEDULED`.
+  readonly phases?: readonly string[]
+  /// Objective codes, plus `none` (not stated) and `stated` (any).
+  readonly objectives?: readonly string[]
+  /// How many promotions are filed under it, inclusive.
+  readonly offers?: Band
+  /// How many shops carry its book, inclusive.
+  readonly stores?: Band
+  /// The Jakarta day its window ends, `YYYY-MM-DD`, inclusive — and `open`
+  /// for "has no end" (`true`) or "has one" (`false`).
+  readonly ends?: {
+    readonly from?: string
+    readonly to?: string
+    readonly open?: boolean
+  }
   readonly sort?: CampaignSort
   readonly desc?: boolean
 }
@@ -1160,6 +1205,12 @@ function listQuery(
     q?: string
     statuses?: readonly string[]
     campaigns?: readonly string[]
+    phases?: readonly string[]
+    objectives?: readonly string[]
+    used?: Band
+    stores?: Band
+    offers?: Band
+    ends?: CampaignListScope["ends"]
     sort?: string
     desc?: boolean
   }>
@@ -1171,6 +1222,19 @@ function listQuery(
   // id is free text that may one day carry a comma.
   for (const one of scope.statuses ?? []) params.append("status", one)
   for (const one of scope.campaigns ?? []) params.append("campaign", one)
+  for (const one of scope.phases ?? []) params.append("phase", one)
+  for (const one of scope.objectives ?? []) params.append("objective", one)
+  const band = (name: string, held: Band | undefined) => {
+    if (held?.min !== undefined) params.set(`${name}_min`, String(held.min))
+    if (held?.max !== undefined) params.set(`${name}_max`, String(held.max))
+  }
+  band("used", scope.used)
+  band("stores", scope.stores)
+  band("offers", scope.offers)
+  if (scope.ends?.from !== undefined) params.set("ends_from", scope.ends.from)
+  if (scope.ends?.to !== undefined) params.set("ends_to", scope.ends.to)
+  if (scope.ends?.open !== undefined)
+    params.set("ends", scope.ends.open ? "open" : "set")
   if (scope.sort !== undefined) params.set("sort", scope.sort)
   if (scope.desc === true) params.set("dir", "desc")
   if (scope.cursor !== undefined) params.set("cursor", scope.cursor)

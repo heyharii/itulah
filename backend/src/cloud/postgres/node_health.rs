@@ -279,16 +279,63 @@ pub async fn fleet(pool: &PgPool) -> Result<Vec<FleetNode>, AppError> {
     Ok(nodes)
 }
 
-/// One node's history: incidents over a week, newest first.
-pub async fn node_incidents(pool: &PgPool, origin_id: &str) -> Result<Vec<Value>, AppError> {
-    Ok(sqlx::query_scalar(
-        "SELECT payload FROM node_incident
+/// How many incidents one page carries when the caller does not say, and the
+/// most it will carry however loudly a caller asks.
+const INCIDENT_DEFAULT_LIMIT: i64 = 50;
+const INCIDENT_MAX_LIMIT: i64 = 200;
+
+/// Where the previous page of a node's history stopped — the row's own key.
+/// `(at, kind)` is the table's primary key within one origin, so no two rows
+/// compare equal and the seek cannot repeat or lose a row.
+#[derive(Serialize, serde::Deserialize)]
+struct IncidentCursor {
+    at: DateTime<Utc>,
+    kind: String,
+}
+
+/// One node's history: incidents over a week, newest first, one page at a
+/// time. The second half is the cursor for the next page — `None` on a short
+/// page, which is the last one.
+///
+/// It used to be a flat `LIMIT 200` with no way to ask for the rest, and the
+/// sheet then drew the first twenty of those.
+pub async fn node_incidents(
+    pool: &PgPool,
+    origin_id: &str,
+    cursor: Option<&str>,
+    limit: Option<i64>,
+) -> Result<(Vec<Value>, Option<String>), AppError> {
+    let cursor = cursor
+        .map(super::decode_cursor::<IncidentCursor>)
+        .transpose()?;
+    let limit = limit
+        .unwrap_or(INCIDENT_DEFAULT_LIMIT)
+        .clamp(1, INCIDENT_MAX_LIMIT);
+    let rows = sqlx::query(
+        "SELECT payload, at, kind FROM node_incident
           WHERE origin_id = $1 AND at > now() - interval '7 days'
-          ORDER BY at DESC LIMIT 200",
+            AND ($2::timestamptz IS NULL OR (at, kind) < ($2::timestamptz, $3::text))
+          ORDER BY at DESC, kind DESC
+          LIMIT $4",
     )
     .bind(origin_id)
+    .bind(cursor.as_ref().map(|one| one.at))
+    .bind(cursor.as_ref().map(|one| one.kind.clone()))
+    .bind(limit)
     .fetch_all(pool)
-    .await?)
+    .await?;
+    let next_cursor = match rows.last() {
+        Some(row) if rows.len() as i64 == limit => Some(super::encode_cursor(&IncidentCursor {
+            at: row.try_get("at")?,
+            kind: row.try_get("kind")?,
+        })?),
+        _ => None,
+    };
+    let items = rows
+        .iter()
+        .map(|row| row.try_get::<Value, _>("payload"))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok((items, next_cursor))
 }
 
 // ---- Uptime: the status-page view ---------------------------------------------

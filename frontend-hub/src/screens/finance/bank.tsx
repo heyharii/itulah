@@ -1,5 +1,10 @@
 import { useForm } from "@tanstack/react-form"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { ChevronLeft } from "lucide-react"
@@ -21,6 +26,7 @@ import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import {
   Banner,
   EmptyState,
+  LoadMore,
   LoadingState,
   Problem,
 } from "@/components/ui/states"
@@ -619,6 +625,10 @@ function MoneyFamily({
 /// already looking at, and a second veil over the first would say otherwise.
 /// Both levels are in the URL, so `?account=…&statement=…` opens the reconcile
 /// session with the way back already drawn above it.
+/// How many statements one page of an account's list asks for. A step, not a
+/// ceiling: the sheet asks for the next page as its last rows scroll into view.
+const STATEMENT_PAGE = 50
+
 function AccountSheet({
   code,
   rows,
@@ -636,28 +646,48 @@ function AccountSheet({
   statement: ReturnType<typeof useSheet<"statement">>
   onClose: () => void
 }) {
-  const statements = useQuery({
-    queryKey: financeKeys.bankStatements(),
-    queryFn: ({ signal }) =>
-      listBankStatements(signal).then((page) => page.rows),
-    enabled: code !== null,
-  })
-
   const account = rows.find((row) => row.account_code === code)
 
   // Every statement ever imported against this account at this location — not
   // only the one `GET /money` names. That one is the latest on or before the
   // reporting date; the rest are last month's, and they are what somebody
   // chasing a difference actually opens.
-  const mine = (statements.data ?? [])
-    .filter(
-      (row) =>
-        row.account_code === code &&
-        (account === undefined || row.site_id === account.site_id)
-    )
-    .sort((a, b) => b.period_end.localeCompare(a.period_end))
+  //
+  // Narrowed on the SERVER and paged, newest period first (the endpoint's
+  // house order). It used to be the company's newest hundred statements
+  // filtered here, so an account with older statements lost them silently.
+  const statements = useInfiniteQuery({
+    queryKey: [
+      ...financeKeys.bankStatements(),
+      "account",
+      code,
+      account?.site_id ?? null,
+    ],
+    queryFn: ({ pageParam, signal }) =>
+      listBankStatements(signal, {
+        account: code ?? undefined,
+        site: account?.site_id,
+        limit: STATEMENT_PAGE,
+        cursor: pageParam,
+      }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    enabled: code !== null && account !== undefined,
+  })
+  const mine = statements.data?.pages.flatMap((page) => page.rows) ?? []
 
-  const open = mine.find((row) => row.statement_id === statement.value)
+  /// The statement a link names, found among this account's pages or — for a
+  /// link to one older than the pages read so far — in the screen's own
+  /// lookup of the newest statements, under the key that lookup uses.
+  const lookup = useQuery({
+    queryKey: financeKeys.bankStatements(),
+    queryFn: ({ signal }) =>
+      listBankStatements(signal).then((page) => page.rows),
+    enabled: code !== null && statement.value !== undefined,
+  })
+  const open =
+    mine.find((row) => row.statement_id === statement.value) ??
+    lookup.data?.find((row) => row.statement_id === statement.value)
 
   return (
     <Sheet
@@ -737,7 +767,9 @@ function AccountSheet({
             <SubHead aside={mine.length > 0 ? "newest first" : undefined}>
               Statements
             </SubHead>
-            {mine.length === 0 ? (
+            {mine.length === 0 && statements.isPending ? (
+              <LoadingState>Reading the statements…</LoadingState>
+            ) : mine.length === 0 ? (
               <p className="text-[0.875rem] text-body">
                 Nothing has been imported for this account, so there is nothing
                 to check the books against. A cash drawer never has one; a bank
@@ -772,6 +804,8 @@ function AccountSheet({
                     </button>
                   )
                 })}
+                {/* Inside the sheet's body, which is the box that scrolls. */}
+                <LoadMore query={statements} />
               </div>
             )}
           </div>

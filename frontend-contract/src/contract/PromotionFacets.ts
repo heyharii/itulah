@@ -2,7 +2,7 @@
 import type { CommercialFacet } from "./CommercialFacet";
 
 /**
- * The two things the promotions list can be narrowed by.
+ * What the promotions list can be narrowed by, counted.
  */
 export type PromotionFacets = { statuses: Array<CommercialFacet>, 
 /**
@@ -10,4 +10,18 @@ export type PromotionFacets = { statuses: Array<CommercialFacet>,
  * filter has no spelling for "none", and a count nobody can click is worse
  * than no count.
  */
-campaigns: Array<CommercialFacet>, };
+campaigns: Array<CommercialFacet>, 
+/**
+ * Where each promotion stands at the server's business clock — `ACTIVE`,
+ * `PAUSED`, `SCHEDULED`, `ENDED`; see [`PROMOTION_PHASE`]. The Promotions
+ * tabs.
+ *
+ * **Counted differently from the two above, on purpose.** Those read the
+ * searched set; this reads what EVERY filter except the phase leaves —
+ * the campaign, the usage and the reach included. A tab's number has to
+ * be what clicking the tab shows, and a tab reading "Live 40" over a
+ * campaign holding three live offers is a count of something else under
+ * the tab's name. Ignoring only its own filter is what lets the other
+ * tabs keep their numbers once one is chosen.
+ */
+phases: Array<CommercialFacet>, };

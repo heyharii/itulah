@@ -390,9 +390,7 @@ function VendorSheet({
                 onClick={() => retire.mutate()}
                 pending={retire.isPending}
               >
-                {vendor.status === "ACTIVE"
-                  ? "Deactivate"
-                  : "Reactivate"}
+                {vendor.status === "ACTIVE" ? "Deactivate" : "Reactivate"}
               </Button>
             ) : (
               <span className="text-pill text-mute">

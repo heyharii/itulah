@@ -35,7 +35,8 @@
 //! both are about a mistyped join not holding a connection for a minute or
 //! returning six million rows into a chat panel.
 
-use crate::cloud::application::AppError;
+use crate::cloud::application::{AppError, SalesSeriesQuery};
+use chrono::{NaiveDate, Timelike};
 use serde_json::{json, Map, Value};
 use sqlx::{Column, Executor, PgPool, Row};
 use uuid::Uuid;
@@ -580,6 +581,354 @@ pub async fn assistant_budget(
         limit_usd_micros: row.get::<Option<i64>, _>("limit_usd_micros"),
         spent_usd_micros: row.get::<i64, _>("spent_usd_micros"),
     })
+}
+
+// ---- The morning brief -------------------------------------------------
+//
+// Yesterday, told to head office before anybody asks (migration 0502). Rules
+// decide every line — arithmetic on the reads the screens already make — and
+// no model is asked: a figure pushed to the owner's phone has to be the figure
+// the screen shows, and explaining it is the assistant's job once somebody
+// asks.
+
+/// How often the agent looks at the clock. The brief goes out within this
+/// of the hour.
+const BRIEF_TICK: std::time::Duration = std::time::Duration::from_secs(300);
+
+/// How long after the hour a brief is still worth sending. A node that was
+/// down at seven sends it at nine; one that comes back after lunch lets the
+/// day go rather than report yesterday in the afternoon.
+const BRIEF_WINDOW_HOURS: i32 = 4;
+
+/// A shop whose day moved this much against its own same weekday a week
+/// before is named in the brief.
+const BRIEF_MOVE_PERCENT: i64 = 20;
+
+/// One day's brief, as it will be read on a phone.
+#[derive(Debug)]
+pub struct MorningBrief {
+    pub title: String,
+    pub body: String,
+    /// The figures behind the sentences, kept on the notification.
+    pub facts: Value,
+}
+
+/// The agent: wakes every few minutes and sends yesterday's brief once, at
+/// the hour Finance set.
+pub async fn run_morning_brief_agent(pool: PgPool) {
+    let mut interval = tokio::time::interval(BRIEF_TICK);
+    loop {
+        interval.tick().await;
+        if let Err(error) = send_morning_brief_if_due(&pool, chrono::Utc::now()).await {
+            tracing::warn!(%error, "the morning brief could not be sent");
+        }
+    }
+}
+
+/// Send yesterday's brief if its hour has come and it has not gone yet: the
+/// notification's id when it went, `None` when there was nothing to do.
+///
+/// The day is head office's, on the business clock the reports default to.
+pub async fn send_morning_brief_if_due(
+    pool: &PgPool,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<Option<Uuid>, AppError> {
+    let Some(hour) = brief_hour(pool).await? else {
+        return Ok(None);
+    };
+    let offset = crate::reporting::DEFAULT_UTC_OFFSET_MINUTES;
+    let local = now + chrono::Duration::minutes(i64::from(offset));
+    let local_hour = i32::try_from(local.hour()).unwrap_or_default();
+    if local_hour < hour || local_hour >= hour + BRIEF_WINDOW_HOURS {
+        return Ok(None);
+    }
+    let day = local.date_naive() - chrono::Duration::days(1);
+    if brief_kept(pool, day).await? {
+        return Ok(None);
+    }
+    let brief = compose_morning_brief(pool, day, now, offset).await?;
+    send_morning_brief(pool, day, &brief).await
+}
+
+/// `assistant_brief_hour` (0502), or `None` when the brief is off — a value
+/// outside 0-23, or no setting at all.
+async fn brief_hour(pool: &PgPool) -> Result<Option<i32>, AppError> {
+    let hour: Option<i32> = sqlx::query_scalar(
+        "SELECT round(value_numeric)::int FROM finance_setting
+          WHERE setting_key = 'assistant_brief_hour'",
+    )
+    .fetch_optional(pool)
+    .await?;
+    Ok(hour.filter(|hour| (0..=23).contains(hour)))
+}
+
+async fn brief_kept(pool: &PgPool, day: NaiveDate) -> Result<bool, AppError> {
+    Ok(
+        sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM assistant_brief WHERE business_date = $1)",
+        )
+        .bind(day)
+        .fetch_one(pool)
+        .await?,
+    )
+}
+
+/// Compose the brief for one business day from the reads the screens make.
+pub async fn compose_morning_brief(
+    pool: &PgPool,
+    day: NaiveDate,
+    now: chrono::DateTime<chrono::Utc>,
+    utc_offset_minutes: i32,
+) -> Result<MorningBrief, AppError> {
+    let week_before = day - chrono::Duration::days(7);
+    let series = super::sales_series(
+        pool,
+        SalesSeriesQuery {
+            from: week_before,
+            to: day,
+            bucket: Some("day".into()),
+            utc_offset_minutes: Some(utc_offset_minutes),
+        },
+    )
+    .await?;
+    let shops = shop_days(&series, day, week_before);
+    let total: i64 = shops.iter().map(|shop| shop.day).sum();
+    let total_before: i64 = shops.iter().map(|shop| shop.week_before).sum();
+    let weekday = day.format("%A").to_string();
+
+    let title = if total == 0 && total_before == 0 {
+        format!("{weekday}: no takings recorded")
+    } else {
+        match change_percent(total, total_before) {
+            Some(change) => format!(
+                "{weekday}: {} ({} on last {weekday})",
+                rupiah(total),
+                signed_percent(change)
+            ),
+            None => format!("{weekday}: {}", rupiah(total)),
+        }
+    };
+
+    let mut lines: Vec<String> = Vec::new();
+
+    // The shops that moved most against their own same weekday — each shop
+    // against itself, because the fleet's total hides a shop that halved
+    // behind one that doubled.
+    let mut moved: Vec<(&ShopDay, i64)> = shops
+        .iter()
+        .filter_map(|shop| change_percent(shop.day, shop.week_before).map(|change| (shop, change)))
+        .filter(|(_, change)| change.abs() >= BRIEF_MOVE_PERCENT)
+        .collect();
+    moved.sort_by_key(|(_, change)| *change);
+    if let Some((shop, change)) = moved.first().filter(|(_, change)| *change < 0) {
+        lines.push(format!(
+            "{} fell {}% to {}.",
+            shop.name,
+            change.abs(),
+            rupiah(shop.day)
+        ));
+    }
+    if let Some((shop, change)) = moved.last().filter(|(_, change)| *change > 0) {
+        lines.push(format!(
+            "{} rose {change}% to {}.",
+            shop.name,
+            rupiah(shop.day)
+        ));
+    }
+
+    let missing = super::list_missing(pool).await?;
+    let missing_lines = missing
+        .get("items")
+        .and_then(Value::as_array)
+        .map_or(0, Vec::len);
+    if missing_lines > 0 {
+        lines.push(format!(
+            "{missing_lines} missing-stock lines are still open."
+        ));
+    }
+
+    let activation = super::commercial_activation(pool).await?;
+    let behind = activation
+        .get("items")
+        .and_then(Value::as_array)
+        .map_or(0, |items| {
+            items
+                .iter()
+                .filter(|item| item.get("behind_by").and_then(Value::as_i64).unwrap_or(0) > 0)
+                .count()
+        });
+    if behind > 0 {
+        lines.push(format!(
+            "{behind} shop{} not on the newest pricelist.",
+            if behind == 1 { " is" } else { "s are" }
+        ));
+    }
+
+    let budget = assistant_budget(pool, now, utc_offset_minutes).await?;
+    if let Some(limit) = budget.limit_usd_micros.filter(|limit| *limit > 0) {
+        if budget.spent_usd_micros.saturating_mul(100) >= limit.saturating_mul(80) {
+            lines.push(format!(
+                "The assistant has used US${:.2} of its US${:.2} this month.",
+                budget.spent_usd_micros as f64 / 1_000_000.0,
+                limit as f64 / 1_000_000.0
+            ));
+        }
+    }
+
+    let body = if lines.is_empty() {
+        "Nothing else needs you this morning.".to_owned()
+    } else {
+        lines.join("\n")
+    };
+
+    Ok(MorningBrief {
+        title,
+        body,
+        facts: json!({
+            "day": day,
+            "total_minor": total,
+            "week_before_minor": total_before,
+            "missing_lines": missing_lines,
+            "shops_behind": behind,
+        }),
+    })
+}
+
+/// Keep the day's brief and tell every Admin, once.
+///
+/// The day is claimed before anybody is told, in the transaction that tells
+/// them: a restart, or a second node, finds the day taken and stops, and a
+/// notification that fails to raise takes the claim back with it.
+async fn send_morning_brief(
+    pool: &PgPool,
+    day: NaiveDate,
+    brief: &MorningBrief,
+) -> Result<Option<Uuid>, AppError> {
+    let mut tx = pool.begin().await?;
+    let claimed = sqlx::query(
+        "INSERT INTO assistant_brief (business_date, title, body)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (business_date) DO NOTHING",
+    )
+    .bind(day)
+    .bind(&brief.title)
+    .bind(&brief.body)
+    .execute(&mut *tx)
+    .await?;
+    if claimed.rows_affected() == 0 {
+        return Ok(None);
+    }
+    let recipients = super::recipients_with_role(&mut tx, &["ADMIN"]).await?;
+    let raised = super::raise_notification(
+        &mut tx,
+        super::NewNotification {
+            kind: "assistant.brief",
+            title: brief.title.clone(),
+            body: brief.body.clone(),
+            subject: None,
+            origin_id: None,
+            payload: brief.facts.clone(),
+        },
+        &recipients,
+    )
+    .await?;
+    sqlx::query("UPDATE assistant_brief SET notification_id = $2 WHERE business_date = $1")
+        .bind(day)
+        .bind(raised)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(raised)
+}
+
+/// One shop's takings on the day and on the same weekday a week before.
+struct ShopDay {
+    name: String,
+    day: i64,
+    week_before: i64,
+}
+
+/// Every shop the series has, with its two days, read from the same payload
+/// the sales chart draws.
+fn shop_days(series: &Value, day: NaiveDate, week_before: NaiveDate) -> Vec<ShopDay> {
+    let day = day.format("%Y-%m-%d").to_string();
+    let week_before = week_before.format("%Y-%m-%d").to_string();
+    let cells = series
+        .get("cells")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let gross = |site: &str, on: &str| -> i64 {
+        cells
+            .iter()
+            .filter(|cell| {
+                cell.get("site_id").and_then(Value::as_str) == Some(site)
+                    && cell.get("bucket_start").and_then(Value::as_str) == Some(on)
+            })
+            .filter_map(|cell| cell.get("gross_minor").and_then(Value::as_i64))
+            .sum()
+    };
+    series
+        .get("sites")
+        .and_then(Value::as_array)
+        .map(|sites| {
+            sites
+                .iter()
+                .filter_map(|site| {
+                    let id = site.get("site_id").and_then(Value::as_str)?;
+                    let name = site.get("site_name").and_then(Value::as_str).unwrap_or(id);
+                    Some(ShopDay {
+                        name: name.to_owned(),
+                        day: gross(id, &day),
+                        week_before: gross(id, &week_before),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The change from `before` to `now`, in whole percent, rounded toward the
+/// nearer. `None` when there was nothing before to compare with.
+fn change_percent(now: i64, before: i64) -> Option<i64> {
+    if before <= 0 {
+        return None;
+    }
+    let change = i128::from(now - before) * 100;
+    let before = i128::from(before);
+    let rounded = if change >= 0 {
+        (change + before / 2) / before
+    } else {
+        (change - before / 2) / before
+    };
+    i64::try_from(rounded).ok()
+}
+
+/// `+12%`, `−12%`, `±0%`.
+fn signed_percent(change: i64) -> String {
+    match change {
+        0 => "±0%".to_owned(),
+        change if change > 0 => format!("+{change}%"),
+        change => format!("−{}%", change.abs()),
+    }
+}
+
+/// `Rp 53.750.000`: whole rupiah with dots between the thousands, the way the
+/// screens and the receipts print it. For rupiah `_minor` is the amount.
+fn rupiah(amount: i64) -> String {
+    let digits = amount.unsigned_abs().to_string();
+    let mut grouped = String::with_capacity(digits.len() + digits.len() / 3);
+    for (index, digit) in digits.chars().enumerate() {
+        if index > 0 && (digits.len() - index) % 3 == 0 {
+            grouped.push('.');
+        }
+        grouped.push(digit);
+    }
+    if amount < 0 {
+        format!("−Rp {grouped}")
+    } else {
+        format!("Rp {grouped}")
+    }
 }
 
 // ---- Reading anything --------------------------------------------------
@@ -1256,5 +1605,31 @@ mod tests {
         let long = trim_title(&"berapa penjualan ".repeat(20));
         assert!(long.chars().count() <= TITLE_LIMIT + 1);
         assert!(long.ends_with('…'));
+    }
+
+    /// The brief's money reads the way the screens and the receipts print it:
+    /// whole rupiah, dots between the thousands. For rupiah `_minor` is the
+    /// amount, and an amount a thousand times off is the one mistake a phone
+    /// notification must never make.
+    #[test]
+    fn the_brief_prints_rupiah_as_the_receipts_do() {
+        assert_eq!(rupiah(0), "Rp 0");
+        assert_eq!(rupiah(999), "Rp 999");
+        assert_eq!(rupiah(1_000), "Rp 1.000");
+        assert_eq!(rupiah(53_750_000), "Rp 53.750.000");
+        assert_eq!(rupiah(-4_100_000), "−Rp 4.100.000");
+    }
+
+    /// A change is whole percent to the nearer, and there is none to speak of
+    /// when there was nothing before.
+    #[test]
+    fn a_change_is_rounded_and_needs_something_to_change_from() {
+        assert_eq!(change_percent(88, 100), Some(-12));
+        assert_eq!(change_percent(112, 100), Some(12));
+        assert_eq!(change_percent(0, 100), Some(-100));
+        assert_eq!(change_percent(2, 3), Some(-33));
+        assert_eq!(change_percent(50, 0), None);
+        assert_eq!(signed_percent(-12), "−12%");
+        assert_eq!(signed_percent(0), "±0%");
     }
 }

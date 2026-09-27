@@ -2,6 +2,27 @@
 import type { CommercialFacet } from "./CommercialFacet";
 
 /**
- * The one thing the campaign list can be narrowed by.
+ * What the campaign list can be narrowed by, counted.
  */
-export type CampaignFacets = { statuses: Array<CommercialFacet>, };
+export type CampaignFacets = { 
+/**
+ * The stored statuses, over the searched set.
+ */
+statuses: Array<CommercialFacet>, 
+/**
+ * Where each campaign stands at the server's business clock: its stored
+ * status, except that an `ACTIVE` one whose window has closed counts as
+ * `EXPIRED` and one whose window has not opened as `SCHEDULED` — see
+ * [`CAMPAIGN_PHASE`]. The values are status codes, so the hub words them
+ * the way it words a status.
+ *
+ * Counted over what every filter EXCEPT the phase leaves, for the reason
+ * [`PromotionFacets::phases`] gives.
+ */
+phases: Array<CommercialFacet>, 
+/**
+ * The stated objective (`campaign_intent.objective`), `none` for a
+ * campaign nobody has said the purpose of. Over what every filter except
+ * the objective leaves, like the phases.
+ */
+objectives: Array<CommercialFacet>, };

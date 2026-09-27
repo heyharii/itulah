@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
@@ -15,7 +20,7 @@ import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { Toolbar } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState, Problem } from "@/components/ui/states"
+import { Banner, EmptyState, LoadMore, Problem } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { count, label, moment } from "@/lib/format"
 import { problemOf } from "@/lib/problem"
@@ -382,6 +387,9 @@ type ScopeChoice = "ALL" | "STORE" | "HO" | "SITE"
 
 /// One role: its links grouped by source, what each site ends up on, and who
 /// changed what.
+/// How many link changes one page of a role's history asks for.
+const HISTORY_PAGE = 30
+
 function RoleSheet({
   role,
   preset,
@@ -396,9 +404,19 @@ function RoleSheet({
   const siteName = useSiteName()
   const page = useLinkPage()
   const readiness = usePostingReadiness()
-  const history = useQuery({
-    queryKey: financeKeys.accountLinkHistory(role),
-    queryFn: ({ signal }) => accountLinkHistory(role, signal, 30),
+  // A page at a time, read on as the sheet scrolls — it used to stop at the
+  // last thirty changes with nothing saying so. The endpoint answers a bare
+  // list, so a full page is the only sign of another, and its last
+  // `history_id` is where the next one starts.
+  const history = useInfiniteQuery({
+    queryKey: [...financeKeys.accountLinkHistory(role), "pages"],
+    queryFn: ({ pageParam, signal }) =>
+      accountLinkHistory(role, signal, HISTORY_PAGE, pageParam),
+    initialPageParam: undefined as number | undefined,
+    getNextPageParam: (last) =>
+      last.length < HISTORY_PAGE
+        ? undefined
+        : last[last.length - 1]?.history_id,
     enabled: role !== null,
   })
 
@@ -531,8 +549,9 @@ function RoleSheet({
               </h4>
               {queryState(history, {
                 loading: "Reading the history…",
-                render: (changes) =>
-                  changes.length === 0 ? (
+                render: (data) => {
+                  const changes = data.pages.flat()
+                  return changes.length === 0 ? (
                     <p className="text-[0.875rem] text-mute">
                       Nobody has changed these links since they were set.
                     </p>
@@ -569,8 +588,12 @@ function RoleSheet({
                           )}
                         </div>
                       ))}
+                      {/* Inside the sheet's body, which is the box that
+                          scrolls. */}
+                      <LoadMore query={history} />
                     </div>
-                  ),
+                  )
+                },
               })}
             </div>
           </div>

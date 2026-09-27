@@ -364,14 +364,29 @@ pub async fn chart_history(
     account: Option<&str>,
     limit: i64,
 ) -> Result<Vec<ChartChange>, AppError> {
+    chart_history_before(pool, account, None, limit).await
+}
+
+/// The same history, a page at a time: the changes older than `before` (a
+/// `change_id` the previous page ended on). `change_id` is the order the
+/// history is read in and is unique, so it is the whole keyset — a caller has
+/// a next page exactly when a page comes back full.
+pub async fn chart_history_before(
+    pool: &PgPool,
+    account: Option<&str>,
+    before: Option<i64>,
+    limit: i64,
+) -> Result<Vec<ChartChange>, AppError> {
     let rows = sqlx::query(&format!(
         "SELECT {CHANGE_COLUMNS} FROM ledger_account_change
-          WHERE $1::text IS NULL OR account_code = $1
+          WHERE ($1::text IS NULL OR account_code = $1)
+            AND ($3::bigint IS NULL OR change_id < $3)
           ORDER BY change_id DESC
           LIMIT $2"
     ))
     .bind(account)
     .bind(limit.clamp(1, 1000))
+    .bind(before)
     .fetch_all(pool)
     .await?;
     rows.iter().map(to_change).collect()

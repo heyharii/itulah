@@ -27,10 +27,76 @@ use axum::{
     extract::{Query, State},
     Json,
 };
+use chrono::NaiveDate;
 use serde_json::Value;
 
 /// What every one of these lists takes, beside its own filters.
 const PAGING: [&str; 5] = ["q", "sort", "dir", "cursor", "limit"];
+
+/// The filters `GET /commercial/rules` takes.
+const RULE_FILTERS: [&str; 7] = [
+    "status",
+    "campaign",
+    "phase",
+    "used_min",
+    "used_max",
+    "stores_min",
+    "stores_max",
+];
+
+/// The filters `GET /commercial/campaigns` takes.
+const CAMPAIGN_FILTERS: [&str; 10] = [
+    "status",
+    "phase",
+    "objective",
+    "offers_min",
+    "offers_max",
+    "stores_min",
+    "stores_max",
+    "ends_from",
+    "ends_to",
+    "ends",
+];
+
+/// `ends=open` keeps the open-ended campaigns, `ends=set` the ones with an end.
+/// Anything else is refused rather than read as no filter — see
+/// [`whole_value`].
+fn ends_value(params: &[(String, String)]) -> Result<Option<bool>, AppError> {
+    match single_value(params, "ends").as_deref() {
+        None => Ok(None),
+        Some("open") => Ok(Some(true)),
+        Some("set") => Ok(Some(false)),
+        Some(other) => Err(AppError::Validation(format!(
+            "ends {other:?} is not open or set"
+        ))),
+    }
+}
+
+/// A whole-number bound, parsed rather than ignored.
+///
+/// `limit_value`'s reasoning: a caller that sent `used_max=none` believes it
+/// narrowed the list, and answering with every row looks like the server
+/// working.
+fn whole_value(params: &[(String, String)], key: &str) -> Result<Option<i64>, AppError> {
+    match single_value(params, key) {
+        Some(raw) => raw
+            .parse::<i64>()
+            .map(Some)
+            .map_err(|_| AppError::Validation(format!("{key} {raw:?} is not a whole number"))),
+        None => Ok(None),
+    }
+}
+
+/// A calendar day, `YYYY-MM-DD`, parsed rather than ignored.
+fn day_value(params: &[(String, String)], key: &str) -> Result<Option<NaiveDate>, AppError> {
+    match single_value(params, key) {
+        Some(raw) => raw
+            .parse::<NaiveDate>()
+            .map(Some)
+            .map_err(|_| AppError::Validation(format!("{key} {raw:?} is not a YYYY-MM-DD day"))),
+        None => Ok(None),
+    }
+}
 
 /// Which promotions exist: searched, filtered, sorted and paged.
 ///
@@ -49,15 +115,18 @@ const PAGING: [&str; 5] = ["q", "sort", "dir", "cursor", "limit"];
 /// # Query parameters
 ///
 /// `q` searches the rule id, the promotion's name and its coupon code.
-/// `status` and `campaign` filter, and each of them repeats or takes a comma
-/// list. `sort` is one of `rule_id`, `name`, `status`, `priority`, `campaign`,
-/// `book`, with `dir=desc`; anything else is the house order, by rule id.
-/// `cursor` and `limit` page.
+/// `status`, `campaign` and `phase` filter, and each of them repeats or takes a
+/// comma list; `phase` is `ACTIVE`, `PAUSED`, `SCHEDULED` or `ENDED`, read at
+/// the business clock. `used_min`/`used_max` bound how many times it has been
+/// used and `stores_min`/`stores_max` how many shops carry its book, both
+/// inclusive. `sort` is one of `rule_id`, `name`, `status`, `priority`,
+/// `campaign`, `book`, `usage`, `stores`, `starts`, `ends`, with `dir=desc`;
+/// anything else is the house order, by rule id. `cursor` and `limit` page.
 pub async fn commercial_rules(
     State(s): State<AppState>,
     Query(params): Query<Vec<(String, String)>>,
 ) -> Result<Json<PromotionPage>, AppError> {
-    refuse_unknown_parameters(&params, &[&PAGING[..], &["status", "campaign"]].concat())?;
+    refuse_unknown_parameters(&params, &[&PAGING[..], &RULE_FILTERS[..]].concat())?;
     Ok(Json(
         infrastructure::commercial_rules(
             &s.db,
@@ -65,6 +134,14 @@ pub async fn commercial_rules(
                 needle: single_value(&params, "q"),
                 statuses: facet_values(&params, "status"),
                 campaigns: facet_values(&params, "campaign"),
+                phases: facet_values(&params, "phase"),
+                // The business clock, so a promotion ends on the day the rest
+                // of the business thinks it is.
+                now: s.clock.now(),
+                used_min: whole_value(&params, "used_min")?,
+                used_max: whole_value(&params, "used_max")?,
+                stores_min: whole_value(&params, "stores_min")?,
+                stores_max: whole_value(&params, "stores_max")?,
                 sort: single_value(&params, "sort"),
                 // `dir=desc` and nothing else. Absent, empty and anything
                 // unrecognised all mean ascending, which is the direction a
@@ -92,21 +169,36 @@ pub async fn commercial_coupons(State(s): State<AppState>) -> Result<Json<Value>
 ///
 /// # Query parameters
 ///
-/// `q` searches the campaign id and its name. `status` filters, repeating or as
-/// a comma list. `sort` is one of `campaign_id`, `name`, `status`, `starts`,
-/// `ends`, `budget`, `book`, with `dir=desc`; anything else is the house order,
-/// by campaign id. `cursor` and `limit` page.
+/// `q` searches the campaign id and its name. `status`, `phase` and
+/// `objective` filter, repeating or as a comma list: `phase` is a status code
+/// read against the dates at the business clock, `objective` an objective code
+/// or `none` / `stated`. `offers_min`/`offers_max` and `stores_min`/`stores_max`
+/// are inclusive bounds; `ends_from`/`ends_to` bound the Jakarta day the
+/// window ends (`YYYY-MM-DD`, inclusive), and `ends` is `open` or `set`.
+/// `sort` is one of `campaign_id`, `name`, `status`, `starts`, `ends`,
+/// `budget`, `budget_used`, `offers`, `stores`, `book`, with `dir=desc`;
+/// anything else is the house order, by campaign id. `cursor` and `limit` page.
 pub async fn commercial_campaigns(
     State(s): State<AppState>,
     Query(params): Query<Vec<(String, String)>>,
 ) -> Result<Json<CampaignPage>, AppError> {
-    refuse_unknown_parameters(&params, &[&PAGING[..], &["status"]].concat())?;
+    refuse_unknown_parameters(&params, &[&PAGING[..], &CAMPAIGN_FILTERS[..]].concat())?;
     Ok(Json(
         infrastructure::commercial_campaigns(
             &s.db,
             infrastructure::CampaignScope {
                 needle: single_value(&params, "q"),
                 statuses: facet_values(&params, "status"),
+                phases: facet_values(&params, "phase"),
+                now: s.clock.now(),
+                objectives: facet_values(&params, "objective"),
+                offers_min: whole_value(&params, "offers_min")?,
+                offers_max: whole_value(&params, "offers_max")?,
+                stores_min: whole_value(&params, "stores_min")?,
+                stores_max: whole_value(&params, "stores_max")?,
+                ends_from: day_value(&params, "ends_from")?,
+                ends_to: day_value(&params, "ends_to")?,
+                ends_open: ends_value(&params)?,
                 sort: single_value(&params, "sort"),
                 desc: single_value(&params, "dir").as_deref() == Some("desc"),
                 cursor: single_value(&params, "cursor"),

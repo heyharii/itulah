@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query"
+import { useInfiniteQuery } from "@tanstack/react-query"
 import { Plus } from "lucide-react"
 import { useMemo, useState } from "react"
 
@@ -10,11 +10,12 @@ import { Input } from "@/components/ui/field"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
-import { EmptyState } from "@/components/ui/states"
+import { EmptyState, LoadMore, type Pageable } from "@/components/ui/states"
 import { count, money, span } from "@/lib/format"
 import { gaContracts, gaKeys } from "@/lib/queries/ga"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
+import { useDebounced } from "@/lib/use-debounced"
 import { cn } from "@/lib/utils"
 import { ContractComposer } from "@/screens/contracts/composer"
 import { monthLabel, partyOf, siteOf } from "@/screens/contracts/format"
@@ -24,7 +25,7 @@ import {
 } from "@/screens/contracts/groups"
 import { ContractHubSheet } from "@/screens/contracts/hub"
 import { FinanceMark, StandingPill } from "@/screens/contracts/parts"
-import type { GaContractRow } from "@itulah/contract"
+import type { GaContractRow, GaContractSummary } from "@itulah/contract"
 
 /// The contract register — every deal behind the bills, on one screen.
 ///
@@ -48,8 +49,10 @@ import type { GaContractRow } from "@itulah/contract"
 ///
 /// # What the strip above the table is allowed to sum
 ///
-/// The page the server sends carries rows, a total and facets — no sums. The
-/// strip reads the SAME rows the table draws, so the two can never disagree.
+/// Nothing the browser holds. The register pages as it scrolls, so a strip
+/// summed over the loaded rows would be a figure about the scroll position;
+/// the server counts the four figures over every contract the reading
+/// matches and sends them beside the first page.
 ///
 /// # Billed reads zero today, and that is honest
 ///
@@ -96,6 +99,9 @@ const GROUP_LEADS: Record<ContractGroupCode, string> = {
   DISEWAKAN: "Space and equipment the company rents out to others.",
 }
 
+/// How many contracts one page of the register asks for.
+const PAGE = 100
+
 export function Contracts() {
   const chip = useSheet("contract-group")
   const view = readingFor(chip.value)
@@ -103,37 +109,55 @@ export function Contracts() {
   const [search, setSearch] = useState("")
   const [archived, setArchived] = useState(false)
   const [adding, setAdding] = useState(false)
+  // The search is the server's, so it waits for the typing to stop.
+  const needle = useDebounced(search.trim(), 300)
 
   const scope = useMemo(
     () => ({
-      q: search.trim() === "" ? undefined : search.trim(),
+      q: needle === "" ? undefined : needle,
       group: view.group,
       // The archive is the register's only way back out of the list, so the
       // reading is explicit: the default list is the living register, and the
       // archived contracts are one deliberate click away rather than gone.
-      archived: archived || undefined,
-      limit: 200,
+      // Sent both ways — an absent `archived` is the server's "both".
+      archived,
     }),
-    [search, archived, view.group]
+    [needle, archived, view.group]
   )
 
-  const register = useQuery({
-    queryKey: gaKeys.contracts(scope),
-    queryFn: ({ signal }) => gaContracts(scope, signal),
+  /// The register, a page at a time as its foot nears view. Its own key under
+  /// the register's prefix, so a plain read of the same scope elsewhere
+  /// cannot be served a paged answer; `gaKeys.all` still reaches it.
+  const register = useInfiniteQuery({
+    queryKey: [
+      ...gaKeys.contracts(scope),
+      "pages",
+      view.kind === "utilities" ? "site" : "register",
+    ] as const,
+    queryFn: ({ pageParam, signal }) =>
+      gaContracts(
+        {
+          ...scope,
+          // Subscriptions read by PLACE: the question this reading answers is
+          // "what is connected there", and a register order would scatter one
+          // site's connections across the table. The server sorts, so the
+          // order holds across pages.
+          sort: view.kind === "utilities" ? "site" : undefined,
+          limit: PAGE,
+          cursor: pageParam,
+        },
+        signal
+      ),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    placeholderData: (previous) => previous,
   })
 
-  const rows = useMemo(() => {
-    const loaded = register.data?.rows ?? []
-    // Subscriptions read the same rows sorted by PLACE: the question this
-    // reading answers is "what is connected there", and a register order
-    // would scatter one site's connections across the table.
-    if (view.kind === "utilities") {
-      return [...loaded].sort((a, b) =>
-        (a.site_id ?? "").localeCompare(b.site_id ?? "")
-      )
-    }
-    return loaded
-  }, [register.data, view.kind])
+  const rows = useMemo(
+    () => register.data?.pages.flatMap((page) => page.rows) ?? [],
+    [register.data]
+  )
+  const head = register.data?.pages[0]
 
   return (
     <PageContent>
@@ -160,11 +184,13 @@ export function Contracts() {
       <Toolbar>
         <GroupChips
           here={view.group ?? null}
-          counts={register.data?.facets.groups ?? []}
+          counts={head?.facets.groups ?? []}
         />
       </Toolbar>
 
-      {register.data !== undefined && <SummaryStrip rows={rows} view={view} />}
+      {head !== undefined && (
+        <SummaryStrip summary={head.summary} total={head.total} view={view} />
+      )}
 
       <Toolbar>
         <Segmented
@@ -176,10 +202,10 @@ export function Contracts() {
           onChange={(next) => setArchived(next === "ARCHIVED")}
         />
         <Toolbar.Spacer />
-        {register.data !== undefined && (
+        {head !== undefined && (
           <span className="text-meta text-body">
-            <b className="font-medium text-ink">{count(register.data.total)}</b>{" "}
-            {register.data.total === 1 ? "contract" : "contracts"}
+            <b className="font-medium text-ink">{count(head.total)}</b>{" "}
+            {head.total === 1 ? "contract" : "contracts"}
           </span>
         )}
       </Toolbar>
@@ -202,7 +228,12 @@ export function Contracts() {
               </EmptyState>
             </Card>
           ) : (
-            <ContractTable view={view} rows={rows} onOpen={open.open} />
+            <ContractTable
+              view={view}
+              rows={rows}
+              onOpen={open.open}
+              more={register}
+            />
           ),
       })}
 
@@ -285,7 +316,9 @@ function GroupChip({
     <AppLink
       to="/contracts"
       sheet={
-        group === undefined ? undefined : { key: "contract-group", value: group }
+        group === undefined
+          ? undefined
+          : { key: "contract-group", value: group }
       }
       aria-current={active ? "page" : undefined}
       className={cn(
@@ -317,38 +350,29 @@ function GroupChip({
 }
 
 /// The strip between the header and the table: the four figures a group is
-/// managed by. All computed from the rows below, for the reason the type
-/// comment gives — the server sends no sums, and a strip that fetched its own
-/// answer would drift from the table it sits above.
+/// managed by, counted by the server over every contract the reading matches
+/// — see the type comment. Leased out is the one group where the money flows
+/// IN, so across every group the server leaves it out of what was billed to
+/// us: a sum of both directions is a number nobody can use.
 function SummaryStrip({
-  rows,
+  summary,
+  total,
   view,
 }: {
-  rows: readonly GaContractRow[]
+  summary: GaContractSummary
+  total: number
   view: Reading
 }) {
-  const active = rows.filter(
-    (row) => row.standing === "AKTIF" || row.standing === "SEGERA_HABIS"
-  )
-  const renew = rows.filter(
-    (row) => row.standing === "SEGERA_HABIS" || row.standing === "HABIS"
-  )
-  // Leased out is the one group where the money flows IN, so across every
-  // group it is left out of what was billed to us: a sum of both directions
-  // is a number nobody can use.
-  const billed = rows
-    .filter((row) => view.group !== undefined || row.group_code !== "DISEWAKAN")
-    .reduce((sum, row) => sum + row.billed_minor, 0)
+  const billed = summary.billed_minor
 
   if (view.kind === "utilities") {
     return (
       <KpiStrip className="md:grid-cols-2 xl:grid-cols-2">
-        <Kpi label="Connections" value={count(rows.length)} />
+        <Kpi label="Connections" value={count(total)} />
         <Kpi
           label={
             <>
-              Billed to date{" "}
-              <FinanceMark className="ml-1 align-[0.125rem]" />
+              Billed to date <FinanceMark className="ml-1 align-[0.125rem]" />
             </>
           }
           value={money(billed)}
@@ -359,13 +383,11 @@ function SummaryStrip({
 
   return (
     <KpiStrip className="md:grid-cols-2 xl:grid-cols-4">
-      <Kpi label="Active" value={count(active.length)} />
-      <Kpi label="Due for renewal" value={count(renew.length)} />
+      <Kpi label="Active" value={count(summary.active)} />
+      <Kpi label="Due for renewal" value={count(summary.due_for_renewal)} />
       <Kpi
         label="Active contract value"
-        value={money(
-          active.reduce((sum, row) => sum + (row.contract_value_minor ?? 0), 0)
-        )}
+        value={money(summary.active_value_minor)}
       />
       {/* The ledger behind the figure is the other desk's either way, hence
           the mark. */}
@@ -390,10 +412,12 @@ function ContractTable({
   view,
   rows,
   onOpen,
+  more,
 }: {
   view: Reading
   rows: readonly GaContractRow[]
   onOpen: (contractId: string) => void
+  more: Pageable
 }) {
   return (
     <Card className="overflow-hidden">
@@ -440,6 +464,9 @@ function ContractTable({
           </div>
         )}
       </div>
+      {/* Outside the sideways-scrolling box, which computes as a vertical
+          scroller too — see `<LoadMore>`. The page scrolls. */}
+      <LoadMore query={more} />
     </Card>
   )
 }

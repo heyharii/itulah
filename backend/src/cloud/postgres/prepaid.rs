@@ -323,6 +323,114 @@ pub async fn prepaid_schedules(
     rows.iter().map(to_schedule).collect()
 }
 
+/// A page of schedules, newest first, beside what every schedule the filters
+/// match adds up to.
+///
+/// The bare list above stops at `limit` (100 unless asked) and says nothing,
+/// so a card adding up "what is still to be charged" over it was adding up
+/// the newest hundred. This pages on a keyset and carries the card figures
+/// computed over the whole filtered set.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PrepaidSchedulePage {
+    pub rows: Vec<PrepaidSchedule>,
+    pub next_cursor: Option<String>,
+    /// Every schedule the unit and status filters match.
+    pub total: i64,
+    /// What those schedules have still to charge: amount less allocated.
+    pub remaining_minor: i64,
+    /// ACTIVE schedules among them whose span covers `period`, the month
+    /// somebody is about to allocate. `None` when no period was asked about.
+    pub due_in_period: Option<i64>,
+}
+
+/// Where the previous page stopped, in the list's own order.
+#[derive(Serialize, Deserialize)]
+struct ScheduleCursor {
+    start_period: NaiveDate,
+    schedule_number: String,
+    schedule_id: Uuid,
+}
+
+pub async fn prepaid_schedule_page(
+    pool: &PgPool,
+    site_id: Option<&str>,
+    status: Option<&str>,
+    period: Option<NaiveDate>,
+    cursor: Option<&str>,
+    limit: Option<i64>,
+) -> Result<PrepaidSchedulePage, AppError> {
+    let cursor: Option<ScheduleCursor> = cursor.map(super::decode_cursor).transpose()?;
+    let limit = limit.unwrap_or(100).clamp(1, 500);
+    let sql = format!(
+        "SELECT {SCHEDULE_COLUMNS} {SCHEDULE_FROM}
+          WHERE ($1::text IS NULL OR s.site_id = $1)
+            AND ($2::text IS NULL OR s.status = $2)
+            AND ($3::date IS NULL
+                 OR (s.start_period, s.schedule_number, s.schedule_id)
+                    < ($3::date, $4::text, $5::uuid))
+          ORDER BY s.start_period DESC, s.schedule_number DESC, s.schedule_id DESC
+          LIMIT $6"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(site_id)
+        .bind(status)
+        .bind(cursor.as_ref().map(|c| c.start_period))
+        .bind(cursor.as_ref().map(|c| c.schedule_number.clone()))
+        .bind(cursor.as_ref().map(|c| c.schedule_id))
+        .bind(limit)
+        .fetch_all(pool)
+        .await?;
+    let next_cursor = match rows.last() {
+        Some(row) if rows.len() as i64 == limit => Some(super::encode_cursor(&ScheduleCursor {
+            start_period: row.try_get("start_period")?,
+            schedule_number: row.try_get("schedule_number")?,
+            schedule_id: row.try_get("schedule_id")?,
+        })?),
+        _ => None,
+    };
+    let out = rows
+        .iter()
+        .map(to_schedule)
+        .collect::<Result<Vec<_>, _>>()?;
+
+    // The month a schedule covers is compared as a MONTH, the way the screen
+    // reads it: a schedule starting on the 15th covers that whole month.
+    let totals = sqlx::query(
+        "SELECT COUNT(*)::bigint AS total,
+                COALESCE(SUM(s.amount_minor - COALESCE(a.allocated_minor, 0)), 0)::bigint
+                    AS remaining,
+                COUNT(*) FILTER (
+                    WHERE $3::date IS NOT NULL
+                      AND s.status = 'ACTIVE'
+                      AND date_trunc('month', s.start_period) <= date_trunc('month', $3::date)
+                      AND date_trunc('month', $3::date) <= date_trunc('month', s.end_period)
+                )::bigint AS due
+           FROM prepaid_schedule s
+           LEFT JOIN (
+                SELECT schedule_id, SUM(amount_minor) AS allocated_minor
+                  FROM prepaid_allocation GROUP BY schedule_id
+           ) a ON a.schedule_id = s.schedule_id
+          WHERE ($1::text IS NULL OR s.site_id = $1)
+            AND ($2::text IS NULL OR s.status = $2)",
+    )
+    .bind(site_id)
+    .bind(status)
+    .bind(period)
+    .fetch_one(pool)
+    .await?;
+    Ok(PrepaidSchedulePage {
+        rows: out,
+        next_cursor,
+        total: totals.try_get("total")?,
+        remaining_minor: totals.try_get("remaining")?,
+        due_in_period: match period {
+            Some(_) => Some(totals.try_get("due")?),
+            None => None,
+        },
+    })
+}
+
 pub async fn prepaid_schedule_detail(
     pool: &PgPool,
     schedule_id: Uuid,

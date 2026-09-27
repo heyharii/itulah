@@ -38,11 +38,7 @@ import { RepairSheet } from "@/screens/maintenance/hub"
 import { RepairStagePill } from "@/screens/maintenance/parts"
 import { repairObjectTiles, repairOver } from "@/screens/maintenance/format"
 import { FinanceMark } from "@/screens/contracts/parts"
-import type {
-  GaAssetRow,
-  GaRepairRow,
-  GaRepairSummary,
-} from "@itulah/contract"
+import type { GaAssetRow, GaRepairRow, GaRepairSummary } from "@itulah/contract"
 
 /// Perbaikan — the book of things that broke.
 ///
@@ -149,7 +145,10 @@ function SummaryStrip({ summary }: { summary: GaRepairSummary }) {
   return (
     <KpiStrip className="md:grid-cols-2 xl:grid-cols-4">
       <Kpi label="Open" value={count(summary.open)} />
-      <Kpi label="Done in the last 90 days" value={count(summary.done_recently)} />
+      <Kpi
+        label="Done in the last 90 days"
+        value={count(summary.done_recently)}
+      />
       <Kpi label="Actual over estimate/budget" value={count(summary.over)} />
       <Kpi
         label={
@@ -377,7 +376,8 @@ export function RepairComposer({
 
   const submit = () => {
     const next: Record<string, string> = {}
-    if ((form.title ?? "").trim() === "") next.title = "Enter the problem first."
+    if ((form.title ?? "").trim() === "")
+      next.title = "Enter the problem first."
     if (assetId === "" && (form.objek ?? "") === "")
       next.objek = "Choose the object first."
     if (assetId === "" && (form.site ?? "") === "")
@@ -433,7 +433,10 @@ export function RepairComposer({
           </Field>
         </Section>
 
-        <Section title="Asset and object" aside="object follows the asset's class">
+        <Section
+          title="Asset and object"
+          aside="object follows the asset's class"
+        >
           <Field
             label="Asset"
             aside={asset === undefined ? "empty = no asset" : undefined}
@@ -472,7 +475,11 @@ export function RepairComposer({
 
         <Section title="Location and vendor">
           {asset === undefined && (
-            <Field label="Location" required problem={problems.site || undefined}>
+            <Field
+              label="Location"
+              required
+              problem={problems.site || undefined}
+            >
               <Select
                 value={form.site ?? ""}
                 onChange={(next) => set("site", next)}

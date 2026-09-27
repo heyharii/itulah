@@ -1147,6 +1147,7 @@ fn the_wire_types_are_written_for_the_browser() {
     for_contract!(
         &config,
         PrepaidSchedule,
+        PrepaidSchedulePage,
         PrepaidAllocation,
         PrepaidScheduleDocument,
         CreatePrepaidScheduleRequest,
@@ -1162,6 +1163,7 @@ fn the_wire_types_are_written_for_the_browser() {
         FileTaxPeriodRequest,
         TaxReconciliationRow,
         Advance,
+        AdvancePage,
         AdvanceSettlement,
         AdvanceDocument,
         CreateAdvanceRequest,
@@ -1290,6 +1292,8 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("GaContractRow: {e}"));
     inventory_backend::cloud::postgres::GaContractPage::export_all(&config)
         .unwrap_or_else(|e| panic!("GaContractPage: {e}"));
+    inventory_backend::cloud::postgres::GaContractSummary::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaContractSummary: {e}"));
     inventory_backend::cloud::postgres::GaContractFacets::export_all(&config)
         .unwrap_or_else(|e| panic!("GaContractFacets: {e}"));
     inventory_backend::cloud::postgres::GaContractFacet::export_all(&config)
@@ -1355,6 +1359,8 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("GaRepairRow: {e}"));
     inventory_backend::cloud::postgres::GaRepairPage::export_all(&config)
         .unwrap_or_else(|e| panic!("GaRepairPage: {e}"));
+    inventory_backend::cloud::postgres::GaRepairSummary::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaRepairSummary: {e}"));
     inventory_backend::cloud::postgres::GaRepairFacets::export_all(&config)
         .unwrap_or_else(|e| panic!("GaRepairFacets: {e}"));
     inventory_backend::cloud::postgres::RecordGaRepairRequest::export_all(&config)
@@ -1405,6 +1411,8 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("UpdateGaLocationRequest: {e}"));
     inventory_backend::cloud::postgres::GaSupplyRequestRow::export_all(&config)
         .unwrap_or_else(|e| panic!("GaSupplyRequestRow: {e}"));
+    inventory_backend::cloud::postgres::GaSupplyPage::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaSupplyPage: {e}"));
     inventory_backend::cloud::postgres::GaSupplyCategory::export_all(&config)
         .unwrap_or_else(|e| panic!("GaSupplyCategory: {e}"));
     inventory_backend::cloud::postgres::RecordGaSupplyRequestRequest::export_all(&config)

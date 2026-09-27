@@ -1,11 +1,16 @@
-import { useQueries } from "@tanstack/react-query"
+import { useInfiniteQuery, useQueries } from "@tanstack/react-query"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { Toolbar } from "@/components/ui/segmented"
-import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states"
+import {
+  EmptyState,
+  ErrorState,
+  LoadMore,
+  LoadingState,
+} from "@/components/ui/states"
 import { clock, count, day, money } from "@/lib/format"
 import {
   analyticsKeys,
@@ -617,6 +622,9 @@ function useTakingsByDay(siteId: string, dates: readonly string[]) {
 /// this shop" but never "the sales in this window". The window report already
 /// lists exactly the right ones, with the tenders on each, and says for itself
 /// when it had to stop.
+/// One page of receipts. The list scrolls on — a step, not a ceiling.
+const RECEIPTS_PAGE = 100
+
 function Receipts({
   site,
   from,
@@ -626,29 +634,29 @@ function Receipts({
   from: string
   to: string
 }) {
-  const windowed = useQueries({
-    queries: [
-      {
-        queryKey: analyticsKeys.window(site, from, to),
-        queryFn: ({ signal }: { signal: AbortSignal }) =>
-          salesWindow({ siteId: site, from, to }, signal),
-        staleTime: 60_000,
-      },
-    ],
-    combine: (results) => ({
-      data: results[0].data,
-      pending: results[0].isPending,
-      error: results[0].isError ? results[0].error : null,
-    }),
+  // The receipts a page at a time. Every page carries the whole span's
+  // totals; the first page's are the ones drawn. The same key and page size
+  // the Sales screen's window sheet walks, so the two share pages.
+  const windowed = useInfiniteQuery({
+    queryKey: analyticsKeys.windowPages(site, from, to),
+    queryFn: ({ pageParam, signal }) =>
+      salesWindow(
+        { siteId: site, from, to, limit: RECEIPTS_PAGE, cursor: pageParam },
+        signal
+      ),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.transactions_next_cursor ?? undefined,
+    staleTime: 60_000,
   })
 
-  if (windowed.error !== null) return <ErrorState error={windowed.error} />
-  if (windowed.pending || windowed.data === undefined) {
+  if (windowed.data === undefined) {
+    if (windowed.error !== null) return <ErrorState error={windowed.error} />
     return <LoadingState>Fetching the receipts behind those days…</LoadingState>
   }
 
-  const report = windowed.data
-  if (report.transactions.length === 0) {
+  const report = windowed.data.pages[0]
+  const transactions = windowed.data.pages.flatMap((page) => page.transactions)
+  if (transactions.length === 0) {
     return (
       <Note>
         No sale was completed at this location in this span, so there is no
@@ -684,7 +692,7 @@ function Receipts({
           </tr>
         </thead>
         <tbody>
-          {report.transactions.map((sale) => (
+          {transactions.map((sale) => (
             <tr key={sale.id}>
               <Td>
                 <span className="font-mono text-[0.875rem] text-ink">
@@ -718,13 +726,7 @@ function Receipts({
           ))}
         </tbody>
       </Grid>
-      {report.transactions_truncated && (
-        <Note>
-          The server stopped at {count(report.transactions_limit)} receipts; the
-          figures above them cover the whole span regardless, so the totals are
-          not affected. Narrow the window to see the rest.
-        </Note>
-      )}
+      <LoadMore query={windowed} />
     </section>
   )
 }

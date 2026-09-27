@@ -1,9 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { BadgeDollarSign, HeartHandshake } from "lucide-react"
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
-import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { Field, Input } from "@/components/ui/field"
@@ -44,7 +42,6 @@ import {
 } from "@/lib/queries/people"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
-import { usePeopleAudience } from "@/screens/people/scope"
 import type { PayrollRunView } from "@itulah/contract"
 
 /// Payroll runs. The place asks for its own; head office answers.
@@ -104,7 +101,6 @@ function unitName(
 
 export function PayrollRuns() {
   const run = useSheet("payrollRun")
-  const employer = usePeopleAudience() === "employer"
   const units = usePlaces()
   const places = units.data ?? []
   const runs = useQuery({
@@ -120,23 +116,6 @@ export function PayrollRuns() {
         crumb="People"
         title="Payroll"
         sub="One place, one month, and two different people: the place that sends it and the head office that approves it."
-        actions={
-          // What a run is made of, one door each — sidebar rows until
-          // 2026-09-27. Pay agreements are the employer's to write, so a
-          // place is not shown a door it would be refused at.
-          <>
-            {employer && (
-              <AppLink to="/people/pay" variant="ghost">
-                <BadgeDollarSign />
-                Pay agreements
-              </AppLink>
-            )}
-            <AppLink to="/people/benefits" variant="ghost">
-              <HeartHandshake />
-              Benefits
-            </AppLink>
-          </>
-        }
       />
 
       {/* Not a blanket claim about punches any more: a unit with a station

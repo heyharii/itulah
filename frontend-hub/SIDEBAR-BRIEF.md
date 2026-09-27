@@ -268,16 +268,24 @@ menyalakan baris induknya lewat `alsoLights`.
   tukar jadwal) digambar di dalamnya, dan klaim, usulan karyawan serta payroll
   yang menunggu jadi baris di daftar perhatiannya; barisnya membawa angka
   (`usePeopleWaitingCount`). New employees dari Employees, Overtime dari
-  Roster, Period close dari Attendance, Pay agreements dan Benefits dari
-  Payroll. Time policy jadi **Settings** (`/people/settings`), dengan Punch
-  stations dan Scheduler dibuka dari header-nya. Leave, Rule numbers, Salary
-  structures, dan file yatim Performance/Recruitment/Training **dihapus**;
-  changes/exits/lifecycle menunggu keputusan owner.
+  Roster, Period close dari Attendance. Pay agreements dan seragam jadi tab
+  **Pay** (hanya HO) dan **Uniforms** di lembar karyawan; layar Pay
+  agreements dan Benefits dihapus. Time policy jadi **Settings**
+  (`/people/settings`), dengan Punch stations dan Scheduler dibuka dari
+  header-nya. Leave, Rule numbers, Salary structures, dan semua draf yang tak
+  pernah di-route (Performance, Recruitment, Training, Changes, Exits,
+  Lifecycle) **dihapus** — ada di git (66f6815) bila perlu kembali.
 - **Bahasa:** label dan teks layar GA jadi bahasa Inggris seperti bagian hub
   lain. Isi kertas surat (STB, SJ) tetap bahasa Indonesia karena itu dokumen
   yang dicetak.
 
-**Belum:** Pay agreements dan seragam sebagai tab di lembar karyawan (sekarang
-tombol di Payroll). Badge di Overview GA sengaja tidak dibuat: endpoint
+- **Siapa melihat apa:** rail desktop kini memakai aturan launcher HP
+  (owner, 2026-09-25) — CASHIER tidak ditawari departemen, Files, Reports;
+  System hanya ADMIN. Satu sumber: `officeFor`/`systemFor` di `lib/apps.ts`.
+  Pemicunya QA 26 Sep: "Dian" (Admin toko, login CASHIER) melihat HR dan GA.
+
+**Belum:** badge di Overview GA sengaja tidak dibuat — endpoint
 `/api/v1/ga/overview` memotong tiap bagian di 10 baris, jadi angkanya akan
-salah untuk register besar.
+salah untuk register besar. Wawancara exit dan penyelesaian F&F tidak punya
+layar (drafnya tak pernah di-route); tempatnya kelak tab Exit di lembar
+karyawan.

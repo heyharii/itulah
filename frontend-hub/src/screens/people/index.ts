@@ -1,6 +1,5 @@
 import type { ScreenMap } from "@/screens/registry"
 import { AttendanceDays } from "@/screens/people/attendance-days"
-import { Benefits } from "@/screens/people/benefits"
 import { Claims } from "@/screens/people/claims"
 import { Directory } from "@/screens/people/directory"
 import { Grievances } from "@/screens/people/grievances"
@@ -10,7 +9,6 @@ import { PeopleOverview } from "@/screens/people/overview"
 import { PeopleReports } from "@/screens/people/reports"
 import { Scheduler } from "@/screens/people/scheduler"
 import { Terminals } from "@/screens/people/terminals"
-import { Pay } from "@/screens/people/pay"
 import { PayrollRuns } from "@/screens/people/payroll"
 import { Periods } from "@/screens/people/periods"
 import { PeopleSettings } from "@/screens/people/policy"
@@ -34,14 +32,12 @@ export const screens: ScreenMap = {
   "/people/roster": Roster,
   "/people/attendance-days": AttendanceDays,
   "/people/periods": Periods,
-  "/people/pay": Pay,
   "/people/payroll": PayrollRuns,
   "/people/reports": PeopleReports,
   /// One door onto the four time rules — see `policy.tsx` for why, and for
   /// the screens that open from it.
   "/people/settings": PeopleSettings,
   "/people/terminals": Terminals,
-  "/people/benefits": Benefits,
   /// The clock's own evidence, and the one door that runs it by hand.
   "/people/scheduler": Scheduler,
 }

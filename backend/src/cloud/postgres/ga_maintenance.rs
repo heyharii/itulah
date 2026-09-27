@@ -92,11 +92,15 @@ impl GaMaintenanceScope {
 }
 
 /// The next page's cursor: the last row's id when the page came back full.
-fn next_cursor_after(last: Option<Uuid>, len: usize, limit: i64) -> Result<Option<String>, AppError> {
+fn next_cursor_after(
+    last: Option<Uuid>,
+    len: usize,
+    limit: i64,
+) -> Result<Option<String>, AppError> {
     match last {
-        Some(id) if len as i64 == limit => Ok(Some(super::encode_cursor(&GaMaintenanceCursor {
-            id,
-        })?)),
+        Some(id) if len as i64 == limit => {
+            Ok(Some(super::encode_cursor(&GaMaintenanceCursor { id })?))
+        }
         _ => Ok(None),
     }
 }
@@ -1150,7 +1154,11 @@ pub async fn ga_inspection_page(
           ORDER BY i.inspected_on DESC, i.recorded_at DESC, i.inspection_id DESC
           LIMIT $2"
     );
-    let rows = sqlx::query(&sql).bind(after).bind(limit).fetch_all(pool).await?;
+    let rows = sqlx::query(&sql)
+        .bind(after)
+        .bind(limit)
+        .fetch_all(pool)
+        .await?;
     let out = rows
         .iter()
         .map(to_inspection_row)
@@ -1796,7 +1804,11 @@ pub async fn ga_replacement_page(
           ORDER BY p.proposed_on DESC, p.replacement_id DESC
           LIMIT $2"
     );
-    let rows = sqlx::query(&sql).bind(after).bind(limit).fetch_all(pool).await?;
+    let rows = sqlx::query(&sql)
+        .bind(after)
+        .bind(limit)
+        .fetch_all(pool)
+        .await?;
     let out = rows
         .iter()
         .map(to_replacement_row)

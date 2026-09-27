@@ -120,8 +120,47 @@ pub struct GaContractFacets {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct GaContractPage {
     pub rows: Vec<GaContractRow>,
+    /// Opaque. Pass it back as `cursor` for the next page; absent means this
+    /// was the last one.
+    pub next_cursor: Option<String>,
     pub total: i64,
     pub facets: GaContractFacets,
+    pub summary: GaContractSummary,
+}
+
+/// The figures the register's strip prints, counted over EVERY contract the
+/// search and the filters match — not over a page of them, which would be a
+/// figure about the scroll position.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct GaContractSummary {
+    /// Standing AKTIF or SEGERA_HABIS.
+    pub active: i64,
+    /// Standing SEGERA_HABIS or HABIS: due, or overdue, for renewal.
+    pub due_for_renewal: i64,
+    /// Σ contract value of the active ones.
+    pub active_value_minor: i64,
+    /// Σ POSTED bill lines pointing at the matched contracts. Across every
+    /// group, the rent the company RECEIVES (DISEWAKAN) is left out — a sum of
+    /// both directions is a number nobody can use; a group filter keeps it in.
+    pub billed_minor: i64,
+}
+
+/// The two orders the register can be read in.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum GaContractOrder {
+    /// The house order: the type's own position, then the start day.
+    #[default]
+    Register,
+    /// By the place first — the Subscriptions reading, which answers "what is
+    /// connected there".
+    Site,
+}
+
+/// Where the previous page stopped: the last contract's id.
+#[derive(Serialize, Deserialize)]
+struct GaContractCursor {
+    contract_id: Uuid,
 }
 
 /// What a caller is asking the contract register for.
@@ -636,11 +675,26 @@ fn billed_select(alias: &str) -> String {
     )
 }
 
-/// The contract register, one page at a time, beside the shape of everything
-/// it holds.
+/// The contract register's first page in the house order, beside the shape of
+/// everything it holds. See [`ga_contract_book`] for the paged read.
 pub async fn ga_contract_page(
     pool: &PgPool,
     scope: GaContractScope,
+) -> Result<GaContractPage, AppError> {
+    ga_contract_book(pool, scope, None, GaContractOrder::Register).await
+}
+
+/// The contract register, one page at a time, beside the shape of everything
+/// it holds.
+///
+/// Paged by a keyset on the chosen order, ending in `contract_id` so two
+/// contracts that tie on everything else cannot repeat or vanish across a
+/// page boundary.
+pub async fn ga_contract_book(
+    pool: &PgPool,
+    scope: GaContractScope,
+    cursor: Option<&str>,
+    order: GaContractOrder,
 ) -> Result<GaContractPage, AppError> {
     let needle = scope
         .needle
@@ -653,6 +707,24 @@ pub async fn ga_contract_page(
     let sites = (!scope.sites.is_empty()).then(|| scope.sites.clone());
     let standings = (!scope.standings.is_empty()).then(|| scope.standings.clone());
     let limit = scope.limit.clamp(1, MAX_GA_CONTRACT_LIMIT);
+    let after = cursor
+        .map(super::decode_cursor::<GaContractCursor>)
+        .transpose()?
+        .map(|cursor| cursor.contract_id);
+
+    // The sort key as a row expression, written over a bare alias so the page
+    // (`k`) and the seek (`x`) spell it identically. Every one ends in the
+    // unique `contract_id`.
+    let key = |alias: &str| match order {
+        GaContractOrder::Register => {
+            format!("{alias}.sort_order, {alias}.starts_on, {alias}.contract_id")
+        }
+        GaContractOrder::Site => format!(
+            "COALESCE({alias}.site_id, ''), {alias}.sort_order, {alias}.starts_on, \
+             {alias}.contract_id"
+        ),
+    };
+    let (page_key, seek_key) = (key("k"), key("x"));
 
     let search = ga_contract_search();
     // The billed total rides the page and nothing else, exactly as the asset
@@ -665,8 +737,10 @@ pub async fn ga_contract_page(
              SELECT * FROM searched WHERE {GA_CONTRACT_FILTERS}
          )
          SELECT k.*, {billed} AS billed_minor FROM kept k
-          ORDER BY k.sort_order, k.starts_on, k.contract_number NULLS LAST
-          LIMIT $8"
+          WHERE $8::uuid IS NULL
+             OR ({page_key}) > (SELECT {seek_key} FROM kept x WHERE x.contract_id = $8)
+          ORDER BY {page_key}
+          LIMIT $9"
     );
     let rows = sqlx::query(&sql)
         .bind(&needle)
@@ -676,6 +750,7 @@ pub async fn ga_contract_page(
         .bind(&sites)
         .bind(&standings)
         .bind(scope.archived)
+        .bind(after)
         .bind(limit)
         .fetch_all(pool)
         .await?;
@@ -683,11 +758,67 @@ pub async fn ga_contract_page(
         .iter()
         .map(|row| to_ga_contract(row, scope.today))
         .collect::<Result<Vec<_>, _>>()?;
+    let next_cursor = match out.last() {
+        Some(last) if out.len() as i64 == limit => Some(super::encode_cursor(&GaContractCursor {
+            contract_id: last.contract_id,
+        })?),
+        _ => None,
+    };
     let (total, facets) = ga_contract_facets(pool, &scope, needle.as_deref()).await?;
+    let summary = ga_contract_summary(pool, &scope, needle.as_deref()).await?;
     Ok(GaContractPage {
         rows: out,
+        next_cursor,
         total,
         facets,
+        summary,
+    })
+}
+
+/// The strip's figures over every contract the scope matches.
+async fn ga_contract_summary(
+    pool: &PgPool,
+    scope: &GaContractScope,
+    needle: Option<&str>,
+) -> Result<GaContractSummary, AppError> {
+    let types = (!scope.types.is_empty()).then(|| scope.types.clone());
+    let groups = (!scope.groups.is_empty()).then(|| scope.groups.clone());
+    let sites = (!scope.sites.is_empty()).then(|| scope.sites.clone());
+    let standings = (!scope.standings.is_empty()).then(|| scope.standings.clone());
+    let search = ga_contract_search();
+    let billed = billed_select("k");
+    let sql = format!(
+        "WITH searched AS ({search}),
+              kept AS (
+             SELECT * FROM searched WHERE {GA_CONTRACT_FILTERS}
+         )
+         SELECT
+             COUNT(*) FILTER (WHERE k.standing IN ('AKTIF', 'SEGERA_HABIS')) AS active,
+             COUNT(*) FILTER (WHERE k.standing IN ('SEGERA_HABIS', 'HABIS')) AS renew,
+             COALESCE(SUM(k.contract_value_minor)
+                 FILTER (WHERE k.standing IN ('AKTIF', 'SEGERA_HABIS')), 0)::bigint
+                 AS active_value,
+             COALESCE(SUM(b.billed)
+                 FILTER (WHERE $4::text[] IS NOT NULL OR k.group_code <> 'DISEWAKAN'), 0)::bigint
+                 AS billed
+           FROM kept k
+           CROSS JOIN LATERAL (SELECT {billed} AS billed) b"
+    );
+    let row = sqlx::query(&sql)
+        .bind(needle)
+        .bind(scope.today)
+        .bind(&types)
+        .bind(&groups)
+        .bind(&sites)
+        .bind(&standings)
+        .bind(scope.archived)
+        .fetch_one(pool)
+        .await?;
+    Ok(GaContractSummary {
+        active: row.try_get("active")?,
+        due_for_renewal: row.try_get("renew")?,
+        active_value_minor: row.try_get("active_value")?,
+        billed_minor: row.try_get("billed")?,
     })
 }
 

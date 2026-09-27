@@ -336,17 +336,35 @@ pub async fn remove_account_link(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Who changed which link, newest first. `role` narrows to one role.
+/// Who changed which link, newest first. `role` narrows to one role;
+/// `before` (the last `history_id` of the previous page) pages.
 pub async fn account_link_history(
     State(state): State<AppState>,
     Query(params): Query<Vec<(String, String)>>,
 ) -> Result<Json<Vec<infrastructure::AccountLinkChange>>, AppError> {
-    refuse_unknown_parameters(&params, &["role", "limit"])?;
+    refuse_unknown_parameters(&params, &["role", "limit", "before"])?;
     let limit = limit_value(&params)?.unwrap_or(200);
     Ok(Json(
-        infrastructure::account_link_history(&state.db, single_value(&params, "role").as_deref(), limit)
-            .await?,
+        infrastructure::account_link_history_before(
+            &state.db,
+            single_value(&params, "role").as_deref(),
+            history_before(&params)?,
+            limit,
+        )
+        .await?,
     ))
+}
+
+/// `before=<id>` on the two change histories: the id the previous page ended
+/// on. A number, and a refusal rather than a silent first page when it is not
+/// one.
+fn history_before(params: &[(String, String)]) -> Result<Option<i64>, AppError> {
+    single_value(params, "before")
+        .map(|raw| {
+            raw.parse::<i64>()
+                .map_err(|_| AppError::Validation(format!("before {raw:?} is not a change id")))
+        })
+        .transpose()
 }
 
 /// For every role and source, what each site resolves to — or that it
@@ -357,16 +375,22 @@ pub async fn posting_readiness(
     Ok(Json(infrastructure::posting_readiness(&state.db).await?))
 }
 
-/// What changed in the chart, newest first. `account` narrows to one account.
+/// What changed in the chart, newest first. `account` narrows to one account;
+/// `before` (the last `change_id` of the previous page) pages.
 pub async fn chart_changes(
     State(state): State<AppState>,
     Query(params): Query<Vec<(String, String)>>,
 ) -> Result<Json<Vec<infrastructure::ChartChange>>, AppError> {
-    refuse_unknown_parameters(&params, &["account", "limit"])?;
+    refuse_unknown_parameters(&params, &["account", "limit", "before"])?;
     let limit = limit_value(&params)?.unwrap_or(200);
     Ok(Json(
-        infrastructure::chart_history(&state.db, single_value(&params, "account").as_deref(), limit)
-            .await?,
+        infrastructure::chart_history_before(
+            &state.db,
+            single_value(&params, "account").as_deref(),
+            history_before(&params)?,
+            limit,
+        )
+        .await?,
     ))
 }
 

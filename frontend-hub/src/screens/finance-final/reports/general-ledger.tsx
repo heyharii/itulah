@@ -1,4 +1,4 @@
-import { useQueries, useQuery } from "@tanstack/react-query"
+import { useInfiniteQuery, useQueries, useQuery } from "@tanstack/react-query"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { Toolbar } from "@/components/ui/segmented"
-import { Banner, EmptyState } from "@/components/ui/states"
+import { EmptyState, LoadMore } from "@/components/ui/states"
 import { count, day, label, money } from "@/lib/format"
 import {
   accountDetail,
@@ -100,31 +100,34 @@ export function GeneralLedger() {
     staleTime: 60_000,
   })
 
-  const ledger = useQuery({
-    queryKey: financeKeys.ledger(
-      code ?? "",
-      site || null,
-      range.from,
-      range.to
-    ),
-    queryFn: ({ signal }) =>
+  const ledger = useInfiniteQuery({
+    queryKey: [
+      ...financeKeys.ledger(code ?? "", site || null, range.from, range.to),
+      "pages",
+    ],
+    queryFn: ({ pageParam, signal }) =>
       accountLedger(
         code ?? "",
         {
           site: site || undefined,
           from: range.from,
           to: range.to,
-          // The server's ceiling. A ledger is read whole or it is not read:
-          // paging it would leave the running balance stepping over a gap it
-          // cannot explain, so the answer to a window too big for one page is
-          // a smaller window, not a second page — and the banner below says so
-          // rather than letting the figures trail off.
-          limit: 1000,
+          // A step, not a ceiling: the ledger scrolls on. Paging cannot leave
+          // the running balance stepping over a gap — `running_minor` is the
+          // server's window function over the whole window, and the pages
+          // arrive in order, so every drawn balance is the one that was true
+          // after that movement.
+          limit: 200,
+          cursor: pageParam,
         },
         signal
       ),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    placeholderData: (previous) => previous,
     enabled: code !== null,
   })
+  const head = ledger.data?.pages[0]
 
   // Every voucher the reader has opened, fetched once each and held under the
   // Journal's own key — so a row opened here is already in hand on the Journals
@@ -185,13 +188,13 @@ export function GeneralLedger() {
         {/* The server's own echo of what it read, never the boxes'. When the
             two disagree the boxes are wrong and this is the figure the totals
             below belong to. */}
-        {ledger.data && (
+        {head && (
           <span className="text-[0.875rem] text-mute">
-            {day(ledger.data.from)} – {day(ledger.data.to)} ·{" "}
-            {ledger.data.site_id === null ? (
+            {day(head.from)} – {day(head.to)} ·{" "}
+            {head.site_id === null ? (
               "every unit"
             ) : (
-              <SiteName id={ledger.data.site_id} />
+              <SiteName id={head.site_id} />
             )}
           </span>
         )}
@@ -227,110 +230,105 @@ export function GeneralLedger() {
       ) : (
         queryState(ledger, {
           loading: "Reading every posting in the window…",
-          render: (data) => (
-            <div className="flex flex-col gap-4">
-              <div>
-                <h2 className="text-card-title font-semibold text-ink">
-                  {data.account_name}
-                </h2>
-                <p className="mt-0.5 text-[0.875rem] text-mute">
-                  <Code>{data.account_code}</Code>
-                  {detail.data && detail.data.path.length > 0 && (
-                    <>
-                      {" · "}
-                      {detail.data.path.map((step) => step.name).join(" › ")}
-                    </>
-                  )}
-                  {isGroup && " · heading"}
-                </p>
-              </div>
+          render: (pages) => {
+            // The figures and the facets are the window's and ride on every
+            // page alike; the first page's are the ones drawn.
+            const data = pages.pages[0]
+            const rows = pages.pages.flatMap((page) => page.rows)
+            return (
+              <div className="flex flex-col gap-4">
+                <div>
+                  <h2 className="text-card-title font-semibold text-ink">
+                    {data.account_name}
+                  </h2>
+                  <p className="mt-0.5 text-[0.875rem] text-mute">
+                    <Code>{data.account_code}</Code>
+                    {detail.data && detail.data.path.length > 0 && (
+                      <>
+                        {" · "}
+                        {detail.data.path.map((step) => step.name).join(" › ")}
+                      </>
+                    )}
+                    {isGroup && " · heading"}
+                  </p>
+                </div>
 
-              {/* The four figures a ledger is checked with. Opening and closing
+                {/* The four figures a ledger is checked with. Opening and closing
                   are the window's own, not the first and last running figures —
                   on a window with nothing in it those two do not exist and the
                   balance still does. */}
-              <CardRow columns={4}>
-                <NumberCard
-                  label={`Opening · ${day(data.from)}`}
-                  value={data.opening_minor}
-                />
-                <NumberCard
-                  label="Debits in the window"
-                  value={data.window_debit_minor}
-                />
-                <NumberCard
-                  label="Credits in the window"
-                  value={data.window_credit_minor}
-                />
-                <NumberCard
-                  label={`Closing · ${day(data.to)}`}
-                  value={data.closing_minor}
-                  tone={data.closing_minor < 0 ? "warn" : undefined}
-                />
-              </CardRow>
+                <CardRow columns={4}>
+                  <NumberCard
+                    label={`Opening · ${day(data.from)}`}
+                    value={data.opening_minor}
+                  />
+                  <NumberCard
+                    label="Debits in the window"
+                    value={data.window_debit_minor}
+                  />
+                  <NumberCard
+                    label="Credits in the window"
+                    value={data.window_credit_minor}
+                  />
+                  <NumberCard
+                    label={`Closing · ${day(data.to)}`}
+                    value={data.closing_minor}
+                    tone={data.closing_minor < 0 ? "warn" : undefined}
+                  />
+                </CardRow>
 
-              {/* Which units this account moved at, and how often. With no unit
+                {/* Which units this account moved at, and how often. With no unit
                   chosen this is the chooser — it is the only list anywhere that
                   says where an account is actually live, as against the
                   fourteen it could be. Narrowed, the server sends the one and
                   it becomes the caption for a window already narrowed, which is
                   what the contract says it is for. */}
-              {data.facets.sites.length > 0 && (
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="mr-0.5 text-[0.875rem] text-mute">
-                    Moved at
-                  </span>
-                  {data.facets.sites.map((one) => (
-                    <button
-                      key={one.value}
-                      type="button"
-                      onClick={() => setSite(one.value)}
-                      disabled={site === one.value}
-                      className="disabled:cursor-default"
-                    >
-                      <Pill tone={site === one.value ? "accent" : "neutral"}>
-                        {one.label ?? one.value} · {count(one.count)}
-                      </Pill>
-                    </button>
-                  ))}
-                  {site !== "" && (
-                    <Button
-                      variant="quiet"
-                      size="sm"
-                      onClick={() => setSite("")}
-                    >
-                      Every unit
-                    </Button>
-                  )}
-                </div>
-              )}
+                {data.facets.sites.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="mr-0.5 text-[0.875rem] text-mute">
+                      Moved at
+                    </span>
+                    {data.facets.sites.map((one) => (
+                      <button
+                        key={one.value}
+                        type="button"
+                        onClick={() => setSite(one.value)}
+                        disabled={site === one.value}
+                        className="disabled:cursor-default"
+                      >
+                        <Pill tone={site === one.value ? "accent" : "neutral"}>
+                          {one.label ?? one.value} · {count(one.count)}
+                        </Pill>
+                      </button>
+                    ))}
+                    {site !== "" && (
+                      <Button
+                        variant="quiet"
+                        size="sm"
+                        onClick={() => setSite("")}
+                      >
+                        Every unit
+                      </Button>
+                    )}
+                  </div>
+                )}
 
-              {data.rows.length < data.total && (
-                <Banner tone="warn">
-                  {count(data.total)} movements fall in this window and the
-                  first {count(data.rows.length)} are drawn. The running balance
-                  below therefore stops mid-window — narrow the window or choose
-                  a unit. The four figures above are the whole window&rsquo;s
-                  and are unaffected.
-                </Banner>
-              )}
-
-              {data.rows.length === 0 ? (
-                <EmptyState>
-                  Nothing moved in this account between {day(data.from)} and{" "}
-                  {day(data.to)}
-                  {data.site_id === null ? ", at any unit" : ""}. The opening
-                  balance above is still what it held.
-                </EmptyState>
-              ) : (
-                <Grid>
-                  <thead>
-                    <tr>
-                      <Th width="6.5rem">Date</Th>
-                      <Th width="12rem">Voucher</Th>
-                      <Th width="8rem">Type</Th>
-                      <Th width="9rem">Account</Th>
-                      {/* The column the forty-account chart makes necessary.
+                {rows.length === 0 ? (
+                  <EmptyState>
+                    Nothing moved in this account between {day(data.from)} and{" "}
+                    {day(data.to)}
+                    {data.site_id === null ? ", at any unit" : ""}. The opening
+                    balance above is still what it held.
+                  </EmptyState>
+                ) : (
+                  <Grid>
+                    <thead>
+                      <tr>
+                        <Th width="6.5rem">Date</Th>
+                        <Th width="12rem">Voucher</Th>
+                        <Th width="8rem">Type</Th>
+                        <Th width="9rem">Account</Th>
+                        {/* The column the forty-account chart makes necessary.
                           `6301` holds 560 of the client's old leaves, so a
                           ledger of it without this is one name printed a
                           hundred times. Drawn always and not only when the
@@ -339,208 +337,215 @@ export function GeneralLedger() {
                           not, and a column that came and went with the
                           narrowing would be worse than one that is sometimes
                           quiet. */}
-                      <Th width="11rem">Category</Th>
-                      <Th width="8rem">Unit</Th>
-                      <Th>Against &amp; party</Th>
-                      <Th align="right" width="9rem">
-                        Debit
-                      </Th>
-                      <Th align="right" width="9rem">
-                        Credit
-                      </Th>
-                      <Th align="right" width="10rem">
-                        Balance
-                      </Th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {/* ERPNext prints the opening as the first row of the table
+                        <Th width="11rem">Category</Th>
+                        <Th width="8rem">Unit</Th>
+                        <Th>Against &amp; party</Th>
+                        <Th align="right" width="9rem">
+                          Debit
+                        </Th>
+                        <Th align="right" width="9rem">
+                          Credit
+                        </Th>
+                        <Th align="right" width="10rem">
+                          Balance
+                        </Th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {/* ERPNext prints the opening as the first row of the table
                         and so does this. Drawn even at zero: without it the
                         first running figure is a movement wearing a balance's
                         clothes. */}
-                    <tr className="bg-soft">
-                      <Td>{day(data.from)}</Td>
-                      <Td className="font-medium text-ink">Opening balance</Td>
-                      <Td />
-                      <Td />
-                      <Td />
-                      <Td />
-                      <Td />
-                      <Td />
-                      <Td />
-                      <Td align="right" className="font-medium text-ink">
-                        {money(data.opening_minor)}
-                      </Td>
-                    </tr>
+                      <tr className="bg-soft">
+                        <Td>{day(data.from)}</Td>
+                        <Td className="font-medium text-ink">
+                          Opening balance
+                        </Td>
+                        <Td />
+                        <Td />
+                        <Td />
+                        <Td />
+                        <Td />
+                        <Td />
+                        <Td />
+                        <Td align="right" className="font-medium text-ink">
+                          {money(data.opening_minor)}
+                        </Td>
+                      </tr>
 
-                    {data.rows.map((row) => {
-                      const voucher = byEntry.get(row.entry_id)
-                      const isOpen = opened.includes(row.entry_id)
-                      return [
-                        <tr key={row.line_id}>
-                          <Td>{day(row.posting_date)}</Td>
-                          <Td>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setOpened((was) =>
-                                  was.includes(row.entry_id)
-                                    ? was.filter((id) => id !== row.entry_id)
-                                    : [...was, row.entry_id]
-                                )
-                              }
-                              className="font-mono text-[0.875rem] text-accent hover:underline"
-                            >
-                              {row.entry_number}
-                            </button>
-                            {row.memo !== null && row.memo !== "" && (
-                              <span className="block text-[0.875rem] text-mute">
-                                {row.memo}
-                              </span>
-                            )}
-                            {/* Only ever true on an account a statement was
+                      {rows.map((row) => {
+                        const voucher = byEntry.get(row.entry_id)
+                        const isOpen = opened.includes(row.entry_id)
+                        return [
+                          <tr key={row.line_id}>
+                            <Td>{day(row.posting_date)}</Td>
+                            <Td>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setOpened((was) =>
+                                    was.includes(row.entry_id)
+                                      ? was.filter((id) => id !== row.entry_id)
+                                      : [...was, row.entry_id]
+                                  )
+                                }
+                                className="font-mono text-[0.875rem] text-accent hover:underline"
+                              >
+                                {row.entry_number}
+                              </button>
+                              {row.memo !== null && row.memo !== "" && (
+                                <span className="block text-[0.875rem] text-mute">
+                                  {row.memo}
+                                </span>
+                              )}
+                              {/* Only ever true on an account a statement was
                                 imported against, so it is drawn only when true:
                                 on a sales entry "not agreed" is the ordinary
                                 state and a column of empty marks would read as
                                 a backlog. */}
-                            {row.reconciled && (
-                              <Pill tone="ok" className="mt-1">
-                                agreed with the bank
-                              </Pill>
-                            )}
-                          </Td>
-                          <Td className="text-body">
-                            {label(row.source_kind)}
-                          </Td>
-                          <Td>
-                            {/* The wire does not carry the row's own account.
+                              {row.reconciled && (
+                                <Pill tone="ok" className="mt-1">
+                                  agreed with the bank
+                                </Pill>
+                              )}
+                            </Td>
+                            <Td className="text-body">
+                              {label(row.source_kind)}
+                            </Td>
+                            <Td>
+                              {/* The wire does not carry the row's own account.
                                 Under a leaf every row is the account in the
                                 header, and saying so is not a guess. Under a
                                 heading it is one of several and nothing on the
                                 row says which — so this is an em dash until the
                                 voucher is opened, and then it is the truth. */}
-                            {voucher !== undefined ? (
-                              <AgainstAccounts
-                                voucher={voucher}
-                                lineSite={row.site_id}
-                                debit={row.debit_minor}
-                                credit={row.credit_minor}
-                                want="own"
-                              />
-                            ) : isGroup ? (
-                              <span
-                                className="text-faint"
-                                title="This ledger is a heading, so these movements come from several accounts under it and the row does not say which. Open the voucher to see."
-                              >
-                                —
-                              </span>
-                            ) : (
-                              <Code>{data.account_code}</Code>
-                            )}
-                          </Td>
-                          <Td>
-                            {row.category_name === null ? (
-                              <span
-                                className="text-faint"
-                                title="This account takes no category — its detail is the bank account, asset, supplier or facility the line names."
-                              >
-                                —
-                              </span>
-                            ) : (
-                              <span
+                              {voucher !== undefined ? (
+                                <AgainstAccounts
+                                  voucher={voucher}
+                                  lineSite={row.site_id}
+                                  debit={row.debit_minor}
+                                  credit={row.credit_minor}
+                                  want="own"
+                                />
+                              ) : isGroup ? (
+                                <span
+                                  className="text-faint"
+                                  title="This ledger is a heading, so these movements come from several accounts under it and the row does not say which. Open the voucher to see."
+                                >
+                                  —
+                                </span>
+                              ) : (
+                                <Code>{data.account_code}</Code>
+                              )}
+                            </Td>
+                            <Td>
+                              {row.category_name === null ? (
+                                <span
+                                  className="text-faint"
+                                  title="This account takes no category — its detail is the bank account, asset, supplier or facility the line names."
+                                >
+                                  —
+                                </span>
+                              ) : (
+                                <span
+                                  className="text-body"
+                                  title={row.category_code ?? undefined}
+                                >
+                                  {row.category_name}
+                                </span>
+                              )}
+                            </Td>
+                            <Td>
+                              <SiteName
+                                id={row.site_id}
                                 className="text-body"
-                                title={row.category_code ?? undefined}
-                              >
-                                {row.category_name}
-                              </span>
-                            )}
-                          </Td>
-                          <Td>
-                            <SiteName id={row.site_id} className="text-body" />
-                          </Td>
-                          <Td>
-                            {voucher === undefined ? (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setOpened((was) => [...was, row.entry_id])
-                                }
-                                className="text-[0.875rem] text-accent hover:underline"
-                              >
-                                Show
-                              </button>
-                            ) : (
-                              <AgainstAccounts
-                                voucher={voucher}
-                                lineSite={row.site_id}
-                                debit={row.debit_minor}
-                                credit={row.credit_minor}
-                                want="against"
                               />
-                            )}
-                          </Td>
-                          <DebitCredit
-                            debit={row.debit_minor}
-                            credit={row.credit_minor}
-                          />
-                          <Td
-                            align="right"
-                            className={
-                              row.running_minor < 0
-                                ? "font-medium text-bad-fg"
-                                : "font-medium text-ink"
-                            }
-                          >
-                            {money(row.running_minor)}
-                          </Td>
-                        </tr>,
-                        isOpen && voucher !== undefined ? (
-                          <tr key={`${row.line_id}-voucher`}>
-                            <Td />
-                            <td
-                              colSpan={9}
-                              className="border-b border-hairline px-2 pt-0 pb-3"
+                            </Td>
+                            <Td>
+                              {voucher === undefined ? (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setOpened((was) => [...was, row.entry_id])
+                                  }
+                                  className="text-[0.875rem] text-accent hover:underline"
+                                >
+                                  Show
+                                </button>
+                              ) : (
+                                <AgainstAccounts
+                                  voucher={voucher}
+                                  lineSite={row.site_id}
+                                  debit={row.debit_minor}
+                                  credit={row.credit_minor}
+                                  want="against"
+                                />
+                              )}
+                            </Td>
+                            <DebitCredit
+                              debit={row.debit_minor}
+                              credit={row.credit_minor}
+                            />
+                            <Td
+                              align="right"
+                              className={
+                                row.running_minor < 0
+                                  ? "font-medium text-bad-fg"
+                                  : "font-medium text-ink"
+                              }
                             >
-                              <Voucher voucher={voucher} />
-                            </td>
-                          </tr>
-                        ) : null,
-                      ]
-                    })}
+                              {money(row.running_minor)}
+                            </Td>
+                          </tr>,
+                          isOpen && voucher !== undefined ? (
+                            <tr key={`${row.line_id}-voucher`}>
+                              <Td />
+                              <td
+                                colSpan={9}
+                                className="border-b border-hairline px-2 pt-0 pb-3"
+                              >
+                                <Voucher voucher={voucher} />
+                              </td>
+                            </tr>
+                          ) : null,
+                        ]
+                      })}
 
-                    {/* ERPNext's foot: what moved each way, and where the window
+                      {/* ERPNext's foot: what moved each way, and where the window
                         ended. The server's window figures, which do not move
                         when the list does. */}
-                    <TotalRow>
-                      <Td />
-                      <Td>Total for the window</Td>
-                      <Td />
-                      <Td />
-                      <Td />
-                      <Td />
-                      <Td />
-                      <Td align="right">{money(data.window_debit_minor)}</Td>
-                      <Td align="right">{money(data.window_credit_minor)}</Td>
-                      <Td align="right">{money(data.closing_minor)}</Td>
-                    </TotalRow>
-                  </tbody>
-                </Grid>
-              )}
+                      <TotalRow>
+                        <Td />
+                        <Td>Total for the window</Td>
+                        <Td />
+                        <Td />
+                        <Td />
+                        <Td />
+                        <Td />
+                        <Td align="right">{money(data.window_debit_minor)}</Td>
+                        <Td align="right">{money(data.window_credit_minor)}</Td>
+                        <Td align="right">{money(data.closing_minor)}</Td>
+                      </TotalRow>
+                    </tbody>
+                  </Grid>
+                )}
+                <LoadMore query={ledger} />
 
-              <Note>
-                Three of ERPNext&rsquo;s columns cannot be filled from a ledger
-                row here, and none of them is invented instead. <b>Account</b>{" "}
-                and <b>Party</b> are not on the wire —{" "}
-                <code>GeneralLedgerRow</code> carries the line, the voucher, the
-                unit and the two amounts, and nothing else — and{" "}
-                <b>against-account</b> is a property of the voucher rather than
-                of the line, so no row can hold it. All three arrive together
-                the moment a voucher is opened, which is one request for however
-                many rows share it. Drawing a column of them would be one
-                request per row.
-              </Note>
-            </div>
-          ),
+                <Note>
+                  Three of ERPNext&rsquo;s columns cannot be filled from a
+                  ledger row here, and none of them is invented instead.{" "}
+                  <b>Account</b> and <b>Party</b> are not on the wire —{" "}
+                  <code>GeneralLedgerRow</code> carries the line, the voucher,
+                  the unit and the two amounts, and nothing else — and{" "}
+                  <b>against-account</b> is a property of the voucher rather
+                  than of the line, so no row can hold it. All three arrive
+                  together the moment a voucher is opened, which is one request
+                  for however many rows share it. Drawing a column of them would
+                  be one request per row.
+                </Note>
+              </div>
+            )
+          },
         })
       )}
     </PageContent>
@@ -597,9 +602,10 @@ function AgainstAccounts({
   const opposite = voucher.lines.filter((line) =>
     debit > 0 ? line.credit_minor > 0 : line.debit_minor > 0
   )
-  const party = mine.find(
-    (line) => line.party_type === "SUPPLIER" && line.party_id !== null
-  )?.party_id ?? null
+  const party =
+    mine.find(
+      (line) => line.party_type === "SUPPLIER" && line.party_id !== null
+    )?.party_id ?? null
 
   if (opposite.length === 0 && party === null) {
     return <span className="text-faint">—</span>

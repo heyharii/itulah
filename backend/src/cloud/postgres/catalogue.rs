@@ -45,7 +45,7 @@
 //! Giving it a cursor and a facet panel nothing draws would be three more
 //! things to keep true for no reader.
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use pricing_engine::Rule;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -267,7 +267,7 @@ pub struct PromotionRow {
     pub activated_by: Vec<BookActivation>,
 }
 
-/// The two things the promotions list can be narrowed by.
+/// What the promotions list can be narrowed by, counted.
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct PromotionFacets {
@@ -276,6 +276,18 @@ pub struct PromotionFacets {
     /// filter has no spelling for "none", and a count nobody can click is worse
     /// than no count.
     pub campaigns: Vec<CommercialFacet>,
+    /// Where each promotion stands at the server's business clock — `ACTIVE`,
+    /// `PAUSED`, `SCHEDULED`, `ENDED`; see [`PROMOTION_PHASE`]. The Promotions
+    /// tabs.
+    ///
+    /// **Counted differently from the two above, on purpose.** Those read the
+    /// searched set; this reads what EVERY filter except the phase leaves —
+    /// the campaign, the usage and the reach included. A tab's number has to
+    /// be what clicking the tab shows, and a tab reading "Live 40" over a
+    /// campaign holding three live offers is a count of something else under
+    /// the tab's name. Ignoring only its own filter is what lets the other
+    /// tabs keep their numbers once one is chosen.
+    pub phases: Vec<CommercialFacet>,
 }
 
 /// A page of promotions, and the shape of everything it was drawn from.
@@ -319,8 +331,25 @@ pub struct PromotionScope {
     /// Campaign ids to keep. This is what the Campaign screen's "rules in this
     /// campaign" is, asked of the server.
     pub campaigns: Vec<String>,
-    /// `rule_id`, `name`, `status`, `priority`, `campaign` or `book` — the
-    /// closed set this server names, and nothing else is a sort.
+    /// Phases to keep — `ACTIVE`, `PAUSED`, `SCHEDULED`, `ENDED`. Empty means
+    /// every phase. A phase is the status read against the dates at `now`;
+    /// see [`PROMOTION_PHASE`].
+    pub phases: Vec<String>,
+    /// The instant phases are read at: the business clock, never PostgreSQL's
+    /// own `now()` — see `VIRTUAL-TIME-PLAN.md` decision 6.
+    pub now: DateTime<Utc>,
+    /// Inclusive bounds on how many times the promotion has been used — the
+    /// `uses` of its `commercial_usage` row, zero where it has none. `max = 0`
+    /// is "never used".
+    pub used_min: Option<i64>,
+    pub used_max: Option<i64>,
+    /// Inclusive bounds on how many shops have put the promotion's book into
+    /// service — the length of `activated_by`.
+    pub stores_min: Option<i64>,
+    pub stores_max: Option<i64>,
+    /// `rule_id`, `name`, `status`, `priority`, `campaign`, `book`, `usage`,
+    /// `stores`, `starts` or `ends` — the closed set this server names, and
+    /// nothing else is a sort.
     ///
     /// A closed set named here rather than a column name taken from the caller:
     /// the sort is spliced into SQL, and a list endpoint that accepts arbitrary
@@ -356,7 +385,8 @@ struct PromotionCursor {
 /// page can show. Two copies would agree on every ordinary day and part company
 /// the moment somebody changes what "the live statement of a promotion" means.
 ///
-/// Binds: `$1` the search pattern, or NULL for no search.
+/// Binds: `$1` the search pattern, or NULL for no search; `$2` the business
+/// clock, which the phase is read at.
 ///
 /// **The search is applied OUTSIDE the `DISTINCT ON`, on purpose.** Deduplicate
 /// first and search second, so what is searched is the live statement of each
@@ -379,14 +409,31 @@ struct PromotionCursor {
 /// NULL is NULL rather than true, so one promotion belonging to no campaign —
 /// which is most of them — would end paging at whatever row happened to carry
 /// it, silently, with the rest of the list below the fold.
+///
+/// The same reasoning makes `starts_key`, `ends_key`, `uses` and `reach`
+/// non-null: an open window is `±infinity`, a promotion that has never fired
+/// is zero uses, a book nobody has put into service is zero shops.
+///
+/// `uses` is joined AFTER the `DISTINCT ON`, from `commercial_usage` keyed by
+/// rule id — the same row the hub's Usage column reads through
+/// `GET /commercial/usage`, and keyed across every publication for the reason
+/// the module note gives.
 fn promotion_rows() -> String {
     format!(
-        "SELECT * FROM (
+        "SELECT live.*,
+                COALESCE(u.uses, 0)::bigint AS uses,
+                jsonb_array_length(live.activated_by)::bigint AS reach,
+                COALESCE(live.starts, TIMESTAMPTZ '-infinity') AS starts_key,
+                COALESCE(live.ends, TIMESTAMPTZ 'infinity') AS ends_key,
+                {PROMOTION_PHASE} AS phase
+           FROM (
              SELECT DISTINCT ON (r.rule_id)
                     r.rule_id, r.name, r.status, r.priority, r.definition,
                     r.definition->>'campaign_id' AS campaign_id,
                     r.definition->>'coupon_code' AS coupon_code,
                     COALESCE(r.definition->>'campaign_id', '') AS campaign_key,
+                    {RULE_STARTS} AS starts,
+                    {RULE_ENDS} AS ends,
                     p.id AS publication_id, p.version, p.name AS book_name,
                     p.effective_from, p.effective_to, {ACTIVATED_BY}
                FROM commercial_rule r
@@ -394,6 +441,7 @@ fn promotion_rows() -> String {
               WHERE p.status = 'PUBLISHED'
               ORDER BY r.rule_id, p.version DESC
          ) live
+           LEFT JOIN commercial_usage u ON u.kind = 'RULE' AND u.key = live.rule_id
           WHERE ($1::text IS NULL
                  OR live.rule_id ILIKE $1
                  OR live.name ILIKE $1
@@ -401,14 +449,89 @@ fn promotion_rows() -> String {
     )
 }
 
-/// The status and campaign filters, written once for both queries.
+/// A rule's own window, read out of its stored document.
+///
+/// `conditions.effective_from` / `effective_to` — what the engine's
+/// `Conditions::window_allows` checks at the till, and what the hub's
+/// `conditionsOf(rule)` reads. NULL for "not set" AND for "not a date", which
+/// is the hub's `instant()` rule: a malformed stored date must not decide
+/// which tab a row lands in — and here, more to the point, must not take out
+/// the whole list with a cast error, which is what a bare `::timestamptz`
+/// would do to one unreadable document (see [`canonical`]).
+///
+/// The digit test is there because `pg_input_is_valid` also accepts `now`,
+/// `today` and `epoch`, which JavaScript's `Date` does not; it is written
+/// without `{n}` quantifiers because this text is spliced into `format!`.
+/// `pg_input_is_valid` is PostgreSQL 16 — the version every environment here
+/// runs.
+const RULE_STARTS: &str = "CASE WHEN (r.definition->'conditions'->>'effective_from') ~ '^[0-9][0-9][0-9][0-9]-'
+                  AND pg_input_is_valid(r.definition->'conditions'->>'effective_from', 'timestamptz')
+                 THEN (r.definition->'conditions'->>'effective_from')::timestamptz END";
+const RULE_ENDS: &str = "CASE WHEN (r.definition->'conditions'->>'effective_to') ~ '^[0-9][0-9][0-9][0-9]-'
+                  AND pg_input_is_valid(r.definition->'conditions'->>'effective_to', 'timestamptz')
+                 THEN (r.definition->'conditions'->>'effective_to')::timestamptz END";
+
+/// Where a promotion stands at `$2`, the business clock.
+///
+/// **A line-for-line copy of `phaseOf` in the hub's `promotions.tsx`**, and it
+/// has to stay one: the tab a row is counted under here is the pill the row
+/// wears there. In order —
+///
+///   1. `EXPIRED` is ENDED. Written only by a person, with End now.
+///   2. A window that closed (`ends < now`) is ENDED, whatever the switch
+///      says — nothing writes `EXPIRED` when a date passes, deliberately.
+///   3. Anything not `ACTIVE` (`PAUSED`, `DRAFT`, an unknown status) is
+///      PAUSED.
+///   4. An `ACTIVE` rule whose window has not opened (`starts > now`) is
+///      SCHEDULED.
+///   5. Otherwise ACTIVE — "Live" on the screen.
+///
+/// `<` and `>` exactly as the hub has them: the instant a window closes is
+/// still Live there, and so here. A NULL bound compares as NULL and falls
+/// through its arm, which is "no window".
+const PROMOTION_PHASE: &str = "CASE
+                    WHEN live.status = 'EXPIRED' THEN 'ENDED'
+                    WHEN live.ends < $2::timestamptz THEN 'ENDED'
+                    WHEN live.status <> 'ACTIVE' THEN 'PAUSED'
+                    WHEN live.starts > $2::timestamptz THEN 'SCHEDULED'
+                    ELSE 'ACTIVE'
+                END";
+
+/// The filters other than the phase, written once for both queries.
 ///
 /// Text arrays rather than single values so a panel with three statuses ticked
 /// is one request. `NULL` means "no filter" — see [`PromotionScope::statuses`].
+///
+/// Binds: `$3` statuses, `$4` campaigns, `$6`/`$7` uses, `$8`/`$9` reach.
+/// (`$1` is the search and `$2` the clock, both read by [`promotion_rows`];
+/// `$5` is the phase, kept apart in [`PROMOTION_PHASE_FILTER`] so the phase
+/// facet can leave it out.)
 const PROMOTION_FILTERS: &str = "
-    ($2::text[] IS NULL OR status = ANY($2))
-    AND ($3::text[] IS NULL OR campaign_id = ANY($3))
+    ($3::text[] IS NULL OR status = ANY($3))
+    AND ($4::text[] IS NULL OR campaign_id = ANY($4))
+    AND ($6::bigint IS NULL OR uses >= $6)
+    AND ($7::bigint IS NULL OR uses <= $7)
+    AND ($8::bigint IS NULL OR reach >= $8)
+    AND ($9::bigint IS NULL OR reach <= $9)
 ";
+
+/// The phase filter on its own. See [`PromotionFacets::phases`] for why.
+const PROMOTION_PHASE_FILTER: &str = "($5::text[] IS NULL OR phase = ANY($5))";
+
+/// Everything the page and the facet queries bind, in bind order: `$1` the
+/// search, `$2` the clock, `$3`–`$9` the filters. One struct so the two
+/// queries cannot bind them in different orders.
+struct PromotionBinds {
+    needle: Option<String>,
+    now: DateTime<Utc>,
+    statuses: Option<Vec<String>>,
+    campaigns: Option<Vec<String>>,
+    phases: Option<Vec<String>>,
+    used_min: Option<i64>,
+    used_max: Option<i64>,
+    stores_min: Option<i64>,
+    stores_max: Option<i64>,
+}
 
 /// Every promotion any published book declares: a page of them, how many there
 /// are, and how they split.
@@ -416,9 +539,17 @@ pub async fn commercial_rules(
     pool: &PgPool,
     scope: PromotionScope,
 ) -> Result<PromotionPage, AppError> {
-    let needle = pattern(scope.needle.as_deref());
-    let statuses = some_of(&scope.statuses);
-    let campaigns = some_of(&scope.campaigns);
+    let binds = PromotionBinds {
+        needle: pattern(scope.needle.as_deref()),
+        now: scope.now,
+        statuses: some_of(&scope.statuses),
+        campaigns: some_of(&scope.campaigns),
+        phases: some_of(&scope.phases),
+        used_min: scope.used_min,
+        used_max: scope.used_max,
+        stores_min: scope.stores_min,
+        stores_max: scope.stores_max,
+    };
 
     // The sort, and the tie-break that makes it total. Every order ends in the
     // rule id, which is unique within the deduplicated set, so no two rows can
@@ -437,6 +568,14 @@ pub async fn commercial_rules(
         // Which book a promotion last came from: the newest amendments first,
         // which is how somebody asks "what changed".
         Some("book") => "version",
+        // The Usage column's number — uses, not spend; the hub's column says
+        // why. Zero for a promotion that has never fired, never NULL.
+        Some("usage") => "uses",
+        // How many shops charge the book it came in.
+        Some("stores") => "reach",
+        // The rule's own window, an open end sorting as ±infinity.
+        Some("starts") => "starts_key",
+        Some("ends") => "ends_key",
         _ => "rule_id",
     };
     let (cols, order) = order_by(lead, "rule_id", scope.desc);
@@ -463,20 +602,27 @@ pub async fn commercial_rules(
     let sql = format!(
         "WITH searched AS NOT MATERIALIZED ({rows_sql}),
               kept AS NOT MATERIALIZED (
-             SELECT * FROM searched WHERE {PROMOTION_FILTERS}
+             SELECT * FROM searched
+              WHERE ({PROMOTION_FILTERS}) AND {PROMOTION_PHASE_FILTER}
          )
          SELECT * FROM kept
-          WHERE $4::text IS NULL
-             OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE rule_id = $4)
+          WHERE $10::text IS NULL
+             OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE rule_id = $10)
           ORDER BY {order}
-          LIMIT $5"
+          LIMIT $11"
     );
     let page = async {
         Ok::<_, AppError>(
             sqlx::query(&sql)
-                .bind(&needle)
-                .bind(&statuses)
-                .bind(&campaigns)
+                .bind(&binds.needle)
+                .bind(binds.now)
+                .bind(&binds.statuses)
+                .bind(&binds.campaigns)
+                .bind(&binds.phases)
+                .bind(binds.used_min)
+                .bind(binds.used_max)
+                .bind(binds.stores_min)
+                .bind(binds.stores_max)
                 .bind(cursor.as_ref().map(|c| c.rule_id.clone()))
                 .bind(limit)
                 .fetch_all(pool)
@@ -487,7 +633,7 @@ pub async fn commercial_rules(
     // run together rather than as three round trips in a row.
     let (rows, (total, facets), book_count) = tokio::try_join!(
         page,
-        promotion_facets(pool, &needle, &statuses, &campaigns),
+        promotion_facets(pool, &binds),
         published_book_count(pool),
     )?;
 
@@ -541,15 +687,15 @@ pub async fn commercial_rules(
 ///     Counting the already-filtered set instead shows the chosen value its own
 ///     row count and every other one a zero.
 ///   the total reads the FILTERED set, because it describes the list on screen.
+///   the phase counts read every filter but the phase — the third scope, for
+///     the reason [`PromotionFacets::phases`] gives.
 async fn promotion_facets(
     pool: &PgPool,
-    needle: &Option<String>,
-    statuses: &Option<Vec<String>>,
-    campaigns: &Option<Vec<String>>,
+    binds: &PromotionBinds,
 ) -> Result<(i64, PromotionFacets), AppError> {
     let rows_sql = promotion_rows();
     let sql = format!(
-        "WITH searched AS ({rows_sql}), kept AS (
+        "WITH searched AS ({rows_sql}), unphased AS (
              SELECT * FROM searched WHERE {PROMOTION_FILTERS}
          )
          SELECT 'status' AS kind, status AS value, COUNT(*)::bigint AS n
@@ -558,18 +704,29 @@ async fn promotion_facets(
          SELECT 'campaign', campaign_id, COUNT(*)::bigint
            FROM searched WHERE campaign_id IS NOT NULL GROUP BY campaign_id
           UNION ALL
-         SELECT 'all', '', COUNT(*)::bigint FROM kept"
+         SELECT 'phase', phase, COUNT(*)::bigint
+           FROM unphased GROUP BY phase
+          UNION ALL
+         SELECT 'all', '', COUNT(*)::bigint
+           FROM unphased WHERE {PROMOTION_PHASE_FILTER}"
     );
     let rows = sqlx::query(&sql)
-        .bind(needle)
-        .bind(statuses)
-        .bind(campaigns)
+        .bind(&binds.needle)
+        .bind(binds.now)
+        .bind(&binds.statuses)
+        .bind(&binds.campaigns)
+        .bind(&binds.phases)
+        .bind(binds.used_min)
+        .bind(binds.used_max)
+        .bind(binds.stores_min)
+        .bind(binds.stores_max)
         .fetch_all(pool)
         .await?;
 
     let mut total = 0i64;
     let mut status_facets = Vec::new();
     let mut campaign_facets = Vec::new();
+    let mut phase_facets = Vec::new();
     for row in &rows {
         let kind: String = row.try_get("kind")?;
         let facet = CommercialFacet {
@@ -580,16 +737,19 @@ async fn promotion_facets(
         match kind.as_str() {
             "status" => status_facets.push(facet),
             "campaign" => campaign_facets.push(facet),
+            "phase" => phase_facets.push(facet),
             _ => total = facet.count,
         }
     }
     by_size(&mut status_facets);
     by_size(&mut campaign_facets);
+    by_size(&mut phase_facets);
     Ok((
         total,
         PromotionFacets {
             statuses: status_facets,
             campaigns: campaign_facets,
+            phases: phase_facets,
         },
     ))
 }
@@ -637,11 +797,25 @@ pub struct CampaignRow {
     pub activated_by: Vec<BookActivation>,
 }
 
-/// The one thing the campaign list can be narrowed by.
+/// What the campaign list can be narrowed by, counted.
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct CampaignFacets {
+    /// The stored statuses, over the searched set.
     pub statuses: Vec<CommercialFacet>,
+    /// Where each campaign stands at the server's business clock: its stored
+    /// status, except that an `ACTIVE` one whose window has closed counts as
+    /// `EXPIRED` and one whose window has not opened as `SCHEDULED` — see
+    /// [`CAMPAIGN_PHASE`]. The values are status codes, so the hub words them
+    /// the way it words a status.
+    ///
+    /// Counted over what every filter EXCEPT the phase leaves, for the reason
+    /// [`PromotionFacets::phases`] gives.
+    pub phases: Vec<CommercialFacet>,
+    /// The stated objective (`campaign_intent.objective`), `none` for a
+    /// campaign nobody has said the purpose of. Over what every filter except
+    /// the objective leaves, like the phases.
+    pub objectives: Vec<CommercialFacet>,
 }
 
 /// A page of campaigns, and the shape of everything it was drawn from.
@@ -667,8 +841,33 @@ pub struct CampaignScope {
     pub needle: Option<String>,
     /// Statuses to keep. Empty means every status.
     pub statuses: Vec<String>,
-    /// `campaign_id`, `name`, `status`, `starts`, `ends`, `budget` or `book`.
-    /// Anything unrecognised is the house order — see [`PromotionScope::sort`].
+    /// Phases to keep — status codes read against the dates; see
+    /// [`CampaignFacets::phases`]. Empty means every phase.
+    pub phases: Vec<String>,
+    /// The instant phases are read at: the business clock.
+    pub now: DateTime<Utc>,
+    /// Objectives to keep: `campaign_intent.objective` codes, plus `none` for
+    /// "not stated" and `stated` for "any objective at all". Empty means no
+    /// filter.
+    pub objectives: Vec<String>,
+    /// Inclusive bounds on how many live promotions name the campaign — the
+    /// count the hub's Offers column shows (the `campaign` facet of the rules
+    /// list). `max = 0` is "no offers".
+    pub offers_min: Option<i64>,
+    pub offers_max: Option<i64>,
+    /// Inclusive bounds on how many shops have put its book into service.
+    pub stores_min: Option<i64>,
+    pub stores_max: Option<i64>,
+    /// Inclusive bounds on the DAY the window ends, in Jakarta — the day the
+    /// row's "Runs" column prints. An open-ended campaign matches neither.
+    pub ends_from: Option<NaiveDate>,
+    pub ends_to: Option<NaiveDate>,
+    /// `Some(true)` keeps only open-ended campaigns, `Some(false)` only those
+    /// with an end.
+    pub ends_open: Option<bool>,
+    /// `campaign_id`, `name`, `status`, `starts`, `ends`, `budget`,
+    /// `budget_used`, `offers`, `stores` or `book`. Anything unrecognised is
+    /// the house order — see [`PromotionScope::sort`].
     pub sort: Option<String>,
     pub desc: bool,
     pub cursor: Option<String>,
@@ -695,15 +894,42 @@ const CAMPAIGN_UNLIMITED: &str = "9223372036854775807";
 /// One campaign row, defined once. See [`promotion_rows`] for why this is a
 /// single definition and why the search sits outside the `DISTINCT ON`.
 ///
-/// Binds: `$1` the search pattern, or NULL for no search.
+/// Binds: `$1` the search pattern, or NULL for no search; `$2` the business
+/// clock, which the phase is read at.
 ///
 /// The three `*_key` columns exist because the keyset compares the sort value
 /// in a `WHERE`, and all three are nullable in the table: a campaign with no
 /// start, no end or no budget is ordinary, and a raw `valid_to` in a row
 /// comparison would end paging at the first one.
+///
+/// Joined AFTER the `DISTINCT ON`, each to one row per campaign:
+///
+///   `commercial_usage` (kind `CAMPAIGN`) for what it has spent — the figure
+///     the hub's "Budget used" meter draws through `GET /commercial/usage`.
+///   `campaign_intent` for its stated objective, NULL where nobody has said.
+///   the live promotions naming it, deduplicated exactly as [`promotion_rows`]
+///     deduplicates them — a rule moved to another campaign in its newest book
+///     is not an offer of this one any more. This is the count the hub's
+///     Offers column shows, which it reads off the rules list's `campaign`
+///     facet.
+///
+/// `used_share_lo` / `used_share_hi` are the meter's share, spent ÷ budget —
+/// the hub's `consumed()`, NULL for a budget that is absent or not positive —
+/// with the unlimited ones given a sentinel at each end, so that whichever
+/// direction the list is sorted, an unlimited campaign sorts LAST. Two columns
+/// rather than `NULLS LAST` for the reason [`CAMPAIGN_UNLIMITED`] gives; the
+/// sort picks the one that matches its direction.
 fn campaign_rows() -> String {
     format!(
-        "SELECT * FROM (
+        "SELECT live.*,
+                COALESCE(u.spent_minor, 0)::bigint AS spent_minor,
+                COALESCE({CAMPAIGN_SHARE}, -1::numeric) AS used_share_lo,
+                COALESCE({CAMPAIGN_SHARE}, 'Infinity'::numeric) AS used_share_hi,
+                COALESCE(o.offer_count, 0)::bigint AS offer_count,
+                jsonb_array_length(live.activated_by)::bigint AS reach,
+                i.objective,
+                {CAMPAIGN_PHASE} AS phase
+           FROM (
              SELECT DISTINCT ON (g.campaign_id)
                     g.campaign_id, g.name, g.status, g.valid_from, g.valid_to,
                     g.budget_minor, g.max_uses, g.image_url, g.headline, g.terms,
@@ -718,13 +944,101 @@ fn campaign_rows() -> String {
               WHERE p.status = 'PUBLISHED'
               ORDER BY g.campaign_id, p.version DESC
          ) live
+           LEFT JOIN commercial_usage u
+                  ON u.kind = 'CAMPAIGN' AND u.key = live.campaign_id
+           LEFT JOIN campaign_intent i ON i.campaign_id = live.campaign_id
+           LEFT JOIN (
+             SELECT d.campaign_id, count(*)::bigint AS offer_count
+               FROM (
+                 SELECT DISTINCT ON (r.rule_id)
+                        r.definition->>'campaign_id' AS campaign_id
+                   FROM commercial_rule r
+                   JOIN commercial_publication p ON p.id = r.publication_id
+                  WHERE p.status = 'PUBLISHED'
+                  ORDER BY r.rule_id, p.version DESC
+               ) d
+              WHERE d.campaign_id IS NOT NULL
+              GROUP BY d.campaign_id
+           ) o ON o.campaign_id = live.campaign_id
           WHERE ($1::text IS NULL
                  OR live.campaign_id ILIKE $1
                  OR live.name ILIKE $1)"
     )
 }
 
-const CAMPAIGN_FILTERS: &str = "($2::text[] IS NULL OR status = ANY($2))";
+/// How much of its budget a campaign has spent, as a ratio — NULL where there
+/// is no limit to measure against. The hub's `consumed(spent, budget)`.
+const CAMPAIGN_SHARE: &str = "(CASE WHEN live.budget_minor > 0
+                  THEN COALESCE(u.spent_minor, 0)::numeric / live.budget_minor END)";
+
+/// Where a campaign stands at `$2`, the business clock.
+///
+/// **A copy of `phaseOf` in the hub's `campaigns.tsx`**, spelled as the status
+/// code whose word the hub already draws:
+///
+///   1. An `ACTIVE` campaign whose window has closed (`valid_to <= now`) is
+///      `EXPIRED` — "Ended".
+///   2. An `ACTIVE` campaign whose window has not opened (`valid_from > now`)
+///      is `SCHEDULED` — the hub's "Starts 3 Okt".
+///   3. Anything else is its stored status, unknown ones included.
+///
+/// `<=` for the end and `>` for the start, exactly as the hub has them. A
+/// paused campaign past its end stays Paused there, and so here.
+const CAMPAIGN_PHASE: &str = "CASE
+                    WHEN live.status = 'ACTIVE' AND live.valid_to <= $2::timestamptz
+                        THEN 'EXPIRED'
+                    WHEN live.status = 'ACTIVE' AND live.valid_from > $2::timestamptz
+                        THEN 'SCHEDULED'
+                    ELSE live.status
+                END";
+
+/// The filters other than the phase and the objective, written once for both
+/// queries. Those two are kept apart so each one's facet can leave its own
+/// filter out — see [`CampaignFacets`].
+///
+/// Binds: `$3` statuses, `$6`/`$7` offers, `$8`/`$9` reach, `$10`/`$11` the
+/// end day, `$12` open-ended. (`$1` search and `$2` clock are
+/// [`campaign_rows`]'; `$4` phases; `$5` objectives.)
+///
+/// The end day is read in Jakarta, the business's calendar and the day the
+/// Runs column prints — not the UTC date, which for a campaign ending at
+/// 03:00 WIB is the day before.
+const CAMPAIGN_FILTERS: &str = "
+    ($3::text[] IS NULL OR status = ANY($3))
+    AND ($6::bigint IS NULL OR offer_count >= $6)
+    AND ($7::bigint IS NULL OR offer_count <= $7)
+    AND ($8::bigint IS NULL OR reach >= $8)
+    AND ($9::bigint IS NULL OR reach <= $9)
+    AND ($10::date IS NULL OR (valid_to AT TIME ZONE 'Asia/Jakarta')::date >= $10)
+    AND ($11::date IS NULL OR (valid_to AT TIME ZONE 'Asia/Jakarta')::date <= $11)
+    AND ($12::boolean IS NULL OR (valid_to IS NULL) = $12)
+";
+
+const CAMPAIGN_PHASE_FILTER: &str = "($4::text[] IS NULL OR phase = ANY($4))";
+
+/// `none` and `stated` are words, not codes: the objective set is closed and
+/// upper-case (`DRIVE_SALES`, …), so neither can collide with one.
+const CAMPAIGN_OBJECTIVE_FILTER: &str = "($5::text[] IS NULL
+     OR objective = ANY($5)
+     OR ('none' = ANY($5) AND objective IS NULL)
+     OR ('stated' = ANY($5) AND objective IS NOT NULL))";
+
+/// Everything the campaign page and facet queries bind, in bind order. See
+/// [`PromotionBinds`].
+struct CampaignBinds {
+    needle: Option<String>,
+    now: DateTime<Utc>,
+    statuses: Option<Vec<String>>,
+    phases: Option<Vec<String>>,
+    objectives: Option<Vec<String>>,
+    offers_min: Option<i64>,
+    offers_max: Option<i64>,
+    stores_min: Option<i64>,
+    stores_max: Option<i64>,
+    ends_from: Option<NaiveDate>,
+    ends_to: Option<NaiveDate>,
+    ends_open: Option<bool>,
+}
 
 /// Every campaign any published book declares: a page of them, how many there
 /// are, and how they split.
@@ -732,8 +1046,20 @@ pub async fn commercial_campaigns(
     pool: &PgPool,
     scope: CampaignScope,
 ) -> Result<CampaignPage, AppError> {
-    let needle = pattern(scope.needle.as_deref());
-    let statuses = some_of(&scope.statuses);
+    let binds = CampaignBinds {
+        needle: pattern(scope.needle.as_deref()),
+        now: scope.now,
+        statuses: some_of(&scope.statuses),
+        phases: some_of(&scope.phases),
+        objectives: some_of(&scope.objectives),
+        offers_min: scope.offers_min,
+        offers_max: scope.offers_max,
+        stores_min: scope.stores_min,
+        stores_max: scope.stores_max,
+        ends_from: scope.ends_from,
+        ends_to: scope.ends_to,
+        ends_open: scope.ends_open,
+    };
 
     let lead = match scope.sort.as_deref() {
         Some("name") => "name",
@@ -741,6 +1067,13 @@ pub async fn commercial_campaigns(
         Some("starts") => "starts_at",
         Some("ends") => "ends_at",
         Some("budget") => "budget_key",
+        // The "Budget used" meter's share. The sentinel column is chosen by
+        // direction so an unlimited campaign is last either way — see
+        // [`campaign_rows`].
+        Some("budget_used") if scope.desc => "used_share_lo",
+        Some("budget_used") => "used_share_hi",
+        Some("offers") => "offer_count",
+        Some("stores") => "reach",
         Some("book") => "version",
         _ => "campaign_id",
     };
@@ -760,19 +1093,32 @@ pub async fn commercial_campaigns(
     let sql = format!(
         "WITH searched AS NOT MATERIALIZED ({rows_sql}),
               kept AS NOT MATERIALIZED (
-             SELECT * FROM searched WHERE {CAMPAIGN_FILTERS}
+             SELECT * FROM searched
+              WHERE ({CAMPAIGN_FILTERS})
+                AND {CAMPAIGN_PHASE_FILTER}
+                AND {CAMPAIGN_OBJECTIVE_FILTER}
          )
          SELECT * FROM kept
-          WHERE $3::text IS NULL
-             OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE campaign_id = $3)
+          WHERE $13::text IS NULL
+             OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE campaign_id = $13)
           ORDER BY {order}
-          LIMIT $4"
+          LIMIT $14"
     );
     let page = async {
         Ok::<_, AppError>(
             sqlx::query(&sql)
-                .bind(&needle)
-                .bind(&statuses)
+                .bind(&binds.needle)
+                .bind(binds.now)
+                .bind(&binds.statuses)
+                .bind(&binds.phases)
+                .bind(&binds.objectives)
+                .bind(binds.offers_min)
+                .bind(binds.offers_max)
+                .bind(binds.stores_min)
+                .bind(binds.stores_max)
+                .bind(binds.ends_from)
+                .bind(binds.ends_to)
+                .bind(binds.ends_open)
                 .bind(cursor.as_ref().map(|c| c.campaign_id.clone()))
                 .bind(limit)
                 .fetch_all(pool)
@@ -780,9 +1126,9 @@ pub async fn commercial_campaigns(
         )
     };
     // Independent reads, run together — see `commercial_rules`.
-    let (rows, (total, status_counts), book_count) = tokio::try_join!(
+    let (rows, (total, facets), book_count) = tokio::try_join!(
         page,
-        campaign_facets(pool, &needle, &statuses),
+        campaign_facets(pool, &binds),
         published_book_count(pool),
     )?;
 
@@ -821,37 +1167,58 @@ pub async fn commercial_campaigns(
         next_cursor,
         total,
         book_count,
-        facets: CampaignFacets {
-            statuses: status_counts,
-        },
+        facets,
     })
 }
 
-/// How many campaigns there are, and how they split by status. Two scopes, for
-/// the reason [`promotion_facets`] gives.
+/// How many campaigns there are, and how they split. The scopes are
+/// [`promotion_facets`]', with the objective read like the phase: over every
+/// filter but its own.
 async fn campaign_facets(
     pool: &PgPool,
-    needle: &Option<String>,
-    statuses: &Option<Vec<String>>,
-) -> Result<(i64, Vec<CommercialFacet>), AppError> {
+    binds: &CampaignBinds,
+) -> Result<(i64, CampaignFacets), AppError> {
     let rows_sql = campaign_rows();
     let sql = format!(
-        "WITH searched AS ({rows_sql}), kept AS (
+        "WITH searched AS ({rows_sql}),
+              narrowed AS (
              SELECT * FROM searched WHERE {CAMPAIGN_FILTERS}
          )
          SELECT 'status' AS kind, status AS value, COUNT(*)::bigint AS n
            FROM searched GROUP BY status
           UNION ALL
-         SELECT 'all', '', COUNT(*)::bigint FROM kept"
+         SELECT 'phase', phase, COUNT(*)::bigint
+           FROM narrowed WHERE {CAMPAIGN_OBJECTIVE_FILTER}
+          GROUP BY phase
+          UNION ALL
+         SELECT 'objective', COALESCE(objective, 'none'), COUNT(*)::bigint
+           FROM narrowed WHERE {CAMPAIGN_PHASE_FILTER}
+          GROUP BY objective
+          UNION ALL
+         SELECT 'all', '', COUNT(*)::bigint
+           FROM narrowed
+          WHERE {CAMPAIGN_PHASE_FILTER} AND {CAMPAIGN_OBJECTIVE_FILTER}"
     );
     let rows = sqlx::query(&sql)
-        .bind(needle)
-        .bind(statuses)
+        .bind(&binds.needle)
+        .bind(binds.now)
+        .bind(&binds.statuses)
+        .bind(&binds.phases)
+        .bind(&binds.objectives)
+        .bind(binds.offers_min)
+        .bind(binds.offers_max)
+        .bind(binds.stores_min)
+        .bind(binds.stores_max)
+        .bind(binds.ends_from)
+        .bind(binds.ends_to)
+        .bind(binds.ends_open)
         .fetch_all(pool)
         .await?;
 
     let mut total = 0i64;
-    let mut facets = Vec::new();
+    let mut statuses = Vec::new();
+    let mut phases = Vec::new();
+    let mut objectives = Vec::new();
     for row in &rows {
         let kind: String = row.try_get("kind")?;
         let facet = CommercialFacet {
@@ -859,14 +1226,24 @@ async fn campaign_facets(
             label: None,
             count: row.try_get("n")?,
         };
-        if kind == "status" {
-            facets.push(facet);
-        } else {
-            total = facet.count;
+        match kind.as_str() {
+            "status" => statuses.push(facet),
+            "phase" => phases.push(facet),
+            "objective" => objectives.push(facet),
+            _ => total = facet.count,
         }
     }
-    by_size(&mut facets);
-    Ok((total, facets))
+    by_size(&mut statuses);
+    by_size(&mut phases);
+    by_size(&mut objectives);
+    Ok((
+        total,
+        CampaignFacets {
+            statuses,
+            phases,
+            objectives,
+        },
+    ))
 }
 
 // ── coupons ──────────────────────────────────────────────────────────────

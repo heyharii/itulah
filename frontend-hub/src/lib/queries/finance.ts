@@ -628,10 +628,13 @@ export function removeAccountLink(
 export function accountLinkHistory(
   role?: string | null,
   signal?: AbortSignal,
-  limit = 50
+  limit = 50,
+  /// The last `history_id` of the previous page. A page that comes back
+  /// full may have another behind it; a short one is the end.
+  before?: number
 ): Promise<AccountLinkChange[]> {
   return node.get<AccountLinkChange[]>(
-    `/api/v1/finance/account-link-history${search({ role, limit })}`,
+    `/api/v1/finance/account-link-history${search({ role, limit, before })}`,
     { signal }
   )
 }
@@ -703,10 +706,13 @@ export async function siteAccounts(
 export function chartChanges(
   account?: string | null,
   signal?: AbortSignal,
-  limit = 100
+  limit = 100,
+  /// The last `change_id` of the previous page. A page that comes back full
+  /// may have another behind it; a short one is the end.
+  before?: number
 ): Promise<ChartChange[]> {
   return node.get<ChartChange[]>(
-    `/api/v1/finance/chart-changes${search({ account, limit })}`,
+    `/api/v1/finance/chart-changes${search({ account, limit, before })}`,
     { signal }
   )
 }
