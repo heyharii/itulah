@@ -39,8 +39,82 @@ pub fn latest(data_dir: &Path) -> Option<(PathBuf, DateTime<Utc>)> {
         .max_by_key(|(_, at)| *at)
 }
 
-/// Take a backup now. Returns where it went.
+/// Take a backup now. Returns where it went. The outcome is written down
+/// (`edge_backup_run`, sqlite 0065) either way, so the heartbeat can say that
+/// last night's backup failed rather than only how old the newest file is.
 pub fn take(connection: &Arc<Mutex<Connection>>, data_dir: &Path) -> Result<PathBuf, String> {
+    let result = copy(connection, data_dir);
+    let bytes = result
+        .as_ref()
+        .ok()
+        .and_then(|path| std::fs::metadata(path).ok())
+        .map(|meta| meta.len());
+    if let Ok(guard) = connection.lock() {
+        if let Err(error) = record_attempt(&guard, Utc::now(), result.as_ref().err(), bytes) {
+            tracing::warn!(%error, "the backup's outcome was not written down");
+        }
+    }
+    result
+}
+
+/// Write down one attempt. A failure keeps the last success.
+pub fn record_attempt(
+    connection: &Connection,
+    at: DateTime<Utc>,
+    error: Option<&String>,
+    bytes: Option<u64>,
+) -> rusqlite::Result<()> {
+    let at = at.to_rfc3339();
+    match error {
+        None => connection.execute(
+            "INSERT INTO edge_backup_run (singleton, last_attempt_at, last_ok_at, last_error, last_bytes)
+             VALUES (1, ?1, ?1, NULL, ?2)
+             ON CONFLICT (singleton) DO UPDATE SET
+                 last_attempt_at = excluded.last_attempt_at, last_ok_at = excluded.last_ok_at,
+                 last_error = NULL, last_bytes = excluded.last_bytes",
+            rusqlite::params![at, bytes.and_then(|b| i64::try_from(b).ok())],
+        )?,
+        Some(error) => connection.execute(
+            "INSERT INTO edge_backup_run (singleton, last_attempt_at, last_error)
+             VALUES (1, ?1, ?2)
+             ON CONFLICT (singleton) DO UPDATE SET
+                 last_attempt_at = excluded.last_attempt_at, last_error = excluded.last_error",
+            rusqlite::params![at, error.chars().take(300).collect::<String>()],
+        )?,
+    };
+    Ok(())
+}
+
+/// The last attempt, for the heartbeat. `None` before the first one.
+pub fn last_run(connection: &Connection) -> Option<crate::sync::node_status::BackupFacts> {
+    let parse = |text: Option<String>| {
+        text.and_then(|at| DateTime::parse_from_rfc3339(&at).ok())
+            .map(|at| at.with_timezone(&Utc))
+    };
+    connection
+        .query_row(
+            "SELECT last_attempt_at, last_ok_at, last_error, last_bytes
+               FROM edge_backup_run WHERE singleton = 1",
+            [],
+            |row| {
+                Ok((
+                    row.get::<_, Option<String>>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<i64>>(3)?,
+                ))
+            },
+        )
+        .ok()
+        .map(|(attempt, ok, error, bytes)| crate::sync::node_status::BackupFacts {
+            last_attempt_at: parse(attempt),
+            last_ok_at: parse(ok),
+            last_error: error,
+            last_bytes: bytes.and_then(|b| u64::try_from(b).ok()),
+        })
+}
+
+fn copy(connection: &Arc<Mutex<Connection>>, data_dir: &Path) -> Result<PathBuf, String> {
     let dir = folder(data_dir);
     std::fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
     let path = dir.join(format!("store-{}.sqlite3", Local::now().format("%Y%m%d-%H%M")));

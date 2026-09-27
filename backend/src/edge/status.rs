@@ -9,8 +9,11 @@
 use crate::edge::node::Journal;
 use crate::edge::sync::EdgeSyncHandle;
 use crate::sync::enrolment::MachineFacts as Machine;
-use crate::sync::node_status::{DeviceFacts, MachineFacts, NodeStatus, SyncFacts, TillFacts};
-use chrono::{DateTime, Duration, Utc};
+use crate::sync::node_status::{
+    queue_kind, DeviceFacts, LinkOutage, MachineFacts, NodeStatus, QueuedFacts, SyncFacts,
+    TillFacts, QUEUE_ATTENDANCE, QUEUE_OTHER, QUEUE_SALES, QUEUE_STOCK,
+};
+use chrono::{DateTime, Duration, SecondsFormat, Utc};
 use rusqlite::Connection;
 use std::{
     path::{Path, PathBuf},
@@ -26,6 +29,9 @@ pub struct StatusSource {
     pub started_at: DateTime<Utc>,
     /// Set from each heartbeat answer: this machine's clock minus the cloud's.
     pub clock_skew: Mutex<Option<i64>>,
+    /// When head office last answered a heartbeat, in this process: how an
+    /// internet outage the server stayed up through is noticed.
+    pub last_answered: Mutex<Option<DateTime<Utc>>>,
     system: Mutex<sysinfo::System>,
 }
 
@@ -44,6 +50,7 @@ impl StatusSource {
             database,
             started_at,
             clock_skew: Mutex::new(None),
+            last_answered: Mutex::new(None),
             system: Mutex::new(sysinfo::System::new()),
         }
     }
@@ -77,7 +84,165 @@ impl StatusSource {
                 crate::sync::workflow::GOODS_ROUTES_CAPABILITY.to_owned(),
                 crate::sync::flow::FLOWS_CAPABILITY.to_owned(),
             ]),
+            link_outages: self.link_outages(),
         }
+    }
+
+    /// Write down an internet outage this process sat through: from the last
+    /// answer before it to the first after, with what the shop wrote
+    /// meanwhile. Blocking.
+    pub fn record_link_outage(&self, from: DateTime<Utc>, to: DateTime<Utc>) -> Result<(), String> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| "database lock poisoned".to_owned())?;
+        let stamp = |at: DateTime<Utc>| at.to_rfc3339_opts(SecondsFormat::Micros, true);
+        let mut facts = 0_i64;
+        let mut sales = 0_i64;
+        {
+            let mut statement = connection
+                .prepare(
+                    "SELECT event_type, count(*) FROM sync_fact_log
+                      WHERE created_at >= ?1 AND created_at < ?2 GROUP BY event_type",
+                )
+                .map_err(|error| error.to_string())?;
+            let rows = statement
+                .query_map([stamp(from), stamp(to)], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+                })
+                .map_err(|error| error.to_string())?;
+            for row in rows {
+                let (event_type, count) = row.map_err(|error| error.to_string())?;
+                facts += count;
+                if queue_kind(&event_type) == QUEUE_SALES {
+                    sales += count;
+                }
+            }
+        }
+        connection
+            .execute(
+                "INSERT INTO edge_link_outage (from_at, to_at, facts_written, sales_written)
+                 VALUES (?1, ?2, ?3, ?4) ON CONFLICT (from_at) DO NOTHING",
+                rusqlite::params![stamp(from), stamp(to), facts, sales],
+            )
+            .map_err(|error| error.to_string())?;
+        // A week is plenty; the heartbeat carries the last day.
+        connection
+            .execute(
+                "DELETE FROM edge_link_outage WHERE to_at < ?1",
+                [stamp(to - Duration::days(7))],
+            )
+            .map_err(|error| error.to_string())?;
+        Ok(())
+    }
+
+    /// The internet outages of the last day, oldest first.
+    fn link_outages(&self) -> Option<Vec<LinkOutage>> {
+        let connection = self.connection.lock().ok()?;
+        let since = (Utc::now() - Duration::hours(24)).to_rfc3339_opts(SecondsFormat::Micros, true);
+        let mut statement = connection
+            .prepare(
+                "SELECT from_at, to_at, facts_written, sales_written FROM edge_link_outage
+                  WHERE to_at >= ?1 ORDER BY from_at",
+            )
+            .ok()?;
+        let rows: Vec<(String, String, i64, i64)> = statement
+            .query_map([since], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            })
+            .ok()?
+            .flatten()
+            .collect();
+        Some(
+            rows.into_iter()
+                .filter_map(|(from, to, facts_written, sales_written)| {
+                    Some(LinkOutage {
+                        from: parse_time(&from)?,
+                        to: parse_time(&to)?,
+                        facts_written,
+                        sales_written,
+                    })
+                })
+                .collect(),
+        )
+    }
+
+    /// The unsent facts by kind, and when the newest acknowledged one was
+    /// written ("data up to"). Both read the active stream only.
+    fn queue(&self) -> (Option<Vec<QueuedFacts>>, Option<DateTime<Utc>>) {
+        let Ok(connection) = self.connection.lock() else {
+            return (None, None);
+        };
+        let mut by_kind: std::collections::BTreeMap<&'static str, (i64, Option<DateTime<Utc>>)> =
+            [QUEUE_SALES, QUEUE_STOCK, QUEUE_ATTENDANCE, QUEUE_OTHER]
+                .into_iter()
+                .map(|kind| (kind, (0, None)))
+                .collect();
+        let pending = connection
+            .prepare(
+                "SELECT f.event_type, count(*), min(f.created_at)
+                   FROM sync_fact_log f
+                   JOIN sync_origin o ON o.origin_id = f.origin_id AND o.generation = f.generation
+                   LEFT JOIN sync_watermark w
+                     ON w.origin_id = f.origin_id AND w.generation = f.generation
+                  WHERE f.seq > COALESCE(w.durable_seq, 0)
+                  GROUP BY f.event_type",
+            )
+            .and_then(|mut statement| {
+                statement
+                    .query_map([], |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, Option<String>>(2)?,
+                        ))
+                    })?
+                    .collect::<Result<Vec<_>, _>>()
+            });
+        let queue = match pending {
+            Ok(rows) => {
+                for (event_type, count, oldest) in rows {
+                    let oldest = oldest.as_deref().and_then(parse_time);
+                    if let Some(slot) = by_kind.get_mut(queue_kind(&event_type)) {
+                        slot.0 += count;
+                        slot.1 = match (slot.1, oldest) {
+                            (Some(held), Some(new)) => Some(held.min(new)),
+                            (held, new) => held.or(new),
+                        };
+                    }
+                }
+                Some(
+                    by_kind
+                        .into_iter()
+                        .map(|(kind, (count, oldest_at))| QueuedFacts {
+                            kind: kind.to_owned(),
+                            count,
+                            oldest_at,
+                        })
+                        .collect(),
+                )
+            }
+            Err(error) => {
+                tracing::debug!(%error, "outbox queue left out of the heartbeat");
+                None
+            }
+        };
+        let newest_acked_at = connection
+            .query_row(
+                "SELECT f.created_at
+                   FROM sync_fact_log f
+                   JOIN sync_origin o ON o.origin_id = f.origin_id AND o.generation = f.generation
+                   JOIN sync_watermark w
+                     ON w.origin_id = f.origin_id AND w.generation = f.generation
+                  WHERE f.seq <= w.durable_seq
+                  ORDER BY f.seq DESC LIMIT 1",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .ok()
+            .as_deref()
+            .and_then(parse_time);
+        (queue, newest_acked_at)
     }
 
     /// Every device enrolled here, for head office's registry. `None` only
@@ -111,10 +276,13 @@ impl StatusSource {
                 .and_then(|at| DateTime::parse_from_rfc3339(&at).ok())
                 .map(|at| at.with_timezone(&Utc))
         });
+        let (queue, newest_acked_at) = self.queue();
         let Some(status) = self.sync.as_ref().and_then(|sync| sync.status().ok()) else {
             return SyncFacts {
                 enabled: false,
                 oldest_pending_at,
+                queue,
+                newest_acked_at,
                 ..SyncFacts::default()
             };
         };
@@ -128,6 +296,8 @@ impl StatusSource {
             pending_facts: status.pending_facts,
             oldest_pending_at,
             dead_lettered: status.dead_lettered,
+            queue,
+            newest_acked_at,
         }
     }
 
@@ -146,6 +316,11 @@ impl StatusSource {
                 .map(|(_, at)| at),
             sync_pace: Some(crate::edge::pace::factor()),
             power: crate::edge::power::latest(),
+            backup: self
+                .connection
+                .lock()
+                .ok()
+                .and_then(|connection| crate::edge::backup::last_run(&connection)),
             ..MachineFacts::default()
         };
         if let Ok(mut system) = self.system.lock() {
@@ -222,6 +397,12 @@ impl StatusSource {
             open_shift_terminals: terminals,
         }
     }
+}
+
+fn parse_time(text: &str) -> Option<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(text)
+        .ok()
+        .map(|at| at.with_timezone(&Utc))
 }
 
 fn file_size(path: &Path) -> u64 {
