@@ -29,7 +29,7 @@
 import { useEffect, useSyncExternalStore } from "react"
 
 import { claimFinger, claimPin, login, logout, me, roster, type Me } from "@/api"
-import { identifyFinger } from "@/edge"
+import { identifyFinger, NODE_MOVED } from "@/edge"
 import type { Peripherals } from "@/peripherals"
 
 /// The shell's copy of what this terminal is. Field names are the Rust
@@ -64,6 +64,11 @@ export type NodeConfig = {
   /// What is plugged into this till. Only `set_peripherals` changes it; see
   /// `peripherals.ts`.
   readonly peripherals?: Peripherals
+  /// The node's names on the LAN, and the address the shell followed it away
+  /// from. Only the shell writes them.
+  readonly node_instance?: string | null
+  readonly node_host?: string | null
+  readonly moved_from?: string | null
 }
 
 /// `JoinedNode` in `src-tauri/src/edge.rs`.
@@ -599,6 +604,19 @@ export function adoptConfig(config: NodeConfig): void {
 export async function refreshFromShell(): Promise<void> {
   const got = await shellCall<NodeConfig>("node_config")
   if (got.ok) adoptConfig(got.value)
+}
+
+/// The shell followed this till's node to a new address (`edge.ts`,
+/// `NODE_MOVED`). Same node, same session: the new address is taken as it
+/// is, and nobody is signed out — unlike a node changed on purpose, which
+/// `adoptConfig` treats as a move to another shop.
+async function followNode(): Promise<void> {
+  const got = await shellCall<NodeConfig>("node_config")
+  if (got.ok) put({ config: got.value })
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener(NODE_MOVED, () => void followNode())
 }
 
 // ── what screens see ────────────────────────────────────────────────────

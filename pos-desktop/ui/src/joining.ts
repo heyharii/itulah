@@ -35,6 +35,10 @@ export type FoundNode = {
   /// What its advertisement claimed. Shown only beside a failure.
   readonly advertised_site: string | null
   readonly problem: string | null
+  /// Its DNS-SD instance name when it was heard on the LAN; null for a typed
+  /// address. Handed to the shell with `host` when asking to join, so the
+  /// till can find the node again under a new address.
+  readonly instance: string | null
 }
 
 /// `JoinView` in `src-tauri/src/join.rs`.
@@ -82,8 +86,14 @@ export const identifyNode = (baseUrl: string) =>
 /// A request left waiting when the app last closed. Asks the node nothing.
 export const currentJoin = () => shellCall<JoinView | null>("join_current")
 
-export const beginJoin = (baseUrl: string) =>
-  shellCall<JoinView>("join_begin", { baseUrl })
+/// Ask to join. A node heard on the LAN is asked with the names it answers
+/// to there, which the till keeps once it is let in; a typed address has none.
+export const beginJoin = (baseUrl: string, found?: FoundNode) =>
+  shellCall<JoinView>("join_begin", {
+    baseUrl,
+    instance: found?.instance ?? null,
+    host: found !== undefined && found.instance !== null ? found.host : null,
+  })
 
 /// `ok: false` means the node could not be asked this time — keep polling. A
 /// refusal is an answer and comes back `ok` with status `REFUSED`.

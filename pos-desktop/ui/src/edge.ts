@@ -19,6 +19,21 @@ export type EdgeReply<T = unknown> = {
   readonly status: number
   readonly body: T
   readonly problem: string | null
+  /// The node's new address, when the shell found it there after the old one
+  /// stopped answering (`src-tauri/src/edge.rs`). Present only then.
+  readonly moved_to?: string
+}
+
+/// Said on the window when the shell has followed its node to a new address.
+/// `session.ts` listens and re-reads the settings; nobody is signed out,
+/// because it is the same node.
+export const NODE_MOVED = "itulah:node-moved"
+
+function heard<T>(reply: EdgeReply<T>): EdgeReply<T> {
+  if (typeof reply.moved_to === "string") {
+    window.dispatchEvent(new CustomEvent(NODE_MOVED, { detail: reply.moved_to }))
+  }
+  return reply
 }
 
 type Invoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>
@@ -53,7 +68,7 @@ export async function edge<T>(
 ): Promise<EdgeReply<T>> {
   const invoke = bridge()
   if (invoke === null) return noShell("node toko")
-  return invoke<EdgeReply<T>>("edge_call", { method, path, body })
+  return heard(await invoke<EdgeReply<T>>("edge_call", { method, path, body }))
 }
 
 /// Call the node **as this terminal**, not as the person signed into it.
@@ -69,7 +84,9 @@ export async function signedEdge<T>(
 ): Promise<EdgeReply<T>> {
   const invoke = bridge()
   if (invoke === null) return noShell("node toko")
-  return invoke<EdgeReply<T>>("edge_signed_call", { method, path, body })
+  return heard(
+    await invoke<EdgeReply<T>>("edge_signed_call", { method, path, body }),
+  )
 }
 
 export type DeviceState = { readonly bound: boolean; readonly detail: string }

@@ -77,6 +77,13 @@ struct Pending {
     verification: String,
     expires_at: String,
     node: NodeIdentity,
+    /// The node's DNS-SD instance and host, when it was found on the LAN
+    /// rather than typed: kept by the till once it is let in, so it can find
+    /// the node again when its address changes (`edge.rs`).
+    #[serde(default)]
+    instance: Option<String>,
+    #[serde(default)]
+    host: Option<String>,
 }
 
 /// A supervisor signed in at this till on the node it is joining.
@@ -351,6 +358,11 @@ fn adopt(
     if moved {
         held.token = None;
     }
+    // The names the node answers to on the LAN, whatever its address: what
+    // this till looks for when that address stops answering.
+    held.node_instance = pending.instance.clone();
+    held.node_host = pending.host.clone();
+    held.moved_from = None;
     // The label is what a person reads off this counter and what a receipt
     // and a cash shift carry — and it is the one thing a replacement inherits,
     // so a till that took over "Kasir 2" picks up where Kasir 2 left off.
@@ -396,10 +408,22 @@ pub fn join_current(joining: tauri::State<'_, Joining>) -> Option<JoinView> {
     view
 }
 
-/// Ask `base_url` to let this till join.
+/// Ask `base_url` to let this till join. `instance` and `host` are the
+/// node's names on the LAN when it was found there, kept for finding it again.
 #[tauri::command]
-pub async fn join_begin(app: tauri::AppHandle, base_url: String) -> Result<JoinView, String> {
+pub async fn join_begin(
+    app: tauri::AppHandle,
+    base_url: String,
+    instance: Option<String>,
+    host: Option<String>,
+) -> Result<JoinView, String> {
     edge::off_the_window(move || {
+        let tidy = |value: Option<String>| {
+            value
+                .map(|text| text.trim().to_string())
+                .filter(|text| !text.is_empty())
+        };
+        let (instance, host) = (tidy(instance), tidy(host));
         let base = discovery::normalise_base(&base_url)?;
         // A request already open at this node keeps its key: the node answers
         // the same digest with the same code, and a new key would be a second
@@ -445,6 +469,8 @@ pub async fn join_begin(app: tauri::AppHandle, base_url: String) -> Result<JoinV
             verification: answer.verification,
             expires_at: answer.expires_at,
             node: answer.node,
+            instance,
+            host,
         };
         keep_pending(&app, Some(&pending));
         let joining = app.state::<Joining>();

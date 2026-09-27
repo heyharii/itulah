@@ -341,7 +341,7 @@ function ConfirmNode({
   async function ask() {
     setBusy(true)
     setProblem(null)
-    const answer = await beginJoin(node.base_url)
+    const answer = await beginJoin(node.base_url, node)
     setBusy(false)
     if (!answer.ok) {
       setProblem(answer.problem)

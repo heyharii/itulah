@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Merged by the Tauri bundler into the macOS app's own Info.plist.
+
+  macOS 15 and later ask before an app may talk to machines on the local
+  network, and the till does nothing else: it listens for its node over mDNS
+  (`_itulah-store._tcp`, src/discovery.rs) and calls it at a LAN address
+  (src/edge.rs). Refused, it hears no node and cannot reach one it was given
+  either, until it is allowed in System Settings → Privacy & Security → Local
+  Network. The sentence below is what the prompt says, in the till's language.
+-->
+<plist version="1.0">
+<dict>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>Kasir ini mencari dan menghubungi server toko (node) di jaringan toko untuk berjualan dan bergabung.</string>
+  <key>NSBonjourServices</key>
+  <array>
+    <string>_itulah-store._tcp</string>
+  </array>
+</dict>
+</plist>

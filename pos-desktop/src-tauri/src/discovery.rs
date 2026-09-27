@@ -32,6 +32,25 @@
 //! A router that drops multicast is common in shops, and a node on another
 //! subnet is never heard. So an address can always be typed, and it is
 //! checked with the same identity call before anything is sent to it.
+//!
+//! # Found again when its address changes
+//!
+//! A joined till keeps its node's instance and host names beside the address
+//! (`edge.rs`), because a node's names do not move when the router hands it a
+//! new address. When a call to the old address cannot connect, [`refind`]
+//! listens again and takes an address only from a machine that answers the
+//! identity call as the very origin this till joined.
+//!
+//! # What the machine has to allow
+//!
+//! Listening means receiving multicast on UDP 5353. On Windows the first listen
+//! raises the firewall's "allow this app" prompt: allow it on private networks,
+//! or the installer adds the rule — until one of those happens nothing is heard
+//! and the address has to be typed. On macOS 15 and later the app asks for
+//! Local Network access (`Info.plist`, `NSLocalNetworkUsageDescription`); a
+//! till refused it hears nothing *and* cannot reach a node at a LAN address at
+//! all, typed or found, until it is allowed in System Settings → Privacy &
+//! Security → Local Network.
 
 use std::collections::BTreeMap;
 use std::net::IpAddr;
@@ -100,13 +119,23 @@ pub struct FoundNode {
     /// ever shown beside a failure.
     pub advertised_site: Option<String>,
     pub problem: Option<String>,
+    /// The advertisement's DNS-SD instance name, for a node heard on the LAN
+    /// (`None` for a typed address). Kept by a till that joins it, with `host`,
+    /// so it can find the node again under a new address.
+    pub instance: Option<String>,
 }
 
 /// What one advertisement said, before anybody has checked it.
 struct Heard {
+    /// `itulah store-07-edge._itulah-store._tcp.local.`: the name the node
+    /// keeps whatever its address.
+    fullname: String,
     host: String,
     port: u16,
     addresses: Vec<IpAddr>,
+    /// The origin its TXT records claim. A claim like the rest: only the
+    /// identity call's answer is believed.
+    origin: Option<String>,
     /// The shop it claimed to be, in the words a person reads.
     site: Option<String>,
 }
@@ -234,9 +263,11 @@ fn browse(listen: Duration) -> Result<Vec<Heard>, String> {
                 heard.insert(
                     service.get_fullname().to_string(),
                     Heard {
+                        fullname: service.get_fullname().to_string(),
                         host: service.get_hostname().trim_end_matches('.').to_string(),
                         port: service.get_port(),
                         addresses,
+                        origin: service.get_property_val_str("origin").map(str::to_string),
                         site: claimed_site(
                             service.get_property_val_str("site"),
                             service.get_property_val_str("code"),
@@ -277,6 +308,7 @@ fn confirm(heard: &Heard) -> FoundNode {
                     identity: Some(identity),
                     advertised_site: heard.site.clone(),
                     problem: None,
+                    instance: Some(heard.fullname.clone()),
                 }
             }
             Err(why) => problem = Some(why),
@@ -289,7 +321,53 @@ fn confirm(heard: &Heard) -> FoundNode {
         advertised_site: heard.site.clone(),
         problem: problem
             .or_else(|| Some("Node ini tidak mengumumkan alamat yang bisa dipakai.".into())),
+        instance: Some(heard.fullname.clone()),
     }
+}
+
+/// Where a till's node answers now, found again on the LAN.
+pub struct Refound {
+    pub base_url: String,
+    pub host: String,
+    pub instance: String,
+}
+
+/// Look for the node a till joined, after the address it kept stopped
+/// answering.
+///
+/// An advertisement under the instance or host the till kept is looked at
+/// first, then any whose TXT names the same origin — and none is taken unless
+/// the machine at its address answers the identity call as `origin` itself.
+/// Anything on the wifi can advertise a name; only the node answers as the
+/// node. `None` when it was not heard, or would not say so.
+pub fn refind(origin: &str, instance: Option<&str>, host: Option<&str>) -> Option<Refound> {
+    fn same(one: &str, other: &str) -> bool {
+        one.trim_end_matches('.')
+            .eq_ignore_ascii_case(other.trim_end_matches('.'))
+    }
+    let heard = browse(LISTEN).ok()?;
+    let named = |one: &Heard| {
+        instance.is_some_and(|name| same(one.fullname.as_str(), name))
+            || host.is_some_and(|name| same(one.host.as_str(), name))
+    };
+    let mut candidates: Vec<&Heard> = heard
+        .iter()
+        .filter(|one| named(*one) || one.origin.as_deref() == Some(origin))
+        .collect();
+    // The names it kept before a claim about the origin.
+    candidates.sort_by_key(|one| !named(*one));
+    candidates.into_iter().find_map(|one| {
+        let found = confirm(one);
+        let answered = found
+            .identity
+            .as_ref()
+            .is_some_and(|identity| identity.origin_id == origin);
+        answered.then(|| Refound {
+            base_url: found.base_url,
+            host: one.host.clone(),
+            instance: one.fullname.clone(),
+        })
+    })
 }
 
 /// Listen, then confirm everything heard, in parallel — five nodes that each
@@ -343,6 +421,7 @@ pub async fn identify_node(base_url: String) -> Result<FoundNode, String> {
             identity: Some(identity),
             advertised_site: None,
             problem: None,
+            instance: None,
         })
     })
     .await
