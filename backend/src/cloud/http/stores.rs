@@ -26,8 +26,8 @@ use crate::cloud::{
 };
 use axum::{
     body::Bytes,
-    extract::{Path, State},
-    http::StatusCode,
+    extract::{Path, Query, State},
+    http::{HeaderMap, StatusCode},
     Extension, Json,
 };
 
@@ -118,6 +118,129 @@ pub async fn install_server(
     let issued =
         infrastructure::install_store_server(&state.db, unit.trim(), &principal.username).await?;
     Ok((StatusCode::CREATED, Json(issued)))
+}
+
+// ---- The Actions menu (remote actions, 28 Sep 2026) ---------------------------
+//
+// Reading the menu and the history follows reach, like the page. Acting is
+// an Admin's, the owner's or IT's: IT sits on the Supervisor rung, so the
+// path lets the Supervisor rung through (`domain::auth::required_role`) and
+// this is the check that counts. See `postgres/store_actions.rs`.
+
+/// May this caller act on a store's server and devices?
+fn may_act(principal: &Principal) -> bool {
+    use crate::cloud::domain::job_role::{ADMIN, OWNER};
+    principal.relayed.is_none()
+        && (principal.role >= Role::Admin
+            || [OWNER, ADMIN, "IT"].contains(&principal.job.code.as_str()))
+}
+
+async fn require_reach(state: &AppState, principal: &Principal, unit: &str) -> Result<(), AppError> {
+    if reach_of(state, principal).await?.covers(unit) {
+        return Ok(());
+    }
+    Err(AppError::Forbidden(format!(
+        "{} may read only the store they are posted to",
+        principal.username
+    )))
+}
+
+/// `GET /api/v1/stores/{unit}/actions`: what may be done to the store's
+/// server and devices, each with why not when it may not.
+pub async fn actions(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(unit): Path<String>,
+) -> Result<Json<infrastructure::StoreActionMenu>, AppError> {
+    let unit = unit.trim();
+    require_reach(&state, &principal, unit).await?;
+    Ok(Json(
+        infrastructure::store_action_menu(&state.db, unit, may_act(&principal)).await?,
+    ))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ActionHistoryQuery {
+    #[serde(default)]
+    pub limit: Option<i64>,
+}
+
+/// `GET /api/v1/stores/{unit}/actions/history?limit=`: newest first.
+pub async fn action_history(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(unit): Path<String>,
+    Query(query): Query<ActionHistoryQuery>,
+) -> Result<Json<infrastructure::StoreActionHistory>, AppError> {
+    let unit = unit.trim();
+    require_reach(&state, &principal, unit).await?;
+    Ok(Json(
+        infrastructure::store_action_history(&state.db, unit, query.limit).await?,
+    ))
+}
+
+/// `POST /api/v1/stores/{unit}/actions/{key}` with `{device_id?, note?,
+/// confirm?}` and an `Idempotency-Key`: recorded, sent, and followed.
+/// Answers 202 with the action's id; the history says where it got to.
+pub async fn request_action(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path((unit, key)): Path<(String, String)>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<(StatusCode, Json<infrastructure::StoreActionAccepted>), AppError> {
+    if !may_act(&principal) {
+        return Err(AppError::Forbidden(
+            "only an Admin, the owner or IT may act on a store's server".into(),
+        ));
+    }
+    let idempotency_key = super::articles::idempotency_key(&headers)?;
+    let request: infrastructure::StoreActionRequest = if body.iter().all(u8::is_ascii_whitespace) {
+        infrastructure::StoreActionRequest::default()
+    } else {
+        serde_json::from_slice(&body)
+            .map_err(|error| AppError::Validation(format!("invalid request: {error}")))?
+    };
+    let unit = unit.trim();
+    let key = key.trim();
+    let audit_payload = serde_json::json!({
+        "unit": unit,
+        "action": key,
+        "device_id": request.device_id,
+        "note": request.note,
+    });
+    let requested = infrastructure::request_store_action(
+        &state.db,
+        unit,
+        key,
+        request,
+        &principal.username,
+        &idempotency_key,
+    )
+    .await?;
+    // The activity log's line in words, beside the middleware's own: which
+    // server, which action, and the id the history follows it by.
+    let mut payload = audit_payload;
+    payload["action_id"] = serde_json::json!(requested.accepted.action_id);
+    let path = format!("/api/v1/stores/{unit}/actions/{key}");
+    let entry = infrastructure::NewAudit {
+        username: &principal.username,
+        display_name: &principal.display_name,
+        role: principal.role.as_str(),
+        method: "POST",
+        path: &path,
+        status: 202,
+        subject: requested
+            .origin_id
+            .clone()
+            .map(|origin| (crate::cloud::domain::RecordKind::Origin, origin)),
+        payload,
+    };
+    if let Err(error) = infrastructure::record_audit(&state.db, entry).await {
+        tracing::warn!(%error, "a store action was not written to the activity log");
+    }
+    Ok((StatusCode::ACCEPTED, Json(requested.accepted)))
 }
 
 /// `POST /api/v1/devices/{device_id}/test-print`: ask a till or a network
