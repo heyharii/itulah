@@ -73,6 +73,9 @@ src-tauri/
   src/edge.rs    Proxy to the shop node. Holds the address, the token, the timeout.
   src/device.rs  The Chainway R3 read command, fingerprint and drawer status.
   src/rfid.rs    Windows SDK binding; one-shot reads refuse unless the buzzer is verified off.
+  src/discovery.rs  Finds the shop's node on the LAN (mDNS), confirms each answer.
+  src/join.rs       Asks the node to let this till in; the key never reaches the page.
+  src/peripherals.rs  What is plugged into this till, reported to the node.
 ```
 
 ### Why calls go through Rust
@@ -118,6 +121,33 @@ user's own config directory, written by the shell and never by the page. A till
 is set up once by whoever installs it and then used by people who were never
 told what a node address is; a terminal that forgot its shop every time it was
 closed would be found broken in the morning by a cashier.
+
+## Joining a node
+
+A new till does not need an address typed or an admin's pairing:
+
+1. **Setelan → Gabungkan ke node** (or the prompt on the sign-in card) listens
+   for `_itulah-store._tcp` on the LAN (`src-tauri/src/discovery.rs`) and lists
+   the nodes that confirmed themselves at `GET /api/v1/node/identity`. A typed
+   address is checked the same way — a router that drops multicast is common.
+2. The shell mints a key, sends only its SHA-256 to `POST /api/v1/devices/join`
+   (`src-tauri/src/join.rs`), and the screen shows a code and a six-digit
+   number.
+3. On a till that has already joined, a supervisor opens **Setelan → Kasir
+   menunggu**, checks the number matches, and approves with a finger or PIN —
+   as a new till or as the replacement for one (which keeps its name). A
+   shop's *first* till is approved by a supervisor signing in on the new till
+   itself; the node accepts that only for the first till, or from an Admin.
+4. The till polls with an HMAC proof, and on approval keeps the node's
+   `terminal_id` beside its key, exactly where a paired till keeps its pairing.
+   Its name ("Kasir N") becomes its terminal name on receipts and shifts.
+
+**Perangkat kasir** (from Setelan) records what is plugged into the till — the
+customer display (optionally opened at start), the desk reader, the drawer, the
+scanner, and the receipt printer: none, the typed address, a printer the node
+recorded (by `printer_id`), or USB (recorded only; the node cannot print to it).
+It is kept by the shell and reported to `POST /api/v1/devices/self/peripherals`
+signed as the till; an unacknowledged report goes again at the next start.
 
 ## Testing the fingerprint path without a fingerprint
 
