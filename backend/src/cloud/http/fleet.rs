@@ -338,3 +338,76 @@ pub async fn diagnostics(
         "items": infrastructure::node_diagnostics(&state.db, origin_id.trim()).await?
     })))
 }
+
+// ---- The fleet status page -----------------------------------------------------
+//
+// One row per store and one for the gudang, coloured by the worst of their
+// parts; sync as freshness and queues; incidents told once and answered; the
+// thresholds and alert rules as settings. Owner's decisions of 28 Sep 2026,
+// `postgres/fleet_status.rs`, migrations 0637-0640.
+
+pub async fn fleet_status(State(state): State<AppState>) -> Result<Json<Value>, AppError> {
+    Ok(Json(serde_json::to_value(
+        infrastructure::fleet_status_page(&state.db).await?,
+    )?))
+}
+
+pub async fn fleet_status_of(
+    State(state): State<AppState>,
+    Path(unit): Path<String>,
+) -> Result<Json<Value>, AppError> {
+    Ok(Json(infrastructure::fleet_status_of(&state.db, &unit).await?))
+}
+
+pub async fn fleet_sync(State(state): State<AppState>) -> Result<Json<Value>, AppError> {
+    Ok(Json(infrastructure::fleet_sync(&state.db).await?))
+}
+
+pub async fn fleet_incidents(
+    State(state): State<AppState>,
+    Query(query): Query<infrastructure::FleetIncidentQuery>,
+) -> Result<Json<Value>, AppError> {
+    let (items, total) = infrastructure::fleet_incidents(&state.db, &query).await?;
+    Ok(Json(json!({ "items": items, "total": total })))
+}
+
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct Acknowledge {
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+pub async fn fleet_acknowledge(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(incident_id): Path<uuid::Uuid>,
+    body: Option<Json<Acknowledge>>,
+) -> Result<Json<Value>, AppError> {
+    let note = body.and_then(|Json(body)| body.note);
+    Ok(Json(
+        infrastructure::fleet_acknowledge_incident(
+            &state.db,
+            incident_id,
+            &principal.username,
+            note.as_deref(),
+        )
+        .await?,
+    ))
+}
+
+pub async fn fleet_alert_settings(
+    State(state): State<AppState>,
+) -> Result<Json<infrastructure::FleetSettingsView>, AppError> {
+    Ok(Json(infrastructure::fleet_settings(&state.db).await?))
+}
+
+pub async fn fleet_update_alert_settings(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Json(settings): Json<infrastructure::FleetSettings>,
+) -> Result<Json<infrastructure::FleetSettingsView>, AppError> {
+    Ok(Json(
+        infrastructure::fleet_update_settings(&state.db, &settings, &principal.username).await?,
+    ))
+}

@@ -97,6 +97,19 @@ pub fn required_role(method: &str, path: &str) -> Role {
     if admin_prefixes.iter().any(|p| path.starts_with(p)) {
         return Role::Admin;
     }
+    // The fleet status page (0637-0640). Its alerts reach IT, the owner and
+    // a store's PIC — people on the Supervisor rung as well as Admins — so
+    // they may read the page and acknowledge what they were told. Changing
+    // who is told, and when, is the Admin's.
+    if path.starts_with("/api/v1/fleet") {
+        return if path.starts_with("/api/v1/fleet/alert-settings")
+            && !method.eq_ignore_ascii_case("GET")
+        {
+            Role::Admin
+        } else {
+            Role::Supervisor
+        };
+    }
     // The generic record surface, before everything else, because it is the
     // one family of routes whose answer is not a property of the path.
     //

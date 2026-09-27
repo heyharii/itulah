@@ -164,6 +164,11 @@ cloud	GET	/api/v1/finance/statement-intake	Supervisor	-
 cloud	GET	/api/v1/finance/statement-sources	Supervisor	-
 cloud	GET	/api/v1/finance/trial-balance	Supervisor	-
 cloud	GET	/api/v1/finance/unbilled	Supervisor	-
+cloud	GET	/api/v1/fleet/alert-settings	Supervisor	-
+cloud	GET	/api/v1/fleet/incidents	Supervisor	-
+cloud	GET	/api/v1/fleet/status	Supervisor	-
+cloud	GET	/api/v1/fleet/status/{unit}	Supervisor	-
+cloud	GET	/api/v1/fleet/sync	Supervisor	-
 cloud	GET	/api/v1/flow-templates	Cashier	-
 cloud	GET	/api/v1/flow-templates/catalogue	Cashier	-
 cloud	GET	/api/v1/flow-templates/{id}	Cashier	-
@@ -460,6 +465,7 @@ cloud	POST	/api/v1/finance/periods/close	Admin	-
 cloud	POST	/api/v1/finance/periods/{id}/reopen	Admin	fiscal_period
 cloud	POST	/api/v1/finance/statement-intake/run	Admin	-
 cloud	POST	/api/v1/finance/statement-sources	Admin	-
+cloud	POST	/api/v1/fleet/incidents/{id}/acknowledge	Supervisor	-
 cloud	POST	/api/v1/flow-templates	Admin	-
 cloud	POST	/api/v1/flow-templates/validate	Admin	-
 cloud	POST	/api/v1/flow-templates/{id}/versions	Admin	-
@@ -587,6 +593,7 @@ cloud	PUT	/api/v1/commercial/campaigns/{campaign_id}/plan	Supervisor	campaign
 cloud	PUT	/api/v1/commercial/campaigns/{campaign_id}/target	Supervisor	campaign
 cloud	PUT	/api/v1/finance/journal/drafts/{id}	Admin	journal_draft
 cloud	PUT	/api/v1/finance/statement-sources/{id}	Admin	statement_source
+cloud	PUT	/api/v1/fleet/alert-settings	Admin	-
 cloud	PUT	/api/v1/records/{kind}/{id}/tags/{code}	PerRecord	handler
 cloud	PUT	/api/v1/setup/company	Admin	-
 dc	GET	/api/v1/dc/allotment-lines/{allotment_line_id}/position	-	-
@@ -743,4 +750,5 @@ edge-common	POST	/api/v1/auth/pins/{username}/clear	-	-
 edge-common	POST	/api/v1/auth/terminals	-	-
 edge-common	POST	/api/v1/inventory/control/clock	-	-
 edge-common	POST	/api/v1/rfid/observations	-	-
+edge-common	POST	/api/v1/rfid/ping	-	-
 edge-common	POST	/api/v1/sync/trigger	-	-
