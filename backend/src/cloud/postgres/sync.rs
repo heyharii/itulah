@@ -4063,7 +4063,7 @@ async fn apply_fulfillment_progress(
         }
         for (movement_line, unit) in movement_lines.iter().zip(&progress.units) {
             if !is_stage_place(
-                &movement_line.get::<String, _>("to_place_id"),
+                movement_line.get::<String, _>("to_place_id").as_str(),
                 FulfillmentStage::Packed,
             ) {
                 return Err(AppError::Validation(format!(
@@ -4236,10 +4236,13 @@ async fn apply_fulfillment_progress(
                 || stored.get::<String, _>("current_stage") != expected_previous.as_str()
                 || stored.get::<i16, _>("stage_rank") != expected_previous.rank()
                 || !is_stage_place(
-                    &movement_line.get::<String, _>("from_place_id"),
+                    movement_line.get::<String, _>("from_place_id").as_str(),
                     expected_previous,
                 )
-                || !is_stage_place(&movement_line.get::<String, _>("to_place_id"), progress.stage)
+                || !is_stage_place(
+                    movement_line.get::<String, _>("to_place_id").as_str(),
+                    progress.stage,
+                )
                 // Never back into a legacy leaf out of the stage at the origin.
                 || (movement_line.get::<String, _>("from_place_id")
                     == stage_place_id(expected_previous)
