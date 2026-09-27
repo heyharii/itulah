@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query"
 import type { ProfitAndLoss } from "@itulah/contract"
 import { domainKeys, profitAndLoss } from "@/lib/queries/finance-domains"
 import { balanceMatrix, financeKeys } from "@/lib/queries/finance"
+import { useUnits } from "@/lib/queries/organisation"
 import type { ReportScope } from "@/screens/executive/scope"
 
 /// What the books say, for the executive pages.
@@ -41,12 +42,28 @@ export function consolidated(statement: ProfitAndLoss): ProfitAndLoss {
   }
 }
 
+/// The books are a unit's (0605), and the report is narrowed to a shop — a
+/// site. The unit owning that site is the one whose books answer: `undefined`
+/// for the whole company, and `null` while the units register has not said
+/// which unit that is.
+export function useScopeUnit(scope: ReportScope): string | undefined | null {
+  const units = useUnits()
+  if (scope.store === undefined) return undefined
+  return (
+    (units.data ?? []).find((unit) =>
+      unit.sites.some((site) => site.id === scope.store)
+    )?.id ?? null
+  )
+}
+
 export function useProfit(scope: ReportScope) {
+  const unit = useScopeUnit(scope)
   const read = (from: string, to: string) => ({
-    queryKey: domainKeys.profitAndLoss(from, to, scope.store),
+    queryKey: domainKeys.profitAndLoss(from, to, unit ?? undefined),
     queryFn: ({ signal }: { signal: AbortSignal }) =>
-      profitAndLoss(from, to, signal, { site: scope.store }),
-    select: scope.store === undefined ? consolidated : undefined,
+      profitAndLoss(from, to, signal, { unit: unit ?? undefined }),
+    select: unit === undefined ? consolidated : undefined,
+    enabled: unit !== null,
     retry: false,
   })
   const current = useQuery(read(scope.current.from, scope.current.to))
@@ -78,16 +95,17 @@ export function useCash(scope: ReportScope) {
   })
 }
 
-/// One location's cash, or the company's.
+/// One unit's cash, or the company's. The columns are units (0605), so a
+/// report narrowed to a shop asks for its unit — see `useScopeUnit`.
 export function cashAt(
   matrix: {
-    locations: string[]
+    units: string[]
     column_totals: number[]
     grand_total_minor: number
   },
-  store: string | undefined
+  unit: string | undefined
 ): number {
-  if (store === undefined) return matrix.grand_total_minor
-  const index = matrix.locations.indexOf(store)
+  if (unit === undefined) return matrix.grand_total_minor
+  const index = matrix.units.indexOf(unit)
   return index === -1 ? 0 : (matrix.column_totals[index] ?? 0)
 }

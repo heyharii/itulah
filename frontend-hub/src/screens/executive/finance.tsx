@@ -7,9 +7,15 @@ import { EmptyState } from "@/components/ui/states"
 import { count, money } from "@/lib/format"
 import { financeKeys, payablesAging } from "@/lib/queries/finance"
 import { domainKeys, saleDayTotals } from "@/lib/queries/finance-domains"
+import { useUnitLabel } from "@/lib/queries/organisation"
 import { queryState } from "@/lib/query-state"
 import { cn } from "@/lib/utils"
-import { cashAt, useCash, useProfit } from "@/screens/executive/books"
+import {
+  cashAt,
+  useCash,
+  useProfit,
+  useScopeUnit,
+} from "@/screens/executive/books"
 import { Refused } from "@/screens/executive/overview"
 import { percent, ratio, rupiah } from "@/screens/executive/format"
 import {
@@ -20,7 +26,6 @@ import {
   Line,
   ReportPage,
 } from "@/screens/executive/parts"
-import { usePlaces } from "@/screens/executive/places"
 import { useReportScope } from "@/screens/executive/scope"
 
 /// Kas & laba — what the period earned by the books, the cash the company
@@ -78,9 +83,10 @@ function signed(value: number, cost: boolean | undefined): string {
 
 export function ExecutiveFinance() {
   const scope = useReportScope()
-  const { nameOf } = usePlaces(scope)
+  const unitName = useUnitLabel()
   const profit = useProfit(scope)
   const cash = useCash(scope)
+  const unit = useScopeUnit(scope)
   const aging = useQuery({
     // Supplier payables live at head office only (FINANCE-HARD-RULES I4), so
     // this is the company's figure whichever shop the page is narrowed to.
@@ -116,7 +122,9 @@ export function ExecutiveFinance() {
         />
         <Figure
           label="Kas & bank"
-          value={cash.data ? rupiah(cashAt(cash.data, scope.store)) : "—"}
+          value={
+            cash.data && unit !== null ? rupiah(cashAt(cash.data, unit)) : "—"
+          }
           note={`Saldo per ${scope.asOfLabel}`}
         />
         <Figure
@@ -267,9 +275,9 @@ export function ExecutiveFinance() {
               loading: "Membaca kas…",
               refused: <Refused />,
               render: (matrix) => {
-                const units = matrix.locations
-                  .map((site, index) => ({
-                    site,
+                const units = matrix.units
+                  .map((id, index) => ({
+                    id,
                     value: matrix.column_totals[index] ?? 0,
                   }))
                   .filter((unit) => unit.value !== 0)
@@ -283,8 +291,8 @@ export function ExecutiveFinance() {
                   <div className="grid gap-x-8 md:grid-cols-2">
                     {units.map((unit) => (
                       <Bar
-                        key={unit.site}
-                        label={nameOf(unit.site)}
+                        key={unit.id}
+                        label={unitName(unit.id)}
                         value={rupiah(unit.value)}
                         share={unit.value / widest}
                         tone={unit.value < 0 ? "bad" : "accent"}
