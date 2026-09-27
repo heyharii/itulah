@@ -12,7 +12,7 @@ use crate::edge::{
     OfficialCountSubmitRequest, OpenGoodsReceiptRequest, OperationalPool, PackKoliRequest,
     PickRequest, PoolBalance, PurchaseCountRequest, PurchaseVerifyRequest, ReceiveBatchRequest,
     ReceiveRequest, RecordInvoiceRequest, RejectDeliveryRequest, SaleRequest,
-    StoreInvoiceDocumentRequest, TaggingConfirmRequest, RFID_OBSERVATION_PATH,
+    StoreInvoiceDocumentRequest, TaggingConfirmRequest, RFID_OBSERVATION_PATH, RFID_PING_PATH,
 };
 use crate::security::{self, CSRF_COOKIE, SESSION_COOKIE};
 use axum::{
@@ -640,6 +640,7 @@ fn common_router() -> Router<EdgeState> {
             post(set_till_peripherals),
         )
         .route(RFID_OBSERVATION_PATH, post(rfid_observations))
+        .route(RFID_PING_PATH, post(rfid_ping))
         .route("/api/v1/inventory/pools", get(pools))
         // What the goods flows touching this site did, as head office relayed
         // it (`edge::flows`): which document a piece of work belongs to.
@@ -3540,6 +3541,39 @@ async fn rfid_observations(
     Ok((StatusCode::CREATED, Json(response)))
 }
 
+/// A reader saying it is alive, with its battery and app version when it
+/// knows them (`EdgeRfid::ping`). Proven by the device's own signature, like a
+/// batch; no session.
+async fn rfid_ping(
+    State(state): State<EdgeState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, ApiError> {
+    let device_id = required_header(&headers, "x-device-id")?;
+    let timestamp = required_header(&headers, "x-device-timestamp")?
+        .parse::<i64>()
+        .map_err(|_| ApiError(EdgeError::Unauthorized("invalid RFID timestamp".into())))?;
+    let sequence = required_header(&headers, "x-device-sequence")?
+        .parse::<i64>()
+        .map_err(|_| ApiError(EdgeError::Unauthorized("invalid RFID sequence".into())))?;
+    let signature = required_header(&headers, "x-device-signature")?;
+    let rfid = state.rfid.clone();
+    let raw_body = body.to_vec();
+    let response = run_blocking(move || {
+        rfid.ping(
+            DeviceProof {
+                device_id,
+                timestamp,
+                sequence,
+                signature,
+            },
+            &raw_body,
+        )
+    })
+    .await?;
+    Ok(Json(response))
+}
+
 async fn require_auth(
     State(state): State<EdgeState>,
     mut request: Request,
@@ -3572,6 +3606,7 @@ async fn require_auth(
             | "/api/v1/auth/sso/exchange"
             | "/api/v1/node/identity"
             | RFID_OBSERVATION_PATH
+            | RFID_PING_PATH
     ) || matches!(
         (request.method().as_str(), path),
         (

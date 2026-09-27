@@ -231,6 +231,20 @@ pub(crate) const FLOW_STEP_SCHEMA: &str = include_str!(concat!(
     "/migrations/sqlite/0059_a_return_is_inspected_and_tagged_goods_are_put_away.sql"
 ));
 
+/// A reader's ping, battery and app version (`0064`, `edge::rfid`), for the
+/// fleet status page. Creates only, so it runs on every open.
+pub(crate) const RFID_DEVICE_HEALTH_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0064_a_reader_says_it_is_alive_even_when_it_reads_nothing.sql"
+));
+
+/// The last backup's result and the internet outages the node sold through
+/// (`0065`, `edge::backup`, `edge::heartbeat`). Creates only.
+pub(crate) const NODE_HEALTH_MEMORY_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0065_a_node_remembers_its_last_backup_and_its_lost_internet.sql"
+));
+
 /// Who raised a purchase order, and whether the centre cancelled it
 /// (`0047`). ALTERs, so applied only when the columns are absent.
 pub(crate) const PURCHASE_ORDER_CANCEL_SCHEMA: &str = include_str!(concat!(
@@ -1231,6 +1245,14 @@ impl SqliteEdge {
         // inspections and putaways done here. Creates only, no probe.
         connection.execute_batch(FLOW_NOTICE_SCHEMA).map_err(db)?;
         connection.execute_batch(FLOW_STEP_SCHEMA).map_err(db)?;
+        // Fleet status (`0064`, `0065`): a reader's ping, the last backup's
+        // result and the internet outages sold through. Creates only.
+        connection
+            .execute_batch(RFID_DEVICE_HEALTH_SCHEMA)
+            .map_err(db)?;
+        connection
+            .execute_batch(NODE_HEALTH_MEMORY_SCHEMA)
+            .map_err(db)?;
         // A cancelled order (`0047`): an ALTER, so probed first.
         let an_order_can_be_cancelled: i64 = connection
             .query_row(
