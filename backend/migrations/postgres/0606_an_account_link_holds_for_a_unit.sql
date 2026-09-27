@@ -82,8 +82,12 @@ $$;
 ALTER TABLE account_link RENAME COLUMN scope_site_kind TO scope_unit_kind;
 ALTER TABLE account_link RENAME COLUMN scope_site_id TO scope_unit_id;
 
--- A link keeps its account, its category and its note, so the history trigger
--- has nothing to record: this is the same decision in the new words.
+-- A link keeps its account, its category and its note: this is the same
+-- decision in the new words, so the triggers that judge a decision (does the
+-- account fit the role, does the category fit the account) and the one that
+-- records it are not asked again — a link Finance made before a later chart
+-- change is not for a migration to refuse.
+ALTER TABLE account_link DISABLE TRIGGER USER;
 UPDATE account_link l
    SET scope_type = CASE l.scope_type
                         WHEN 'SITE_KIND' THEN 'UNIT_KIND'
@@ -95,6 +99,7 @@ UPDATE account_link l
                             ELSE l.scope_unit_id
                        END
  WHERE l.scope_type IN ('SITE_KIND', 'SITE');
+ALTER TABLE account_link ENABLE TRIGGER USER;
 
 ALTER TABLE account_link
     ADD CONSTRAINT account_link_scope_type_check
