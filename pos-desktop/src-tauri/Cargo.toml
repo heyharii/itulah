@@ -25,6 +25,15 @@ ureq = { version = "2", default-features = false, features = ["json", "tls"] }
 # HMAC-SHA256 over method, path, terminal, clock, sequence and body.
 hmac = "0.12"
 sha2 = "0.10"
+# Finding the shop's node on the LAN (`src/discovery.rs`): a DNS-SD browse
+# for `_itulah-store._tcp`, the service the node advertises
+# (`backend/src/edge/discovery.rs`). Its own thread and sockets; default
+# features off because they are an async receiver and `log`, and this shell
+# listens for three seconds on a blocking thread and logs to stderr.
+mdns-sd = { version = "0.21", default-features = false }
+# The key a till mints when it joins its node (`src/join.rs`), from the
+# operating system's generator. Already in the lock file under Tauri.
+getrandom = "0.2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 libloading = "0.7.4"

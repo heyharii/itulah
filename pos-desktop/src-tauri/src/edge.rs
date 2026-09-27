@@ -80,6 +80,29 @@ pub struct NodeConfig {
     /// and testing it was worth more than waiting for hardware.
     #[serde(default)]
     pub simulate_fingerprint: Option<String>,
+    /// Which node this till joined, and what it is called there. Written when
+    /// a supervisor let this till in (`join.rs`); absent for a till paired the
+    /// old way, or not at all. Shown, never trusted: what the node believes
+    /// about this till is at the node.
+    #[serde(default)]
+    pub joined: Option<JoinedNode>,
+    /// What is plugged into this till — the customer display, a desk reader,
+    /// the drawer, a scanner, the receipt printer. Configuration of this till,
+    /// not devices of their own; see `peripherals.rs`.
+    #[serde(default)]
+    pub peripherals: crate::peripherals::Peripherals,
+}
+
+/// The node a till joined, as the node said when it let the till in.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct JoinedNode {
+    pub origin_id: String,
+    pub site_id: String,
+    /// "Kasir 3": the label the node gave this till, or the one it inherited
+    /// from the till it replaced. Also this terminal's `terminal_id`.
+    pub label: String,
+    /// Unix seconds.
+    pub joined_at: i64,
 }
 
 fn default_printer_port() -> u16 {
@@ -103,6 +126,8 @@ impl Default for NodeConfig {
             pairing_secret: None,
             pairing_sequence: 0,
             simulate_fingerprint: None,
+            joined: None,
+            peripherals: crate::peripherals::Peripherals::default(),
         }
     }
 }
@@ -133,9 +158,15 @@ pub struct Node(pub Mutex<NodeConfig>);
 /// customer every morning — is the kind of friction that gets solved at the
 /// counter by writing the password on the monitor.
 fn config_path(app: &tauri::AppHandle) -> Option<PathBuf> {
+    settings_file(app, "node.json")
+}
+
+/// A file in this terminal's own settings directory. `join.rs` keeps a
+/// request it is waiting on beside `node.json`, for the reasons given above.
+pub(crate) fn settings_file(app: &tauri::AppHandle, name: &str) -> Option<PathBuf> {
     let dir = app.path().app_config_dir().ok()?;
     std::fs::create_dir_all(&dir).ok()?;
-    Some(dir.join("node.json"))
+    Some(dir.join(name))
 }
 
 /// Read what was saved, if anything. A missing or unreadable file is not an
@@ -148,7 +179,7 @@ pub fn load(app: &tauri::AppHandle) -> NodeConfig {
         .unwrap_or_default()
 }
 
-fn save(app: &tauri::AppHandle, config: &NodeConfig) {
+pub(crate) fn save(app: &tauri::AppHandle, config: &NodeConfig) {
     // A failure to write is reported and not fought over: the terminal keeps
     // working with what is in memory, and the next start asks again. Refusing
     // to sign somebody in because a config directory is read-only would stop a
@@ -180,7 +211,7 @@ pub struct EdgeReply {
 }
 
 impl EdgeReply {
-    fn unreachable(detail: String) -> Self {
+    pub(crate) fn unreachable(detail: String) -> Self {
         Self {
             ok: false,
             status: 0,
@@ -193,7 +224,22 @@ impl EdgeReply {
 /// A till waits in front of a person. Ten seconds is already long enough that
 /// a cashier has started apologising; beyond it the honest answer is that the
 /// node is not there.
-const PATIENCE: Duration = Duration::from_secs(10);
+pub(crate) const PATIENCE: Duration = Duration::from_secs(10);
+
+/// Run a blocking piece of work — an HTTP call, a few seconds of listening on
+/// the LAN — off the window's thread, and hand back its answer.
+///
+/// For the commands `join.rs`, `discovery.rs` and `peripherals.rs` add. A
+/// command without `async` runs on the main thread, and a till whose window
+/// froze for the three seconds it spent listening for its node would look
+/// like a till that had crashed.
+pub(crate) async fn off_the_window<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|error| error.to_string())?
+}
 
 #[tauri::command]
 pub fn node_config(node: tauri::State<'_, Node>) -> NodeConfig {
@@ -207,6 +253,25 @@ pub fn set_node_config(
     next: NodeConfig,
 ) -> NodeConfig {
     let mut held = node.0.lock().expect("node config");
+    let mut next = next;
+    // The window hands back a copy it read earlier, and three things in it
+    // are the shell's to keep, not the window's to set:
+    //
+    // - the sequence, which every signed call moves on *here*. A copy read
+    //   before the roster call and saved after the claim would wind it back,
+    //   and the node refuses a sequence it has seen as a replay — so it only
+    //   ever goes forward;
+    // - the peripherals, which only `set_peripherals` changes;
+    // - which node this till joined, true until the till is pointed at
+    //   another node or given another credential.
+    next.pairing_sequence = next.pairing_sequence.max(held.pairing_sequence);
+    next.peripherals = held.peripherals.clone();
+    let same_node = next.base_url.trim_end_matches('/') == held.base_url.trim_end_matches('/');
+    next.joined = if same_node && next.pairing_id == held.pairing_id {
+        held.joined.clone()
+    } else {
+        None
+    };
     *held = next;
     save(&app, &held);
     held.clone()
@@ -227,27 +292,38 @@ fn sign(
     sequence: i64,
     body_sha256: &str,
 ) -> String {
-    use hmac::{Hmac, Mac};
-    use sha2::Sha256;
     // The node keeps the SHA-256 of the secret and signs with that, not with
     // the secret itself — so this end has to hash first or nothing will verify.
-    let key = hex(&{
-        use sha2::Digest;
-        sha2::Sha256::digest(secret.as_bytes())
-    });
+    let key = digest_of(secret.as_bytes());
     let canonical = format!("{method}\n{path}\n{terminal}\n{timestamp}\n{sequence}\n{body_sha256}");
-    let mut mac = <Hmac<Sha256>>::new_from_slice(key.as_bytes()).expect("hmac takes any key");
-    mac.update(canonical.as_bytes());
+    hmac_hex(key.as_bytes(), canonical.as_bytes())
+}
+
+/// HMAC-SHA256, lowercase hex: `security::hmac_sha256_hex` on the node.
+pub(crate) fn hmac_hex(key: &[u8], message: &[u8]) -> String {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+    let mut mac = <Hmac<Sha256>>::new_from_slice(key).expect("hmac takes any key");
+    mac.update(message);
     hex(&mac.finalize().into_bytes())
 }
 
-fn hex(bytes: &[u8]) -> String {
+pub(crate) fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-fn digest_of(body: &[u8]) -> String {
+/// SHA-256, lowercase hex: `security::sha256_hex` on the node.
+pub(crate) fn digest_of(body: &[u8]) -> String {
     use sha2::Digest;
     hex(&sha2::Sha256::digest(body))
+}
+
+/// Unix seconds by this machine's clock.
+pub(crate) fn now_seconds() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|since| since.as_secs() as i64)
+        .unwrap_or_default()
 }
 
 /// Call the node as this terminal, rather than as the person signed into it.
@@ -263,6 +339,21 @@ pub fn edge_signed_call(
     path: String,
     body: Option<serde_json::Value>,
 ) -> EdgeReply {
+    signed_call(&app, node.inner(), &method, &path, body.as_ref())
+}
+
+/// The signed call itself, for the shell's own callers as well as the
+/// window's: `peripherals.rs` reports what is plugged into this till the same
+/// way the window asks for the fingerprint roster.
+///
+/// Takes the lock on `node` itself; a caller must not be holding it.
+pub(crate) fn signed_call(
+    app: &tauri::AppHandle,
+    node: &Node,
+    method: &str,
+    path: &str,
+    body: Option<&serde_json::Value>,
+) -> EdgeReply {
     let (config, sequence) = {
         let mut held = node.0.lock().expect("node config");
         held.pairing_sequence += 1;
@@ -271,14 +362,15 @@ pub fn edge_signed_call(
     // Persisted immediately, and before the call. A sequence spent on a request
     // that never arrived is a gap, which the node accepts; a sequence reused
     // because the terminal restarted is a replay, which it must not.
-    save(&app, &config);
+    save(app, &config);
 
     let (Some(terminal), Some(secret)) = (
         config.pairing_id.as_deref(),
         config.pairing_secret.as_deref(),
     ) else {
         return EdgeReply::unreachable(
-            "Terminal ini belum dipasangkan dengan node toko, jadi belum boleh              bicara atas namanya sendiri. Pasangkan dulu di Setelan terminal."
+            "Terminal ini belum tergabung ke node toko, jadi belum boleh bicara \
+             atas namanya sendiri. Gabungkan dulu di Setelan terminal."
                 .into(),
         );
     };
@@ -288,26 +380,22 @@ pub fn edge_signed_call(
     }
 
     let payload = body
-        .as_ref()
         .map(|value| serde_json::to_vec(value).unwrap_or_default())
         .unwrap_or_default();
     let body_sha256 = digest_of(&payload);
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|since| since.as_secs() as i64)
-        .unwrap_or_default();
+    let timestamp = now_seconds();
     let signature = sign(
         secret,
         terminal,
-        &method,
-        &path,
+        method,
+        path,
         timestamp,
         sequence,
         &body_sha256,
     );
 
     let url = format!("{}{}", config.base_url.trim_end_matches('/'), path);
-    let request = ureq::request(&method, &url)
+    let request = ureq::request(method, &url)
         .timeout(PATIENCE)
         .set("Accept", "application/json")
         .set("X-Terminal-Id", terminal)
@@ -390,7 +478,7 @@ pub fn edge_call(
     }
 }
 
-fn reply_from(status: u16, text: String) -> EdgeReply {
+pub(crate) fn reply_from(status: u16, text: String) -> EdgeReply {
     let body = serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);
     let ok = (200..300).contains(&status);
     let problem = if ok {
