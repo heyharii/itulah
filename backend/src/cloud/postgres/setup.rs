@@ -518,15 +518,10 @@ async fn open_head_office(transaction: &mut Transaction<'_, Postgres>) -> Result
     .bind(format!("{HO}-edge-01"))
     .execute(&mut **transaction)
     .await?;
+    // The head-office unit that people are posted to comes with the site:
+    // the insert above names no unit, so `site_resolves_its_unit` (0620)
+    // finds or makes the one of kind HO. `org_place` is gone (0601).
     instantiate(transaction, "HEAD_OFFICE", "no-store", "no-store", HO).await?;
-    sqlx::query(
-        "INSERT INTO org_place (id, name, kind, site_id)
-         VALUES ('ho', 'Head Office', 'HO', $1)
-         ON CONFLICT (id) DO NOTHING",
-    )
-    .bind(HO)
-    .execute(&mut **transaction)
-    .await?;
     Ok(())
 }
 
