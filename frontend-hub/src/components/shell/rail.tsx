@@ -8,11 +8,13 @@ import {
   domainForPath,
   domainHome,
   domains,
+  modulesOfDomain,
+  moduleAllowed,
   moduleForPath,
   type AppModule,
 } from "@/lib/navigation"
 import { officeFor, systemFor } from "@/lib/apps"
-import { useIdentity } from "@/lib/session"
+import { useIdentity, useSections } from "@/lib/session"
 import { homeNav } from "@/screens/home/nav"
 import { meNav } from "@/screens/me/nav"
 import { systemNav } from "@/screens/system/nav"
@@ -59,6 +61,16 @@ export function Rail({
   // desk shows Home and their own Profile rather than ten locked departments.
   const role = useIdentity().data?.role
   const office = officeFor(role)
+  // A finer cut on top of that rung: which DEPARTMENTS the caller's job role
+  // holds. A domain none of whose modules match a held section is dropped
+  // from the column entirely — a tile that opens onto a blank sidebar is
+  // worse than one row shorter. See `moduleAllowed`.
+  const { sections, bypass } = useSections()
+  const openDomains = domains.filter((domain) =>
+    modulesOfDomain(domain).some((module) =>
+      moduleAllowed(module, sections, bypass)
+    )
+  )
 
   // The tile somebody just pressed, and the path they pressed it on. The
   // router only commits the new location once the screen's code and data
@@ -122,7 +134,7 @@ export function Rail({
         )}
         {[
           { id: homeNav.id, label: homeNav.label, icon: House, to: "/" },
-          ...(office ? domains : []).map((domain) => ({
+          ...(office ? openDomains : []).map((domain) => ({
             id: domain.id,
             label: domain.label,
             icon: domain.icon,
@@ -172,9 +184,13 @@ export function Rail({
         <div className="grid grid-cols-2 gap-1">
           {[
             ...(office
-              ? asides.filter((aside) => !topBarAsides.includes(aside))
+              ? asides
+                  .filter((aside) => !topBarAsides.includes(aside))
+                  .filter((aside) => moduleAllowed(aside, sections, bypass))
               : []),
-            ...(systemFor(role) ? [systemNav] : []),
+            ...(systemFor(role) && moduleAllowed(systemNav, sections, bypass)
+              ? [systemNav]
+              : []),
             // Profile — the phone's fourth tab — is the desk's fourth tile:
             // your own attendance, leave and pay, one press from anywhere.
             meNav,

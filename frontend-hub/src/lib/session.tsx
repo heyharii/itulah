@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { auth, cacheKey, edge, edgeAuth, node, setEdgeToken } from "@/lib/api"
 import { forgetPushOnSignOut } from "@/lib/push"
+import type { SectionCode } from "@/lib/queries/invitations"
 import { ApiError, type Identity } from "@itulah/contract/client"
 
 /// Who is signed in, asked of the server rather than tracked by hand.
@@ -30,6 +31,63 @@ export function useIdentity() {
     // half way through writing an order.
     staleTime: Infinity,
   })
+}
+
+/// The job role and section grants `/auth/me` carries beyond the rung every
+/// `Identity` already has (`role`, CASHIER/SUPERVISOR/ADMIN — a different
+/// ladder; see `screens/system/users.tsx`).
+///
+/// Read off the answer rather than typed onto `Identity` itself: that type is
+/// generated from the Rust response (`@itulah/contract`) by a backend change
+/// landing alongside this one, so it is widened here instead of edited there.
+/// A node that predates the change simply answers without these fields, which
+/// is why every reader below treats them as absent rather than as a fault —
+/// see the fail-open default on `useSections`.
+export interface JobIdentity {
+  readonly role_code: string
+  readonly role_name: string
+  readonly sections: readonly SectionCode[]
+}
+
+/// The job role on an already-fetched identity, or nothing for a node that
+/// does not answer with one yet.
+export function jobRoleOf(identity: Identity | null | undefined): {
+  code: string | null
+  name: string | null
+} {
+  const wide = identity as (Identity & Partial<JobIdentity>) | null | undefined
+  return { code: wide?.role_code ?? null, name: wide?.role_name ?? null }
+}
+
+/// Whoever is not an auditor may write; an auditor reads every book and
+/// changes none of them. `true` while the signed-in identity has not
+/// answered yet, or does not carry a job role at all — a control must not
+/// blink into existence disabled and then enable itself once the second
+/// request lands, and a node that predates roles never means to lock every
+/// button in the app.
+export function useCanWrite(): boolean {
+  const identity = useIdentity()
+  return jobRoleOf(identity.data).code !== "AUDITOR"
+}
+
+/// The sections the signed-in role holds, and whether it is one of the two
+/// that hold all of them regardless of what the server lists.
+///
+/// `bypass` is also true while the identity has not answered, or answers
+/// without a job role — the sidebar hides a section it can name a caller
+/// does NOT hold; it does not lock the whole menu because a field is not
+/// there yet.
+export function useSections(): {
+  sections: readonly SectionCode[]
+  bypass: boolean
+} {
+  const identity = useIdentity()
+  const { code } = jobRoleOf(identity.data)
+  const wide = identity.data as (Identity & Partial<JobIdentity>) | null
+  return {
+    sections: wide?.sections ?? [],
+    bypass: code === null || code === "OWNER" || code === "ADMIN",
+  }
 }
 
 /// Which node this surface is talking to. Named under the login box as a

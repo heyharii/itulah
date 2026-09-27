@@ -12,6 +12,7 @@ import {
   type LucideIcon,
 } from "lucide-react"
 
+import type { SectionCode } from "@/lib/queries/invitations"
 import { allotmentNav } from "@/screens/allotment/nav"
 import { assistantNav } from "@/screens/assistant/nav"
 import { commercialNav } from "@/screens/commercial/nav"
@@ -512,4 +513,60 @@ export function screenForPath(
     if (matches && item.path.length > (best?.path.length ?? -1)) best = item
   }
   return best
+}
+
+/// ── sections ─────────────────────────────────────────────────────────────
+///
+/// Which department a module belongs to, as the server's job roles name it
+/// (`lib/queries/invitations.ts`'s `SectionCode`) — the ONE place this app
+/// maps a module id to a section, so a caller's role can hide the departments
+/// it does not hold without every module file learning about roles.
+///
+/// A module absent from this map is unaffected — Home, Executive, Profile,
+/// the assistant and the two conversation asides carry no department and are
+/// never hidden by a section. That is a deliberate default, not an oversight:
+/// this app fails OPEN on a module the owner has not sorted into a section
+/// yet, rather than hiding a screen nobody asked to have hidden.
+const SECTION_OF_MODULE: Readonly<Record<string, SectionCode>> = {
+  commercial: "marketing",
+  master: "merchandise",
+  allotment: "merchandise",
+  inventory: "inventory",
+  procurement: "procurement",
+  sales: "sales",
+  members: "sales",
+  operations: "operations",
+  finance: "finance",
+  people: "people",
+  "ga-overview": "ga",
+  "ga-supplies": "ga",
+  maintenance: "ga",
+  "maintenance-schedule": "ga",
+  "ga-assets": "ga",
+  contracts: "ga",
+  "ga-locations": "ga",
+  vendors: "ga",
+  letters: "ga",
+  library: "ga",
+  system: "system",
+  reports: "reports",
+}
+
+export function sectionOfModule(module: AppModule): SectionCode | undefined {
+  return SECTION_OF_MODULE[module.id]
+}
+
+/// Whether a caller holding these sections (or bypassing the check entirely)
+/// is offered this module's row.
+///
+/// A module with no section (see above) is always allowed — the check only
+/// ever narrows a module that HAS one.
+export function moduleAllowed(
+  module: AppModule,
+  sections: readonly SectionCode[],
+  bypass: boolean
+): boolean {
+  if (bypass) return true
+  const section = sectionOfModule(module)
+  return section === undefined || sections.includes(section)
 }
