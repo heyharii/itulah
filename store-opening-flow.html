@@ -1,0 +1,405 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Opening a Store</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#20242c;--text:#394150;--body:#626b78;--mute:#737c89;--faint:#b9c0c9;
+  --canvas:#fff;--soft:#f8f9fb;--soft-2:#f0f2f5;--hairline:#e7eaf0;--hairline-2:#dce1e8;--hairline-strong:#c7ced8;
+  --accent:#2563eb;--accent-bg:#eff5ff;--ok:#36b827;--ok-fg:#15803d;--ok-bg:#d9f4d2;--warn-fg:#b45309;--warn-bg:#faeacd;--bad-fg:#be123c;--bad-bg:#fbeaea;
+  --ho:#4a82f0;--site:#46a06a;--store:#e0823c;--pos:#8a6cf0;--sys:#737c89;
+  --r-card:12px;--r-inner:7px;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--soft);color:var(--text);font:14px/1.55 Inter,system-ui,sans-serif}
+.wrap{max-width:1120px;margin:0 auto;padding:28px 16px 80px}
+h1{font-size:24px;color:var(--ink);margin:0 0 4px;font-weight:700;letter-spacing:-.01em}
+h2{font-size:17px;color:var(--ink);margin:36px 0 12px;font-weight:650}
+.lede{color:var(--body);margin:0 0 18px;max-width:780px}
+.card{background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-card);padding:18px}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:12px}
+.chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--hairline-2);border-radius:999px;padding:1px 9px;font-size:12px;background:var(--canvas);white-space:nowrap;color:var(--text)}
+.chip i{width:6px;height:6px;border-radius:50%;background:var(--c,var(--mute))}
+.legend{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 6px}
+.rule{margin-top:12px;padding:10px 12px;border-radius:var(--r-inner);background:var(--accent-bg);color:#1e3a8a;font-size:13px}
+.rule.warn{background:var(--warn-bg);color:#7c3a06}
+svg text{font-family:Inter,system-ui,sans-serif}
+
+/* timeline */
+.phase{margin-top:18px}
+.phase-hd{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.phase-no{width:28px;height:28px;border-radius:50%;background:var(--ink);color:#fff;display:grid;place-items:center;font-weight:700;font-size:13px}
+.phase-hd b{color:var(--ink);font-size:15px}
+.phase-hd span{color:var(--mute);font-size:12.5px}
+.steps{display:grid;gap:8px;margin-left:13px;padding-left:24px;border-left:2px solid var(--hairline-2)}
+.step{background:var(--canvas);border:1px solid var(--hairline);border-left:3px solid var(--c);border-radius:var(--r-inner);padding:10px 12px;display:grid;grid-template-columns:44px 1fr auto;gap:10px;align-items:start}
+.step .n{font-weight:700;color:var(--mute);font-size:12px;padding-top:2px}
+.step b{color:var(--ink)}
+.step p{margin:2px 0 0;font-size:13px;color:var(--body)}
+.step .where{display:flex;flex-direction:column;gap:4px;align-items:flex-end}
+@media(max-width:700px){.step{grid-template-columns:36px 1fr}.step .where{grid-column:2;align-items:flex-start;flex-direction:row;flex-wrap:wrap}}
+.new{font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--warn-fg);background:var(--warn-bg);border-radius:4px;padding:1px 5px;margin-left:6px;vertical-align:1px}
+
+/* state machines */
+.sm{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.st{border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:7px 10px;font-size:12.5px;background:var(--canvas);transition:all .2s}
+.st.on{border-color:var(--c,var(--accent));background:var(--accent-bg);color:var(--ink);font-weight:600;box-shadow:0 0 0 3px rgba(37,99,235,.08)}
+.st.ok.on{--c:var(--ok);background:var(--ok-bg)}
+.st.bad.on{--c:var(--bad-fg);background:var(--bad-bg)}
+.arr{color:var(--faint)}
+.btn{appearance:none;border:1px solid var(--hairline-strong);background:var(--canvas);border-radius:var(--r-inner);padding:6px 12px;font:inherit;font-size:13px;color:var(--ink);cursor:pointer;font-weight:500}
+.btn:hover{background:var(--soft-2)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.sim-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px;font-size:13px;color:var(--body)}
+
+/* mock screens */
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--hairline-2);margin-bottom:14px;overflow-x:auto}
+.tab{appearance:none;border:0;background:none;font:inherit;color:var(--body);padding:8px 12px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;font-weight:500}
+.tab[aria-selected=true]{color:var(--ink);border-color:var(--ink)}
+.panel{display:none}.panel.on{display:block}
+.screen{border:1px solid var(--hairline-2);border-radius:var(--r-card);overflow:hidden;background:var(--canvas)}
+.bar{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--soft-2);border-bottom:1px solid var(--hairline);font-size:12px;color:var(--mute)}
+.bar .dots{display:flex;gap:5px}.bar .dots i{width:9px;height:9px;border-radius:50%;background:var(--hairline-strong)}
+.app{display:grid;grid-template-columns:180px 1fr;min-height:320px}
+.side{background:#16181d;color:#b4bac4;padding:12px 10px;font-size:12.5px}
+.side div{padding:5px 8px;border-radius:6px}
+.side .act{background:#2e323a;color:#f2f4f7}
+.main{padding:16px}
+@media(max-width:700px){.app{grid-template-columns:1fr}.side{display:none}}
+.row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--hairline)}
+.row:last-child{border-bottom:0}
+.muted{color:var(--mute);font-size:12.5px}
+.ring{--p:60;width:34px;height:34px;border-radius:50%;background:conic-gradient(var(--ok) calc(var(--p)*1%),var(--hairline) 0);display:grid;place-items:center}
+.ring span{width:24px;height:24px;border-radius:50%;background:#fff;display:grid;place-items:center;font-size:9.5px;font-weight:700;color:var(--ink)}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;background:var(--ok);margin-right:6px}
+.dot.off{background:var(--bad-fg)}.dot.wait{background:#e0a82e}
+.check{display:grid;gap:6px}
+.ck{display:flex;gap:8px;align-items:center;font-size:13px}
+.ck .b{width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font-size:11px;color:#fff;background:var(--ok)}
+.ck .b.no{background:var(--hairline-strong)}
+.codebox{font-family:"JetBrains Mono",monospace;font-size:26px;letter-spacing:.2em;color:var(--ink);background:var(--soft-2);border-radius:var(--r-inner);padding:10px 16px;display:inline-block}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:800px){.two{grid-template-columns:1fr}}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;font-weight:600;color:var(--body);font-size:12px;padding:8px 10px;border-bottom:1px solid var(--hairline-2)}
+td{padding:9px 10px;border-bottom:1px solid var(--hairline);vertical-align:top}
+.yes{color:var(--ok-fg);font-weight:600}.todo{color:var(--warn-fg);font-weight:600}
+.pos{max-width:360px;margin:0 auto;border:1px solid var(--hairline-2);border-radius:18px;padding:18px;background:var(--canvas);text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Buka toko baru: dari nol sampai jualan pertama</h1>
+  <p class="lede">Semua dikendalikan <b>HO dari hub</b>. Di toko hanya dikerjakan yang harus dilakukan secara fisik, seperti memasang PC server, menyalakan kasir, dan mencolok printer. Setiap langkah fisik itu melapor ke cloud, jadi HO selalu tahu posisinya. Terakhir, HO menekan <b>Open store</b>.</p>
+
+  <div class="legend">
+    <span class="chip" style="--c:var(--ho)"><i></i>HO · hub</span>
+    <span class="chip" style="--c:var(--site)"><i></i>Fisik di toko / gudang</span>
+    <span class="chip" style="--c:var(--store)"><i></i>Aplikasi toko</span>
+    <span class="chip" style="--c:var(--pos)"><i></i>POS (Windows / Android)</span>
+    <span class="chip" style="--c:var(--sys)"><i></i>Otomatis oleh sistem</span>
+  </div>
+
+  <!-- 1. SYSTEM MAP -->
+  <h2>1. Siapa di mana</h2>
+  <div class="card">
+    <svg viewBox="0 0 1060 380" width="100%" role="img" aria-label="Peta sistem: cloud dan hub di atas, gudang dan toko di bawah, masing-masing dengan server dan perangkat">
+      <defs>
+        <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b9c0c9"/></marker>
+      </defs>
+      <!-- cloud -->
+      <rect x="330" y="14" width="400" height="92" rx="14" fill="#eff5ff" stroke="#4a82f0"/>
+      <text x="530" y="40" text-anchor="middle" font-size="15" font-weight="700" fill="#20242c">Cloud · HO</text>
+      <text x="530" y="62" text-anchor="middle" font-size="12.5" fill="#394150">Hub (browser): admin, MD, buyer, finance, HR</text>
+      <text x="530" y="82" text-anchor="middle" font-size="12" fill="#626b78">buku, katalog, harga, karyawan, laporan, pantauan semua toko</text>
+
+      <!-- gudang -->
+      <rect x="20" y="170" width="440" height="190" rx="14" fill="#fff" stroke="#dce1e8"/>
+      <text x="40" y="196" font-size="14" font-weight="700" fill="#20242c">Gudang HO</text>
+      <text x="40" y="214" font-size="12" fill="#737c89">site HO-GUDANG · unit HO</text>
+      <rect x="40" y="232" width="180" height="56" rx="10" fill="#eef8f0" stroke="#46a06a"/>
+      <text x="130" y="256" text-anchor="middle" font-size="12.5" font-weight="600" fill="#20242c">Server gudang</text>
+      <text x="130" y="274" text-anchor="middle" font-size="11.5" fill="#626b78">PC di gudang · itulah-store</text>
+      <rect x="240" y="232" width="200" height="56" rx="10" fill="#fff" stroke="#dce1e8"/>
+      <text x="340" y="256" text-anchor="middle" font-size="12.5" font-weight="600" fill="#20242c">Handheld RFID · printer label</text>
+      <text x="340" y="274" text-anchor="middle" font-size="11.5" fill="#626b78">hitung, pick, pack, scan RFID</text>
+      <text x="40" y="320" font-size="12" fill="#626b78">Layar penerimaan &amp; kirim: hub › Operations</text>
+      <text x="40" y="340" font-size="12" fill="#626b78">(dibuka dari PC gudang, bicara ke server gudang)</text>
+
+      <!-- toko -->
+      <rect x="490" y="170" width="550" height="190" rx="14" fill="#fff" stroke="#dce1e8"/>
+      <text x="510" y="196" font-size="14" font-weight="700" fill="#20242c">Toko Bumiayu</text>
+      <text x="510" y="214" font-size="12" fill="#737c89">site C004-TOKO · unit C004</text>
+      <rect x="510" y="232" width="160" height="56" rx="10" fill="#eef8f0" stroke="#46a06a"/>
+      <text x="590" y="256" text-anchor="middle" font-size="12.5" font-weight="600" fill="#20242c">Server toko</text>
+      <text x="590" y="274" text-anchor="middle" font-size="11.5" fill="#626b78">PC belakang · itulah-store</text>
+      <rect x="690" y="232" width="160" height="56" rx="10" fill="#f5f2fe" stroke="#8a6cf0"/>
+      <text x="770" y="253" text-anchor="middle" font-size="12.5" font-weight="600" fill="#20242c">POS Windows</text>
+      <text x="770" y="271" text-anchor="middle" font-size="11" fill="#626b78">layar pelanggan · R3 · laci</text>
+      <rect x="870" y="232" width="150" height="56" rx="10" fill="#f5f2fe" stroke="#8a6cf0"/>
+      <text x="945" y="256" text-anchor="middle" font-size="12.5" font-weight="600" fill="#20242c">POS Android</text>
+      <text x="945" y="274" text-anchor="middle" font-size="11.5" fill="#626b78">tablet kasir</text>
+      <rect x="690" y="298" width="330" height="48" rx="10" fill="#fdf1e6" stroke="#e0823c"/>
+      <text x="855" y="319" text-anchor="middle" font-size="12.5" font-weight="600" fill="#20242c">Aplikasi toko (store-new)</text>
+      <text x="855" y="336" text-anchor="middle" font-size="11.5" fill="#626b78">setujui kasir · terima barang · stok · uang</text>
+      <text x="510" y="320" font-size="12" fill="#626b78">Printer struk · EDC · mesin absen</text>
+
+      <!-- arrows -->
+      <line x1="130" y1="232" x2="420" y2="108" stroke="#b9c0c9" stroke-width="1.6" marker-end="url(#ar)" marker-start="url(#ar)"/>
+      <line x1="590" y1="232" x2="600" y2="108" stroke="#b9c0c9" stroke-width="1.6" marker-end="url(#ar)" marker-start="url(#ar)"/>
+      <line x1="690" y1="260" x2="672" y2="260" stroke="#b9c0c9" stroke-width="1.6" marker-end="url(#ar)"/>
+      <line x1="870" y1="252" x2="852" y2="252" stroke="#b9c0c9" stroke-width="1.2" marker-end="url(#ar)"/>
+      <line x1="690" y1="318" x2="640" y2="290" stroke="#b9c0c9" stroke-width="1.2" marker-end="url(#ar)"/>
+      <text x="636" y="150" font-size="11.5" fill="#737c89">sync (internet)</text>
+      <text x="210" y="150" font-size="11.5" fill="#737c89">sync (internet)</text>
+    </svg>
+    <div class="rule">Kasir dan aplikasi toko bicara ke <b>server toko</b> lewat jaringan toko, jadi tetap bisa jualan saat internet putus. Server toko yang menyinkronkan ke cloud. Karena itu HO bisa melihat semuanya: server hidup atau mati, kasir mana yang online, dan penjualan.</div>
+  </div>
+
+  <!-- 2. FLOW -->
+  <h2>2. Alur lengkap, langkah demi langkah</h2>
+
+  <div class="phase">
+    <div class="phase-hd"><div class="phase-no">0</div><b>Persiapan HO</b><span>sekali, saat sistem pertama kali dipakai</span></div>
+    <div class="steps">
+      <div class="step" style="--c:var(--sys)"><span class="n">0.1</span><div><b>Cloud dipasang, admin pertama dibuat</b><p>IT mengisi password admin pertama saat memasang cloud. Akun <span class="mono">admin</span> dibuat otomatis saat cloud pertama kali jalan.</p></div><div class="where"><span class="chip" style="--c:var(--sys)"><i></i>IT · sekali</span></div></div>
+      <div class="step" style="--c:var(--ho)"><span class="n">0.2</span><div><b>Login admin → onboarding</b><p>Tiga langkah, sekitar 2 menit: <b>perusahaan</b> (nama, alamat HO, punya gudang?), <b>toko</b> (nama + kota; kode C00x dan zona waktu terisi otomatis), <b>buku</b> (bagan akun standar atau impor, bulan pertama). Peta usaha terisi sambil diketik.</p></div><div class="where"><span class="chip" style="--c:var(--ho)"><i></i>Hub › Onboarding</span></div></div>
+      <div class="step" style="--c:var(--sys)"><span class="n">0.3</span><div><b>Sistem membuat unit, site, dan pool</b><p>Unit HO + Kantor & Gudang, unit C004 + site C004-TOKO, dan rak/lantai/reject serta pool retur di gudang. Semua otomatis dari template.</p></div><div class="where"><span class="chip" style="--c:var(--sys)"><i></i>otomatis</span></div></div>
+      <div class="step" style="--c:var(--ho)"><span class="n">0.4</span><div><b>Home menampilkan "siap jualan" per toko</b><p>Tugas global (bank, NPWP, saldo awal) muncul tepat saat dibutuhkan, tidak di depan.</p></div><div class="where"><span class="chip" style="--c:var(--ho)"><i></i>Hub › Home</span></div></div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-hd"><div class="phase-no">1</div><b>Gudang siap &amp; barang dari supplier (PO)</b><span>barang harus ada di gudang sebelum dikirim ke toko</span></div>
+    <div class="steps">
+      <div class="step" style="--c:var(--site)"><span class="n">1.1</span><div><b>Pasang server gudang</b><p>Caranya persis sama dengan server toko (lihat fase 2).</p></div><div class="where"><span class="chip" style="--c:var(--ho)"><i></i>Hub</span><span class="chip" style="--c:var(--site)"><i></i>PC gudang</span></div></div>
+      <div class="step" style="--c:var(--ho)"><span class="n">1.2</span><div><b>Buyer membuat PO ke supplier</b><p>Supplier, barang, dan jumlah dipilih dari keranjang buyer. PO otomatis membuka dokumen alur <b>"Receive from supplier"</b> di gudang.</p></div><div class="where"><span class="chip" style="--c:var(--ho)"><i></i>Hub › Procurement</span></div></div>
+      <div class="step" style="--c:var(--site)"><span class="n">1.3</span><div><b>Barang datang di gudang → hitung buta</b><p>Petugas gudang menghitung barang yang benar-benar datang <b>tanpa melihat qty maupun harga PO</b>. Hitungan boleh dalam satuan apa saja (lusin, kodi), asal hasilnya potongan utuh.</p></div><div class="where"><span class="chip" style="--c:var(--ho)"><i></i>Hub › Operations › Intake</span><span class="chip" style="--c:var(--site)"><i></i>gudang</span></div></div>
+      <div class="step" style="--c:var(--ho)"><span class="n">1.4</span><div><b>Pembuat PO menyetujui hasil hitung</b><p>Yang menyetujui adalah <b>pembuat PO sendiri</b>, bukan verifikator terpisah. Pilihannya: minta hitung ulang, terima sebagian, atau terima lalu tutup kekurangannya (close short). Kelebihan barang dicatat sebagai dikembalikan ke supplier.</p></div><div class="where"><span class="chip" style="--c:var(--ho)"><i></i>Hub › Operations › Intake</span></div></div>
+      <div class="step" style="--c:var(--ho)"><span class="n">1.5</span><div><b>Barang baru → setup master data</b><p>Barang yang baru pertama kali dibeli disiapkan sebagai item: harga beli, markup %, harga dasar, lalu harga dan qty per SKU (warna × ukuran).</p></div><div class="where"><span class="chip" style="--c:var(--ho)"><i></i>Hub › Procurement › Setups</span></div></div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-hd"><div class="phase-no">2</div><b>Server toko</b><span>HO menerbitkan dan menyetujui; tim di toko memasang</span></div>
+    <div class="steps">
+      <div class="step" style="--c:var(--ho)"><span class="n">2.1</span><div><b>HO: "Install server" untuk Bumiayu</b><span class="new">perlu dibangun: di halaman toko</span><p>Hub menampilkan <b>link installer</b> dan <b>kode 6 huruf + QR</b>, berlaku 24 jam. Status: <i>Waiting to be installed</i>.</p></div><div class="where"><span class="chip" style="--c:var(--ho)"><i></i>Hub › Stores › Bumiayu › Server</span></div></div>
+      <div class="step" style="--c:var(--site)"><span class="n">2.2</span><div><b>Di toko: jalankan installer di PC server, masukkan kode</b><p>Server membuat kuncinya sendiri dan menampilkan <b>nomor verifikasi</b>. Status di hub berubah jadi: <i>Waiting for approval</i>.</p></div><div class="where"><span class="chip" style="--c:var(--site)"><i></i>PC server toko</span></div></div>
+      <div class="step" style="--c:var(--ho)"><span class="n">2.3</span><div><b>HO: cocokkan nomor verifikasi → Approve</b><p>Nomor di hub harus sama dengan nomor di layar server. Ini menjamin yang disetujui memang PC di toko itu.</p></div><div class="where"><span class="chip" style="--c:var(--ho)"><i></i>Hub</span></div></div>
+      <div class="step" style="--c:var(--sys)"><span class="n">2.4</span><div><b>Server menarik data awal → Online</b><p>Katalog, harga, karyawan, dan jadwal absen ditarik ke server. Mulai sekarang server mengirim <b>heartbeat</b>: hub langsung tahu kalau server mati, internet putus, atau sync tertinggal.</p></div><div class="where"><span class="chip" style="--c:var(--sys)"><i></i>otomatis</span></div></div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-hd"><div class="phase-no">3</div><b>Tim toko</b><span>semua dari hub; hanya sidik jari yang di toko</span></div>
+    <div class="steps">
+      <div class="step" style="--c:var(--ho)"><span class="n">3.1</span><div><b>Tambah karyawan</b><p>Nama, jabatan, dan <b>unit: Bumiayu</b>. Akun login dibuat sekaligus. Hak akses otomatis terbatas pada unitnya.</p></div><div class="where"><span class="chip" style="--c:var(--ho)"><i></i>Hub › People</span></div></div>
+      <div class="step" style="--c:var(--ho)"><span class="n">3.2</span><div><b>Tetapkan PIC toko</b><p>Manajer toko jadi penanggung jawab unit. Dia yang menerima persetujuan dan notifikasi toko.</p></div><div class="where"><span class="chip" style="--c:var(--ho)"><i></i>Hub › System › Units</span></div></div>
+      <div class="step" style="--c:var(--site)"><span class="n">3.3</span><div><b>Enrol sidik jari di toko</b><p>Setiap karyawan menempelkan jari di mesin absen atau kasir. Hub melihat progresnya, misalnya 3/4 sudah.</p></div><div class="where"><span class="chip" style="--c:var(--site)"><i></i>mesin absen / kasir</span></div></div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-hd"><div class="phase-no">4</div><b>Kasir &amp; perangkat</b><span>kasir disetujui di toko; HO melihat hasilnya</span></div>
+    <div class="steps">
+      <div class="step" style="--c:var(--pos)"><span class="n">4.1</span><div><b>Nyalakan POS Windows → menemukan server sendiri</b><p>Tanpa ketik IP. Kasir menampilkan <b>kode + nomor verifikasi</b>. Status: <i>Menunggu persetujuan</i>.</p></div><div class="where"><span class="chip" style="--c:var(--pos)"><i></i>POS Windows</span></div></div>
+      <div class="step" style="--c:var(--store)"><span class="n">4.2</span><div><b>Supervisor menyetujui → "Kasir 1"</b><p>Dari aplikasi toko (Tills) atau dari kasir lain dengan sidik jari/PIN. Kasir langsung aktif.</p></div><div class="where"><span class="chip" style="--c:var(--store)"><i></i>Aplikasi toko › Tills</span></div></div>
+      <div class="step" style="--c:var(--pos)"><span class="n">4.3</span><div><b>Atur periferal + test</b><p>Layar pelanggan, reader meja R3, laci uang, printer struk (USB atau jaringan) → <b>test print</b>.</p></div><div class="where"><span class="chip" style="--c:var(--pos)"><i></i>POS › Perangkat</span></div></div>
+      <div class="step" style="--c:var(--pos)"><span class="n">4.4</span><div><b>POS Android</b><span class="new">perlu dibangun: join otomatis</span><p>Sekarang masih login pakai username dan password ke server toko. Nanti ikut cara yang sama seperti POS Windows.</p></div><div class="where"><span class="chip" style="--c:var(--pos)"><i></i>tablet</span></div></div>
+      <div class="step" style="--c:var(--ho)"><span class="n">4.5</span><div><b>HO melihat semua perangkat hidup</b><p>Kasir 1 ● online · terakhir terlihat 8 detik lalu · printer OK · EDC BCA. Dari sini HO juga bisa menangguhkan atau mencabut kasir.</p></div><div class="where"><span class="chip" style="--c:var(--ho)"><i></i>Hub › Stores › Bumiayu › Devices</span></div></div>
+      <div class="step" style="--c:var(--ho)"><span class="n">4.6</span><div><b>Pembayaran</b><p>Tunai aktif otomatis. HO menyalakan QRIS/debit dan mendaftarkan EDC per bank.</p></div><div class="where"><span class="chip" style="--c:var(--ho)"><i></i>Hub › Finance › Payment methods</span></div></div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-hd"><div class="phase-no">5</div><b>Stok pertama</b><span>dari gudang HO ke toko, sebagai dokumen alur</span></div>
+    <div class="steps">
+      <div class="step" style="--c:var(--ho)"><span class="n">5.1</span><div><b>MD mengalokasikan barang ke Bumiayu</b><p>Allotment otomatis membuka alur <b>"Ship Gudang → store"</b>.</p></div><div class="where"><span class="chip" style="--c:var(--ho)"><i></i>Hub › Allotment</span></div></div>
+      <div class="step" style="--c:var(--site)"><span class="n">5.2</span><div><b>Gudang: pick → pack → tutup koli → surat jalan → muat (dispatch) → berangkat</b><p>Setiap tahap tercatat. Saat berangkat, jurnal barang HO → Bumiayu dibukukan otomatis.</p></div><div class="where"><span class="chip" style="--c:var(--ho)"><i></i>Hub › Operations</span><span class="chip" style="--c:var(--site)"><i></i>handheld</span></div></div>
+      <div class="step" style="--c:var(--store)"><span class="n">5.3</span><div><b>Toko menerima</b><p>Scan RFID koli, lalu satu kali <b>Confirm receive</b>. Barang masuk ke lantai toko. Selisih otomatis jadi kasus Missing untuk tim Inventory, toko tidak bisa menolak.</p></div><div class="where"><span class="chip" style="--c:var(--store)"><i></i>Aplikasi toko › Receive</span></div></div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-hd"><div class="phase-no">6</div><b>Buka toko</b><span>HO yang memutuskan</span></div>
+    <div class="steps">
+      <div class="step" style="--c:var(--ho)"><span class="n">6.1</span><div><b>Checklist hijau → "Open store 🎉"</b><span class="new">perlu dibangun</span><p>Hub baru mengizinkan tombol ini kalau server online, minimal satu kasir aktif dan test print OK, tim dan PIC ada, pembayaran aktif, dan stok sudah diterima.</p></div><div class="where"><span class="chip" style="--c:var(--ho)"><i></i>Hub › Stores › Bumiayu</span></div></div>
+      <div class="step" style="--c:var(--pos)"><span class="n">6.2</span><div><b>Buka shift → jualan pertama → struk</b><p>Kasir login dengan sidik jari, membuka shift, lalu melayani penjualan.</p></div><div class="where"><span class="chip" style="--c:var(--pos)"><i></i>POS</span></div></div>
+      <div class="step" style="--c:var(--sys)"><span class="n">6.3</span><div><b>HO melihat penjualan, jurnal masuk otomatis</b><p>Penjualan harian, HPP, dan kas tercatat di buku unit C004.</p></div><div class="where"><span class="chip" style="--c:var(--ho)"><i></i>Hub › Sales, Finance</span></div></div>
+    </div>
+  </div>
+
+  <!-- 3. STATES -->
+  <h2>3. HO selalu tahu statusnya</h2>
+  <div class="two">
+    <div class="card">
+      <p style="margin:0 0 10px"><b style="color:var(--ink)">Server toko</b></p>
+      <div class="sm" id="srv">
+        <span class="st">Belum dipasang</span><span class="arr">→</span>
+        <span class="st">Waiting to be installed<br><span class="muted">kode aktif 24 jam</span></span><span class="arr">→</span>
+        <span class="st">Waiting for approval<br><span class="muted">nomor verifikasi</span></span><span class="arr">→</span>
+        <span class="st">Menarik data awal</span><span class="arr">→</span>
+        <span class="st ok">● Online</span>
+        <span class="st bad">● Offline sejak 14:02</span>
+      </div>
+      <div class="sim-row"><button class="btn" id="srvBtn">Langkah berikutnya</button><span id="srvTxt">Belum dipasang: HO belum menerbitkan kode.</span></div>
+    </div>
+    <div class="card">
+      <p style="margin:0 0 10px"><b style="color:var(--ink)">Kasir</b></p>
+      <div class="sm" id="till">
+        <span class="st">Dinyalakan, mencari server</span><span class="arr">→</span>
+        <span class="st">Menunggu persetujuan</span><span class="arr">→</span>
+        <span class="st ok">● Kasir 1 online</span>
+        <span class="st bad">● Offline</span>
+        <span class="st">Ditangguhkan / dicabut</span>
+      </div>
+      <div class="sim-row"><button class="btn" id="tillBtn">Langkah berikutnya</button><span id="tillTxt">Kasir dinyalakan dan mencari server di jaringan toko.</span></div>
+    </div>
+  </div>
+
+  <!-- 4. SCREENS -->
+  <h2>4. Tampilannya nanti</h2>
+  <div class="card">
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" aria-selected="true" data-p="s-list">Hub · Stores</button>
+      <button class="tab" role="tab" aria-selected="false" data-p="s-over">Hub · Bumiayu · Overview</button>
+      <button class="tab" role="tab" aria-selected="false" data-p="s-server">Hub · Bumiayu · Server</button>
+      <button class="tab" role="tab" aria-selected="false" data-p="s-dev">Hub · Bumiayu · Devices</button>
+      <button class="tab" role="tab" aria-selected="false" data-p="s-tills">Aplikasi toko · Tills</button>
+      <button class="tab" role="tab" aria-selected="false" data-p="s-pos">POS · join</button>
+    </div>
+
+    <section class="panel on" id="s-list">
+      <div class="screen"><div class="bar"><span class="dots"><i></i><i></i><i></i></span>hub · /stores</div>
+        <div class="app"><div class="side"><div>Home</div><div class="act">Stores</div><div>Sales</div><div>Operations</div><div>People</div><div>Finance</div><div>System</div></div>
+          <div class="main">
+            <div class="row"><b style="color:var(--ink)">Stores</b><button class="btn primary">Open a new store</button></div>
+            <div class="row"><div style="display:flex;gap:10px;align-items:center"><div class="ring" style="--p:100"><span>✓</span></div><div><b>Cikupa</b> <span class="muted">C001 · open since 2024</span></div></div><span class="muted"><span class="dot"></span>server online · 3/3 tills</span></div>
+            <div class="row"><div style="display:flex;gap:10px;align-items:center"><div class="ring" style="--p:60"><span>3/5</span></div><div><b>Bumiayu</b> <span class="muted">C004 · getting ready</span></div></div><span class="muted"><span class="dot"></span>server online · <span class="dot wait"></span>1 till waiting</span></div>
+            <div class="row"><div style="display:flex;gap:10px;align-items:center"><div class="ring" style="--p:20"><span>1/5</span></div><div><b>Wonosobo</b> <span class="muted">C013 · getting ready</span></div></div><span class="muted"><span class="dot wait"></span>server waiting to be installed</span></div>
+            <div class="row"><div style="display:flex;gap:10px;align-items:center"><div class="ring" style="--p:100"><span>✓</span></div><div><b>Brebes</b> <span class="muted">C007 · open</span></div></div><span class="muted"><span class="dot off"></span>server offline since 14:02</span></div>
+          </div></div></div>
+    </section>
+
+    <section class="panel" id="s-over">
+      <div class="screen"><div class="bar"><span class="dots"><i></i><i></i><i></i></span>hub · /stores/C004</div>
+        <div class="app"><div class="side"><div>Home</div><div class="act">Stores</div><div>Sales</div><div>Operations</div><div>People</div><div>Finance</div><div>System</div></div>
+          <div class="main">
+            <div class="row"><div><b style="color:var(--ink);font-size:16px">Bumiayu</b> <span class="muted">C004 · Jl. Raya Bumiayu 12, Brebes · WIB · PIC Rina</span></div></div>
+            <div class="muted" style="margin:8px 0">Overview · Server · Devices · Team · Payments · Stock · Facilities</div>
+            <div class="check">
+              <div class="ck"><span class="b">✓</span>Server online <span class="muted">· heartbeat 12 s ago</span></div>
+              <div class="ck"><span class="b">✓</span>Tills: Till 1 online, test print OK <span class="muted">· Till 2 waiting for approval</span></div>
+              <div class="ck"><span class="b">✓</span>Team: 4 people, PIC Rina <span class="muted">· fingerprints 4/4</span></div>
+              <div class="ck"><span class="b no"></span>Payments: cash on <span class="muted">· QRIS not yet</span></div>
+              <div class="ck"><span class="b no"></span>First stock <span class="muted">· shipment SJ-HO-GUDANG-000812 in transit</span></div>
+            </div>
+            <div style="margin-top:14px"><button class="btn" disabled style="opacity:.5">Open store 🎉</button> <span class="muted">available when everything is green</span></div>
+          </div></div></div>
+    </section>
+
+    <section class="panel" id="s-server">
+      <div class="screen"><div class="bar"><span class="dots"><i></i><i></i><i></i></span>hub · /stores/C004/server</div>
+        <div class="app"><div class="side"><div>Home</div><div class="act">Stores</div><div>Sales</div><div>Operations</div><div>People</div><div>Finance</div><div>System</div></div>
+          <div class="main">
+            <b style="color:var(--ink)">Install the store server</b>
+            <ol class="muted" style="padding-left:18px;line-height:1.9">
+              <li>On the store's back-office PC, download <span class="mono">itulah-store-setup.msi</span> and run it.</li>
+              <li>When it asks, type this code (or scan the QR):</li>
+            </ol>
+            <div class="codebox">K7Q-2MX</div> <span class="muted">expires in 23 h</span>
+            <div class="row" style="margin-top:12px"><span><span class="dot wait"></span><b>Waiting for approval</b> <span class="muted">· the server shows verification number</span> <b class="mono" style="font-size:14px">48 17 03</b></span><span><button class="btn">Reject</button> <button class="btn primary">Approve</button></span></div>
+            <p class="muted">Approve only if the server's screen shows the same number.</p>
+          </div></div></div>
+    </section>
+
+    <section class="panel" id="s-dev">
+      <div class="screen"><div class="bar"><span class="dots"><i></i><i></i><i></i></span>hub · /stores/C004/devices</div>
+        <div class="app"><div class="side"><div>Home</div><div class="act">Stores</div><div>Sales</div><div>Operations</div><div>People</div><div>Finance</div><div>System</div></div>
+          <div class="main">
+            <div class="row"><span><span class="dot"></span><b>Store server</b> <span class="muted">· v1.8.2 · last sync 12 s ago</span></span><span class="muted">healthy</span></div>
+            <div class="row"><span><span class="dot"></span><b>Till 1</b> <span class="muted">· POS Windows · customer display, R3 reader, drawer</span></span><span class="muted">seen 8 s ago · <a href="#" onclick="return false">test print</a></span></div>
+            <div class="row"><span><span class="dot wait"></span><b>Till 2</b> <span class="muted">· waiting for a supervisor in the store</span></span><span class="muted">code 5TR-Q8N</span></div>
+            <div class="row"><span><span class="dot"></span><b>Receipt printer</b> <span class="muted">· USB on Till 1</span></span><span class="muted">OK</span></div>
+            <div class="row"><span><span class="dot"></span><b>EDC BCA</b> <span class="muted">· terminal 7781 2210</span></span><span class="muted">linked</span></div>
+            <div class="row"><span><span class="dot off"></span><b>Attendance terminal</b></span><span class="muted">offline since 09:40</span></div>
+          </div></div></div>
+    </section>
+
+    <section class="panel" id="s-tills">
+      <div class="screen"><div class="bar"><span class="dots"><i></i><i></i><i></i></span>aplikasi toko · /node/tills</div>
+        <div class="main" style="padding:16px">
+          <b style="color:var(--ink)">Tills waiting to join</b>
+          <div class="row"><span><b>POS Windows · KASIR-PC2</b> <span class="muted">· code 5TR-Q8N · verification 61 04 92</span></span><span><button class="btn">Refuse</button> <button class="btn primary">Approve as Till 2</button></span></div>
+          <p class="muted">Check the number on the till's screen before approving. A replacement keeps the old till's name, and is refused while that till's shift is still open.</p>
+        </div></div>
+    </section>
+
+    <section class="panel" id="s-pos">
+      <div class="pos">
+        <p class="muted" style="margin:0">Node di jaringan ini</p>
+        <b style="color:var(--ink);font-size:16px">C004-TOKO · Bumiayu</b>
+        <p class="muted">Terkonfirmasi ✓</p>
+        <p style="margin:14px 0 6px">Kode kasir</p>
+        <div class="codebox">5TR-Q8N</div>
+        <p class="muted" style="margin-top:10px">Nomor verifikasi <b class="mono">61 04 92</b><br>Menunggu supervisor menyetujui…</p>
+      </div>
+    </section>
+  </div>
+
+  <!-- 5. STATUS -->
+  <h2>5. Yang sudah ada &amp; yang perlu dibangun</h2>
+  <div class="card" style="overflow-x:auto">
+    <table>
+      <thead><tr><th>Bagian</th><th>Status</th><th>Catatan</th></tr></thead>
+      <tbody>
+        <tr><td>Onboarding perusahaan, toko, buku</td><td class="yes">Ada</td><td>Wizard 3 langkah + peta usaha. Buka toko membuat unit dan pool dari template.</td></tr>
+        <tr><td>PO → hitung buta → persetujuan pembuat PO → setup barang baru</td><td class="yes">Ada</td><td>Hub › Procurement &amp; Operations › Intake.</td></tr>
+        <tr><td>Kode server, persetujuan, heartbeat, status online/offline</td><td class="yes">Ada</td><td>Sekarang tersebar di System › Nodes / Monitoring.</td></tr>
+        <tr><td>Tambah karyawan per unit, PIC, sidik jari</td><td class="yes">Ada</td><td>People, System › Units, mesin absen.</td></tr>
+        <tr><td>POS Windows join otomatis, periferal, cetak USB</td><td class="yes">Ada</td><td>Persetujuan di aplikasi toko › Tills.</td></tr>
+        <tr><td>Registri device, dipantau HO</td><td class="yes">Ada</td><td>System › Devices (semua toko).</td></tr>
+        <tr><td>Kirim stok gudang → toko, toko menerima</td><td class="yes">Ada</td><td>Allotment → dokumen alur → aplikasi toko › Receive.</td></tr>
+        <tr><td><b>Halaman toko</b> (Stores › Bumiayu dengan tab-tabnya)</td><td class="todo">Perlu dibangun</td><td>Menyatukan layar yang sudah ada, difilter per toko.</td></tr>
+        <tr><td><b>Checklist "siap jualan" per toko + Open store 🎉</b></td><td class="todo">Perlu dibangun</td><td>Membaca data yang sudah ada (heartbeat, device, tim, pembayaran, penerimaan).</td></tr>
+        <tr><td><b>Installer + QR di tab Server</b></td><td class="todo">Perlu dibangun</td><td>Kode sudah ada; tinggal link unduh MSI dan QR.</td></tr>
+        <tr><td><b>Tombol test print dari HO</b></td><td class="todo">Perlu dibangun</td><td>Perintah ke server toko, kasir mencetak halaman uji.</td></tr>
+        <tr><td><b>POS Android join otomatis</b></td><td class="todo">Perlu dibangun</td><td>Sekarang masih login username/password.</td></tr>
+        <tr><td>Admin pertama lewat layar</td><td class="muted">Opsional</td><td>Sekarang lewat setting saat cloud dipasang. Cukup untuk satu perusahaan.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.setAttribute('aria-selected',x===t));
+  document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('on',p.id===t.dataset.p));
+}));
+function stepper(boxId,btnId,txtId,texts,order){
+  const sts=[...document.querySelectorAll('#'+boxId+' .st')];let i=0;
+  const show=()=>{sts.forEach((s,k)=>s.classList.toggle('on',k===order[i]));document.getElementById(txtId).textContent=texts[i];};
+  document.getElementById(btnId).addEventListener('click',()=>{i=(i+1)%order.length;show();});show();
+}
+stepper('srv','srvBtn','srvTxt',[
+ 'Belum dipasang: HO belum menerbitkan kode.',
+ 'HO menekan "Install server". Kode dan QR tampil di hub, dan HO tahu kodenya belum dipakai.',
+ 'Server di toko sudah memasukkan kode. Hub menampilkan nomor verifikasi dan menunggu Approve.',
+ 'Disetujui. Server menarik katalog, harga, dan karyawan.',
+ 'Online: heartbeat masuk setiap beberapa detik.',
+ 'Offline: heartbeat berhenti. Hub menandai merah dan mencatat sejak jam berapa.'
+],[0,1,2,3,4,5]);
+stepper('till','tillBtn','tillTxt',[
+ 'Kasir dinyalakan dan mencari server di jaringan toko.',
+ 'Kasir menampilkan kode dan nomor. Aplikasi toko dan hub menampilkan "1 till waiting".',
+ 'Disetujui sebagai Kasir 1. HO melihat online dan kapan terakhir terlihat.',
+ 'Kasir mati atau kabel putus: HO melihat offline.',
+ 'HO menangguhkan atau mencabut kasir: permintaannya langsung ditolak server.'
+],[0,1,2,3,4]);
+</script>
+</body>
+</html>

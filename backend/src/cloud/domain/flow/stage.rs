@@ -813,8 +813,8 @@ static BLIND_COUNT: StageSpec = StageSpec {
 
 static VERIFICATION: StageSpec = StageSpec {
     kind: StageKind::Verification,
-    label: "Verification",
-    meaning: "A second person accepts the checker's count. From then on the goods are operational stock (an accepted receipt).",
+    label: "PO creator approves",
+    meaning: "The person who raised the PO approves the blind count: recount, accept part, or accept and close short; an excess goes back to the supplier. From then on the goods are operational stock (an accepted receipt).",
     side: StageSide::Destination,
     executed_at: ExecutedAt::Node,
     custody: Custody::Accepts,
