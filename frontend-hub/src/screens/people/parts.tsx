@@ -12,9 +12,9 @@ import { useState } from "react"
 import { ChoiceMenu } from "@/components/ui/list-chrome"
 import {
   employerScope,
-  usePlaces,
   useReach,
-  type PlaceChoice,
+  useReachableUnits,
+  type ReachableUnit,
 } from "@/lib/queries/people"
 
 /// A quiet sentence where a table would be, inside a sheet or a card.
@@ -25,43 +25,43 @@ export function Quiet({ children }: { children: React.ReactNode }) {
   return <p className="py-6 text-center text-meta text-body">{children}</p>
 }
 
-/// Which unit a place-shaped screen is about.
+/// Which unit a unit-shaped screen is about.
 ///
 /// # Why this exists
 ///
-/// The roster and the period close are screens about **one place**, and both
-/// took that place from `reach.unit_id` — the caller's own posting. For a
+/// The roster and the period close are screens about **one unit**, and both
+/// took that unit from `reach.unit_id` — the caller's own posting. For a
 /// store manager that is right and is the whole rule. For head office it was
 /// wrong in a way nothing on the screen admitted: an HR officer posted to `ho`
 /// was served head office's own roster and head office's own months, and no
 /// control anywhere offered Store 01. `PEOPLE-BRIEF.md` says head office
-/// *reads* the plan and *reopens* the month; it could do neither for any place
+/// *reads* the plan and *reopens* the month; it could do neither for any unit
 /// but its own.
 ///
 /// The server was never the limit. `GET /api/v1/roster` and
-/// `GET /api/v1/attendance-periods` both take a place and bound it by the
+/// `GET /api/v1/attendance-periods` both take a unit and bound it by the
 /// caller's reach, so head office could always have asked — the browser simply
 /// never did.
 ///
 /// # The default is the caller's own posting
 ///
-/// So nothing moves for anybody who was already served the right place, and
+/// So nothing moves for anybody who was already served the right unit, and
 /// the picker is reach rather than a new decision to make on arrival. A
-/// bounded caller gets `places` empty from the server and therefore no
-/// control — they were never choosing.
+/// bounded caller gets no units from the server and therefore no control —
+/// they were never choosing.
 export function useUnit(): {
-  /// The place the screen is about. `null` only while the reach is in flight,
-  /// or for a caller posted nowhere.
-  readonly place: string | null
-  readonly setPlace: (place: string) => void
-  readonly places: readonly PlaceChoice[]
-  /// What to call the place on screen. The server's label for it, falling back
+  /// The unit the screen is about, by id. `null` only while the reach is in
+  /// flight, or for a caller posted nowhere.
+  readonly unitId: string | null
+  readonly setUnitId: (unitId: string) => void
+  readonly units: readonly ReachableUnit[]
+  /// What to call the unit on screen. The server's label for it, falling back
   /// to the id, and `null` while the reach is in flight.
   readonly name: string | null
-  /// True for head office: the caller whose reach is every place. This is the
+  /// True for head office: the caller whose reach is every unit. This is the
   /// one to test for an *employer* act — reopening a month, approving a run —
   /// and never `choosing`, which is only about whether a picker is worth
-  /// drawing. A node with one place on it would make those two disagree, and
+  /// drawing. A node with one unit on it would make those two disagree, and
   /// the screen would hand head office the shop's own Close button.
   readonly employer: boolean
   /// True when there is more than one unit on offer, so a picker has work to
@@ -71,10 +71,10 @@ export function useUnit(): {
   const reach = useReach()
   const posted = reach.data?.unit_id ?? null
   const employer = employerScope(reach.data) === true
-  const places = usePlaces()
+  const reachable = useReachableUnits()
   const [chosen, setChosen] = useState<string | null>(null)
 
-  const offered = employer ? (places.data ?? []) : []
+  const offered = employer ? (reachable.data ?? []) : []
   /// Their own posting first, then the first unit on offer.
   ///
   /// The fallback is for head office proper: an HR officer whose login carries
@@ -83,16 +83,16 @@ export function useUnit(): {
   /// week to build" — true about them, and useless, because every week in the
   /// company was theirs to read. Landing on a real unit is the answer; the
   /// picker is how they get to the other thirteen.
-  const place = chosen ?? posted ?? offered[0]?.id ?? null
+  const unitId = chosen ?? posted ?? offered[0]?.id ?? null
 
   return {
-    place,
-    setPlace: setChosen,
-    places: offered,
+    unitId,
+    setUnitId: setChosen,
+    units: offered,
     name:
-      offered.find((one) => one.id === place)?.name ??
+      offered.find((one) => one.id === unitId)?.name ??
       reach.data?.unit_name ??
-      place,
+      unitId,
     employer,
     choosing: offered.length > 1,
   }
@@ -101,26 +101,26 @@ export function useUnit(): {
 /// The picker itself, for a page header. Renders nothing when there is no
 /// choice, so a call site needs no condition of its own.
 export function UnitChoice({
-  place,
-  places,
+  unitId,
+  units,
   onChange,
 }: {
-  readonly place: string | null
-  readonly places: readonly PlaceChoice[]
-  readonly onChange: (place: string) => void
+  readonly unitId: string | null
+  readonly units: readonly ReachableUnit[]
+  readonly onChange: (unitId: string) => void
 }) {
-  if (places.length < 2) return null
+  if (units.length < 2) return null
 
   return (
     <ChoiceMenu
       heading="Unit"
       icon={Building2}
-      value={place}
-      options={places.map((one) => ({
+      value={unitId}
+      options={units.map((one) => ({
         value: one.id,
         label: `${one.name} · ${one.employees}`,
       }))}
-      // A place-shaped screen has no "everywhere": one plan, one month, one
+      // A unit-shaped screen has no "everywhere": one plan, one month, one
       // sign-off. `null` cannot be chosen, so it is never passed on.
       onChange={(next) => next !== null && onChange(next)}
     />

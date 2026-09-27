@@ -63,11 +63,11 @@ import type {
 ///
 /// That rule is extended here beyond the one boolean, and this is the
 /// departure from the suggested shape worth justifying. `punch_source_connected`
-/// is computed as *a non-revoked station exists at this place* — so it is true
+/// is computed as *a non-revoked station exists at this unit* — so it is true
 /// for a unit whose only station is SUSPENDED, and true for one registered
 /// this morning that has never delivered anything. Both of those are the same
 /// situation the flag exists to prevent being mistaken for an empty day. So
-/// the posture is read from the flag **and** from `listTerminals(place)`
+/// the posture is read from the flag **and** from `listTerminals(unit)`
 /// together (see `postureOf`), and the grid appears when either something is
 /// reporting or there are punches in hand to show. Nothing about the station
 /// list is inferred while it is in flight: an unanswered terminals query
@@ -405,7 +405,7 @@ function postureOf(
 
 export function AttendanceDays() {
   const unit = useUnit()
-  const place = unit.place
+  const unitId = unit.unitId
   const person = useSheet("attendanceOf")
   const [date, setDate] = useState(todayIso)
   const [sorting, setSorting] = useState<SortingState>([
@@ -418,41 +418,41 @@ export function AttendanceDays() {
   const today = todayIso()
 
   const view = useQuery({
-    queryKey: punchKeys.today(place ?? "", date),
-    queryFn: ({ signal }) => readToday(place ?? "", date, signal),
-    enabled: place !== null,
+    queryKey: punchKeys.today(unitId ?? "", date),
+    queryFn: ({ signal }) => readToday(unitId ?? "", date, signal),
+    enabled: unitId !== null,
   })
   const stations = useQuery({
-    queryKey: punchKeys.terminals(place),
-    queryFn: ({ signal }) => listTerminals(place ?? undefined, signal),
-    enabled: place !== null,
+    queryKey: punchKeys.terminals(unitId),
+    queryFn: ({ signal }) => listTerminals(unitId ?? undefined, signal),
+    enabled: unitId !== null,
   })
   /// The month this day falls in, because the two figures the readiness
   /// carries are the ones a close will be signed against and both of them are
   /// invisible in a single day: a correction still open, and a punch on a day
   /// nobody was rostered.
   const readiness = useQuery({
-    queryKey: punchKeys.readiness(place ?? "", date.slice(0, 7)),
+    queryKey: punchKeys.readiness(unitId ?? "", date.slice(0, 7)),
     queryFn: ({ signal }) =>
-      punchReadiness(place ?? "", date.slice(0, 7), signal),
-    enabled: place !== null,
+      punchReadiness(unitId ?? "", date.slice(0, 7), signal),
+    enabled: unitId !== null,
   })
   /// **Bounded to the unit the day is about**, not to the caller — the same
-  /// correction `roster.tsx` carries. Head office reaches every place, so an
+  /// correction `roster.tsx` carries. Head office reaches every unit, so an
   /// unbounded ask would serve the whole company's names against one unit's
   /// day.
   const team = useQuery({
     queryKey: peopleKeys.employees({
       status: "ACTIVE",
-      placeId: place ?? undefined,
+      unitId: unitId ?? undefined,
       limit: 1000,
     }),
     queryFn: ({ signal }) =>
       listEmployees(
-        { status: "ACTIVE", placeId: place ?? undefined, limit: 1000 },
+        { status: "ACTIVE", unitId: unitId ?? undefined, limit: 1000 },
         signal
       ),
-    enabled: place !== null,
+    enabled: unitId !== null,
   })
   /// Only so a shift reads as "Pagi 07:00–15:00" rather than as its id.
   /// `AttendanceDayView` carries `shift_id` and no name, because it is a view
@@ -623,9 +623,9 @@ export function AttendanceDays() {
         actions={
           <>
             <UnitChoice
-              place={place}
-              places={unit.places}
-              onChange={unit.setPlace}
+              unitId={unitId}
+              units={unit.units}
+              onChange={unit.setUnitId}
             />
             {/* A day at a time, because attendance is asked about a day. The
                 picker stays for the jump to a month back. */}
@@ -669,7 +669,7 @@ export function AttendanceDays() {
         }
       />
 
-      {place === null && !unit.choosing && (
+      {unitId === null && !unit.choosing && (
         <Banner tone="warn" className="mb-4">
           You are not posted anywhere, so there is no unit whose day this would
           be.

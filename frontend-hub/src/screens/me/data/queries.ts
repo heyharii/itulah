@@ -255,14 +255,14 @@ export function useRequestCorrection() {
   })
 }
 
-/// The days off at this person's own place — so it waits for the profile,
-/// which is where the place comes from.
+/// The days off at this person's own unit — so it waits for the profile,
+/// which is where the unit comes from.
 export function useHolidays() {
   const profile = useProfile()
-  const placeId = profile.data?.unit_id ?? null
+  const unitId = profile.data?.unit_id ?? null
   return useQuery({
-    queryKey: [...key.holidays, placeId],
-    queryFn: ({ signal }) => hr.holidays(placeId, signal),
+    queryKey: [...key.holidays, unitId],
+    queryFn: ({ signal }) => hr.holidays(unitId, signal),
     enabled: profile.isSuccess,
   })
 }

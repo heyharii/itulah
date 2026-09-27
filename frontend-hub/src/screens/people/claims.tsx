@@ -89,7 +89,7 @@ const queueColumns: ColumnDef<TableSetup, ClaimRow>[] = [
     ),
   },
   {
-    id: "place",
+    id: "unit",
     accessorFn: (row) => row.unit_name ?? row.unit_id,
     header: "Unit",
     size: 160,
@@ -154,7 +154,7 @@ const listColumns: ColumnDef<TableSetup, ClaimRow>[] = [
       row.original.employee_name ?? row.original.employee_code ?? "—",
   },
   {
-    id: "place",
+    id: "unit",
     accessorFn: (row) => row.unit_name ?? row.unit_id,
     header: "Unit",
     size: 150,

@@ -155,11 +155,11 @@ function PicSheet({
   const staff = useQuery({
     queryKey: peopleKeys.employees({
       status: "ACTIVE",
-      placeId: unitId,
+      unitId,
       limit: 500,
     }),
     queryFn: ({ signal }) =>
-      listEmployees({ status: "ACTIVE", placeId: unitId, limit: 500 }, signal),
+      listEmployees({ status: "ACTIVE", unitId, limit: 500 }, signal),
     enabled: unitId !== "",
   })
 

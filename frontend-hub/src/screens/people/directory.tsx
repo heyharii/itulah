@@ -47,7 +47,7 @@ import {
   addContract,
   amendPersonalData,
   applyTransition,
-  assignToPlace,
+  assignToUnit,
   boundedTo,
   claimStateLabel,
   claimsOf,
@@ -182,7 +182,7 @@ const columns: ColumnDef<TableSetup, EmployeeSummary>[] = [
     ),
   },
   {
-    id: "place",
+    id: "unit",
     accessorFn: (row) => row.unit_name ?? row.unit_id ?? "",
     header: "Posted to",
     size: 160,
@@ -280,7 +280,7 @@ const SORTS: Record<string, string> = {
   employee_code: "code",
   name: "name",
   expiry: "contract_end",
-  place: "place",
+  unit: "unit",
 }
 
 /// The Login filter's two values, in words rather than as the `1`/`0` the
@@ -303,7 +303,7 @@ function scopeFromFilters(filters: readonly Filter[]): EmployeeFilters {
   for (const { column, operator, values } of filters) {
     if (values.length === 0 || operator !== "isAnyOf") continue
     if (column === "status") scope.status = values[0]
-    else if (column === "place") scope.placeId = values[0]
+    else if (column === "unit") scope.unitId = values[0]
     else if (column === "contract_kind") scope.contractKind = values[0]
     else if (column === "position") scope.position = values[0]
     else if (column === "account") scope.login = values[0]
@@ -341,7 +341,7 @@ export function Directory() {
         },
       },
       {
-        column: "place",
+        column: "unit",
         label: "Posted to",
         spec: { kind: "option", single: true, operators: ["isAnyOf"] },
       },
@@ -415,20 +415,20 @@ export function Directory() {
   const counted = useMemo<FilterField[]>(() => {
     const facets = head?.facets
     if (!facets) return fields
-    const placeNames = new Map(
-      facets.places.map((one) => [one.value, one.label ?? one.value])
+    const unitNames = new Map(
+      facets.units.map((one) => [one.value, one.label ?? one.value])
     )
     return fields.map((field) => {
       switch (field.column) {
         case "status":
           return { ...field, spec: { ...field.spec, counted: facets.statuses } }
-        case "place":
+        case "unit":
           return {
             ...field,
             spec: {
               ...field.spec,
-              counted: facets.places,
-              format: (id: string) => placeNames.get(id) ?? id,
+              counted: facets.units,
+              format: (id: string) => unitNames.get(id) ?? id,
             },
           }
         case "position":
@@ -1113,7 +1113,7 @@ function TransitionForm({ employeeId }: { employeeId: string }) {
 }
 
 interface PostingDraft {
-  placeId: string
+  unitId: string
   validFrom: string
   validTo: string
   reason: string
@@ -1121,7 +1121,7 @@ interface PostingDraft {
 
 function postingReady(draft: PostingDraft): boolean {
   return (
-    draft.placeId.trim() !== "" &&
+    draft.unitId.trim() !== "" &&
     draft.reason.trim() !== "" &&
     draft.validFrom !== ""
   )
@@ -1134,9 +1134,9 @@ function PostingForm({ employeeId }: { employeeId: string }) {
     // Wrapped rather than passed by reference: v5 hands a mutation context as
     // the second argument, which is not the `AbortSignal` the fetcher expects.
     mutationFn: (draft: PostingDraft) =>
-      assignToPlace(
+      assignToUnit(
         employeeId,
-        draft.placeId.trim(),
+        draft.unitId.trim(),
         draft.validFrom,
         draft.reason.trim(),
         draft.validTo
@@ -1155,7 +1155,7 @@ function PostingForm({ employeeId }: { employeeId: string }) {
 
   const form = useForm({
     defaultValues: {
-      placeId: "",
+      unitId: "",
       validFrom: today(),
       validTo: "",
       reason: "",
@@ -1177,7 +1177,7 @@ function PostingForm({ employeeId }: { employeeId: string }) {
     >
       {post.isError && <ErrorState error={post.error} />}
 
-      <form.Field name="placeId">
+      <form.Field name="unitId">
         {(field) => (
           <Field
             label="Place"

@@ -104,8 +104,8 @@ export function PeopleOverview() {
     queryKey: hireKeys.list(),
     queryFn: ({ signal }) => listHireProposals(signal),
   })
-  /// A run waits on head office alone — a place's part is sending it, which
-  /// it does from Payroll — so a place never asks.
+  /// A run waits on head office alone — a unit's part is sending it, which
+  /// it does from Payroll — so a unit never asks.
   const runs = useQuery({
     queryKey: payKeys.runs(),
     queryFn: ({ signal }) => listRuns(signal),
@@ -125,9 +125,9 @@ export function PeopleOverview() {
       listEmployees({ status: "ACTIVE", limit: 1000 }, signal),
   })
   const periods = useQuery({
-    queryKey: rosterKeys.periods(unit.place ?? ""),
-    queryFn: ({ signal }) => attendancePeriods(unit.place ?? "", signal),
-    enabled: unit.place !== null,
+    queryKey: rosterKeys.periods(unit.unitId ?? ""),
+    queryFn: ({ signal }) => attendancePeriods(unit.unitId ?? "", signal),
+    enabled: unit.unitId !== null,
   })
 
   const named = useMemo(() => {
@@ -139,9 +139,9 @@ export function PeopleOverview() {
   }, [team.data])
 
   const who = useCallback((id: string) => named.get(id) ?? id, [named])
-  const placeName = useCallback(
-    (id: string) => unit.places.find((one) => one.id === id)?.name ?? id,
-    [unit.places]
+  const unitName = useCallback(
+    (id: string) => unit.units.find((one) => one.id === id)?.name ?? id,
+    [unit.units]
   )
 
   const exceptions = useMemo<Exception[]>(() => {
@@ -173,7 +173,7 @@ export function PeopleOverview() {
       found.push({
         id: `claim-${claim.claim_id}`,
         title: `${claim.employee_name ?? claim.employee_code ?? "A claim"} is waiting on a decision`,
-        detail: `${claim.claim_number} · ${claim.place_name ?? claim.place_id} · filed ${day(claim.posted_on)}`,
+        detail: `${claim.claim_number} · ${claim.unit_name ?? claim.unit_id} · filed ${day(claim.posted_on)}`,
         amount: money(claim.claimed_minor),
         severity: "high",
         icon: <ReceiptText className="size-4" />,
@@ -185,7 +185,7 @@ export function PeopleOverview() {
     // proposed or approved with no record opened, the shop's when it was
     // sent back. Only the reader's own desk is listed.
     for (const hire of hires.data ?? []) {
-      const where = hire.place_name ?? hire.place_id
+      const where = hire.unit_name ?? hire.unit_id
       const title = unit.employer
         ? hire.state === "PROPOSED"
           ? `${where} is asking to hire`
@@ -207,13 +207,13 @@ export function PeopleOverview() {
       })
     }
 
-    // A run a place has sent is waiting on the second signature, and nothing
+    // A run a unit has sent is waiting on the second signature, and nothing
     // reaches Finance until it has one.
     for (const run of runs.data ?? []) {
       if (run.state !== "SUBMITTED") continue
       found.push({
         id: `run-${run.id}`,
-        title: `${placeName(run.place_id)}'s payroll for ${run.period} is waiting on approval`,
+        title: `${unitName(run.unit_id)}'s payroll for ${run.period} is waiting on approval`,
         detail: run.complete
           ? "Sent by the place"
           : (run.incomplete_because ?? "Sent by the place, incomplete"),
@@ -249,7 +249,7 @@ export function PeopleOverview() {
     unit.employer,
     go,
     who,
-    placeName,
+    unitName,
   ])
 
   const open = (periods.data ?? []).filter((one) => one.status !== "CLOSED")
@@ -310,7 +310,7 @@ export function PeopleOverview() {
       ? "Unavailable"
       : count(overtime.data.length)
   const periodsValue =
-    unit.place === null
+    unit.unitId === null
       ? "No unit available"
       : periods.isPending
         ? "Loading…"
@@ -330,9 +330,9 @@ export function PeopleOverview() {
         }
         actions={
           <UnitChoice
-            place={unit.place}
-            places={unit.places}
-            onChange={unit.setPlace}
+            unitId={unit.unitId}
+            units={unit.units}
+            onChange={unit.setUnitId}
           />
         }
       />
@@ -358,7 +358,7 @@ export function PeopleOverview() {
           label={`Months still open at ${unit.name ?? "your place"}`}
           value={periodsValue}
           delta={
-            unit.place !== null &&
+            unit.unitId !== null &&
             !periods.isPending &&
             !periods.isError &&
             open.length > 0 ? (
@@ -380,7 +380,7 @@ export function PeopleOverview() {
           onRetry={() => void workforce.refetch()}
         />
       )}
-      {unit.place !== null && periods.isError && (
+      {unit.unitId !== null && periods.isError && (
         <ErrorState
           error={periods.error}
           onRetry={() => void periods.refetch()}

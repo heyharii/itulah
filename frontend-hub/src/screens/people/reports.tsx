@@ -86,9 +86,9 @@ export function PeopleReports() {
         actions={
           tab === "time" ? (
             <UnitChoice
-              place={unit.place}
-              places={unit.places}
-              onChange={unit.setPlace}
+              unitId={unit.unitId}
+              units={unit.units}
+              onChange={unit.setUnitId}
             />
           ) : undefined
         }
@@ -97,7 +97,9 @@ export function PeopleReports() {
       <SubTabs tabs={TABS} value={tab} onChange={setTab} />
 
       {tab === "workforce" && <Workforce />}
-      {tab === "time" && <TimeAndAbsence place={unit.place} name={unit.name} />}
+      {tab === "time" && (
+        <TimeAndAbsence unitId={unit.unitId} name={unit.name} />
+      )}
       {tab === "cost" && <Cost />}
     </PageContent>
   )
@@ -120,7 +122,7 @@ function Workforce() {
     queryFn: ({ signal }) => expiringContracts({ withinDays: 60 }, signal),
   })
 
-  const places = page.data?.facets.units ?? []
+  const units = page.data?.facets.units ?? []
   const contracts = expiring.data ?? []
 
   // Grouped here rather than asked for per unit: the expiring route answers for
@@ -141,7 +143,7 @@ function Workforce() {
           label="Working here"
           value={page.data === undefined ? "—" : count(Number(page.data.total))}
         />
-        <Kpi label="Units with staff" value={count(places.length)} />
+        <Kpi label="Units with staff" value={count(units.length)} />
         <Kpi
           label="Contracts running out in 60 days"
           value={expiring.data === undefined ? "—" : count(contracts.length)}
@@ -155,7 +157,7 @@ function Workforce() {
         {queryState(page, {
           loading: "Counting…",
           render: () =>
-            places.length === 0 ? (
+            units.length === 0 ? (
               <EmptyState>
                 Nobody is posted anywhere the caller reaches — which for a
                 manager means their own place has no active staff, and for head
@@ -163,15 +165,15 @@ function Workforce() {
               </EmptyState>
             ) : (
               <MiniTable head={["Unit", "Working", "Terms ending", ""]}>
-                {places.map((place) => (
-                  <MiniRow key={place.value}>
-                    <MiniCell>{place.label ?? place.value}</MiniCell>
-                    <MiniCell>{count(Number(place.count))} working</MiniCell>
+                {units.map((unit) => (
+                  <MiniRow key={unit.value}>
+                    <MiniCell>{unit.label ?? unit.value}</MiniCell>
+                    <MiniCell>{count(Number(unit.count))} working</MiniCell>
                     <MiniCell>
-                      {running.get(place.value) === undefined ? (
+                      {running.get(unit.value) === undefined ? (
                         <span className="text-mute">no term ending</span>
                       ) : (
-                        `${running.get(place.value)} term${running.get(place.value) === 1 ? "" : "s"} ending`
+                        `${running.get(unit.value)} term${running.get(unit.value) === 1 ? "" : "s"} ending`
                       )}
                     </MiniCell>
                     <MiniCell>
@@ -179,9 +181,9 @@ function Workforce() {
                           that has already run out is a person working without a
                           contract, which is a legal problem rather than a
                           planning one. */}
-                      {ended.get(place.value) !== undefined && (
+                      {ended.get(unit.value) !== undefined && (
                         <Pill tone="bad">
-                          {ended.get(place.value)} already ended
+                          {ended.get(unit.value)} already ended
                         </Pill>
                       )}
                     </MiniCell>
@@ -209,16 +211,16 @@ function Workforce() {
 /// "the checks passed" and "there was nothing to check" are different facts and
 /// only one of them is a number.
 function TimeAndAbsence({
-  place,
+  unitId,
   name,
 }: {
-  place: string | null
+  unitId: string | null
   name: string | null
 }) {
   const periods = useQuery({
-    queryKey: rosterKeys.periods(place ?? ""),
-    queryFn: ({ signal }) => attendancePeriods(place ?? "", signal),
-    enabled: place !== null,
+    queryKey: rosterKeys.periods(unitId ?? ""),
+    queryFn: ({ signal }) => attendancePeriods(unitId ?? "", signal),
+    enabled: unitId !== null,
   })
   const leave = useQuery({
     queryKey: leaveKeys.pending(),
@@ -231,15 +233,17 @@ function TimeAndAbsence({
 
   const month = new Date().toISOString().slice(0, 7)
   const readiness = useQuery({
-    queryKey: punchKeys.readiness(place ?? "", month),
-    queryFn: ({ signal }) => punchReadiness(place ?? "", month, signal),
-    enabled: place !== null,
+    queryKey: punchKeys.readiness(unitId ?? "", month),
+    queryFn: ({ signal }) => punchReadiness(unitId ?? "", month, signal),
+    enabled: unitId !== null,
   })
 
   const here = (rows: readonly { unit_id: string }[]) =>
-    place === null ? rows.length : rows.filter((r) => r.unit_id === place).length
+    unitId === null
+      ? rows.length
+      : rows.filter((r) => r.unit_id === unitId).length
 
-  if (place === null) {
+  if (unitId === null) {
     return (
       <Banner tone="warn">
         No unit is chosen, so there is no time data to report on.
@@ -258,7 +262,7 @@ function TimeAndAbsence({
 
       <Card className="mb-4 overflow-hidden">
         <CardHeader>
-          <CardTitle>{name ?? place} — this month</CardTitle>
+          <CardTitle>{name ?? unitId} — this month</CardTitle>
         </CardHeader>
         <div className="px-4 pb-4">
           {queryState(readiness, {

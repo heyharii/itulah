@@ -110,7 +110,7 @@ const queueColumns: ColumnDef<TableSetup, GrievanceRow>[] = [
     cell: ({ row }) => row.original.type_name,
   },
   {
-    id: "place",
+    id: "unit",
     accessorFn: (row) => row.unit_name ?? row.unit_id,
     header: "Unit",
     size: 160,
@@ -175,7 +175,7 @@ const listColumns: ColumnDef<TableSetup, GrievanceRow>[] = [
     cell: ({ row }) => row.original.type_name,
   },
   {
-    id: "place",
+    id: "unit",
     accessorFn: (row) => row.unit_name ?? row.unit_id,
     header: "Unit",
     size: 150,
