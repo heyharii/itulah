@@ -365,6 +365,7 @@ cloud	POST	/api/v1/commercial/vouchers/{code}/redeem	Cashier	voucher
 cloud	POST	/api/v1/commercial/vouchers/{code}/release	Supervisor	voucher
 cloud	POST	/api/v1/commercial/vouchers/{code}/void	Supervisor	voucher
 cloud	POST	/api/v1/customers/{customer_id}/points/redeem	Supervisor	customer
+cloud	POST	/api/v1/devices/{device_id}/test-print	Admin	-
 cloud	POST	/api/v1/discussions	Cashier	discussion
 cloud	POST	/api/v1/discussions/read	Cashier	-
 cloud	POST	/api/v1/discussions/{id}/bookmark	Cashier	discussion
@@ -723,6 +724,7 @@ edge-common	GET	/api/v1/catalog/identities	-	-
 edge-common	GET	/api/v1/catalog/image	-	-
 edge-common	GET	/api/v1/catalog/snapshot	-	-
 edge-common	GET	/api/v1/catalog/snapshot/items	-	-
+edge-common	GET	/api/v1/devices/self/requests	-	-
 edge-common	GET	/api/v1/flow-notices	-	-
 edge-common	GET	/api/v1/health	-	-
 edge-common	GET	/api/v1/inventory/control/clock	-	-
@@ -743,6 +745,7 @@ edge-common	POST	/api/v1/auth/pin/claim	-	-
 edge-common	POST	/api/v1/auth/pins	-	-
 edge-common	POST	/api/v1/auth/pins/{username}/clear	-	-
 edge-common	POST	/api/v1/auth/terminals	-	-
+edge-common	POST	/api/v1/devices/self/test-print-result	-	-
 edge-common	POST	/api/v1/inventory/control/clock	-	-
 edge-common	POST	/api/v1/rfid/observations	-	-
 edge-common	POST	/api/v1/sync/trigger	-	-

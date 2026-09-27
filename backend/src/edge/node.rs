@@ -642,6 +642,9 @@ pub async fn run(
         now,
     ));
     heartbeat::spawn(source.clone());
+    // Test pages head office asks of this node's network printers
+    // (`device.test_print.v1`); a till prints its own.
+    crate::edge::devices::spawn_test_printer(inventory.connection());
     crate::edge::ops::spawn_runner(source.clone(), data_dir.clone(), stop_tx.clone());
     if let Some(dir) = &data_dir {
         crate::edge::update::watch_trial(source.clone(), dir.clone());

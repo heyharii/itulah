@@ -83,6 +83,8 @@ pub fn required_role(method: &str, path: &str) -> Role {
         "/api/v1/sync/nodes",
         // The device registry, and switching a shop's till off from here.
         "/api/v1/sync/devices",
+        // Asking a till or a printer for a test page from head office.
+        "/api/v1/devices",
         "/api/v1/sync/commands",
         // Both lanes of the sync plus the request-log failure counts and the
         // open exposures: the operator's view, not a till's. Its siblings

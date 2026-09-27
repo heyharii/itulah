@@ -110,3 +110,18 @@ pub async fn install_server(
         infrastructure::install_store_server(&state.db, unit.trim(), &principal.username).await?;
     Ok((StatusCode::CREATED, Json(issued)))
 }
+
+/// `POST /api/v1/devices/{device_id}/test-print`: ask a till or a network
+/// printer for a test page. Accepted, not done: the node prints it, or the
+/// till does, and the outcome reaches the register with a later heartbeat.
+pub async fn test_print(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(device_id): Path<String>,
+) -> Result<(StatusCode, Json<infrastructure::TestPrintRequested>), AppError> {
+    require_admin(&principal, "ask a device for a test page")?;
+    let requested =
+        infrastructure::request_test_print(&state.db, device_id.trim(), &principal.username)
+            .await?;
+    Ok((StatusCode::ACCEPTED, Json(requested)))
+}

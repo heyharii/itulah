@@ -410,6 +410,11 @@ pub fn router(state: AppState) -> Router {
         "/api/v1/stores/{unit}/server/install",
         post(stores::install_server),
     )
+    // Head office asks a till or a network printer for a test page.
+    .route(
+        "/api/v1/devices/{device_id}/test-print",
+        post(stores::test_print),
+    )
     // Flows of goods as templates (0615-0619). Reading a template is
     // anybody's; writing one is Admin's, at the path and in the handler.
     // Starting a document and acting on its stages are checked against the

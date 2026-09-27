@@ -5304,6 +5304,12 @@ fn validate_issued_command(command_type: &str, payload: &Value) -> Result<(), Ap
             crate::sync::device::parse_device_status_command(payload)
                 .map_err(AppError::Validation)?;
         }
+        crate::sync::device::COMMAND_DEVICE_TEST_PRINT => {
+            // A test page asked of something that prints none would block
+            // the node's stream for a page nobody gets.
+            crate::sync::device::parse_device_test_print_command(payload)
+                .map_err(AppError::Validation)?;
+        }
         _ => {}
     }
     Ok(())

@@ -434,6 +434,8 @@ fn the_wire_types_are_written_for_the_browser() {
         OpenStoreRequest,
         OpenedStore,
         StoreServerInstall,
+        RegistryDevice,
+        TestPrintRequested,
     );
     // Where the words go on a bank's own giro leaf.
     inventory_backend::cloud::postgres::GiroPrintTemplate::export_all(&config)

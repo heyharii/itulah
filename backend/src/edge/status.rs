@@ -76,6 +76,7 @@ impl StatusSource {
             capabilities: Some(vec![
                 crate::sync::workflow::GOODS_ROUTES_CAPABILITY.to_owned(),
                 crate::sync::flow::FLOWS_CAPABILITY.to_owned(),
+                crate::sync::device::TEST_PRINT_CAPABILITY.to_owned(),
             ]),
         }
     }

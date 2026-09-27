@@ -185,6 +185,21 @@ pub struct DeviceReport {
     /// peripherals, a reader's pools. Keys and hashes never appear here.
     #[serde(default)]
     pub config: Value,
+    /// The newest test page this device printed — asked for by head office
+    /// ([`COMMAND_DEVICE_TEST_PRINT`]) or pressed at the till — whether it
+    /// came out, and why not when it did not. Absent from a node that
+    /// predates test prints, and for a device that never printed one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_test_print_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_test_print_ok: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_test_print_error: Option<String>,
+    /// The newest of head office's asks this node has finished with — carried
+    /// out or given up on — so head office can stop showing it as in flight
+    /// without comparing two machines' clocks.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_test_print_request_id: Option<Uuid>,
 }
 
 // ---- Head office's decision, sent down ---------------------------------------
@@ -234,6 +249,104 @@ pub fn parse_device_status_command(payload: &Value) -> Result<DeviceStatusComman
         ));
     }
     Ok(command)
+}
+
+// ---- Head office asks for a test page ------------------------------------------
+
+/// Print a test page on one device: a till, on the receipt printer it was set
+/// up with, or a network printer the node recorded. Rides the signed command
+/// channel like [`COMMAND_DEVICE_STATUS_SET`].
+///
+/// **Only sent to a node whose heartbeat advertises
+/// [`TEST_PRINT_CAPABILITY`]**, for the reason given there: an older build
+/// blocks its whole command stream on a type it does not know.
+///
+/// The node keeps the ask until it is carried out. A printer's node prints the
+/// page itself; a till picks the ask up with its signed poll
+/// (`GET /api/v1/devices/self/requests`), prints, and reports
+/// (`POST /api/v1/devices/self/test-print-result`). The outcome travels back
+/// in the heartbeat's device list ([`DeviceReport::last_test_print_at`]).
+pub const COMMAND_DEVICE_TEST_PRINT: &str = "device.test_print.v1";
+
+/// What a node's heartbeat carries once its build takes
+/// [`COMMAND_DEVICE_TEST_PRINT`].
+pub const TEST_PRINT_CAPABILITY: &str = "device.test_print.v1";
+
+/// Where a till asks for the work head office left for it, signed like its
+/// peripherals report.
+pub const SELF_REQUESTS_PATH: &str = "/api/v1/devices/self/requests";
+
+/// Where a till says how the test page came out.
+pub const SELF_TEST_PRINT_RESULT_PATH: &str = "/api/v1/devices/self/test-print-result";
+
+/// The kinds that print a test page: a till (on its receipt printer) and a
+/// network printer.
+pub fn prints_test_page(kind: &str) -> bool {
+    matches!(kind, KIND_TILL | KIND_PRINTER)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DeviceTestPrintCommand {
+    /// Head office's id for the ask; also what the hub was answered with.
+    pub request_id: Uuid,
+    pub device_id: String,
+    pub kind: String,
+    pub requested_by: String,
+    pub requested_at: DateTime<Utc>,
+}
+
+pub fn parse_device_test_print_command(payload: &Value) -> Result<DeviceTestPrintCommand, String> {
+    let command: DeviceTestPrintCommand = serde_json::from_value(payload.clone())
+        .map_err(|error| format!("invalid {COMMAND_DEVICE_TEST_PRINT}: {error}"))?;
+    if command.device_id.trim().is_empty() {
+        return Err(format!("{COMMAND_DEVICE_TEST_PRINT} names no device"));
+    }
+    if !prints_test_page(&command.kind) {
+        return Err(format!(
+            "{COMMAND_DEVICE_TEST_PRINT}: a {} does not print a test page",
+            command.kind
+        ));
+    }
+    if command.requested_by.trim().is_empty() {
+        return Err(format!("{COMMAND_DEVICE_TEST_PRINT} names nobody who asked"));
+    }
+    Ok(command)
+}
+
+/// One piece of work head office left for a till, as the till's poll reads it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TillRequest {
+    pub request_id: Uuid,
+    /// `TEST_PRINT`, today the only one.
+    pub request: String,
+    pub requested_by: String,
+    pub requested_at: DateTime<Utc>,
+    /// Where the network printer this till's receipts go to answers, when the
+    /// till chose one the node recorded (`receipt_printer.printer_id` in its
+    /// peripherals): a till keeps only the id, and the address is the node's.
+    /// Absent for a till that prints to USB or to an address it was given.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub printer_host: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub printer_port: Option<u16>,
+}
+
+/// `GET /api/v1/devices/self/requests`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TillRequests {
+    pub items: Vec<TillRequest>,
+}
+
+/// `POST /api/v1/devices/self/test-print-result`, signed by the till.
+/// `request_id` is absent when the till's own "test print" button was
+/// pressed: the outcome is kept all the same.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TestPrintResult {
+    #[serde(default)]
+    pub request_id: Option<Uuid>,
+    pub ok: bool,
+    #[serde(default)]
+    pub error: Option<String>,
 }
 
 // ---- A till joining its node ---------------------------------------------------

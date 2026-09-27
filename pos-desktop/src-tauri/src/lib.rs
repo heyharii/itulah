@@ -29,6 +29,8 @@
 //!   - [`join`] — asking that node to let this till in.
 //!   - [`peripherals`] — what is plugged into this till, told to the node.
 //!   - [`printer`] — the receipt printer on this till's own cable.
+//!   - [`requests`] — what head office left for this till at its node (a
+//!     test page), asked for in the background.
 
 use tauri::Manager;
 
@@ -38,6 +40,7 @@ mod edge;
 mod join;
 mod peripherals;
 mod printer;
+mod requests;
 mod rfid;
 
 /// Open the screen that faces the shopper.
@@ -113,6 +116,9 @@ pub fn run() {
                     }
                 });
             }
+            // Test pages head office asks for, picked up whichever screen is
+            // open (`requests.rs`).
+            requests::spawn(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
