@@ -16,11 +16,13 @@
 /// nowhere — and the drawer is kicked with the first print only when it is
 /// opened by the printer.
 ///
-/// # What it cannot do yet
+/// # A USB printer
 ///
-/// Print to a USB printer. Receipts are rendered and sent by the node, and the
-/// node cannot reach a USB port on a till; the choice is recorded and
-/// reported, and the sale screen says so instead of printing.
+/// Printed to by this till itself. The node renders the receipt, as it renders
+/// every receipt, and the shell sends the bytes to the printer by the name this
+/// machine knows it under — the Windows spooler as a RAW job, or a CUPS queue
+/// on a Mac or Linux till (`src-tauri/src/printer.rs`). The name is chosen from
+/// the machine's own list, and a test print proves it before a customer does.
 
 import { useEffect, useState } from "react"
 
@@ -28,9 +30,11 @@ import * as api from "@/api"
 import { device, openCustomerDisplay } from "@/edge"
 import { Icon } from "@/icons"
 import {
+  localPrinters,
   peripheralsOf,
   reportPeripherals,
   savePeripherals,
+  testUsbPrinter,
   type Peripherals,
   type ReceiptPrinter,
 } from "@/peripherals"
@@ -58,6 +62,42 @@ export function PeripheralsScreen({ onBack }: { onBack: () => void }) {
   const [reader, setReader] = useState<{ bound: boolean; detail: string } | null>(null)
   const [note, setNote] = useState<{ bad: boolean; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
+  /// The printers this machine has, for the USB choice. Null until asked.
+  const [usbPrinters, setUsbPrinters] = useState<readonly string[] | null>(null)
+  const [usbProblem, setUsbProblem] = useState<string | null>(null)
+  const [usbTest, setUsbTest] = useState<{ bad: boolean; text: string } | null>(
+    null,
+  )
+
+  const listUsbPrinters = async () => {
+    setUsbProblem(null)
+    const listed = await localPrinters()
+    if (!listed.ok) {
+      setUsbPrinters([])
+      setUsbProblem(listed.problem)
+      return
+    }
+    setUsbPrinters(listed.value)
+  }
+
+  // Asked once the USB choice is on screen: a till without one never needs
+  // the machine's printer list.
+  const usbChosen = form?.receipt_printer === "USB"
+  useEffect(() => {
+    if (usbChosen && usbPrinters === null) void listUsbPrinters()
+  }, [usbChosen, usbPrinters])
+
+  /// The saved choice, printed on: a name that is only typed here has not
+  /// reached the shell yet, and the shell is what prints.
+  async function testUsb() {
+    setUsbTest(null)
+    const printed = await testUsbPrinter()
+    setUsbTest(
+      printed.ok
+        ? { bad: false, text: `Tes terkirim ke ${printed.value.printer}.` }
+        : { bad: true, text: printed.problem },
+    )
+  }
 
   /// Put on screen what the shell holds. Once at first, and again after a
   /// save — never under somebody's hands when the config merely refreshes.
@@ -413,6 +453,32 @@ export function PeripheralsScreen({ onBack }: { onBack: () => void }) {
             {form.receipt_printer === "USB" && (
               <>
                 <label className="field">
+                  Printer USB di komputer ini
+                  <input
+                    value={form.usb_printer_name ?? ""}
+                    onChange={(event) => change({ usb_printer_name: event.target.value })}
+                    placeholder="Nama printer seperti di daftar printer sistem"
+                    list="usb-printers"
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                  <datalist id="usb-printers">
+                    {(usbPrinters ?? []).map((name) => (
+                      <option key={name} value={name} />
+                    ))}
+                  </datalist>
+                </label>
+                {usbPrinters !== null && usbPrinters.length > 0 && (
+                  <p className="muted" style={{ fontSize: 12 }}>
+                    Printer di komputer ini: {usbPrinters.join(", ")}.
+                  </p>
+                )}
+                {usbProblem !== null && (
+                  <p className="muted" style={{ fontSize: 12 }}>
+                    Daftar printer komputer ini tidak bisa dibaca: {usbProblem}
+                  </p>
+                )}
+                <label className="field">
                   Model printer USB
                   <input
                     value={form.usb_printer_model ?? ""}
@@ -421,10 +487,27 @@ export function PeripheralsScreen({ onBack }: { onBack: () => void }) {
                     autoComplete="off"
                   />
                 </label>
-                <div className="notice warn">
-                  Struk dicetak oleh node, dan node belum bisa menjangkau printer
-                  USB di kasir. Pilihan ini dicatat dan dilaporkan, tetapi struk
-                  belum akan keluar dari printer ini.
+                <div className="notice">
+                  Struk disusun oleh node lalu dikirim kasir ini langsung ke
+                  printer — di Windows lewat spooler sebagai cetakan RAW, di
+                  Mac atau Linux lewat antrean CUPS. Laci ikut terbuka bila
+                  dibuka lewat printer. Simpan dulu, lalu cetak tes.
+                </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <button
+                    className="btn"
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void testUsb()}
+                  >
+                    <Icon name="print" />
+                    Cetak tes
+                  </button>
+                  {usbTest !== null && (
+                    <span className={usbTest.bad ? "error" : "muted"} style={{ fontSize: 12 }}>
+                      {usbTest.text}
+                    </span>
+                  )}
                 </div>
               </>
             )}

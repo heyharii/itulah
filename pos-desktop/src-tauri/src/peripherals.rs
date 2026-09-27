@@ -29,7 +29,10 @@
 //!
 //! A network printer is the one thing here that *is* a device: it is recorded
 //! once at the node and chosen by its `printer_id` (`record_printer` there).
-//! What this till keeps is only which one its receipts go to.
+//! What this till keeps is only which one its receipts go to. A USB receipt
+//! printer is a peripheral like the rest, and the one the till prints to
+//! itself (`printer.rs`): the node renders the receipt, the till sends it down
+//! the cable, by the name this machine's spooler or CUPS knows the printer by.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -48,8 +51,8 @@ pub const RECEIPT_NONE: &str = "NONE";
 pub const RECEIPT_ADDRESS: &str = "ADDRESS";
 /// A network printer the node has recorded, chosen by `printer_id`.
 pub const RECEIPT_RECORDED: &str = "RECORDED";
-/// A USB printer on this till. Recorded and reported; the node, which renders
-/// receipts, cannot reach it, so nothing is printed to it yet.
+/// A USB printer on this till. The node renders the receipt and the till
+/// sends the bytes to it through the operating system (`printer.rs`).
 pub const RECEIPT_USB: &str = "USB";
 
 /// The drawer opens when the receipt printer is told to kick it.
@@ -85,6 +88,10 @@ pub struct Peripherals {
     /// For [`RECEIPT_USB`]: what the printer is, as the installer read it off
     /// the machine.
     pub usb_printer_model: Option<String>,
+    /// For [`RECEIPT_USB`]: the printer's name on this machine — the Windows
+    /// printer ("EPSON TM-T82 Receipt") or the CUPS queue — which receipts are
+    /// sent to as a raw job.
+    pub usb_printer_name: Option<String>,
     /// True while the node has not acknowledged the description as it is now.
     pub unsent: bool,
     /// Unix seconds of the node's last acknowledgement.
@@ -107,6 +114,7 @@ impl Default for Peripherals {
             printer_id: None,
             printer_label: None,
             usb_printer_model: None,
+            usb_printer_name: None,
             unsent: false,
             reported_at: None,
         }
@@ -141,11 +149,13 @@ fn tidy(mut next: Peripherals) -> Result<Peripherals, String> {
             next.printer_id = None;
             next.printer_label = None;
             next.usb_printer_model = None;
+            next.usb_printer_name = None;
         }
         RECEIPT_RECORDED => {
             next.printer_id = filled(&next.printer_id);
             next.printer_label = filled(&next.printer_label);
             next.usb_printer_model = None;
+            next.usb_printer_name = None;
             if next.printer_id.is_none() {
                 return Err("Pilih printer jaringan yang tercatat di node.".into());
             }
@@ -154,6 +164,14 @@ fn tidy(mut next: Peripherals) -> Result<Peripherals, String> {
             next.printer_id = None;
             next.printer_label = None;
             next.usb_printer_model = filled(&next.usb_printer_model);
+            next.usb_printer_name = filled(&next.usb_printer_name);
+            if next.usb_printer_name.is_none() {
+                return Err(
+                    "Pilih printer USB di komputer ini — namanya seperti di daftar \
+                     printer sistem — supaya struk tahu harus ke mana."
+                        .into(),
+                );
+            }
         }
         other => {
             return Err(format!(
@@ -214,6 +232,7 @@ pub fn describe(config: &NodeConfig) -> Value {
                 "usb_printer".into(),
                 json!({
                     "model": filled(&peripherals.usb_printer_model),
+                    "name": filled(&peripherals.usb_printer_name),
                     "purpose": "RECEIPT",
                     "paper": config.paper,
                 }),
@@ -260,9 +279,9 @@ pub fn report(app: &tauri::AppHandle) -> Result<(), String> {
             held.peripherals.unsent = true;
             edge::save(app, &held);
         }
-        return Err(reply.problem.unwrap_or_else(|| {
-            "Node tidak menerima daftar perangkat kasir ini.".into()
-        }));
+        return Err(reply
+            .problem
+            .unwrap_or_else(|| "Node tidak menerima daftar perangkat kasir ini.".into()));
     }
     let mut held = node.0.lock().expect("node config");
     if describe(&held) == sent {
@@ -287,12 +306,7 @@ pub struct PeripheralsSaved {
 }
 
 fn answer(app: &tauri::AppHandle, outcome: Result<(), String>) -> PeripheralsSaved {
-    let config = app
-        .state::<Node>()
-        .0
-        .lock()
-        .expect("node config")
-        .clone();
+    let config = app.state::<Node>().0.lock().expect("node config").clone();
     PeripheralsSaved {
         config,
         reported: outcome.is_ok(),

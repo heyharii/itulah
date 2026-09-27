@@ -698,6 +698,7 @@ store	POST	/api/v1/store/receive-batch	-	-
 store	POST	/api/v1/store/returns	-	-
 store	POST	/api/v1/store/sales	-	-
 store	POST	/api/v1/store/sales/{sale_id}/receipt	-	-
+store	POST	/api/v1/store/sales/{sale_id}/receipt/escpos	-	-
 store	POST	/api/v1/store/sales/{sale_id}/void	-	-
 store	POST	/api/v1/store/shifts	-	-
 store	POST	/api/v1/store/shifts/{shift_id}/close	-	-

@@ -15,7 +15,7 @@ import {
 } from "@/screens/dialogs"
 import { useShortcuts } from "@/shortcuts"
 import { enqueue, flush, forget, useOutbox } from "@/outbox"
-import { drawerOnSale, receiptTarget } from "@/peripherals"
+import { drawerOnSale, printReceiptHere, receiptTarget } from "@/peripherals"
 import { authorizeVoucher, releaseVoucher } from "@/vouchers"
 import { useNodeConfig, useSession } from "@/session"
 import { refreshPaymentMethods, usePaymentMethods } from "@/payment-methods"
@@ -2113,10 +2113,10 @@ function Sale({
 }) {
   const { config } = useNodeConfig()
   // Where the receipt goes is this till's peripheral setting: a printer the
-  // node recorded, the address in Setelan terminal, or nowhere — with the
-  // reason, when there is one worth reading (a USB printer the node cannot
-  // reach).
-  const { target: printer, why: noPrint } = receiptTarget(config)
+  // node recorded, the address in Setelan terminal, the USB printer this till
+  // prints to itself, or nowhere — with the reason, when there is one worth
+  // reading (a USB printer nobody chose).
+  const { target: printer, here, why: noPrint } = receiptTarget(config)
   const [printed, setPrinted] = useState<string | null>(null)
   const asked = useRef(false)
 
@@ -2129,21 +2129,28 @@ function Sale({
   /// drawer is opened by the printer.
   const print = useCallback(
     async (copy: boolean) => {
-      const { target } = receiptTarget(config)
-      if (sold.saleId === null || target === null || config === null) return
+      const { target, here: usb } = receiptTarget(config)
+      if (sold.saleId === null || config === null) return
+      const drawer = copy ? "NONE" : drawerOnSale(config)
+      const done = copy ? "Salinan struk dicetak." : "Struk dicetak."
+      // The USB printer on this till: the node renders, this till sends.
+      if (usb !== null) {
+        const printed = await printReceiptHere(sold.saleId, {
+          paper: config.paper,
+          drawer,
+          copy,
+        })
+        setPrinted(printed.ok ? done : printed.problem)
+        return
+      }
+      if (target === null) return
       const reply = await api.printReceipt(sold.saleId, {
         ...target,
         paper: config.paper,
-        drawer: copy ? "NONE" : drawerOnSale(config),
+        drawer,
         copy,
       })
-      setPrinted(
-        reply.ok
-          ? copy
-            ? "Salinan struk dicetak."
-            : "Struk dicetak."
-          : reply.problem,
-      )
+      setPrinted(reply.ok ? done : reply.problem)
     },
     [config, sold.saleId],
   )
@@ -2186,7 +2193,7 @@ function Sale({
           <p className="muted num" style={{ fontSize: 11.5 }}>
             {sold.id}
           </p>
-          {printer === null ? (
+          {printer === null && here === null ? (
             noPrint !== null && (
               <p className="muted" style={{ fontSize: 11.5 }}>
                 {noPrint}

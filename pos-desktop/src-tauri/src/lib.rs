@@ -28,6 +28,7 @@
 //!   - [`discovery`] — finding the shop's node on the LAN.
 //!   - [`join`] — asking that node to let this till in.
 //!   - [`peripherals`] — what is plugged into this till, told to the node.
+//!   - [`printer`] — the receipt printer on this till's own cable.
 
 use tauri::Manager;
 
@@ -36,6 +37,7 @@ mod discovery;
 mod edge;
 mod join;
 mod peripherals;
+mod printer;
 mod rfid;
 
 /// Open the screen that faces the shopper.
@@ -135,6 +137,9 @@ pub fn run() {
             join::join_supervisor_leave,
             peripherals::set_peripherals,
             peripherals::report_peripherals,
+            printer::print_receipt_here,
+            printer::test_usb_printer,
+            printer::local_printers,
             open_customer_display,
         ])
         .run(tauri::generate_context!())

@@ -515,6 +515,12 @@ pub fn store_router_with_sync(
             "/api/v1/store/sales/{sale_id}/receipt",
             get(store_receipt).post(store_print_receipt),
         )
+        // The same receipt as bytes, for a USB printer on the till: the node
+        // cannot reach that cable, so the till sends them itself.
+        .route(
+            "/api/v1/store/sales/{sale_id}/receipt/escpos",
+            post(store_render_receipt),
+        )
         .route(
             "/api/v1/store/reports/sales/series",
             get(store_sales_series),
@@ -2704,6 +2710,36 @@ async fn store_receipt(
     require_permission(&state, principal, EdgePermission::InventoryRead)?;
     let document = run_blocking(move || state.inventory.sale_receipt(&sale_id)).await?;
     Ok(Json(serde_json::to_value(document)?))
+}
+
+/// A receipt for the USB printer on a till: rendered here, where every receipt
+/// is rendered, and sent by the till, the one party on that printer's cable.
+/// The node prints nothing. The bytes come back as hex, which a till decodes
+/// without a library.
+async fn store_render_receipt(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Path(sale_id): Path<String>,
+    Json(request): Json<crate::edge::till::RenderReceiptRequest>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::StoreSale)?;
+    let rendered = run_blocking(move || {
+        let document = state.inventory.sale_receipt(&sale_id)?;
+        let bytes = crate::edge::till::render_receipt(
+            &document,
+            request.paper.as_deref(),
+            request.drawer.as_deref(),
+            request.copy,
+        );
+        Ok(json!({
+            "sale_id": sale_id,
+            "receipt_no": document.receipt_no,
+            "bytes": bytes.len(),
+            "escpos_hex": hex::encode(&bytes),
+        }))
+    })
+    .await?;
+    Ok(Json(rendered))
 }
 
 async fn store_print_receipt(
