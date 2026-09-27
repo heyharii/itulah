@@ -644,6 +644,31 @@ export const SHEET_PARAMS = {
   /// can explain. The node caps at 500, so the set stops there.
   depth: oneOf(["100", "250", "500"] as const),
 
+  // store exceptions (28 Sep 2026): the Stores › Exceptions list's own
+  // filters, kept in the URL for the reason `segment` is — "the open
+  // exceptions at C014" is a link a store's own manager sends to head
+  // office, not a state their tab happened to be in. The Overview card's
+  // "See all" link carries `exceptions-unit` so it lands pre-filtered.
+  "exceptions-unit": id,
+  "exceptions-kind": oneOf([
+    "SHIFT_NOT_CLOSED",
+    "CASH_DIFFERENCE",
+    "DEPOSIT_MISSING",
+    "RECEIVE_OVERDUE",
+    "MISSING_OPEN",
+    "CHECKOUT_UNRESOLVED",
+  ] as const),
+  "exceptions-state": oneOf([
+    "open",
+    "unacknowledged",
+    "acknowledged",
+    "resolved",
+    "all",
+  ] as const),
+  /// The Admin-only thresholds sheet, over the Exceptions list — a flag like
+  /// `fleet-alert-settings`: there is one settings object.
+  "exceptions-settings": flag,
+
   // system
   user: id,
   /// A job role's edit sheet, on the Roles tab of Users & roles.
