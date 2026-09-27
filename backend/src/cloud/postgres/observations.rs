@@ -28,7 +28,9 @@ pub async fn ingest_observations(
     let site = SiteId::new(&request.site_id).map_err(|e| AppError::Validation(e.to_string()))?;
     let operational_pool = OperationalPool::from_str(&request.pool)
         .map_err(|e| AppError::Validation(e.to_string()))?;
-    if operational_pool.site_id() != site {
+    let head_office = SiteId::new(super::sites::head_office_site_id(pool).await?)
+        .map_err(|e| AppError::Configuration(e.to_string()))?;
+    if operational_pool.site_id(&head_office) != site {
         return Err(AppError::Validation(
             "observation pool does not belong to site_id".into(),
         ));

@@ -18,7 +18,8 @@ use uuid::Uuid;
 
 pub async fn create_sale(pool: &PgPool, request: CreateSaleRequest) -> Result<Value, AppError> {
     let site = SiteId::new(&request.site_id).map_err(|e| AppError::Validation(e.to_string()))?;
-    if site.kind() != SiteKind::Store {
+    // What the site is comes from its row, never from how its id is spelled.
+    if super::sites::site_kind(pool, site.as_str()).await? != Some(SiteKind::Store) {
         return Err(AppError::Validation(
             "Sales is a Store Edge capability".into(),
         ));

@@ -1,6 +1,6 @@
 use crate::edge::domain::{
     validate_transition, MovementCause, MovementError, MovementLine, OperationalPool, SiteId,
-    SiteKind, SubjectId,
+    SubjectId,
 };
 use crate::sync::workflow::{FulfillmentStage, OfficialCountScope, PackageUnitAllocation};
 use chrono::{DateTime, Utc};
@@ -52,15 +52,11 @@ impl NodeContext {
         role: EdgeRole,
         site_id: SiteId,
     ) -> Result<Self, EdgeError> {
-        let expected = match role {
-            EdgeRole::Dc => SiteKind::Dc,
-            EdgeRole::Store => SiteKind::Store,
-        };
-        if site_id.kind() != expected {
-            return Err(EdgeError::Configuration(format!(
-                "{role} edge cannot own site {site_id}"
-            )));
-        }
+        // No check that the site id "looks like" the role: an id is a label
+        // (owner, 2026-09-27), and what the site is comes from head office
+        // (`edge::site_profile`). The pool grammar still spells a warehouse's
+        // pools `dc…` (see `domain::inventory::place`); that is the pools'
+        // rule, not the site id's, and changes with the flow templates.
         let node_id = node_id.into();
         if node_id.trim().is_empty() {
             return Err(EdgeError::Configuration("node_id is required".into()));

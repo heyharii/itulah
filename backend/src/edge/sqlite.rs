@@ -2113,9 +2113,15 @@ impl SqliteEdge {
         })
     }
 
-    fn normalized_store_id(value: &str) -> Result<SiteId, EdgeError> {
+    /// A destination must be a shop. The id's shape is the id's to check;
+    /// whether it names a shop is head office's to say (`site_profile`), never
+    /// the spelling's. A site head office has not described is taken on trust,
+    /// as every site was before it described any.
+    fn normalized_store_id(connection: &Connection, value: &str) -> Result<SiteId, EdgeError> {
         let site = SiteId::new(value).map_err(|error| EdgeError::Validation(error.to_string()))?;
-        if site.kind() != SiteKind::Store {
+        if crate::edge::site_profile::kind_of(connection, site.as_str())
+            .is_some_and(|kind| kind != SiteKind::Store)
+        {
             return Err(EdgeError::Validation(
                 "destination_store_id must identify a Store site".into(),
             ));
@@ -2345,7 +2351,7 @@ impl SqliteEdge {
                 stage.as_str()
             )));
         }
-        let destination_store = Self::normalized_store_id(&destination_store_id)?;
+        let destination_store = Self::normalized_store_id(&tx, &destination_store_id)?;
         let shipment_reference = match stage {
             FulfillmentStage::Shipment => {
                 let reference = shipment_reference
@@ -3863,7 +3869,8 @@ impl EdgeInventory for SqliteEdge {
             ));
         }
         Self::validate_command_identity(&request.idempotency_key, &request.actor_id)?;
-        let destination_store = Self::normalized_store_id(&request.destination_store_id)?;
+        let destination_store =
+            Self::normalized_store_id(&self.lock()?, &request.destination_store_id)?;
         if request.epcs.is_empty() {
             return Err(EdgeError::Validation(
                 "Pack requires at least one scanned EPC".into(),
@@ -4309,7 +4316,8 @@ impl EdgeInventory for SqliteEdge {
     ) -> Result<crate::edge::outbound::KoliManifest, EdgeError> {
         self.require_dc("outbound work happens at a DC")?;
         Self::validate_command_identity(&request.idempotency_key, &request.actor_id)?;
-        let destination_store = Self::normalized_store_id(&request.destination_store_id)?;
+        let destination_store =
+            Self::normalized_store_id(&self.lock()?, &request.destination_store_id)?;
         request.destination_store_id = destination_store.to_string();
         request.actor_id = request.actor_id.trim().to_owned();
         request.idempotency_key = request.idempotency_key.trim().to_owned();
@@ -4535,14 +4543,16 @@ impl EdgeInventory for SqliteEdge {
                 "only Store Edge can receive Store stock".into(),
             ));
         }
-        if request
-            .source_dc_id
-            .as_ref()
-            .is_some_and(|source_dc_id| source_dc_id.kind() != SiteKind::Dc)
-        {
-            return Err(EdgeError::Validation(
-                "source_dc_id must identify a DC site".into(),
-            ));
+        // Refused only when head office said the source is a shop: a warehouse
+        // node's own id (`dc-01`) is often not a row the centre holds.
+        if let Some(source_dc_id) = request.source_dc_id.as_ref() {
+            if crate::edge::site_profile::kind_of(&self.lock()?, source_dc_id.as_str())
+                == Some(SiteKind::Store)
+            {
+                return Err(EdgeError::Validation(
+                    "source_dc_id must identify a DC site".into(),
+                ));
+            }
         }
         Self::validate_command_identity(&request.idempotency_key, &request.actor_id)?;
         let request_json = Self::encode_idempotent_request(&request)?;
@@ -4644,14 +4654,16 @@ impl EdgeInventory for SqliteEdge {
                 request.lines.len()
             )));
         }
-        if request
-            .source_dc_id
-            .as_ref()
-            .is_some_and(|source_dc_id| source_dc_id.kind() != SiteKind::Dc)
-        {
-            return Err(EdgeError::Validation(
-                "source_dc_id must identify a DC site".into(),
-            ));
+        // Refused only when head office said the source is a shop: a warehouse
+        // node's own id (`dc-01`) is often not a row the centre holds.
+        if let Some(source_dc_id) = request.source_dc_id.as_ref() {
+            if crate::edge::site_profile::kind_of(&self.lock()?, source_dc_id.as_str())
+                == Some(SiteKind::Store)
+            {
+                return Err(EdgeError::Validation(
+                    "source_dc_id must identify a DC site".into(),
+                ));
+            }
         }
         Self::validate_command_identity(&request.idempotency_key, &request.actor_id)?;
         let request_json = Self::encode_idempotent_request(&request)?;

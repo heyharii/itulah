@@ -1,4 +1,4 @@
-use super::{SiteId, SiteKind};
+use super::SiteId;
 use serde::{Deserialize, Serialize};
 use std::{fmt, str::FromStr};
 use thiserror::Error;
@@ -89,7 +89,14 @@ impl OperationalPool {
         }
     }
 
-    pub fn site_id(&self) -> SiteId {
+    /// The site the pool stands at.
+    ///
+    /// A shop's pools carry their site in their id. The warehouse's do not —
+    /// the pool grammar still spells them `dc.…`, a separate id space from
+    /// `site.id` — so they stand at head office, which the caller reads from
+    /// data (`postgres::sites::head_office_site_id`) and hands in. Nothing here
+    /// may know head office's id.
+    pub fn site_id(&self, head_office: &SiteId) -> SiteId {
         match self {
             Self::DcPendingUnidentified
             | Self::DcPendingUntagged
@@ -99,12 +106,12 @@ impl OperationalPool {
             | Self::DcOutboundPacked(_)
             | Self::DcOutboundShipment(_)
             | Self::DcOutboundInTransit(_)
-            // The pool id says `dc`; the site it belongs to is `ho`. Since
-            // 0256 those are two id spaces and not two spellings of one — the
-            // pools kept their names, `site` did not — so this maps between
-            // them rather than reading the first segment back out.
+            // The pool id says `dc`; the site it belongs to is head office,
+            // whatever that site is called. Two id spaces, not two spellings
+            // of one, so this maps between them rather than reading the first
+            // segment back out.
             | Self::DcRejectDc
-            | Self::DcRejectStore(_) => SiteId::head_office(),
+            | Self::DcRejectStore(_) => head_office.clone(),
             Self::StoreWarehouse(site) | Self::StoreFloor(site) | Self::StoreReject(site) => {
                 site.clone()
             }
@@ -143,9 +150,14 @@ impl OperationalPool {
     }
 }
 
+// The POOL grammar: a shop's pools and the warehouse's per-shop pools are
+// spelled with the shop's `store-…` id (`dc.reject.store-07`, `store-07.floor`).
+// That is how pool ids are written, and a later step (flow templates) gives
+// pools a role of their own; `SiteId` knows only its shape and is never asked
+// for a kind.
 fn store(value: &str) -> Result<SiteId, PlaceError> {
     let site = SiteId::new(value).map_err(|_| PlaceError::UnknownPool(value.to_owned()))?;
-    if site.kind() != SiteKind::Store {
+    if !site.as_str().starts_with("store-") {
         return Err(PlaceError::DcIsNotStore);
     }
     Ok(site)

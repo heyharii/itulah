@@ -244,6 +244,8 @@ pub(super) async fn apply_lines(
     // here, in this same transaction: the movement ledger and the cost ledger
     // commit together or not at all. A move, a sale (already costed by the
     // sales day) and a gain post nothing — see `post_operational_outflow`.
+    let head_office = crate::ids::SiteId::new(super::sites::head_office_site_id(&mut **tx).await?)
+        .map_err(|error| AppError::Configuration(error.to_string()))?;
     for line in &command.lines {
         let Some(pool) = line.from.pool() else {
             continue;
@@ -255,7 +257,7 @@ pub(super) async fn apply_lines(
             line.quantity,
             command.occurred_at.date_naive(),
             &pool.id(),
-            pool.site_id().as_str(),
+            pool.site_id(&head_office).as_str(),
             &format!("{idempotency_key}:{}", line.subject_id.0),
             &command.reason,
             &command.actor_id,

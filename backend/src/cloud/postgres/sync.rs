@@ -14,7 +14,7 @@ use crate::cloud::domain::{
 };
 use crate::edge::{
     EdgeRole, InventoryState, MovementCause as EdgeMovementCause, MovementLine as EdgeMovementLine,
-    NodeContext, OperationalPool, Place, SiteId, SubjectId,
+    NodeContext, OperationalPool, Place, SiteId, SiteKind, SubjectId,
 };
 use crate::sync::inventory::{PoolSnapshotPayload, INVENTORY_POOL_SNAPSHOT_V1};
 use crate::sync::rfid::{RfidObservationBatchPayload, INVENTORY_RFID_OBSERVATION_BATCH_V1};
@@ -622,13 +622,23 @@ pub async fn ingest_batch(pool: &PgPool, batch: &IngestBatch) -> Result<IngestRe
             }
         } else if fact.event_type == INVENTORY_TRANSFER_CLAIM_V1 {
             match serde_json::from_value::<TransferClaimPayload>(fact.payload.clone()) {
-                Ok(payload) => validate_transfer_binding(
-                    &payload,
-                    &batch.origin_id,
-                    batch.generation,
-                    inventory_binding.as_ref(),
-                )
-                .err(),
+                Ok(payload) => {
+                    let mut connection = pool.acquire().await?;
+                    let kinds = fact_site_kinds(
+                        &mut connection,
+                        &payload.destination_store_id,
+                        payload.source_dc_id.as_deref(),
+                    )
+                    .await?;
+                    validate_transfer_binding(
+                        &payload,
+                        &batch.origin_id,
+                        batch.generation,
+                        inventory_binding.as_ref(),
+                        kinds,
+                    )
+                    .err()
+                }
                 Err(error) => Some(format!("invalid inventory transfer claim: {error}")),
             }
         } else if fact.event_type == INVENTORY_ALLOTMENT_APPLICATION_RESULT_V1 {
@@ -708,13 +718,18 @@ pub async fn ingest_batch(pool: &PgPool, batch: &IngestBatch) -> Result<IngestRe
                 Ok(payload) if fact.event_id != payload.progress_id => {
                     Some("fulfillment progress_id must equal event_id".into())
                 }
-                Ok(payload) => validate_fulfillment_progress_binding(
-                    &payload,
-                    &batch.origin_id,
-                    batch.generation,
-                    inventory_binding.as_ref(),
-                )
-                .err(),
+                Ok(payload) => {
+                    let destination_kind =
+                        super::sites::site_kind(pool, &payload.destination_store_id).await?;
+                    validate_fulfillment_progress_binding(
+                        &payload,
+                        &batch.origin_id,
+                        batch.generation,
+                        inventory_binding.as_ref(),
+                        destination_kind,
+                    )
+                    .err()
+                }
                 Err(error) => Some(format!("invalid fulfillment progress: {error}")),
             }
         } else if fact.event_type == INVENTORY_RFID_OBSERVATION_BATCH_V1 {
@@ -1778,11 +1793,30 @@ fn validate_allotment_pick_binding(
     Ok(node)
 }
 
+/// What `site` says the named sites are, for the fact validators below.
+///
+/// Read from the rows (0474), never from the spelling of the ids. `None` is
+/// "the centre holds no such row" — a warehouse node's own id (`dc-01`) is
+/// often one — and the validators refuse only a kind they were TOLD.
+async fn fact_site_kinds(
+    executor: &mut sqlx::PgConnection,
+    destination: &str,
+    source: Option<&str>,
+) -> Result<(Option<SiteKind>, Option<SiteKind>), AppError> {
+    let destination_kind = super::sites::site_kind(&mut *executor, destination).await?;
+    let source_kind = match source {
+        Some(source) => super::sites::site_kind(&mut *executor, source).await?,
+        None => None,
+    };
+    Ok((destination_kind, source_kind))
+}
+
 fn validate_fulfillment_progress_binding(
     payload: &FulfillmentProgressPayload,
     batch_origin_id: &str,
     generation: i64,
     binding: Option<&InventoryOriginBinding>,
+    destination_kind: Option<SiteKind>,
 ) -> Result<NodeContext, String> {
     payload.validate()?;
     let binding = binding.ok_or_else(|| {
@@ -1816,7 +1850,7 @@ fn validate_fulfillment_progress_binding(
         .map_err(|error| error.to_string())?;
     let destination =
         SiteId::new(&payload.destination_store_id).map_err(|error| error.to_string())?;
-    if destination.kind() != crate::edge::SiteKind::Store
+    if destination_kind.is_some_and(|kind| kind != SiteKind::Store)
         || destination.to_string() != payload.destination_store_id
     {
         return Err("fulfillment destination_store_id must be a canonical Store site".into());
@@ -1829,6 +1863,7 @@ fn validate_transfer_binding(
     batch_origin_id: &str,
     generation: i64,
     binding: Option<&InventoryOriginBinding>,
+    (destination_kind, source_kind): (Option<SiteKind>, Option<SiteKind>),
 ) -> Result<NodeContext, String> {
     payload.validate().map_err(|error| error.to_string())?;
     let binding = binding
@@ -1860,7 +1895,7 @@ fn validate_transfer_binding(
 
     let destination =
         SiteId::new(&payload.destination_store_id).map_err(|error| error.to_string())?;
-    if destination.kind() != crate::edge::SiteKind::Store {
+    if destination_kind.is_some_and(|kind| kind != SiteKind::Store) {
         return Err("transfer destination_store_id must identify a Store".into());
     }
     let source = payload
@@ -1869,10 +1904,7 @@ fn validate_transfer_binding(
         .map(SiteId::new)
         .transpose()
         .map_err(|error| error.to_string())?;
-    if source
-        .as_ref()
-        .is_some_and(|site| site.kind() != crate::edge::SiteKind::Dc)
-    {
+    if source.is_some() && source_kind == Some(SiteKind::Store) {
         return Err("transfer source_dc_id must identify a DC".into());
     }
 
@@ -3042,7 +3074,13 @@ async fn apply_transfer_claim(
     {
         return Ok(false);
     }
-    let node = validate_transfer_binding(claim, origin_id, generation, binding.as_ref())
+    let kinds = fact_site_kinds(
+        &mut **tx,
+        &claim.destination_store_id,
+        claim.source_dc_id.as_deref(),
+    )
+    .await?;
+    let node = validate_transfer_binding(claim, origin_id, generation, binding.as_ref(), kinds)
         .map_err(AppError::Validation)?;
     let claim_kind = match claim.claim_kind {
         TransferClaimKind::InTransit => "IN_TRANSIT",
@@ -3770,9 +3808,16 @@ async fn apply_fulfillment_progress(
     {
         return Ok(false);
     }
-    let node =
-        validate_fulfillment_progress_binding(progress, origin_id, generation, binding.as_ref())
-            .map_err(AppError::Validation)?;
+    let destination_kind =
+        super::sites::site_kind(&mut **tx, &progress.destination_store_id).await?;
+    let node = validate_fulfillment_progress_binding(
+        progress,
+        origin_id,
+        generation,
+        binding.as_ref(),
+        destination_kind,
+    )
+    .map_err(AppError::Validation)?;
     if sqlx::query("SELECT 1 FROM edge_fulfillment_progress_fact WHERE event_id=$1")
         .bind(event_id)
         .fetch_optional(&mut **tx)
