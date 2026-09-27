@@ -4046,7 +4046,7 @@ impl EdgeInventory for SqliteEdge {
         self.require_outbound_origin()?;
         Self::validate_command_identity(&request.idempotency_key, &request.actor_id)?;
         let destination_store = self.normalized_destination_site_id(
-            &self.lock()?,
+            &*self.lock()?,
             &request.destination_store_id,
         )?;
         if request.epcs.is_empty() {
@@ -4495,7 +4495,7 @@ impl EdgeInventory for SqliteEdge {
         self.require_outbound_origin()?;
         Self::validate_command_identity(&request.idempotency_key, &request.actor_id)?;
         let destination_store = self.normalized_destination_site_id(
-            &self.lock()?,
+            &*self.lock()?,
             &request.destination_store_id,
         )?;
         request.destination_store_id = destination_store.to_string();
@@ -4726,7 +4726,7 @@ impl EdgeInventory for SqliteEdge {
         // Refused only when head office said the source is a shop: a warehouse
         // node's own id (`dc-01`) is often not a row the centre holds.
         if let Some(source_dc_id) = request.source_dc_id.as_ref() {
-            if crate::edge::site_profile::kind_of(&self.lock()?, source_dc_id.as_str())
+            if crate::edge::site_profile::kind_of(&*self.lock()?, source_dc_id.as_str())
                 == Some(SiteKind::Store)
             {
                 return Err(EdgeError::Validation(
@@ -4837,7 +4837,7 @@ impl EdgeInventory for SqliteEdge {
         // Refused only when head office said the source is a shop: a warehouse
         // node's own id (`dc-01`) is often not a row the centre holds.
         if let Some(source_dc_id) = request.source_dc_id.as_ref() {
-            if crate::edge::site_profile::kind_of(&self.lock()?, source_dc_id.as_str())
+            if crate::edge::site_profile::kind_of(&*self.lock()?, source_dc_id.as_str())
                 == Some(SiteKind::Store)
             {
                 return Err(EdgeError::Validation(

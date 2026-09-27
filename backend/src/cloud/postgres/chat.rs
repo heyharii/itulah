@@ -727,7 +727,7 @@ pub async fn start_conversation(
             "SELECT c.conversation_id
                FROM chat_conversation c
               WHERE c.kind = 'DIRECT'
-                AND (SELECT array_agg(p.username ORDER BY p.username COLLATE "C")
+                AND (SELECT array_agg(p.username ORDER BY p.username COLLATE \"C\")
                        FROM chat_participant p
                       WHERE p.conversation_id = c.conversation_id) = $1
               LIMIT 1",
