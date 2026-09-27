@@ -6,12 +6,14 @@ import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
 import { EmptyState } from "@/components/ui/states"
 import { count, day, money } from "@/lib/format"
 import { gaContracts, gaKeys, gaLocations } from "@/lib/queries/ga"
+import { useUnits } from "@/lib/queries/organisation"
 import {
   expiringContracts,
   listWorkforce,
   peopleKeys,
 } from "@/lib/queries/people"
 import { queryState } from "@/lib/query-state"
+import { useScopeUnit } from "@/screens/executive/books"
 import { rupiah } from "@/screens/executive/format"
 import { Figure, Figures, Head, ReportPage } from "@/screens/executive/parts"
 import { usePlaces } from "@/screens/executive/places"
@@ -22,14 +24,29 @@ import { useReportScope } from "@/screens/executive/scope"
 
 const SOON = 30
 
-/// Active people at one place — `total` of a one-row page, so the count is the
+/// Active people at one unit — `total` of a one-row page, so the count is the
 /// server's and not the length of whatever page came back.
-const ACTIVE = (placeId?: string) =>
-  ({ status: "ACTIVE", placeId, limit: 1 }) as const
+const ACTIVE = (unitId?: string) =>
+  ({ status: "ACTIVE", unitId, limit: 1 }) as const
 
 export function ExecutivePeople() {
   const scope = useReportScope()
   const { nameOf } = usePlaces(scope)
+
+  // People are posted to units, and the report is narrowed to a shop — a
+  // site. The workforce is asked about the unit owning it, and each location
+  // row counts the unit that owns that location.
+  const scopeUnit = useScopeUnit(scope)
+  const register = useUnits()
+  const unitOfSite = useMemo(
+    () =>
+      new Map(
+        (register.data ?? []).flatMap((unit) =>
+          unit.sites.map((site) => [site.id, unit.id] as const)
+        )
+      ),
+    [register.data]
+  )
 
   const locations = useQuery({
     queryKey: gaKeys.locations({}),
@@ -37,18 +54,27 @@ export function ExecutivePeople() {
     retry: false,
   })
   const headcount = useQuery({
-    queryKey: peopleKeys.employees(ACTIVE(scope.store)),
-    queryFn: ({ signal }) => listWorkforce(ACTIVE(scope.store), signal),
+    queryKey: peopleKeys.employees(ACTIVE(scopeUnit ?? undefined)),
+    queryFn: ({ signal }) =>
+      listWorkforce(ACTIVE(scopeUnit ?? undefined), signal),
+    enabled: scopeUnit !== null,
   })
-  const places = useMemo(
-    () => (locations.data ?? []).map((row) => row.site_id),
-    [locations.data]
+  const units = useMemo(
+    () => [
+      ...new Set(
+        (locations.data ?? []).flatMap((row) => {
+          const unit = unitOfSite.get(row.site_id)
+          return unit === undefined ? [] : [unit]
+        })
+      ),
+    ],
+    [locations.data, unitOfSite]
   )
-  const perPlace = useQueries({
-    queries: places.map((placeId) => ({
-      queryKey: peopleKeys.employees(ACTIVE(placeId)),
+  const perUnit = useQueries({
+    queries: units.map((unitId) => ({
+      queryKey: peopleKeys.employees(ACTIVE(unitId)),
       queryFn: ({ signal }: { signal: AbortSignal }) =>
-        listWorkforce(ACTIVE(placeId), signal),
+        listWorkforce(ACTIVE(unitId), signal),
     })),
   })
   const expiring = useQuery({
@@ -62,13 +88,19 @@ export function ExecutivePeople() {
     retry: false,
   })
 
+  /// A GA row belongs to a site, an HR row to a unit: each is here when it is
+  /// at the shop the report is narrowed to, or in the unit owning it.
   const here = <
     T extends { site_id?: string | null; unit_id?: string | null },
   >(
     row: T
-  ) =>
-    scope.store === undefined ||
-    (row.site_id ?? row.unit_id ?? null) === scope.store
+  ) => {
+    if (scope.store === undefined) return true
+    const site = row.site_id ?? null
+    if (site !== null) return site === scope.store
+    const unit = row.unit_id ?? null
+    return unit !== null && unit === scopeUnit
+  }
 
   const rows = (locations.data ?? []).filter(here)
   const repairs = rows.reduce((sum, row) => sum + row.open_repair_count, 0)
@@ -84,7 +116,7 @@ export function ExecutivePeople() {
     .sort((a, b) => (a.days_to_end ?? 0) - (b.days_to_end ?? 0))
 
   const heads = new Map(
-    places.map((placeId, index) => [placeId, perPlace[index]?.data?.total])
+    units.map((unitId, index) => [unitId, perUnit[index]?.data?.total])
   )
 
   return (
@@ -140,7 +172,7 @@ export function ExecutivePeople() {
                         {row.site_name || nameOf(row.site_id)}
                       </MiniCell>
                       <MiniCell align="right">
-                        {count(heads.get(row.site_id))}
+                        {count(heads.get(unitOfSite.get(row.site_id) ?? ""))}
                       </MiniCell>
                       <MiniCell align="right">
                         {row.open_repair_count === 0 ? (
