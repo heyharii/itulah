@@ -9,9 +9,10 @@ import { PageHeader } from "@/components/ui/page-header"
 import { EmptyState, LoadingState } from "@/components/ui/states"
 import { day, money } from "@/lib/format"
 import { financeKeys, listCashCounts } from "@/lib/queries/finance"
+import { useUnits } from "@/lib/queries/organisation"
 import { CASH_POTS, useMoneyRows } from "@/screens/finance-lab-2/hooks"
 import { Grid, LabNote, Td, Th } from "@/screens/finance-lab-2/parts"
-import { useSiteName } from "@/screens/finance/hooks"
+import { useUnitName } from "@/screens/finance/hooks"
 
 /// Every place notes and coins sit, and what the books say each holds.
 ///
@@ -21,7 +22,8 @@ import { useSiteName } from "@/screens/finance/hooks"
 /// the last time a person counted it.
 export function Cash() {
   const { rows: all, pending } = useMoneyRows(CASH_POTS)
-  const siteName = useSiteName()
+  const unitName = useUnitName()
+  const organisation = useUnits()
   // The same list the Cash Counts screen reads, under its own key: one request
   // for both screens, and no chance of the two disagreeing about when a drawer
   // was last counted.
@@ -30,17 +32,25 @@ export function Cash() {
     queryFn: ({ signal }) => listCashCounts(signal),
   })
   const lastCount = useMemo(() => {
+    // A count is taken at a site; the drawer is in the books of the unit that
+    // owns it.
+    const unitOfSite = new Map<string, string>()
+    for (const one of organisation.data ?? []) {
+      for (const site of one.sites) unitOfSite.set(site.id, one.id)
+    }
     const table = new Map<string, { on: string; variance: number }>()
     // Newest first from the server, so the first one seen for a drawer is its
     // latest and nothing needs sorting here.
     for (const count of counts.data ?? []) {
-      const key = `${count.account_code}@${count.site_id}`
+      const unitId = unitOfSite.get(count.site_id)
+      if (unitId === undefined) continue
+      const key = `${count.account_code}@${unitId}`
       if (!table.has(key)) {
         table.set(key, { on: count.counted_on, variance: count.variance_minor })
       }
     }
     return table
-  }, [counts.data])
+  }, [counts.data, organisation.data])
 
   /// What narrows the list: which KIND of cash, and where.
   ///
@@ -52,10 +62,10 @@ export function Cash() {
 
   const units = useMemo(
     () =>
-      [...new Set(all.map((row) => row.site_id))]
-        .map((id) => ({ value: id, label: siteName(id) }))
+      [...new Set(all.map((row) => row.unit_id))]
+        .map((id) => ({ value: id, label: unitName(id) }))
         .sort((a, b) => a.label.localeCompare(b.label)),
-    [all, siteName]
+    [all, unitName]
   )
 
   const rows = useMemo(
@@ -63,7 +73,7 @@ export function Cash() {
       all.filter(
         (row) =>
           (pot === "" || row.pot === pot) &&
-          (unit === "" || row.site_id === unit)
+          (unit === "" || row.unit_id === unit)
       ),
     [all, pot, unit]
   )
@@ -163,10 +173,10 @@ export function Cash() {
                       const gap =
                         groupIndex > 0 && index === 0 ? "pt-5" : undefined
                       const seen = lastCount.get(
-                        `${row.account_code}@${row.site_id}`
+                        `${row.account_code}@${row.unit_id}`
                       )
                       return (
-                        <tr key={`${row.account_code}-${row.site_id}`}>
+                        <tr key={`${row.account_code}-${row.unit_id}`}>
                           <Td className={gap}>
                             {/* The POT, not the ledger account.
                                 
@@ -180,7 +190,7 @@ export function Cash() {
                                 `pot` is, and what the server computed. */}
                             <span className="text-ink">
                               {POT_LABEL[row.pot] ?? row.account_name} ·{" "}
-                              {siteName(row.site_id)}
+                              {unitName(row.unit_id)}
                             </span>
                             {row.qualifier !== "" && (
                               <span className="block text-[0.875rem] text-mute">

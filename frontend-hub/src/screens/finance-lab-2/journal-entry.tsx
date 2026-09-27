@@ -1,10 +1,10 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { Plus, Trash2 } from "lucide-react"
-import { useMemo, useState } from "react"
+import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Day } from "@/components/ui/day"
-import { Field, Input, Select, Textarea } from "@/components/ui/field"
+import { Field, Input, Textarea } from "@/components/ui/field"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner } from "@/components/ui/states"
 import { today } from "@/lib/calendar"
@@ -14,11 +14,11 @@ import { cn } from "@/lib/utils"
 import {
   AccountAndCategory,
   accountChoiceReady,
+  UnitSelect,
   type AccountChoice,
 } from "@/screens/finance/parts"
 import { Grid, Td, Th } from "@/screens/finance-lab-2/parts"
 import { useIdempotencyKey } from "@/screens/procurement/shared"
-import { useLocations, useSiteName } from "@/screens/finance/hooks"
 
 /// One row of the grid, before it is a posting line.
 ///
@@ -37,7 +37,8 @@ interface Row {
   /// `AccountAndCategory` already knows this rule; this reuses it rather than
   /// restating it.
   choice: AccountChoice | null
-  site: string
+  /// Whose books the line is in: a unit id.
+  unit: string
   debit: string
   credit: string
   memo: string
@@ -46,7 +47,7 @@ interface Row {
 const blankRow = (): Row => ({
   key: crypto.randomUUID(),
   choice: null,
-  site: "",
+  unit: "",
   debit: "",
   credit: "",
   memo: "",
@@ -85,8 +86,6 @@ export function JournalEntrySheet({
 }) {
   const client = useQueryClient()
   const idempotency = useIdempotencyKey()
-  const siteName = useSiteName()
-  const places = useLocations()
 
   const [date, setDate] = useState(today)
   const [memo, setMemo] = useState("")
@@ -94,14 +93,6 @@ export function JournalEntrySheet({
     blankRow(),
     blankRow(),
   ])
-
-  const units = useMemo(
-    () =>
-      [
-        ...new Set((places.data?.locations ?? []).map((row) => row.site_id)),
-      ].sort(),
-    [places.data]
-  )
 
   const debits = rows.reduce((sum, row) => sum + minor(row.debit), 0)
   const credits = rows.reduce((sum, row) => sum + minor(row.credit), 0)
@@ -118,14 +109,14 @@ export function JournalEntrySheet({
     )
   }
 
-  /// A row is worth sending when it names an account, a place and one side.
+  /// A row is worth sending when it names an account, a unit and one side.
   /// Rows that name nothing are the empty grid lines every entry ends with,
   /// and dropping them is not a judgement — they are not lines.
   const lines: ManualJournalLine[] = rows
     .filter(
       (row) =>
         accountChoiceReady(row.choice) &&
-        row.site !== "" &&
+        row.unit !== "" &&
         (minor(row.debit) > 0 || minor(row.credit) > 0)
     )
     .map((row) => ({
@@ -134,7 +125,7 @@ export function JournalEntrySheet({
         account_code: row.choice!.account_code,
         category_code: row.choice!.category_code,
       },
-      site_id: row.site,
+      unit_id: row.unit,
       debit_minor: minor(row.debit),
       credit_minor: minor(row.credit),
       memo: row.memo === "" ? null : row.memo,
@@ -246,19 +237,13 @@ export function JournalEntrySheet({
                   />
                 </Td>
                 <Td>
-                  <Select
+                  <UnitSelect
                     aria-label={`Unit on line ${index + 1}`}
-                    value={row.site}
-                    onChange={(id) => set(row.key, { site: id })}
+                    value={row.unit}
+                    onChange={(id) => set(row.key, { unit: id })}
+                    emptyLabel="Choose"
                     className="h-8"
-                  >
-                    <option value="">Choose</option>
-                    {units.map((id) => (
-                      <option key={id} value={id}>
-                        {siteName(id)}
-                      </option>
-                    ))}
-                  </Select>
+                  />
                 </Td>
                 {/* One side or the other. Typing into debit empties credit,
                     because a line that is both is not a line — and the server

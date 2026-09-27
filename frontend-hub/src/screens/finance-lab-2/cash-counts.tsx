@@ -18,8 +18,9 @@ import {
   listCashCounts,
   recordCashCount,
 } from "@/lib/queries/finance"
+import { useSiteLabel, useUnits } from "@/lib/queries/organisation"
 import { parseMinor } from "@/screens/finance/chart"
-import { useSiteName } from "@/screens/finance/hooks"
+import { useUnitName } from "@/screens/finance/hooks"
 import { CASH_POTS, useMoneyRows } from "@/screens/finance-lab-2/hooks"
 import { Grid, LabNote, Td, Th } from "@/screens/finance-lab-2/parts"
 
@@ -44,7 +45,8 @@ export function CashCounts() {
     queryFn: ({ signal }) => listCashCounts(signal),
   })
   const { rows: drawers } = useMoneyRows(CASH_POTS)
-  const siteName = useSiteName()
+  const siteName = useSiteLabel()
+  const unitName = useUnitName()
   const [counting, setCounting] = useState(false)
 
   const client = useQueryClient()
@@ -259,8 +261,8 @@ export function CashCounts() {
         open={counting}
         drawers={drawers.map((row) => ({
           account_code: row.account_code,
-          site_id: row.site_id,
-          label: `${row.account_name} — ${siteName(row.site_id)}`,
+          unit_id: row.unit_id,
+          label: `${row.account_name} — ${unitName(row.unit_id)}`,
           per_books_minor: row.per_books_minor,
         }))}
         onClose={() => setCounting(false)}
@@ -282,7 +284,7 @@ function CountPanel({
   open: boolean
   drawers: readonly {
     account_code: string
-    site_id: string
+    unit_id: string
     label: string
     per_books_minor: number
   }[]
@@ -299,8 +301,22 @@ function CountPanel({
   const [quantities, setQuantities] = useState<Record<number, string>>({})
 
   const chosen = drawers.find(
-    (row) => `${row.account_code}@${row.site_id}` === drawer
+    (row) => `${row.account_code}@${row.unit_id}` === drawer
   )
+
+  // The drawer is in a unit's books; the count is taken at one of its sites.
+  // A unit with one site (a store and its shop) needs no question; one with
+  // several (head office's office and the Gudang) is asked which.
+  const units = useUnits()
+  const [siteChoice, setSiteChoice] = useState("")
+  const sites =
+    units.data?.find((unit) => unit.id === chosen?.unit_id)?.sites ?? []
+  const siteId =
+    sites.length === 1
+      ? sites[0].id
+      : sites.some((site) => site.id === siteChoice)
+        ? siteChoice
+        : ""
 
   // The breakdown is the working; the total is what it adds up to. Kept derived
   // rather than typed, because a total somebody can type past its own notes is
@@ -320,7 +336,7 @@ function CountPanel({
     mutationFn: () =>
       recordCashCount({
         account_code: chosen?.account_code ?? "",
-        site_id: chosen?.site_id ?? "",
+        site_id: siteId,
         counted_on: countedOn,
         counted_by: countedBy.trim(),
         witnessed_by: witness.trim(),
@@ -362,14 +378,26 @@ function CountPanel({
               <option value="">Choose one</option>
               {drawers.map((row) => (
                 <option
-                  key={`${row.account_code}@${row.site_id}`}
-                  value={`${row.account_code}@${row.site_id}`}
+                  key={`${row.account_code}@${row.unit_id}`}
+                  value={`${row.account_code}@${row.unit_id}`}
                 >
                   {row.label}
                 </option>
               ))}
             </Select>
           </Field>
+          {sites.length > 1 && (
+            <Field label="Site" required>
+              <Select value={siteId} onChange={setSiteChoice} aria-label="Site">
+                <option value="">Choose one</option>
+                {sites.map((site) => (
+                  <option key={site.id} value={site.id}>
+                    {site.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
           <Field label="Counted on" required>
             <Input
               type="date"
@@ -490,7 +518,9 @@ function CountPanel({
           <Button
             variant="primary"
             pending={save.isPending}
-            disabled={chosen === undefined || countedBy.trim() === ""}
+            disabled={
+              chosen === undefined || siteId === "" || countedBy.trim() === ""
+            }
             onClick={() => save.mutate()}
           >
             Save the count

@@ -4,7 +4,6 @@ import { Fragment, useMemo, useState } from "react"
 import { PageContent } from "@/components/shell/app-shell"
 import { Card } from "@/components/ui/card"
 import { Day } from "@/components/ui/day"
-import { Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Toolbar } from "@/components/ui/segmented"
 import { Banner, EmptyState, LoadingState } from "@/components/ui/states"
@@ -22,7 +21,8 @@ import {
   Th,
 } from "@/screens/finance-lab-2/parts"
 import { ladderLevel } from "@/screens/finance/chart"
-import { useLocations, useSiteName } from "@/screens/finance/hooks"
+import { useUnitName } from "@/screens/finance/hooks"
+import { UnitSelect } from "@/screens/finance/parts"
 
 /// The first day of the fiscal year `on` falls in, and its last.
 ///
@@ -64,27 +64,15 @@ export function StatementScreen({
   const year = useMemo(() => fiscalYear(new Date()), [])
   const [from, setFrom] = useState(year.from)
   const [to, setTo] = useState(year.to)
-  const [site, setSite] = useState("")
-  const places = useLocations()
-  const siteName = useSiteName()
-
-  /// The locations the account map knows about. Read off the map rather than
-  /// from a site list, because a location with nothing bound to it has no
-  /// statement to show and offering it is offering an empty answer.
-  const units = useMemo(
-    () =>
-      [
-        ...new Set((places.data?.locations ?? []).map((row) => row.site_id)),
-      ].sort(),
-    [places.data]
-  )
+  const [unit, setUnit] = useState("")
+  const unitName = useUnitName()
 
   const report = useQuery({
     queryKey: financeKeys.statement(
       kind,
       from || null,
       to || null,
-      site || null
+      unit || null
     ),
     queryFn: ({ signal }) =>
       statement(
@@ -92,7 +80,7 @@ export function StatementScreen({
         {
           from: from || undefined,
           to: to || undefined,
-          site: site || undefined,
+          unit: unit || undefined,
         },
         signal
       ),
@@ -132,19 +120,12 @@ export function StatementScreen({
             label={kind === "BALANCE_SHEET" ? "As at" : "To date"}
             className="h-8 w-36"
           />
-          <Select
+          <UnitSelect
             aria-label="Unit"
-            value={site}
-            onChange={setSite}
+            value={unit}
+            onChange={setUnit}
             className="h-8 w-44"
-          >
-            <option value="">Every location</option>
-            {units.map((one) => (
-              <option key={one} value={one}>
-                {siteName(one)}
-              </option>
-            ))}
-          </Select>
+          />
           <Toolbar.Spacer />
           <span className="text-[0.875rem] text-mute">{year.label}</span>
         </Toolbar>
@@ -209,7 +190,7 @@ export function StatementScreen({
         ) : data === undefined || data.sections.length === 0 ? (
           <EmptyState>
             Nothing has been posted in this window
-            {site === "" ? "" : ` at ${siteName(site)}`}.
+            {unit === "" ? "" : ` for ${unitName(unit)}`}.
           </EmptyState>
         ) : (
           <Card className="overflow-hidden">

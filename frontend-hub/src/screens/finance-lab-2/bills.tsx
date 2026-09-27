@@ -10,8 +10,8 @@ import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { EmptyState, LoadingState } from "@/components/ui/states"
 import { count, day, money } from "@/lib/format"
 import { financeKeys, listBills } from "@/lib/queries/finance"
+import { useSiteLabel } from "@/lib/queries/organisation"
 import { Grid, Td, Th } from "@/screens/finance-lab-2/parts"
-import { useSiteName } from "@/screens/finance/hooks"
 
 type Scope = "open" | "overdue" | "paid" | "all"
 
@@ -39,7 +39,7 @@ type Scope = "open" | "overdue" | "paid" | "all"
 export function Bills() {
   const [scope, setScope] = useState<Scope>("open")
   const [needle, setNeedle] = useState("")
-  const siteName = useSiteName()
+  const siteName = useSiteLabel()
 
   const bills = useQuery({
     // Its own entry under the bills prefix. `financeKeys.bills(null)` holds

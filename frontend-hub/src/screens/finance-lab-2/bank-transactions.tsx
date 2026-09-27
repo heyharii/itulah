@@ -18,7 +18,7 @@ import {
 } from "@/lib/queries/finance"
 import { useStatements } from "@/screens/finance-lab-2/hooks"
 import { Grid, Td, Th } from "@/screens/finance-lab-2/parts"
-import { useSiteName } from "@/screens/finance/hooks"
+import { useUnitName } from "@/screens/finance/hooks"
 
 /// Every line the bank has reported, across every account.
 ///
@@ -46,7 +46,7 @@ import { useSiteName } from "@/screens/finance/hooks"
 /// something.
 export function BankTransactions() {
   const statements = useStatements()
-  const siteName = useSiteName()
+  const unitName = useUnitName()
   const [account, setAccount] = useState("")
   const [needle, setNeedle] = useState("")
   const [from, setFrom] = useState("")
@@ -71,18 +71,18 @@ export function BankTransactions() {
   /// Which bank a unit's money is at, and only where the answer is not in
   /// doubt.
   ///
-  /// A site with one account has one bank and the row can say so. Head office
+  /// A unit with one account has one bank and the row can say so. Head office
   /// holds three at three institutions and the statement does not carry the
   /// account id on the wire, so naming one of them would be a guess printed as
   /// a fact. Those rows read "—" until the server sends the account down.
-  const bankOfSite = useMemo(() => {
+  const bankOfUnit = useMemo(() => {
     const seen = new Map<string, string | null>()
     for (const one of accounts.data ?? []) {
       if (one.status === "CLOSED") continue
-      const had = seen.get(one.site_id)
+      const had = seen.get(one.unit_id)
       // Set once, then poisoned to null by any second institution.
-      if (had === undefined) seen.set(one.site_id, one.bank_name)
-      else if (had !== one.bank_name) seen.set(one.site_id, null)
+      if (had === undefined) seen.set(one.unit_id, one.bank_name)
+      else if (had !== one.bank_name) seen.set(one.unit_id, null)
     }
     return seen
   }, [accounts.data])
@@ -93,19 +93,19 @@ export function BankTransactions() {
   const accountChoices = useMemo(() => {
     const seen = new Map<string, string>()
     for (const row of rows) {
-      if (seen.has(row.site_id)) continue
-      const bank = bankOfSite.get(row.site_id)
+      if (seen.has(row.unit_id)) continue
+      const bank = bankOfUnit.get(row.unit_id)
       seen.set(
-        row.site_id,
+        row.unit_id,
         bank === undefined || bank === null
-          ? siteName(row.site_id)
-          : `${bank} — ${siteName(row.site_id)}`
+          ? unitName(row.unit_id)
+          : `${bank} — ${unitName(row.unit_id)}`
       )
     }
     return [...seen.entries()]
       .map(([value, label]) => ({ value, label }))
       .sort((a, b) => a.label.localeCompare(b.label))
-  }, [rows, bankOfSite, siteName])
+  }, [rows, bankOfUnit, unitName])
 
   /// Every statement's lines, gathered into one list.
   ///
@@ -130,14 +130,14 @@ export function BankTransactions() {
         (lineQueries[index]?.data ?? []).map((line) => ({
           line,
           statement,
-          bank: bankOfSite.get(statement.site_id) ?? null,
-          place: siteName(statement.site_id),
+          bank: bankOfUnit.get(statement.unit_id) ?? null,
+          place: unitName(statement.unit_id),
         }))
       ),
     // `lineQueries` is a new array every render; its DATA is what matters, so
     // the dependency is the concatenated fetch status rather than the array.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [rows, bankOfSite, siteName, lineQueries.map((one) => one.dataUpdatedAt).join()]
+    [rows, bankOfUnit, unitName, lineQueries.map((one) => one.dataUpdatedAt).join()]
   )
 
   /// One box, four fields. Bank, account, description and the reference the
@@ -148,7 +148,7 @@ export function BankTransactions() {
     const text = needle.trim().toLowerCase()
     return all
       .filter(({ line, statement, bank, place }) => {
-        if (account !== "" && statement.site_id !== account) return false
+        if (account !== "" && statement.unit_id !== account) return false
         if (from !== "" && line.value_date < from) return false
         if (to !== "" && line.value_date > to) return false
         if (text === "") return true
