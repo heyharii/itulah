@@ -26,11 +26,6 @@ use crate::cloud::application::AppError;
 use crate::ids::SiteKind;
 use chrono::{DateTime, Utc};
 
-/// The time zone every site had before `site.timezone` existed, and the
-/// answer when there is no row to ask — the same fallback the SQL function
-/// `site_business_timezone` ends in.
-pub const FALLBACK_TIMEZONE: &str = "Asia/Jakarta";
-
 /// The site whose books carry every inter-unit balance: the one of kind `HO`.
 ///
 /// Read on each call rather than cached for the life of the process. It is
@@ -63,48 +58,9 @@ pub async fn site_kind(
     )
 }
 
-/// Refuse a site that is not of the kind a caller needs, naming both.
-pub async fn require_site_kind(
-    executor: impl sqlx::PgExecutor<'_>,
-    site_id: &str,
-    wanted: SiteKind,
-    what: &str,
-) -> Result<(), AppError> {
-    match site_kind(executor, site_id).await? {
-        Some(kind) if kind == wanted => Ok(()),
-        Some(kind) => Err(AppError::Validation(format!(
-            "{what} must be a {} site; {site_id} is {}",
-            wanted.code(),
-            kind.code()
-        ))),
-        None => Err(AppError::Validation(format!(
-            "{what} names site {site_id}, which is not a site head office holds"
-        ))),
-    }
-}
-
-/// The time zone a site keeps its business day in: the site's own, or head
-/// office's when no site is named or the one named is not held here.
-pub async fn business_timezone(
-    executor: impl sqlx::PgExecutor<'_>,
-    site_id: Option<&str>,
-) -> Result<String, AppError> {
-    // The SQL function is the one definition (0474); this only asks it.
-    Ok(
-        sqlx::query_scalar::<_, String>("SELECT site_business_timezone($1)")
-            .bind(site_id)
-            .fetch_one(executor)
-            .await?,
-    )
-}
-
-/// Head office's time zone: the clock a read about the whole company uses.
-pub async fn head_office_timezone(executor: impl sqlx::PgExecutor<'_>) -> Result<String, AppError> {
-    business_timezone(executor, None).await
-}
-
-/// Minutes east of UTC at one instant, where a site is — or head office, as
-/// [`business_timezone`] chooses.
+/// Minutes east of UTC at one instant, where a site is — its own zone, or
+/// head office's when no site is named or the one named is not held here
+/// (`site_business_timezone`, 0474).
 ///
 /// For the few readers that still cut a day in Rust (the pricing engine's
 /// weekday rules, a report window, "today"). The offset of a zone at an

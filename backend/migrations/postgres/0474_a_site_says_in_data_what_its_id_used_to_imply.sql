@@ -92,8 +92,8 @@ COMMENT ON COLUMN site.timezone IS
 
 -- The one definition of "whose clock", for SQL: the named site's zone, else
 -- head office's (a site id the centre holds no row for, or none at all),
--- else the zone every site kept before this column existed. Rust's
--- `sites::business_timezone` selects the same function.
+-- else the zone every site kept before this column existed. Rust reads the
+-- same function (`sites::business_utc_offset_minutes`).
 CREATE FUNCTION site_business_timezone(text) RETURNS text
 LANGUAGE sql STABLE AS $$
     SELECT COALESCE(
