@@ -12,6 +12,7 @@ import {
   useSetupStatus,
   type CreatedStore,
 } from "@/lib/queries/setup"
+import { storesKeys } from "@/lib/queries/stores"
 import { ManagerLinks } from "@/screens/setup/manager-links"
 import {
   StoreList,
@@ -52,14 +53,22 @@ export function OpenStoresSheet({
       // new stores waiting for a node and an address in the other.
       void client.invalidateQueries({ queryKey: gaKeys.all })
       void client.invalidateQueries({ queryKey: setupKeys.status() })
+      // So `ManagerLinks` below can point each new store at its own page —
+      // `CreatedStore` only carries the client's code, not the internal id
+      // `/stores/$unit` takes.
+      void client.invalidateQueries({ queryKey: storesKeys.list() })
       const codes = answer.created.map((store) => store.unit_code)
+      // Created, not open — opening is a separate decision, made from the
+      // store's own page once its checklist is green (`overview-tab.tsx`).
       toast.success(
         codes.length === 1
-          ? `Store ${codes[0]} opened`
-          : `${codes.length} stores opened · ${codes[0]}–${codes[codes.length - 1]}`,
+          ? `Store ${codes[0]} created`
+          : `${codes.length} stores created · ${codes[0]}–${codes[codes.length - 1]}`,
         {
           description:
-            "Pair each store's server with its code in System › Store servers.",
+            codes.length === 1
+              ? `Install its server from ${codes[0]}’s own page.`
+              : "Install each server from its own store page.",
         }
       )
       setCreated(answer.created)

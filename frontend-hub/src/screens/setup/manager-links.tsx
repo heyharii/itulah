@@ -1,6 +1,10 @@
+import { useQuery } from "@tanstack/react-query"
+import { Link, type LinkProps } from "@tanstack/react-router"
+
 import { Banner } from "@/components/ui/states"
 import { moment } from "@/lib/format"
 import type { CreatedStore } from "@/lib/queries/setup"
+import { listStores, storesKeys } from "@/lib/queries/stores"
 import { CopyLinkButton } from "@/screens/people/invite-sheet"
 
 /// "Send these links to your store managers" — shown right after stores are
@@ -18,8 +22,27 @@ export function ManagerLinks({
 }: {
   stores: readonly CreatedStore[]
 }) {
+  // Read unconditionally — a hook cannot sit after the early return below,
+  // and this list is cheap: it is the same `/api/v1/stores` the Stores page
+  // already keeps warm, not a call made for this component alone.
+  //
+  // `CreatedStore` (the setup wire's `SetupStore`) only carries the client's
+  // code — the caller who just opened these stores can also read
+  // `/api/v1/stores`, so this reads that list once to find each one's
+  // internal id, the one `/stores/$unit` takes. Absent (still loading, or a
+  // reach that somehow excludes a store it just made) means no link, not a
+  // broken one.
+  const storesList = useQuery({
+    queryKey: storesKeys.list(),
+    queryFn: ({ signal }) => listStores(signal),
+  })
+
   const withLinks = stores.filter((store) => store.manager_invitation !== null)
   if (withLinks.length === 0) return null
+
+  const idByCode = new Map(
+    (storesList.data?.items ?? []).map((row) => [row.code, row.unit_id])
+  )
 
   return (
     <div className="flex flex-col gap-3">
@@ -30,6 +53,7 @@ export function ManagerLinks({
       <div className="flex flex-col gap-2.5">
         {withLinks.map((store) => {
           const invitation = store.manager_invitation!
+          const unitId = idByCode.get(store.unit_code)
           return (
             <div
               key={store.unit_code}
@@ -51,6 +75,24 @@ export function ManagerLinks({
               </div>
               <p className="text-meta text-mute">
                 Expires in 72 h — {moment(invitation.expires_at)}.
+              </p>
+              {/* Created, not open — the same wording the toast for "Open a
+                  new store" uses (`open-stores-sheet.tsx`). */}
+              <p className="text-meta text-mute">
+                {store.unit_code} created —{" "}
+                {unitId ? (
+                  <Link
+                    to={
+                      `/stores/${encodeURIComponent(unitId)}` as LinkProps["to"]
+                    }
+                    className="font-medium text-accent underline underline-offset-2"
+                  >
+                    install its server from its page
+                  </Link>
+                ) : (
+                  "install its server from its page"
+                )}
+                .
               </p>
             </div>
           )

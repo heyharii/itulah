@@ -17,6 +17,7 @@ import {
   type LegalForm,
   type SetupStatus,
 } from "@/lib/queries/setup"
+import { storesKeys } from "@/lib/queries/stores"
 import { cn } from "@/lib/utils"
 import { BusinessMap, type MapStore } from "@/screens/setup/business-map"
 import { LegalFormPills } from "@/screens/setup/legal-form-pills"
@@ -128,6 +129,9 @@ export function Onboarding({
         old ? { ...old, stores: [...old.stores, ...answer.created] } : old
       )
       void refresh()
+      // So `ManagerLinks` on the "ready" screen can point each store at its
+      // own page (`open-stores-sheet.tsx` does the same after setup).
+      void client.invalidateQueries({ queryKey: storesKeys.list() })
       setManagerLinks((prev) => [...prev, ...answer.created])
       setDrafts([draftStore()])
       setStoresKey(crypto.randomUUID())
