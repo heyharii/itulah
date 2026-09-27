@@ -30,7 +30,7 @@ use super::period::AttendancePeriod;
 use super::policy::Minutes;
 use super::punch::PunchTime;
 use super::time::{DayOffset, MinuteOfDay, ShiftId, ShiftPosition};
-use crate::cloud::domain::employment::{Authorization, EmployeeId, PlaceId};
+use crate::cloud::domain::employment::{Authorization, EmployeeId, UnitId};
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -233,7 +233,7 @@ impl RosterRevision {
 #[serde(deny_unknown_fields)]
 pub struct RosterDayWire {
     pub employee: EmployeeId,
-    pub place: PlaceId,
+    pub unit: UnitId,
     pub date: NaiveDate,
     pub planned: RosterRevision,
     #[serde(default)]
@@ -245,7 +245,7 @@ pub struct RosterDayWire {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RosterDay {
     employee: EmployeeId,
-    place: PlaceId,
+    unit: UnitId,
     date: NaiveDate,
     // Split rather than one `Vec` so "a rostered day has at least one
     // authorized plan" is a property of the *type*: there is no empty case to
@@ -262,7 +262,7 @@ impl<'de> Deserialize<'de> for RosterDay {
         let wire = RosterDayWire::deserialize(deserializer)?;
         Self::try_new(
             wire.employee,
-            wire.place,
+            wire.unit,
             wire.date,
             wire.planned,
             wire.amendments,
@@ -275,14 +275,14 @@ impl RosterDay {
     /// Plan a day: the first, authorized revision.
     pub fn new(
         employee: EmployeeId,
-        place: PlaceId,
+        unit: UnitId,
         date: NaiveDate,
         plan: DayPlan,
         authorization: Authorization,
     ) -> Result<Self, AttendanceError> {
         Ok(Self {
             employee,
-            place,
+            unit,
             date,
             planned: RosterRevision::try_new(plan, authorization)?,
             amendments: Vec::new(),
@@ -296,14 +296,14 @@ impl RosterDay {
     /// makes [`RosterDay::plan_as_of`] independent of storage order.
     pub fn try_new(
         employee: EmployeeId,
-        place: PlaceId,
+        unit: UnitId,
         date: NaiveDate,
         planned: RosterRevision,
         amendments: Vec<RosterRevision>,
     ) -> Result<Self, AttendanceError> {
         let day = Self {
             employee,
-            place,
+            unit,
             date,
             planned,
             amendments,
@@ -328,8 +328,8 @@ impl RosterDay {
     pub fn employee(&self) -> &EmployeeId {
         &self.employee
     }
-    pub fn place(&self) -> &PlaceId {
-        &self.place
+    pub fn unit(&self) -> &UnitId {
+        &self.unit
     }
     pub const fn date(&self) -> NaiveDate {
         self.date
@@ -503,7 +503,7 @@ impl DatedRoster {
         if day.employee != self.employee {
             return Err(AttendanceError::RosterEmployeeMismatch);
         }
-        period.require_accepts_roster_change(&day.place, day.date)?;
+        period.require_accepts_roster_change(&day.unit, day.date)?;
         match self.days.binary_search_by_key(&day.date, |held| held.date) {
             Ok(_) => Err(AttendanceError::DuplicateRosterEntry { date: day.date }),
             Err(index) => {
@@ -531,7 +531,7 @@ impl DatedRoster {
             .binary_search_by_key(&date, |held| held.date)
             .map_err(|_| AttendanceError::NoRosterEntry { date })?;
         let revision = RosterRevision::try_new(plan, authorization)?;
-        period.require_accepts_roster_change(&self.days[index].place, date)?;
+        period.require_accepts_roster_change(&self.days[index].unit, date)?;
         self.days[index].push_revision(revision)
     }
 
@@ -601,7 +601,7 @@ mod tests {
                 .map(|(on, shift)| {
                     RosterDay::new(
                         EmployeeId::try_new("emp-1").unwrap(),
-                        PlaceId::try_new("store-07").unwrap(),
+                        UnitId::try_new("store-07").unwrap(),
                         date(on),
                         DayPlan::Scheduled { shift },
                         authority(),

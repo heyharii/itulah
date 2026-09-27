@@ -52,7 +52,7 @@ use super::ids::{CorrectionId, LeaveRef, OvertimeRef};
 use super::policy::{AttendancePolicy, Minutes, PolicyVersion};
 use super::punch::{canonical_order, Punch, PunchDirection, PunchTime};
 use super::roster::{DayPlan, RosterDay, Shift};
-use crate::cloud::domain::employment::{Authorization, EmployeeId, PlaceId};
+use crate::cloud::domain::employment::{Authorization, EmployeeId, UnitId};
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -377,7 +377,7 @@ pub struct DayMeasures {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DayEvaluation {
     employee: EmployeeId,
-    place: PlaceId,
+    unit: UnitId,
     date: NaiveDate,
     outcomes: OutcomeSet,
     measures: DayMeasures,
@@ -392,8 +392,8 @@ impl DayEvaluation {
     pub fn employee(&self) -> &EmployeeId {
         &self.employee
     }
-    pub fn place(&self) -> &PlaceId {
-        &self.place
+    pub fn unit(&self) -> &UnitId {
+        &self.unit
     }
     pub const fn date(&self) -> NaiveDate {
         self.date
@@ -505,7 +505,7 @@ pub fn evaluate_day(
     for punch in punches {
         if punch.employee() != day.employee()
             || punch.business_date() != day.date()
-            || punch.place() != day.place()
+            || punch.unit() != day.unit()
         {
             return Err(AttendanceError::PunchDoesNotMatchRosterDay);
         }
@@ -517,7 +517,7 @@ pub fn evaluate_day(
         None => None,
         Some(correction) => {
             if correction.employee() != day.employee()
-                || correction.place() != day.place()
+                || correction.unit() != day.unit()
                 || correction.date() != day.date()
             {
                 return Err(AttendanceError::CorrectionTargetMismatch);
@@ -560,7 +560,7 @@ pub fn evaluate_day(
 
     Ok(Some(DayEvaluation {
         employee: day.employee().clone(),
-        place: day.place().clone(),
+        unit: day.unit().clone(),
         date: day.date(),
         outcomes,
         measures,
@@ -767,7 +767,7 @@ mod tests {
     use crate::cloud::domain::attendance::AttendancePeriod;
     use crate::cloud::domain::employment::{
         actions, AssignmentSpan, AssignmentTimeline, Employee, EmployeeCode, EmployeeId,
-        EmploymentTransition, PlaceId,
+        EmploymentTransition, UnitId,
     };
     use chrono::{TimeZone, Utc};
 
@@ -826,7 +826,7 @@ mod tests {
     fn scheduled(shift: Shift) -> RosterDay {
         RosterDay::new(
             EmployeeId::try_new("emp-1").unwrap(),
-            PlaceId::try_new("store-07").unwrap(),
+            UnitId::try_new("store-07").unwrap(),
             date(DAY),
             DayPlan::Scheduled { shift },
             authority(actions::ROSTER_MANAGE),
@@ -837,7 +837,7 @@ mod tests {
     fn rest_day() -> RosterDay {
         RosterDay::new(
             EmployeeId::try_new("emp-1").unwrap(),
-            PlaceId::try_new("store-07").unwrap(),
+            UnitId::try_new("store-07").unwrap(),
             date(DAY),
             DayPlan::RestDay,
             authority(actions::ROSTER_MANAGE),
@@ -866,7 +866,7 @@ mod tests {
     fn terminal() -> AttendanceTerminal {
         AttendanceTerminal::register(
             TerminalId::try_new("term-07").unwrap(),
-            PlaceId::try_new("store-07").unwrap(),
+            UnitId::try_new("store-07").unwrap(),
             "Pintu belakang",
             IdentificationMethod::Fingerprint,
             authority(actions::ATTENDANCE_TERMINAL_MANAGE),
@@ -894,7 +894,7 @@ mod tests {
         timeline
             .push(
                 AssignmentSpan::try_new(
-                    PlaceId::try_new("store-07").unwrap(),
+                    UnitId::try_new("store-07").unwrap(),
                     date("2026-01-01"),
                     None,
                     authority(actions::ASSIGNMENT_MANAGE),
@@ -911,7 +911,7 @@ mod tests {
         let employee = employee();
         let assignment = timeline();
         let period = AttendancePeriod::open(
-            PlaceId::try_new("store-07").unwrap(),
+            UnitId::try_new("store-07").unwrap(),
             AttendanceMonth::try_new(2026, 9).unwrap(),
         );
         Punch::record(
@@ -1174,7 +1174,7 @@ mod tests {
     fn a_date_no_policy_covers_is_refused_by_name() {
         let day = RosterDay::new(
             EmployeeId::try_new("emp-1").unwrap(),
-            PlaceId::try_new("store-07").unwrap(),
+            UnitId::try_new("store-07").unwrap(),
             date("2025-06-01"),
             DayPlan::Scheduled {
                 shift: morning_shift(),
@@ -1195,7 +1195,7 @@ mod tests {
         let elsewhere = punch("in", PunchDirection::In, DayOffset::SAME_DAY, 8 * 60);
         let other_day = RosterDay::new(
             EmployeeId::try_new("emp-1").unwrap(),
-            PlaceId::try_new("store-07").unwrap(),
+            UnitId::try_new("store-07").unwrap(),
             date("2026-09-15"),
             DayPlan::Scheduled {
                 shift: morning_shift(),
@@ -1228,17 +1228,17 @@ mod tests {
 
         let mut chain = crate::cloud::domain::attendance::correction::CorrectionChain::new(
             EmployeeId::try_new("emp-1").unwrap(),
-            PlaceId::try_new("store-07").unwrap(),
+            UnitId::try_new("store-07").unwrap(),
             date(DAY),
         );
         let period = AttendancePeriod::open(
-            PlaceId::try_new("store-07").unwrap(),
+            UnitId::try_new("store-07").unwrap(),
             AttendanceMonth::try_new(2026, 9).unwrap(),
         );
         let correction = Correction::request(
             CorrectionId::try_new("cor-1").unwrap(),
             EmployeeId::try_new("emp-1").unwrap(),
-            PlaceId::try_new("store-07").unwrap(),
+            UnitId::try_new("store-07").unwrap(),
             date(DAY),
             CorrectionEffect::ArrivalAndDeparture {
                 arrival: PunchTime::same_day(date(DAY), MinuteOfDay::try_new(8 * 60).unwrap()),
@@ -1283,11 +1283,11 @@ mod tests {
         let day = scheduled(morning_shift());
         let mut chain = crate::cloud::domain::attendance::correction::CorrectionChain::new(
             EmployeeId::try_new("emp-1").unwrap(),
-            PlaceId::try_new("store-07").unwrap(),
+            UnitId::try_new("store-07").unwrap(),
             date(DAY),
         );
         let period = AttendancePeriod::open(
-            PlaceId::try_new("store-07").unwrap(),
+            UnitId::try_new("store-07").unwrap(),
             AttendanceMonth::try_new(2026, 9).unwrap(),
         );
         chain
@@ -1295,7 +1295,7 @@ mod tests {
                 Correction::request(
                     CorrectionId::try_new("cor-1").unwrap(),
                     EmployeeId::try_new("emp-1").unwrap(),
-                    PlaceId::try_new("store-07").unwrap(),
+                    UnitId::try_new("store-07").unwrap(),
                     date(DAY),
                     CorrectionEffect::Arrival {
                         at: PunchTime::same_day(date(DAY), MinuteOfDay::try_new(8 * 60).unwrap()),

@@ -2,7 +2,7 @@
 //! people sign a run, and an account number is shown four digits at a time.
 
 use super::*;
-use crate::cloud::domain::employment::{actions, Authorization, PlaceId};
+use crate::cloud::domain::employment::{actions, Authorization, UnitId};
 use chrono::{DateTime, NaiveDate, Utc};
 use pricing_engine::Money;
 
@@ -149,7 +149,7 @@ fn pay_cannot_be_set_under_another_key() {
 fn draft() -> PayrollRun {
     PayrollRun::draft(
         "PR-2026-04-store-07",
-        PlaceId::try_new("store-07").unwrap_or_else(|error| panic!("place: {error}")),
+        UnitId::try_new("store-07").unwrap_or_else(|error| panic!("unit: {error}")),
         "2026-04",
         Some("no punch source is connected, so nothing here knows what was worked".to_owned()),
     )
@@ -195,7 +195,7 @@ fn the_person_who_submitted_a_run_may_not_approve_it() {
 fn a_stored_run_signed_twice_by_one_person_refuses_to_load() {
     let json = serde_json::json!({
         "id": "PR-1",
-        "place": "store-07",
+        "unit": "store-07",
         "period": "2026-04",
         "state": "APPROVED",
         "complete": false,
@@ -288,7 +288,7 @@ fn an_approved_run_can_be_reopened_and_the_reopen_clears_both_signatures() {
 /// A run head office has not answered yet is head office's to hand back, and a
 /// draft is not reopenable because there is nothing to undo.
 #[test]
-fn a_submitted_run_goes_back_to_the_place_and_a_draft_has_nothing_to_undo() {
+fn a_submitted_run_goes_back_to_the_unit_and_a_draft_has_nothing_to_undo() {
     let mut run = draft();
     let error = run
         .reopen(authority("hr.dewi", actions::PAYROLL_REOPEN, 0))
@@ -333,7 +333,7 @@ fn a_run_says_it_is_incomplete_and_why() {
 
     let whole = PayrollRun::draft(
         "PR-2",
-        PlaceId::try_new("ho").unwrap_or_else(|error| panic!("place: {error}")),
+        UnitId::try_new("ho").unwrap_or_else(|error| panic!("unit: {error}")),
         "2026-04",
         None,
     )
@@ -376,7 +376,7 @@ fn a_liability_is_the_sum_of_its_breakdown() {
     // A stored row whose header disagrees with its lines does not load.
     let json = serde_json::json!({
         "run_id": "PR-1",
-        "place": "store-07",
+        "unit": "store-07",
         "period": "2026-04",
         "gross_minor": 9_000_000,
         "state": "RECEIVED",
@@ -488,7 +488,7 @@ fn finance_answers_under_its_own_key_and_answers_once() {
 fn a_paid_liability_carries_the_signature_that_paid_it() {
     let json = serde_json::json!({
         "run_id": "PR-1",
-        "place": "store-07",
+        "unit": "store-07",
         "period": "2026-04",
         "gross_minor": 5_500_000,
         "state": "PAID",

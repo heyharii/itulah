@@ -182,7 +182,7 @@ async fn staff_at(
     cookies: &str,
     csrf: &str,
     code: &str,
-    place_id: &str,
+    unit_id: &str,
 ) -> String {
     let registered = send(
         app.clone(),
@@ -223,7 +223,7 @@ async fn staff_at(
         &format!("/api/v1/employees/{employee_id}/assignments"),
         write_headers(cookies, csrf),
         Some(json!({
-            "place_id": place_id,
+            "unit_id": unit_id,
             "valid_from": "2026-01-05",
             "reason": "penempatan awal",
         })),
@@ -435,11 +435,11 @@ async fn close_april(app: &axum::Router, cookies: &str, csrf: &str) {
     close_april_at(app, cookies, csrf, "store-07").await;
 }
 
-async fn close_april_at(app: &axum::Router, cookies: &str, csrf: &str, place: &str) {
+async fn close_april_at(app: &axum::Router, cookies: &str, csrf: &str, unit: &str) {
     let closed = send(
         app.clone(),
         "POST",
-        &format!("/api/v1/attendance-periods/{place}/2026-04/closure"),
+        &format!("/api/v1/attendance-periods/{unit}/2026-04/closure"),
         write_headers(cookies, csrf),
         Some(json!({ "reason": "absensi April sudah dicek" })),
     )
@@ -451,14 +451,14 @@ async fn open_run(app: &axum::Router, cookies: &str, csrf: &str) -> Response {
     open_run_at(app, cookies, csrf, "store-07").await
 }
 
-async fn open_run_at(app: &axum::Router, cookies: &str, csrf: &str, place: &str) -> Response {
+async fn open_run_at(app: &axum::Router, cookies: &str, csrf: &str, unit: &str) -> Response {
     send(
         app.clone(),
         "POST",
         "/api/v1/payroll/runs",
         write_headers(cookies, csrf),
         Some(json!({
-            "place_id": place,
+            "unit_id": unit,
             "period": "2026-04",
             "reason": "penggajian April",
         })),
@@ -715,7 +715,7 @@ async fn an_account_number_never_leaves_the_server_whole(pool: PgPool) {
 /// The test this file exists for: the place submits, head office decides, and
 /// the two signatures cannot be one person's.
 #[sqlx::test(migrations = "./migrations/postgres")]
-async fn the_place_submits_and_head_office_approves(pool: PgPool) {
+async fn the_unit_submits_and_head_office_approves(pool: PgPool) {
     cloud::bootstrap_admin(&pool, Some(ADMIN_PASSWORD), true)
         .await
         .unwrap_or_else(|error| panic!("bootstrap: {error}"));

@@ -366,7 +366,7 @@ impl Api {
     // ── people: an employee record with a login bound to it ────────────────
 
     /// Register, hire and post somebody to a place, returning the employee id.
-    pub async fn employee(&self, code: &str, place_id: &str) -> String {
+    pub async fn employee(&self, code: &str, unit_id: &str) -> String {
         let registered = self
             .post("admin", "/api/v1/employees", json!({ "employee_code": code }))
             .await;
@@ -383,15 +383,15 @@ impl Api {
         self.post(
             "admin",
             &format!("/api/v1/employees/{employee_id}/assignments"),
-            json!({ "place_id": place_id, "valid_from": "2026-01-05", "reason": "penempatan awal" }),
+            json!({ "unit_id": unit_id, "valid_from": "2026-01-05", "reason": "penempatan awal" }),
         )
         .await;
         employee_id
     }
 
     /// Post a login to a shop, so its reach is that shop and nothing else.
-    pub async fn post_login_to(&self, user: &str, code: &str, place_id: &str) -> String {
-        let employee_id = self.employee(code, place_id).await;
+    pub async fn post_login_to(&self, user: &str, code: &str, unit_id: &str) -> String {
+        let employee_id = self.employee(code, unit_id).await;
         self.post(
             "admin",
             &format!("/api/v1/employees/{employee_id}/account"),

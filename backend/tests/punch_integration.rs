@@ -183,7 +183,7 @@ async fn staff_at(
     cookies: &str,
     csrf: &str,
     code: &str,
-    place_id: &str,
+    unit_id: &str,
 ) -> String {
     let registered = send(
         app.clone(),
@@ -224,7 +224,7 @@ async fn staff_at(
         &format!("/api/v1/employees/{employee_id}/assignments"),
         write_headers(cookies, csrf),
         Some(json!({
-            "place_id": place_id,
+            "unit_id": unit_id,
             "valid_from": "2026-01-05",
             "reason": "penempatan awal",
         })),
@@ -403,8 +403,8 @@ async fn a_phone_punch_is_recorded_and_never_looks_like_a_reading(pool: PgPool) 
         punched.body
     );
     assert_eq!(
-        punched.body["place_id"], "store-07",
-        "the place comes from the posting, not the body: {:?}",
+        punched.body["unit_id"], "store-07",
+        "the unit comes from the posting, not the body: {:?}",
         punched.body
     );
 
@@ -413,7 +413,7 @@ async fn a_phone_punch_is_recorded_and_never_looks_like_a_reading(pool: PgPool) 
     let today = send(
         app.clone(),
         "GET",
-        "/api/v1/attendance/today?place=store-07",
+        "/api/v1/attendance/today?unit=store-07",
         read_headers(&admin),
         None,
     )

@@ -12,7 +12,7 @@
 
 use super::AppError;
 use crate::cloud::domain::people::*;
-use crate::cloud::domain::{EmployeeId, PlaceId};
+use crate::cloud::domain::{EmployeeId, UnitId};
 use chrono::{DateTime, NaiveDate, Utc};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 
@@ -32,8 +32,8 @@ fn decode_swap(row: &sqlx::postgres::PgRow) -> Result<RosterSwap, AppError> {
             row.try_get::<String, _>("with_employee_id")?.as_str(),
         )
         .map_err(|e| corrupt("swap colleague", e))?,
-        place_id: PlaceId::try_new(row.try_get::<String, _>("place_id")?.as_str())
-            .map_err(|e| corrupt("swap place", e))?,
+        unit_id: UnitId::try_new(row.try_get::<String, _>("unit_id")?.as_str())
+            .map_err(|e| corrupt("swap unit", e))?,
         on_date: row.try_get("on_date")?,
         reason: row.try_get("reason")?,
         state: serde_json::from_value::<SwapState>(serde_json::Value::String(state.clone()))
@@ -50,14 +50,14 @@ fn decode_swap(row: &sqlx::postgres::PgRow) -> Result<RosterSwap, AppError> {
 pub async fn insert_swap(pool: &PgPool, swap: &RosterSwap) -> Result<(), AppError> {
     let inserted = sqlx::query(
         "INSERT INTO roster_swap_request
-            (id, employee_id, with_employee_id, place_id, on_date, reason, state, requested)
+            (id, employee_id, with_employee_id, unit_id, on_date, reason, state, requested)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          ON CONFLICT (employee_id, on_date) WHERE state = 'PENDING' DO NOTHING",
     )
     .bind(&swap.id)
     .bind(swap.employee_id.as_str())
     .bind(swap.with_employee_id.as_str())
-    .bind(swap.place_id.as_str())
+    .bind(swap.unit_id.as_str())
     .bind(swap.on_date)
     .bind(&swap.reason)
     .bind(swap.state.as_str())
@@ -75,7 +75,7 @@ pub async fn insert_swap(pool: &PgPool, swap: &RosterSwap) -> Result<(), AppErro
 
 pub async fn load_swap(pool: &PgPool, id: &str) -> Result<Option<RosterSwap>, AppError> {
     let row = sqlx::query(
-        "SELECT id, employee_id, with_employee_id, place_id, on_date, reason, state,
+        "SELECT id, employee_id, with_employee_id, unit_id, on_date, reason, state,
                 requested, decision
            FROM roster_swap_request WHERE id = $1",
     )
@@ -87,18 +87,15 @@ pub async fn load_swap(pool: &PgPool, id: &str) -> Result<Option<RosterSwap>, Ap
 
 /// The store head's queue: pending swaps at one place, or everywhere for
 /// head office. `None` means no place bound.
-pub async fn pending_swaps(
-    pool: &PgPool,
-    place: Option<&str>,
-) -> Result<Vec<RosterSwap>, AppError> {
+pub async fn pending_swaps(pool: &PgPool, unit: Option<&str>) -> Result<Vec<RosterSwap>, AppError> {
     let rows = sqlx::query(
-        "SELECT id, employee_id, with_employee_id, place_id, on_date, reason, state,
+        "SELECT id, employee_id, with_employee_id, unit_id, on_date, reason, state,
                 requested, decision
            FROM roster_swap_request
-          WHERE state = 'PENDING' AND ($1::text IS NULL OR place_id = $1)
+          WHERE state = 'PENDING' AND ($1::text IS NULL OR unit_id = $1)
           ORDER BY on_date, created_at",
     )
-    .bind(place)
+    .bind(unit)
     .fetch_all(pool)
     .await?;
     rows.iter().map(decode_swap).collect()
@@ -109,7 +106,7 @@ pub async fn swaps_of_employee(
     employee_id: &str,
 ) -> Result<Vec<RosterSwap>, AppError> {
     let rows = sqlx::query(
-        "SELECT id, employee_id, with_employee_id, place_id, on_date, reason, state,
+        "SELECT id, employee_id, with_employee_id, unit_id, on_date, reason, state,
                 requested, decision
            FROM roster_swap_request
           WHERE employee_id = $1 OR with_employee_id = $1
@@ -158,8 +155,8 @@ fn decode_change(row: &sqlx::postgres::PgRow) -> Result<ChangeProposal, AppError
         id: row.try_get("id")?,
         employee_id: EmployeeId::try_new(row.try_get::<String, _>("employee_id")?.as_str())
             .map_err(|e| corrupt("change employee", e))?,
-        place_id: PlaceId::try_new(row.try_get::<String, _>("place_id")?.as_str())
-            .map_err(|e| corrupt("change place", e))?,
+        unit_id: UnitId::try_new(row.try_get::<String, _>("unit_id")?.as_str())
+            .map_err(|e| corrupt("change unit", e))?,
         kind: ChangeKind::parse(&kind).ok_or_else(|| corrupt("change kind", kind.clone()))?,
         props: serde_json::from_value(row.try_get("props")?)
             .map_err(|e| corrupt("change props", e))?,
@@ -180,13 +177,13 @@ fn decode_change(row: &sqlx::postgres::PgRow) -> Result<ChangeProposal, AppError
 pub async fn insert_change(pool: &PgPool, proposal: &ChangeProposal) -> Result<(), AppError> {
     let inserted = sqlx::query(
         "INSERT INTO employee_change_proposal
-            (id, employee_id, place_id, kind, props, effective_on, reason, state, filed)
+            (id, employee_id, unit_id, kind, props, effective_on, reason, state, filed)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
          ON CONFLICT (employee_id) WHERE state = 'PENDING' DO NOTHING",
     )
     .bind(&proposal.id)
     .bind(proposal.employee_id.as_str())
-    .bind(proposal.place_id.as_str())
+    .bind(proposal.unit_id.as_str())
     .bind(proposal.kind.as_str())
     .bind(serde_json::to_value(&proposal.props)?)
     .bind(proposal.effective_on)
@@ -206,7 +203,7 @@ pub async fn insert_change(pool: &PgPool, proposal: &ChangeProposal) -> Result<(
 
 pub async fn load_change(pool: &PgPool, id: &str) -> Result<Option<ChangeProposal>, AppError> {
     let row = sqlx::query(
-        "SELECT id, employee_id, place_id, kind, props, effective_on, reason, state,
+        "SELECT id, employee_id, unit_id, kind, props, effective_on, reason, state,
                 filed, decision, applied_at
            FROM employee_change_proposal WHERE id = $1",
     )
@@ -221,18 +218,18 @@ pub async fn load_change(pool: &PgPool, id: &str) -> Result<Option<ChangeProposa
 pub async fn list_changes(
     pool: &PgPool,
     state: Option<&str>,
-    place: Option<&str>,
+    unit: Option<&str>,
 ) -> Result<Vec<ChangeProposal>, AppError> {
     let rows = sqlx::query(
-        "SELECT id, employee_id, place_id, kind, props, effective_on, reason, state,
+        "SELECT id, employee_id, unit_id, kind, props, effective_on, reason, state,
                 filed, decision, applied_at
            FROM employee_change_proposal
           WHERE ($1::text IS NULL OR state = $1)
-            AND ($2::text IS NULL OR place_id = $2)
+            AND ($2::text IS NULL OR unit_id = $2)
           ORDER BY created_at DESC",
     )
     .bind(state)
-    .bind(place)
+    .bind(unit)
     .fetch_all(pool)
     .await?;
     rows.iter().map(decode_change).collect()
@@ -243,7 +240,7 @@ pub async fn changes_of_employee(
     employee_id: &str,
 ) -> Result<Vec<ChangeProposal>, AppError> {
     let rows = sqlx::query(
-        "SELECT id, employee_id, place_id, kind, props, effective_on, reason, state,
+        "SELECT id, employee_id, unit_id, kind, props, effective_on, reason, state,
                 filed, decision, applied_at
            FROM employee_change_proposal
           WHERE employee_id = $1
@@ -371,7 +368,7 @@ pub async fn list_tasks(
     employee: Option<&str>,
     kind: Option<&str>,
     owner: Option<&str>,
-    place: Option<&str>,
+    unit: Option<&str>,
 ) -> Result<Vec<LifecycleTaskRow>, AppError> {
     let rows = sqlx::query_as::<_, LifecycleTaskRow>(
         "SELECT t.id, t.employee_id, t.kind, t.template_id, tpl.label, tpl.owner,
@@ -384,13 +381,13 @@ pub async fn list_tasks(
             AND ($4::text IS NULL OR EXISTS (
                  SELECT 1 FROM employee_assignment a
                   WHERE a.employee_id = t.employee_id
-                    AND a.place_id = $4))
+                    AND a.unit_id = $4))
           ORDER BY t.employee_id, t.kind, tpl.position",
     )
     .bind(employee)
     .bind(kind)
     .bind(owner)
-    .bind(place)
+    .bind(unit)
     .fetch_all(pool)
     .await?;
     Ok(rows)
@@ -420,16 +417,16 @@ pub async fn complete_task(
 pub async fn upsert_plan(pool: &PgPool, plan: &StaffingPlan) -> Result<(), AppError> {
     sqlx::query(
         "INSERT INTO staffing_plan
-            (id, place_id, position, span, headcount, cost_minor, defined)
+            (id, unit_id, position, span, headcount, cost_minor, defined)
          VALUES ($1, $2, $3, $4, $5, $6, $7)
-         ON CONFLICT (place_id, position, span)
+         ON CONFLICT (unit_id, position, span)
          DO UPDATE SET headcount = EXCLUDED.headcount,
                        cost_minor = EXCLUDED.cost_minor,
                        defined = EXCLUDED.defined,
                        updated_at = now()",
     )
     .bind(&plan.id)
-    .bind(plan.place_id.as_str())
+    .bind(plan.unit_id.as_str())
     .bind(&plan.position)
     .bind(&plan.span)
     .bind(plan.headcount as i32)
@@ -443,7 +440,7 @@ pub async fn upsert_plan(pool: &PgPool, plan: &StaffingPlan) -> Result<(), AppEr
 #[derive(Debug, sqlx::FromRow)]
 pub struct StaffingPlanRow {
     pub id: String,
-    pub place_id: String,
+    pub unit_id: String,
     pub position: String,
     pub span: String,
     pub headcount: i32,
@@ -453,17 +450,17 @@ pub struct StaffingPlanRow {
 
 pub async fn list_plans(
     pool: &PgPool,
-    place: Option<&str>,
+    unit: Option<&str>,
     span: Option<&str>,
 ) -> Result<Vec<StaffingPlanRow>, AppError> {
     let rows = sqlx::query_as::<_, StaffingPlanRow>(
-        "SELECT id, place_id, position, span, headcount, cost_minor, defined
+        "SELECT id, unit_id, position, span, headcount, cost_minor, defined
            FROM staffing_plan
-          WHERE ($1::text IS NULL OR place_id = $1)
+          WHERE ($1::text IS NULL OR unit_id = $1)
             AND ($2::text IS NULL OR span = $2)
-          ORDER BY place_id, position",
+          ORDER BY unit_id, position",
     )
-    .bind(place)
+    .bind(unit)
     .bind(span)
     .fetch_all(pool)
     .await?;
@@ -475,8 +472,8 @@ fn decode_applicant(row: &sqlx::postgres::PgRow) -> Result<JobApplicant, AppErro
     Ok(JobApplicant {
         id: row.try_get("id")?,
         proposal_id: row.try_get("proposal_id")?,
-        place_id: PlaceId::try_new(row.try_get::<String, _>("place_id")?.as_str())
-            .map_err(|e| corrupt("applicant place", e))?,
+        unit_id: UnitId::try_new(row.try_get::<String, _>("unit_id")?.as_str())
+            .map_err(|e| corrupt("applicant unit", e))?,
         name: row.try_get("name")?,
         phone: row.try_get("phone")?,
         source: row.try_get("source")?,
@@ -494,13 +491,13 @@ fn decode_applicant(row: &sqlx::postgres::PgRow) -> Result<JobApplicant, AppErro
 pub async fn insert_applicant(pool: &PgPool, applicant: &JobApplicant) -> Result<(), AppError> {
     sqlx::query(
         "INSERT INTO job_applicant
-            (id, proposal_id, place_id, name, phone, source, referrer_employee_id,
+            (id, proposal_id, unit_id, name, phone, source, referrer_employee_id,
              stage, stage_note, applied_on)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
     )
     .bind(&applicant.id)
     .bind(&applicant.proposal_id)
-    .bind(applicant.place_id.as_str())
+    .bind(applicant.unit_id.as_str())
     .bind(&applicant.name)
     .bind(&applicant.phone)
     .bind(&applicant.source)
@@ -515,7 +512,7 @@ pub async fn insert_applicant(pool: &PgPool, applicant: &JobApplicant) -> Result
 
 pub async fn load_applicant(pool: &PgPool, id: &str) -> Result<Option<JobApplicant>, AppError> {
     let row = sqlx::query(
-        "SELECT id, proposal_id, place_id, name, phone, source, referrer_employee_id,
+        "SELECT id, proposal_id, unit_id, name, phone, source, referrer_employee_id,
                 stage, stage_note, applied_on
            FROM job_applicant WHERE id = $1",
     )
@@ -531,7 +528,7 @@ pub async fn list_applicants(
     stage: Option<&str>,
 ) -> Result<Vec<JobApplicant>, AppError> {
     let rows = sqlx::query(
-        "SELECT id, proposal_id, place_id, name, phone, source, referrer_employee_id,
+        "SELECT id, proposal_id, unit_id, name, phone, source, referrer_employee_id,
                 stage, stage_note, applied_on
            FROM job_applicant
           WHERE ($1::text IS NULL OR proposal_id = $1)
@@ -866,7 +863,7 @@ pub async fn list_scores(
     pool: &PgPool,
     employee: Option<&str>,
     period: Option<NaiveDate>,
-    place: Option<&str>,
+    unit: Option<&str>,
 ) -> Result<Vec<PerformanceScoreRow>, AppError> {
     let rows = sqlx::query_as::<_, PerformanceScoreRow>(
         "SELECT s.employee_id, s.period, s.kpi_pct, s.manager_score, s.note, s.recorded
@@ -876,13 +873,13 @@ pub async fn list_scores(
             AND ($3::text IS NULL OR EXISTS (
                  SELECT 1 FROM employee_assignment a
                   WHERE a.employee_id = s.employee_id
-                    AND a.place_id = $3
+                    AND a.unit_id = $3
                     AND (a.valid_to IS NULL OR a.valid_to >= s.period)))
           ORDER BY s.period DESC, s.employee_id",
     )
     .bind(employee)
     .bind(period)
-    .bind(place)
+    .bind(unit)
     .fetch_all(pool)
     .await?;
     Ok(rows)
@@ -1151,61 +1148,62 @@ pub fn now() -> DateTime<Utc> {
 
 // ── the swap picker's feed ───────────────────────────────────────────────
 
-/// Who else is planned this week at one place, with the days their plan
+/// Who else is planned this week at one unit, with the days their plan
 /// covers. Excludes the caller — a swap with yourself changes nothing, and
 /// the request form has no use for their own row.
+///
+/// A runtime query rather than `sqlx::query!`: it was the only compile-time
+/// checked query in the crate, and it tied every build to either a live
+/// database at the newest migration or a `.sqlx` cache regenerated in step
+/// with it — the unit rename (0451) is exactly the change that breaks both.
 pub async fn colleagues_at(
     pool: &PgPool,
-    place: &str,
+    unit: &str,
     excluding: &str,
     from: NaiveDate,
     to: NaiveDate,
 ) -> Result<Vec<ColleagueRow>, AppError> {
-    let rows = sqlx::query!(
-        r#"SELECT e.id AS employee_id,
-                  COALESCE(p.full_name, e.code) AS name,
-                  r.on_date,
-                  r.planned
-             FROM roster_day r
-             JOIN employee e ON e.id = r.employee_id
-             LEFT JOIN employee_profile p ON p.employee_id = e.id
-            WHERE r.place_id = $1
-              AND r.on_date BETWEEN $2 AND $3
-              AND e.id <> $4
-              AND EXISTS (SELECT 1 FROM employee_assignment a
-                           WHERE a.employee_id = e.id AND a.place_id = $1)
-            ORDER BY e.id, r.on_date"#,
-        place,
-        from,
-        to,
-        excluding
+    let rows = sqlx::query_as::<_, (String, Option<String>, NaiveDate, serde_json::Value)>(
+        "SELECT e.id AS employee_id,
+                COALESCE(p.full_name, e.code) AS name,
+                r.on_date,
+                r.planned
+           FROM roster_day r
+           JOIN employee e ON e.id = r.employee_id
+           LEFT JOIN employee_profile p ON p.employee_id = e.id
+          WHERE r.unit_id = $1
+            AND r.on_date BETWEEN $2 AND $3
+            AND e.id <> $4
+            AND EXISTS (SELECT 1 FROM employee_assignment a
+                         WHERE a.employee_id = e.id AND a.unit_id = $1)
+          ORDER BY e.id, r.on_date",
     )
+    .bind(unit)
+    .bind(from)
+    .bind(to)
+    .bind(excluding)
     .fetch_all(pool)
     .await?;
 
     // Fold into one row per person, days in date order.
     let mut people: Vec<ColleagueRow> = Vec::new();
     let mut index: std::collections::HashMap<String, usize> = Default::default();
-    for row in rows {
-        let planned: serde_json::Value = row.planned;
+    for (employee_id, name, on_date, planned) in rows {
         let plan = planned
             .get("plan")
             .and_then(|word| word.as_str())
             .unwrap_or("SCHEDULED")
             .to_owned();
-        let name = row.name.unwrap_or_else(|| row.employee_id.clone());
-        let entry = index.entry(row.employee_id.clone()).or_insert_with(|| {
+        let name = name.unwrap_or_else(|| employee_id.clone());
+        let entry = index.entry(employee_id.clone()).or_insert_with(|| {
             people.push(ColleagueRow {
-                employee_id: row.employee_id.clone(),
+                employee_id: employee_id.clone(),
                 name,
                 days: Vec::new(),
             });
             people.len() - 1
         });
-        people[*entry].days.push(ColleagueDay {
-            on_date: row.on_date,
-            plan,
-        });
+        people[*entry].days.push(ColleagueDay { on_date, plan });
     }
     Ok(people)
 }

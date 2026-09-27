@@ -16,13 +16,13 @@
 //! period for the date being written is loaded, and the guard is asked of that.
 
 use super::auth::Principal;
-use super::employment::{current_place, reach_of, resolve, Access};
+use super::employment::{current_unit, reach_of, resolve, Access};
 use crate::cloud::{
     application::{AppError, AppState},
     domain::{
         actions, required_role_for_action, role_allows, AttendanceMonth, Authorization,
-        CloseReadiness, DayOffset, DayPlan, EmployeeId, MinuteOfDay, Minutes, PeriodEvent, PlaceId,
-        RosterDay, Shift, ShiftId,
+        CloseReadiness, DayOffset, DayPlan, EmployeeId, MinuteOfDay, Minutes, PeriodEvent,
+        RosterDay, Shift, ShiftId, UnitId,
     },
     postgres::{self as infrastructure, RosterDayRow},
 };
@@ -153,7 +153,7 @@ pub struct PeriodEventView {
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct PeriodView {
-    pub place_id: String,
+    pub unit_id: String,
     /// `YYYY-MM`.
     pub period: String,
     /// `OPEN` or `CLOSED`.
@@ -218,8 +218,8 @@ pub struct RangeQuery {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct PlaceRangeQuery {
-    pub place: String,
+pub struct UnitRangeQuery {
+    pub unit: String,
     pub from: NaiveDate,
     pub to: NaiveDate,
 }
@@ -283,13 +283,13 @@ pub async fn retire_shift(
 // ── the roster ───────────────────────────────────────────────────────────
 
 /// The subject's place, for the reach check.
-async fn subject_place(state: &AppState, access: &Access) -> Result<String, AppError> {
+async fn subject_unit(state: &AppState, access: &Access) -> Result<String, AppError> {
     let record = infrastructure::load_employee(&state.db, &access.employee_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("employee {}", access.employee_id)))?;
-    let place = current_place(&record).map(ToOwned::to_owned);
-    access.reaches(place.as_deref())?;
-    place.ok_or_else(|| {
+    let unit = current_unit(&record).map(ToOwned::to_owned);
+    access.reaches(unit.as_deref())?;
+    unit.ok_or_else(|| {
         AppError::Conflict(format!(
             "{} is not posted anywhere, so there is nowhere to roster them",
             access.employee_id
@@ -310,7 +310,7 @@ pub async fn read_roster(
     let access = resolve(&state, &principal, &raw).await?;
     access.may_read(actions::EMPLOYEE_READ)?;
     if !access.own {
-        subject_place(&state, &access).await?;
+        subject_unit(&state, &access).await?;
     }
     let roster =
         infrastructure::roster_of(&state.db, &access.employee_id, query.from, query.to).await?;
@@ -327,21 +327,20 @@ pub async fn read_roster(
 }
 
 /// A whole place's week — the grid a manager builds.
-pub async fn place_roster(
+pub async fn unit_roster(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
-    Query(query): Query<PlaceRangeQuery>,
+    Query(query): Query<UnitRangeQuery>,
 ) -> Result<Json<Vec<RosterDayView>>, AppError> {
     require(&principal, actions::EMPLOYEE_READ)?;
     let reach = reach_of(&state, &principal).await?;
-    if !reach.covers(Some(&query.place)) {
+    if !reach.covers(Some(&query.unit)) {
         return Err(AppError::Forbidden(format!(
             "{} is not posted anywhere that reaches {}",
-            principal.username, query.place
+            principal.username, query.unit
         )));
     }
-    let days =
-        infrastructure::roster_at_place(&state.db, &query.place, query.from, query.to).await?;
+    let days = infrastructure::roster_at_unit(&state.db, &query.unit, query.from, query.to).await?;
     Ok(Json(
         days.iter()
             .map(|day| RosterDayView {
@@ -366,8 +365,8 @@ pub async fn plan_day(
 ) -> Result<Json<RosterDayView>, AppError> {
     let access = resolve(&state, &principal, &raw).await?;
     access.may(actions::ROSTER_MANAGE)?;
-    let place_id = subject_place(&state, &access).await?;
-    let place = PlaceId::try_new(&place_id).map_err(invalid)?;
+    let unit_id = subject_unit(&state, &access).await?;
+    let unit = UnitId::try_new(&unit_id).map_err(invalid)?;
 
     let plan = match (body.plan.as_str(), body.shift_id.as_deref()) {
         ("SCHEDULED", Some(shift_id)) => {
@@ -400,7 +399,7 @@ pub async fn plan_day(
 
     // Loaded, never taken from the body: a caller who supplied the period would
     // be supplying the answer to "is this month still open?".
-    let period = infrastructure::period_for(&state.db, &place, body.on_date).await?;
+    let period = infrastructure::period_for(&state.db, &unit, body.on_date).await?;
     let authorization = access.authorize(actions::ROSTER_MANAGE, &body.reason)?;
 
     let mut roster =
@@ -413,7 +412,7 @@ pub async fn plan_day(
     } else {
         let day = RosterDay::new(
             EmployeeId::try_new(&access.employee_id).map_err(invalid)?,
-            place,
+            unit,
             body.on_date,
             plan,
             authorization,
@@ -438,7 +437,7 @@ pub async fn plan_day(
 
 async fn period_view(
     state: &AppState,
-    place: &PlaceId,
+    unit: &UnitId,
     period: &crate::cloud::domain::AttendancePeriod,
 ) -> Result<PeriodView, AppError> {
     // Only for an open period: what stands between a closed one and a close is
@@ -447,11 +446,11 @@ async fn period_view(
         None
     } else {
         Some(readiness_view(
-            infrastructure::close_readiness(&state.db, place, period.period()).await?,
+            infrastructure::close_readiness(&state.db, unit, period.period()).await?,
         ))
     };
     Ok(PeriodView {
-        place_id: period.place().to_string(),
+        unit_id: period.unit().to_string(),
         period: period.period().to_string(),
         status: period.status().code().to_owned(),
         reopen_count: period.reopen_count(),
@@ -463,7 +462,7 @@ async fn period_view(
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PeriodQuery {
-    pub place: String,
+    pub unit: String,
     /// `YYYY-MM`. Absent reads every period the place has a record for.
     #[serde(default)]
     pub period: Option<String>,
@@ -476,13 +475,13 @@ pub async fn read_periods(
 ) -> Result<Json<Vec<PeriodView>>, AppError> {
     require(&principal, actions::EMPLOYEE_READ)?;
     let reach = reach_of(&state, &principal).await?;
-    if !reach.covers(Some(&query.place)) {
+    if !reach.covers(Some(&query.unit)) {
         return Err(AppError::Forbidden(format!(
             "{} is not posted anywhere that reaches {}",
-            principal.username, query.place
+            principal.username, query.unit
         )));
     }
-    let place = PlaceId::try_new(&query.place).map_err(invalid)?;
+    let unit = UnitId::try_new(&query.unit).map_err(invalid)?;
 
     match query.period.as_deref() {
         Some(raw) => {
@@ -490,14 +489,14 @@ pub async fn read_periods(
             let first = month.first_day().ok_or_else(|| {
                 AppError::Validation(format!("{raw} is not a month with a first day"))
             })?;
-            let period = infrastructure::period_for(&state.db, &place, first).await?;
-            Ok(Json(vec![period_view(&state, &place, &period).await?]))
+            let period = infrastructure::period_for(&state.db, &unit, first).await?;
+            Ok(Json(vec![period_view(&state, &unit, &period).await?]))
         }
         None => {
-            let periods = infrastructure::periods_of(&state.db, &place).await?;
+            let periods = infrastructure::periods_of(&state.db, &unit).await?;
             let mut views = Vec::with_capacity(periods.len());
             for period in &periods {
-                views.push(period_view(&state, &place, period).await?);
+                views.push(period_view(&state, &unit, period).await?);
             }
             Ok(Json(views))
         }
@@ -512,25 +511,25 @@ pub async fn read_periods(
 pub async fn close_period(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
-    Path((raw_place, raw_period)): Path<(String, String)>,
+    Path((raw_unit, raw_period)): Path<(String, String)>,
     Json(body): Json<ReasonBody>,
 ) -> Result<Json<PeriodView>, AppError> {
     require(&principal, actions::ATTENDANCE_PERIOD_CLOSE)?;
     let reach = reach_of(&state, &principal).await?;
-    if !reach.covers(Some(&raw_place)) {
+    if !reach.covers(Some(&raw_unit)) {
         return Err(AppError::Forbidden(format!(
-            "{} is not posted anywhere that reaches {raw_place}",
+            "{} is not posted anywhere that reaches {raw_unit}",
             principal.username
         )));
     }
-    let place = PlaceId::try_new(&raw_place).map_err(invalid)?;
+    let unit = UnitId::try_new(&raw_unit).map_err(invalid)?;
     let month = AttendanceMonth::parse(&raw_period).map_err(infrastructure::attendance_error)?;
     let first = month
         .first_day()
         .ok_or_else(|| AppError::Validation(format!("{raw_period} has no first day")))?;
 
-    let mut period = infrastructure::period_for(&state.db, &place, first).await?;
-    let readiness = infrastructure::close_readiness(&state.db, &place, month).await?;
+    let mut period = infrastructure::period_for(&state.db, &unit, first).await?;
+    let readiness = infrastructure::close_readiness(&state.db, &unit, month).await?;
     let authorization = Authorization::try_new(
         &principal.username,
         actions::ATTENDANCE_PERIOD_CLOSE,
@@ -542,24 +541,24 @@ pub async fn close_period(
         .close(readiness, authorization)
         .map_err(infrastructure::attendance_error)?;
     infrastructure::save_period(&state.db, &period).await?;
-    Ok(Json(period_view(&state, &place, &period).await?))
+    Ok(Json(period_view(&state, &unit, &period).await?))
 }
 
 /// Undo a sign-off. Head office's.
 pub async fn reopen_period(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
-    Path((raw_place, raw_period)): Path<(String, String)>,
+    Path((raw_unit, raw_period)): Path<(String, String)>,
     Json(body): Json<ReasonBody>,
 ) -> Result<Json<PeriodView>, AppError> {
     require(&principal, actions::ATTENDANCE_PERIOD_REOPEN)?;
-    let place = PlaceId::try_new(&raw_place).map_err(invalid)?;
+    let unit = UnitId::try_new(&raw_unit).map_err(invalid)?;
     let month = AttendanceMonth::parse(&raw_period).map_err(infrastructure::attendance_error)?;
     let first = month
         .first_day()
         .ok_or_else(|| AppError::Validation(format!("{raw_period} has no first day")))?;
 
-    let mut period = infrastructure::period_for(&state.db, &place, first).await?;
+    let mut period = infrastructure::period_for(&state.db, &unit, first).await?;
     let authorization = Authorization::try_new(
         &principal.username,
         actions::ATTENDANCE_PERIOD_REOPEN,
@@ -571,5 +570,5 @@ pub async fn reopen_period(
         .reopen(authorization)
         .map_err(infrastructure::attendance_error)?;
     infrastructure::save_period(&state.db, &period).await?;
-    Ok(Json(period_view(&state, &place, &period).await?))
+    Ok(Json(period_view(&state, &unit, &period).await?))
 }

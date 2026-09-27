@@ -29,7 +29,7 @@ use crate::cloud::application::AppError;
 use crate::cloud::domain::{
     Address, AssignmentSpan, AssignmentTimeline, Authorization, Contact, Contract, ContractKind,
     ContractTimeline, Employee, EmployeeCode, EmployeeId, EmploymentStatus, EmploymentTransition,
-    FullName, Grade, Nik, PlaceId, Position, Profile,
+    FullName, Grade, Nik, Position, Profile, UnitId,
 };
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
@@ -51,14 +51,14 @@ fn corrupt(what: &str, detail: String) -> AppError {
 pub struct EmployeeRecord {
     pub employee: Employee,
     pub assignments: AssignmentTimeline,
-    /// `place_id` → the place's name, for every place this person has been
+    /// `unit_id` → the place's name, for every place this person has been
     /// posted to.
     ///
     /// Beside the timeline rather than inside it: `AssignmentSpan` is a domain
     /// type and a display name is not part of what makes a posting valid. But a
     /// screen showing `ho` where it means "Head Office" is an id that has
     /// escaped into the interface, so the names travel with the record.
-    pub place_names: std::collections::HashMap<String, String>,
+    pub unit_names: std::collections::HashMap<String, String>,
     pub profile: Option<Profile>,
     pub contracts: ContractTimeline,
     /// The login bound to this record, when there is one. Loaded with the
@@ -86,8 +86,8 @@ pub struct EmployeeSummary {
     /// profile.
     pub full_name: Option<String>,
     /// The open posting, if there is one.
-    pub place_id: Option<String>,
-    pub place_name: Option<String>,
+    pub unit_id: Option<String>,
+    pub unit_name: Option<String>,
     /// The most recent contract, whether or not it is still in force.
     pub contract_kind: Option<String>,
     pub contract_ends_on: Option<NaiveDate>,
@@ -104,7 +104,7 @@ pub struct ExpiringContract {
     pub employee_code: String,
     pub full_name: Option<String>,
     pub position: String,
-    pub place_id: Option<String>,
+    pub unit_id: Option<String>,
     pub ends_on: NaiveDate,
     /// Days from the date asked about to the last day of the term. Negative
     /// means it has already ended and nobody noticed, which is exactly the row
@@ -146,9 +146,9 @@ type Assignments = (
 
 async fn load_assignments(pool: &PgPool, employee_id: &str) -> Result<Assignments, AppError> {
     let rows = sqlx::query(
-        "SELECT a.place_id, a.valid_from, a.valid_to, a.authorized, place.name AS place_name
+        "SELECT a.unit_id, a.valid_from, a.valid_to, a.authorized, unit.name AS unit_name
            FROM employee_assignment a
-           LEFT JOIN org_place place ON place.id = a.place_id
+           LEFT JOIN unit unit ON unit.id = a.unit_id
           WHERE a.employee_id = $1
           ORDER BY a.valid_from, a.id",
     )
@@ -159,13 +159,13 @@ async fn load_assignments(pool: &PgPool, employee_id: &str) -> Result<Assignment
     let mut timeline = AssignmentTimeline::new();
     let mut names = std::collections::HashMap::new();
     for row in &rows {
-        let place_id: String = row.try_get("place_id")?;
-        if let Some(name) = row.try_get::<Option<String>, _>("place_name")? {
-            names.insert(place_id.clone(), name);
+        let unit_id: String = row.try_get("unit_id")?;
+        if let Some(name) = row.try_get::<Option<String>, _>("unit_name")? {
+            names.insert(unit_id.clone(), name);
         }
         let authorized: serde_json::Value = row.try_get("authorized")?;
         let span = AssignmentSpan::try_new(
-            PlaceId::try_new(&place_id).map_err(|error| corrupt("place id", error.to_string()))?,
+            UnitId::try_new(&unit_id).map_err(|error| corrupt("unit id", error.to_string()))?,
             row.try_get::<NaiveDate, _>("valid_from")?,
             row.try_get::<Option<NaiveDate>, _>("valid_to")?,
             serde_json::from_value::<Authorization>(authorized)
@@ -286,11 +286,11 @@ pub async fn load_employee(
         return Ok(None);
     };
 
-    let (assignments, place_names) = load_assignments(pool, employee_id).await?;
+    let (assignments, unit_names) = load_assignments(pool, employee_id).await?;
     Ok(Some(EmployeeRecord {
         employee: decode_employee(&row)?,
         assignments,
-        place_names,
+        unit_names,
         profile: load_profile(pool, employee_id).await?,
         contracts: load_contracts(pool, employee_id).await?,
         account: load_account(pool, employee_id).await?,
@@ -334,14 +334,14 @@ pub struct EmployeeScope {
     /// they sent. `None` means unbounded — `Reach::Everywhere` — and never
     /// "nowhere", which the handler refuses long before it reaches here.
     ///
-    /// Deliberately separate from `place_id`, and both are applied. `place_id`
+    /// Deliberately separate from `unit_id`, and both are applied. `unit_id`
     /// is a filter somebody chose and may change at will; this is a fence they
     /// cannot. Folding the two into one column works exactly as long as the
     /// handler keeps reconciling them correctly, and the day that
     /// reconciliation is edited by somebody who does not know it is
     /// load-bearing is the day a store manager is served another store's staff.
     /// Two fields cost one redundant predicate and make that edit harmless.
-    pub reach_place: Option<String>,
+    pub reach_unit: Option<String>,
     /// Free text, tried against the employee number and the person's name.
     ///
     /// Those two and nothing else. A workforce list must not become a way to
@@ -360,7 +360,7 @@ pub struct EmployeeScope {
     pub status: Option<String>,
     /// The place the caller asked for, AFTER the handler has reconciled it
     /// against their reach. Never a raw query parameter.
-    pub place_id: Option<String>,
+    pub unit_id: Option<String>,
     /// `code`, `name`, `contract_end` or `place` — the closed set this server
     /// names, and nothing else is a sort.
     ///
@@ -426,7 +426,7 @@ pub struct EmployeeFacets {
     /// spelling for "nowhere", and a count nobody can click is worse than no
     /// count. Only an unbounded caller ever sees such a row at all:
     /// `Reach::covers(None)` is true for `Everywhere` alone.
-    pub places: Vec<EmployeeFacet>,
+    pub units: Vec<EmployeeFacet>,
 }
 
 /// A page of the workforce, and the shape of everything it was drawn from.
@@ -441,7 +441,7 @@ pub struct EmployeeList {
     /// workforce" and one that reads as "your shop's workforce". A list that
     /// silently shows eight people where the company has ninety reads as a
     /// company of eight.
-    pub place_id: Option<String>,
+    pub unit_id: Option<String>,
     pub rows: Vec<EmployeeSummary>,
     /// Opaque. Pass it back as `cursor` for the next page; absent means this
     /// was the last one.
@@ -525,7 +525,7 @@ impl EmployeeCursor {
 const WORKFORCE_ROWS: &str = "
     SELECT e.id, e.code, e.status,
            p.full_name,
-           a.place_id, place.name AS place_name,
+           a.unit_id, unit.name AS unit_name,
            c.kind AS contract_kind, c.ends_on AS contract_ends_on, c.position,
            u.username,
            -- An unenrolled record sorts to the front of the alphabet rather
@@ -533,13 +533,13 @@ const WORKFORCE_ROWS: &str = "
            -- also the more useful answer: a list of people whose paperwork is
            -- unfinished is exactly what somebody sorting by name should meet.
            COALESCE(p.full_name, '') AS name_key,
-           COALESCE(place.name, a.place_id, '') AS place_key,
+           COALESCE(unit.name, a.unit_id, '') AS unit_key,
            COALESCE(c.ends_on, DATE '9999-12-31') AS ends_at
       FROM employee e
       LEFT JOIN employee_profile p ON p.employee_id = e.id
       LEFT JOIN employee_assignment a
              ON a.employee_id = e.id AND a.valid_to IS NULL
-      LEFT JOIN org_place place ON place.id = a.place_id
+      LEFT JOIN unit unit ON unit.id = a.unit_id
       LEFT JOIN LATERAL (
            SELECT kind, ends_on, position
              FROM employee_contract
@@ -549,9 +549,9 @@ const WORKFORCE_ROWS: &str = "
       ) c ON TRUE
       LEFT JOIN app_user u ON u.employee_id = e.id
      -- The fence. A bounded caller's own posting, applied here where no filter
-     -- and no sort can reach around it; a NULL place_id fails it, which is
+     -- and no sort can reach around it; a NULL unit_id fails it, which is
      -- `Reach::covers(None)` spelled in SQL.
-     WHERE ($1::text IS NULL OR a.place_id = $1)
+     WHERE ($1::text IS NULL OR a.unit_id = $1)
        -- The number off a badge and the name on it. Not the personal data this
        -- list does not carry.
        AND ($2::text IS NULL OR e.code ILIKE $2 OR p.full_name ILIKE $2)
@@ -559,7 +559,7 @@ const WORKFORCE_ROWS: &str = "
 
 /// The workforce, one page at a time, beside how big the whole answer is.
 ///
-/// `scope.reach_place` is the caller's own bound and `scope.place_id` is the
+/// `scope.reach_place` is the caller's own bound and `scope.unit_id` is the
 /// filter they asked for; both are applied, and the handler has already refused
 /// the combination where they disagree. See [`EmployeeScope::reach_place`].
 pub async fn list_employees(pool: &PgPool, scope: EmployeeScope) -> Result<EmployeeList, AppError> {
@@ -589,7 +589,7 @@ pub async fn list_employees(pool: &PgPool, scope: EmployeeScope) -> Result<Emplo
         // Server-side, it survives paging — which the client-side version could
         // not, because the rows it sorted were only the rows it had.
         Some("contract_end") => ("ends_at", scope.desc),
-        Some("place") => ("place_key", scope.desc),
+        Some("unit") => ("unit_key", scope.desc),
         _ => ("code", scope.desc),
     };
     let cols = format!("{lead}, id");
@@ -626,7 +626,7 @@ pub async fn list_employees(pool: &PgPool, scope: EmployeeScope) -> Result<Emplo
               kept AS NOT MATERIALIZED (
              SELECT * FROM searched
               WHERE ($3::text IS NULL OR status = $3)
-                AND ($4::text IS NULL OR place_id = $4)
+                AND ($4::text IS NULL OR unit_id = $4)
          )
          SELECT * FROM kept
           WHERE $5::text IS NULL
@@ -635,10 +635,10 @@ pub async fn list_employees(pool: &PgPool, scope: EmployeeScope) -> Result<Emplo
           LIMIT $6"
     );
     let rows = sqlx::query(&sql)
-        .bind(&scope.reach_place)
+        .bind(&scope.reach_unit)
         .bind(&needle)
         .bind(&scope.status)
-        .bind(&scope.place_id)
+        .bind(&scope.unit_id)
         .bind(cursor.as_ref().map(|c| c.employee_id.clone()))
         .bind(limit)
         .fetch_all(pool)
@@ -664,7 +664,7 @@ pub async fn list_employees(pool: &PgPool, scope: EmployeeScope) -> Result<Emplo
 
     let (total, facets) = workforce_facets(pool, &scope, needle.as_deref()).await?;
     Ok(EmployeeList {
-        place_id: scope.place_id.clone(),
+        unit_id: scope.unit_id.clone(),
         rows: out,
         next_cursor,
         total,
@@ -679,8 +679,8 @@ fn summary_from(row: &sqlx::postgres::PgRow) -> Result<EmployeeSummary, AppError
         employee_code: row.try_get("code")?,
         status: row.try_get("status")?,
         full_name: row.try_get("full_name")?,
-        place_id: row.try_get("place_id")?,
-        place_name: row.try_get("place_name")?,
+        unit_id: row.try_get("unit_id")?,
+        unit_name: row.try_get("unit_name")?,
         contract_kind: row.try_get("contract_kind")?,
         contract_ends_on: row.try_get("contract_ends_on")?,
         position: row.try_get("position")?,
@@ -711,11 +711,11 @@ async fn workforce_facets(
     // Only counted when there is a choice to make — see `EmployeeFacets`. A
     // bounded caller reaches one place, so the clause is left out of the query
     // rather than computed and thrown away.
-    let places = if scope.reach_place.is_none() {
+    let units = if scope.reach_unit.is_none() {
         "UNION ALL
-         SELECT 'place', place_id, place_name, COUNT(*)::bigint
-           FROM searched WHERE place_id IS NOT NULL
-          GROUP BY place_id, place_name"
+         SELECT 'unit', unit_id, unit_name, COUNT(*)::bigint
+           FROM searched WHERE unit_id IS NOT NULL
+          GROUP BY unit_id, unit_name"
     } else {
         ""
     };
@@ -723,26 +723,26 @@ async fn workforce_facets(
         "WITH searched AS ({WORKFORCE_ROWS}), kept AS (
              SELECT * FROM searched
               WHERE ($3::text IS NULL OR status = $3)
-                AND ($4::text IS NULL OR place_id = $4)
+                AND ($4::text IS NULL OR unit_id = $4)
          )
          SELECT 'status' AS kind, status AS value, NULL::text AS label,
                 COUNT(*)::bigint AS n
            FROM searched GROUP BY status
-          {places}
+          {units}
           UNION ALL
          SELECT 'all', '', NULL::text, COUNT(*)::bigint FROM kept"
     );
     let rows = sqlx::query(&sql)
-        .bind(&scope.reach_place)
+        .bind(&scope.reach_unit)
         .bind(needle)
         .bind(&scope.status)
-        .bind(&scope.place_id)
+        .bind(&scope.unit_id)
         .fetch_all(pool)
         .await?;
 
     let mut total = 0i64;
     let mut statuses = Vec::new();
-    let mut places_out = Vec::new();
+    let mut units_out = Vec::new();
     for row in &rows {
         let kind: String = row.try_get("kind")?;
         let value: String = row.try_get("value")?;
@@ -754,7 +754,7 @@ async fn workforce_facets(
                 label,
                 count: n,
             }),
-            "place" => places_out.push(EmployeeFacet {
+            "unit" => units_out.push(EmployeeFacet {
                 value,
                 label,
                 count: n,
@@ -766,21 +766,21 @@ async fn workforce_facets(
     // the value somebody is most likely to want is the one with the most behind
     // it. Ties break on the value so the order is stable between calls — a list
     // that reshuffles under the cursor is a list nobody can click.
-    for list in [&mut statuses, &mut places_out] {
+    for list in [&mut statuses, &mut units_out] {
         list.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.value.cmp(&b.value)));
     }
     Ok((
         total,
         EmployeeFacets {
             statuses,
-            places: places_out,
+            units: units_out,
         },
     ))
 }
 
 /// Which fixed terms end on or before `before`.
 ///
-/// `place_id` bounds the answer to one place — a place manager's reach. `None`
+/// `unit_id` bounds the answer to one place — a place manager's reach. `None`
 /// means unbounded, which is head office's, and not "no place": a contract for
 /// somebody nobody has posted anywhere is still a contract about to lapse, and
 /// it is head office who has to renew it.
@@ -788,10 +788,10 @@ pub async fn expiring_contracts(
     pool: &PgPool,
     as_of: NaiveDate,
     before: NaiveDate,
-    place_id: Option<&str>,
+    unit_id: Option<&str>,
 ) -> Result<Vec<ExpiringContract>, AppError> {
     let rows = sqlx::query(
-        "SELECT e.id, e.code, p.full_name, c.position, c.ends_on, a.place_id
+        "SELECT e.id, e.code, p.full_name, c.position, c.ends_on, a.unit_id
            FROM employee_contract c
            JOIN employee e ON e.id = c.employee_id
            LEFT JOIN employee_profile p ON p.employee_id = e.id
@@ -799,7 +799,7 @@ pub async fn expiring_contracts(
                   ON a.employee_id = e.id AND a.valid_to IS NULL
           WHERE c.ends_on IS NOT NULL
             AND c.ends_on <= $1
-            AND ($2::text IS NULL OR a.place_id = $2)
+            AND ($2::text IS NULL OR a.unit_id = $2)
             -- Somebody already gone is not a contract to renew.
             AND e.status <> 'TERMINATED'
             -- Only the latest term counts: an earlier one that expired on its
@@ -810,7 +810,7 @@ pub async fn expiring_contracts(
           ORDER BY c.ends_on, e.code",
     )
     .bind(before)
-    .bind(place_id)
+    .bind(unit_id)
     .fetch_all(pool)
     .await?;
 
@@ -822,7 +822,7 @@ pub async fn expiring_contracts(
                 employee_code: row.try_get("code")?,
                 full_name: row.try_get("full_name")?,
                 position: row.try_get("position")?,
-                place_id: row.try_get("place_id")?,
+                unit_id: row.try_get("unit_id")?,
                 ends_on,
                 days_remaining: (ends_on - as_of).num_days(),
             })
@@ -839,7 +839,7 @@ pub async fn expiring_contracts(
 pub struct CallerRecord {
     /// The employment record bound to this login, when one is.
     pub employee_id: Option<String>,
-    /// The caller's own open posting — the place, and its `org_place.kind`.
+    /// The caller's own open posting — the place, and its `unit.kind`.
     ///
     /// Open means `valid_to IS NULL`, which is what
     /// `AssignmentTimeline::current` means by "current" and what the unique
@@ -848,22 +848,34 @@ pub struct CallerRecord {
     /// that date is in the future: the decision has been taken, and reach
     /// should not outlive it by the length of the notice period.
     pub posting: Option<(String, String)>,
-    /// The place's name, for saying `Head Office` where the id says `ho`.
-    pub place_name: Option<String>,
+    /// The unit's name, for saying `Head Office` where the id says `ho`.
+    pub unit_name: Option<String>,
+    /// Whether the caller is the PIC in force at the unit they are posted to
+    /// (0452). Only ever true alongside a posting: a PIC must be posted where
+    /// they are in charge, so an appointment at a unit they have since left
+    /// counts for nothing here.
+    pub in_charge: bool,
 }
 
 /// Who this login is and where they are posted — for resolving `me`, and for
 /// resolving how far they may reach.
 pub async fn caller_record(pool: &PgPool, username: &str) -> Result<CallerRecord, AppError> {
     let row = sqlx::query(
-        "SELECT u.employee_id, a.place_id, place.kind, place.name
+        "SELECT u.employee_id, a.unit_id, unit.kind, unit.name,
+                EXISTS (SELECT 1 FROM unit_pic p
+                          JOIN employee e ON e.id = p.employee_id AND e.status = 'ACTIVE'
+                         WHERE p.unit_id = a.unit_id
+                           AND p.employee_id = u.employee_id
+                           AND p.valid_from <= $2
+                           AND (p.valid_to IS NULL OR p.valid_to > $2)) AS in_charge
            FROM app_user u
            LEFT JOIN employee_assignment a
                   ON a.employee_id = u.employee_id AND a.valid_to IS NULL
-           LEFT JOIN org_place place ON place.id = a.place_id
+           LEFT JOIN unit unit ON unit.id = a.unit_id
           WHERE u.username = $1",
     )
     .bind(username)
+    .bind(chrono::Utc::now().date_naive())
     .fetch_optional(pool)
     .await?;
 
@@ -873,16 +885,20 @@ pub async fn caller_record(pool: &PgPool, username: &str) -> Result<CallerRecord
         return Ok(CallerRecord {
             employee_id: None,
             posting: None,
-            place_name: None,
+            unit_name: None,
+            in_charge: false,
         });
     };
 
-    let place_id: Option<String> = row.try_get("place_id")?;
+    let unit_id: Option<String> = row.try_get("unit_id")?;
     let kind: Option<String> = row.try_get("kind")?;
+    let posting = unit_id.zip(kind);
+    let in_charge: bool = row.try_get("in_charge")?;
     Ok(CallerRecord {
         employee_id: row.try_get("employee_id")?,
-        posting: place_id.zip(kind),
-        place_name: row.try_get("name")?,
+        in_charge: in_charge && posting.is_some(),
+        posting,
+        unit_name: row.try_get("name")?,
     })
 }
 
@@ -1006,8 +1022,8 @@ async fn enqueue_exit_interview(
         return Ok(());
     }
     let inserted = sqlx::query(
-        "INSERT INTO exit_interview (exit_id, employee_id, place_id)
-         SELECT $2::uuid, $1, a.place_id
+        "INSERT INTO exit_interview (exit_id, employee_id, unit_id)
+         SELECT $2::uuid, $1, a.unit_id
            FROM employee_assignment a
           WHERE a.employee_id = $1
           ORDER BY (a.valid_to IS NULL) DESC, a.valid_from DESC, a.id DESC
@@ -1019,7 +1035,7 @@ async fn enqueue_exit_interview(
     .execute(&mut **tx)
     .await?
     .rows_affected();
-    let _ = inserted; // no place to sit the interview in: the backfill route refuses by name
+    let _ = inserted; // no unit to sit the interview in: the backfill route refuses by name
     Ok(())
 }
 
@@ -1042,12 +1058,12 @@ pub async fn replace_assignments(
         let authorized = serde_json::to_value(span.authorization())?;
         sqlx::query(
             "INSERT INTO employee_assignment
-                (id, employee_id, place_id, valid_from, valid_to, authorized)
+                (id, employee_id, unit_id, valid_from, valid_to, authorized)
              VALUES ($1, $2, $3, $4, $5, $6)",
         )
         .bind(format!("asg_{}", Uuid::new_v4().simple()))
         .bind(employee_id)
-        .bind(span.place_id().as_str())
+        .bind(span.unit_id().as_str())
         .bind(span.from())
         .bind(span.to())
         .bind(&authorized)

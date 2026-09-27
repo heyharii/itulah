@@ -27,12 +27,12 @@
 //! here nobody may forge.
 
 use super::auth::Principal;
-use super::employment::{current_place, reach_of, resolve, Access};
+use super::employment::{current_unit, reach_of, resolve, Access};
 use crate::cloud::{
     application::{AppError, AppState},
     domain::{
         actions, required_role_for_action, role_allows, Authorization, DayKind, EmployeeId,
-        Minutes, OvertimeId, OvertimeOrder, OvertimePolicy, PlaceId, WorkerConsent,
+        Minutes, OvertimeId, OvertimeOrder, OvertimePolicy, UnitId, WorkerConsent,
     },
     postgres::{self as infrastructure, OvertimeRecord},
 };
@@ -64,7 +64,7 @@ fn require(principal: &Principal, action_key: &str) -> Result<(), AppError> {
 pub struct OvertimeOrderView {
     pub id: String,
     pub employee_id: String,
-    pub place_id: String,
+    pub unit_id: String,
     pub on_date: NaiveDate,
     /// `WORKING`, `REST` or `HOLIDAY` — which statutory table applies, never a
     /// rate.
@@ -98,7 +98,7 @@ fn order_view(record: &OvertimeRecord) -> OvertimeOrderView {
     OvertimeOrderView {
         id: order.id().to_string(),
         employee_id: order.employee().to_string(),
-        place_id: order.place().to_string(),
+        unit_id: order.unit().to_string(),
         on_date: order.date(),
         day_kind: order.day_kind().code().to_owned(),
         planned_minutes: order.planned().get(),
@@ -238,9 +238,9 @@ async fn reaches_subject(state: &AppState, access: &Access) -> Result<Option<Str
     let record = infrastructure::load_employee(&state.db, &access.employee_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("employee {}", access.employee_id)))?;
-    let place = current_place(&record).map(ToOwned::to_owned);
-    access.reaches(place.as_deref())?;
-    Ok(place)
+    let unit = current_unit(&record).map(ToOwned::to_owned);
+    access.reaches(unit.as_deref())?;
+    Ok(unit)
 }
 
 /// One person's orders.
@@ -274,12 +274,12 @@ pub async fn awaiting(
     let reach = reach_of(&state, &principal).await?;
     if reach.is_nowhere() {
         return Err(AppError::Forbidden(format!(
-            "{} has no open posting, so no place's overtime is theirs to see",
+            "{} has no open posting, so no unit's overtime is theirs to see",
             principal.username
         )));
     }
     let records =
-        infrastructure::awaiting_consent(&state.db, reach.sole_place().map(|place| place.as_str()))
+        infrastructure::awaiting_consent(&state.db, reach.sole_unit().map(|unit| unit.as_str()))
             .await?;
     Ok(Json(records.iter().map(order_view).collect()))
 }
@@ -303,9 +303,9 @@ pub async fn issue(
             principal.username
         )));
     }
-    let place_id = reaches_subject(&state, &access).await?.ok_or_else(|| {
+    let unit_id = reaches_subject(&state, &access).await?.ok_or_else(|| {
         AppError::Conflict(format!(
-            "{} is not posted anywhere, so there is no place to order overtime at",
+            "{} is not posted anywhere, so there is no unit to order overtime at",
             access.employee_id
         ))
     })?;
@@ -316,7 +316,7 @@ pub async fn issue(
             body.day_kind
         ))
     })?;
-    let place = PlaceId::try_new(&place_id).map_err(invalid)?;
+    let unit = UnitId::try_new(&unit_id).map_err(invalid)?;
 
     // The caps, or a refusal by name. There is no default: the figures before
     // PP 35/2021 were three hours and fourteen, which is why nothing here
@@ -333,10 +333,10 @@ pub async fn issue(
     // A cross-check the operator can act on rather than a silent correction: if
     // the calendar says the day is a holiday and the order says otherwise, the
     // statutory table on the row would be the wrong one.
-    if let Some(hint) = infrastructure::day_kind_hint(&state.db, body.on_date, &place).await? {
+    if let Some(hint) = infrastructure::day_kind_hint(&state.db, body.on_date, &unit).await? {
         if hint != day_kind {
             return Err(AppError::Validation(format!(
-                "{} is a public holiday at {place_id}; order it as HOLIDAY so the right statutory \
+                "{} is a public holiday at {unit_id}; order it as HOLIDAY so the right statutory \
                  table is recorded",
                 body.on_date
             )));
@@ -346,7 +346,7 @@ pub async fn issue(
     let order = OvertimeOrder::order(
         infrastructure::overtime_id(&body.order_id)?,
         EmployeeId::try_new(&access.employee_id).map_err(invalid)?,
-        place,
+        unit,
         body.on_date,
         day_kind,
         Minutes::new(body.planned_minutes),
@@ -432,11 +432,11 @@ pub async fn withdraw(
         return Err(AppError::NotFound(format!("overtime order {order_id}")));
     }
     let reach = reach_of(&state, &principal).await?;
-    if !reach.covers(Some(record.order.place().as_str())) {
+    if !reach.covers(Some(record.order.unit().as_str())) {
         return Err(AppError::Forbidden(format!(
             "{} is not posted anywhere that reaches {}",
             principal.username,
-            record.order.place()
+            record.order.unit()
         )));
     }
 

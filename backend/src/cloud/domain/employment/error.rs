@@ -32,6 +32,12 @@ pub enum EmployeeError {
     #[error("assignment overlaps an existing one on {on}")]
     AssignmentOverlaps { on: NaiveDate },
 
+    // ── person in charge ─────────────────────────────────────────────────
+    #[error("only an active employee can be put in charge of a unit; this one is {status}")]
+    PicNotEmployed { status: &'static str },
+    #[error("a unit's person in charge must be posted there, and this one is not posted at {unit} on {on}")]
+    PicNotPostedAtUnit { unit: String, on: NaiveDate },
+
     // ── personal data ────────────────────────────────────────────────────
     #[error("a NIK is exactly 16 digits")]
     MalformedNik,

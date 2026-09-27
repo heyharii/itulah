@@ -16,11 +16,11 @@ pub enum HolidayError {
     TooLong { field: &'static str, max: usize },
     #[error("{field} must be printable text without control characters")]
     NotPrintable { field: &'static str },
-    #[error("the regional holiday on {date} must name the places that observe it")]
-    RegionalHolidayWithoutPlaces { date: NaiveDate },
-    #[error("the national holiday on {date} cannot be scoped to particular places")]
-    NationalHolidayScopedToPlaces { date: NaiveDate },
-    #[error("a holiday scoped to no places is not a holiday")]
+    #[error("the regional holiday on {date} must name the units that observe it")]
+    RegionalHolidayWithoutUnits { date: NaiveDate },
+    #[error("the national holiday on {date} cannot be scoped to particular units")]
+    NationalHolidayScopedToUnits { date: NaiveDate },
+    #[error("a holiday scoped to no units is not a holiday")]
     EmptyScope,
     #[error("the calendar already has a holiday on {date}")]
     DuplicateHoliday { date: NaiveDate },
@@ -42,8 +42,8 @@ impl HolidayError {
             Self::Required { .. } => "holiday_required",
             Self::TooLong { .. } => "holiday_too_long",
             Self::NotPrintable { .. } => "holiday_not_printable",
-            Self::RegionalHolidayWithoutPlaces { .. } => "holiday_regional_without_places",
-            Self::NationalHolidayScopedToPlaces { .. } => "holiday_national_scoped",
+            Self::RegionalHolidayWithoutUnits { .. } => "holiday_regional_without_units",
+            Self::NationalHolidayScopedToUnits { .. } => "holiday_national_scoped",
             Self::EmptyScope => "holiday_empty_scope",
             Self::DuplicateHoliday { .. } => "holiday_duplicate",
             Self::DateOutsideCalendarYear { .. } => "holiday_outside_calendar_year",

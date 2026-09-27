@@ -17,14 +17,14 @@ use serde::Serialize;
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use uuid::Uuid;
 
-/// Which syncing nodes an employee's place is served by.
+/// Which syncing nodes serve the unit an employee is posted to.
 ///
-/// A place is a `site`, and a site may be registered as one or more Edge
-/// origins — that is the row an `edge_identity_assignment` hangs off. Head
-/// office needs the list to answer "which till does this person sign into",
-/// and deriving it in a browser would mean the browser knowing that
-/// `org_place.site_id` and `sync_origin_credential.site_id` are the same
-/// vocabulary. They are; it is not the browser's business that they are.
+/// A unit owns sites (`site.unit_id`), and a site may be registered as one or
+/// more Edge origins — that is the row an `edge_identity_assignment` hangs off.
+/// Head office needs the list to answer "which till does this person sign
+/// into", and deriving it in a browser would mean the browser knowing that a
+/// posting names a unit and a node names a site. It is not the browser's
+/// business that they do.
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct EdgeTarget {
@@ -45,9 +45,9 @@ pub async fn edge_targets(pool: &PgPool, employee_id: &str) -> Result<Vec<EdgeTa
         "SELECT o.origin_id, o.label, o.site_id, o.node_role,
                 a.user_id IS NOT NULL granted, a.edge_role granted_role, a.active granted_active
          FROM sync_origin_credential o
-         JOIN org_place place ON place.site_id = o.site_id
+         JOIN site s ON s.id = o.site_id
          JOIN employee_assignment asg
-           ON asg.place_id = place.id AND asg.valid_to IS NULL
+           ON asg.unit_id = s.unit_id AND asg.valid_to IS NULL
          LEFT JOIN app_user u ON u.employee_id = asg.employee_id
          LEFT JOIN edge_identity_assignment a
            ON a.origin_id = o.origin_id AND a.user_id = u.id

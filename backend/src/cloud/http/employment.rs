@@ -50,8 +50,8 @@ use crate::cloud::{
     domain::{
         actions, required_role_for_action, role_allows, Address, AssignmentSpan, Authorization,
         Contact, Contract, ContractKind, Employee, EmployeeCode, EmploymentStatus,
-        EmploymentTransition, FullName, Grade, Nik, PlaceId, PlaceKind, Position, Posting, Profile,
-        ProfileField, Reach, RecordKind,
+        EmploymentTransition, FullName, Grade, Nik, Position, Posting, Profile, ProfileField,
+        Reach, RecordKind, UnitId, UnitKind,
     },
     http::audit::DeclaredSubject,
     postgres::{
@@ -119,8 +119,8 @@ impl Access {
     /// posted nowhere still has their own record, and refusing them their own
     /// employment history because HR has not filed their posting would break
     /// the employee app for exactly the new joiners it is most useful to.
-    pub(super) fn reaches(&self, place_id: Option<&str>) -> Result<(), AppError> {
-        if self.own || self.reach.covers(place_id) {
+    pub(super) fn reaches(&self, unit_id: Option<&str>) -> Result<(), AppError> {
+        if self.own || self.reach.covers(unit_id) {
             return Ok(());
         }
         Err(AppError::Forbidden(format!(
@@ -162,28 +162,38 @@ pub(super) async fn caller_and_reach(
     principal: &Principal,
 ) -> Result<(Option<String>, Reach), AppError> {
     let caller = infrastructure::caller_record(&state.db, &principal.username).await?;
-    let reach = reach_from(principal, &caller.posting);
+    let reach = reach_from(principal, &caller);
     Ok((caller.employee_id, reach))
 }
 
-fn reach_from(principal: &Principal, posting: &Option<(String, String)>) -> Reach {
-    let posting = posting.as_ref().and_then(|(place_id, kind)| {
-        Some(Posting::new(
-            PlaceId::try_new(place_id).ok()?,
-            // A kind this build has not been taught is not head office. It is
-            // also not a reason to refuse the request: the place is still a
-            // place, and `Only` is the conservative reading of an id we can
-            // name but cannot classify.
-            PlaceKind::parse(kind).unwrap_or(PlaceKind::Store),
-        ))
-    });
+/// The caller's own open posting, as the domain reads it — with whether they
+/// are the PIC of that unit.
+fn posting_of(caller: &infrastructure::CallerRecord) -> Option<Posting> {
+    let (unit_id, kind) = caller.posting.as_ref()?;
+    let posting = Posting::new(
+        UnitId::try_new(unit_id).ok()?,
+        // A kind this build has not been taught is not head office. It is
+        // also not a reason to refuse the request: the unit is still a unit,
+        // and `Only` is the conservative reading of an id we can name but
+        // cannot classify.
+        UnitKind::parse(kind).unwrap_or(UnitKind::Store),
+    );
+    Some(if caller.in_charge {
+        posting.in_charge()
+    } else {
+        posting
+    })
+}
+
+fn reach_from(principal: &Principal, caller: &infrastructure::CallerRecord) -> Reach {
+    let posting = posting_of(caller);
     let reach = Reach::resolve(principal.role, posting.as_ref());
     // A call a store node relayed reaches the node's own place and nothing
     // else, whoever it was relayed for. Here, where every HR handler's reach
     // is resolved, so a list that takes no place in its query is bounded by
     // the node exactly as one that does — see `Reach::bounded_to`.
-    match principal.bound_place() {
-        Some(place) => reach.bounded_to(place),
+    match principal.bound_unit() {
+        Some(unit) => reach.bounded_to(unit),
         None => reach,
     }
 }
@@ -212,18 +222,18 @@ pub(super) async fn resolve(
     Ok(Access {
         own: mine.as_deref() == Some(employee_id.as_str()),
         employee_id,
-        reach: reach_from(principal, &caller.posting),
+        reach: reach_from(principal, &caller),
         principal: principal.clone(),
     })
 }
 
 /// Where a record sits, for the reach check. `None` for somebody nobody has
 /// posted yet.
-pub(super) fn current_place(record: &EmployeeRecord) -> Option<&str> {
+pub(super) fn current_unit(record: &EmployeeRecord) -> Option<&str> {
     record
         .assignments
         .current()
-        .map(|span| span.place_id().as_str())
+        .map(|span| span.unit_id().as_str())
 }
 
 async fn record(state: &AppState, employee_id: &str) -> Result<EmployeeRecord, AppError> {
@@ -241,10 +251,10 @@ pub(super) fn invalid(error: impl std::fmt::Display) -> AppError {
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct AssignmentView {
-    pub place_id: String,
+    pub unit_id: String,
     /// The place's own name. Sent because a screen showing `ho` where it means
     /// "Head Office" is an identifier that has escaped into the interface.
-    pub place_name: Option<String>,
+    pub unit_name: Option<String>,
     pub valid_from: NaiveDate,
     pub valid_to: Option<NaiveDate>,
     pub actor: String,
@@ -282,8 +292,8 @@ pub struct EmployeeView {
     /// for the browser to derive, so nothing downstream invents its own idea of
     /// "still here" and disagrees with the domain.
     pub selectable: bool,
-    pub current_place_id: Option<String>,
-    pub current_place_name: Option<String>,
+    pub current_unit_id: Option<String>,
+    pub current_unit_name: Option<String>,
     pub assignments: Vec<AssignmentView>,
     /// The login bound to this record, when there is one.
     ///
@@ -390,8 +400,8 @@ pub struct EmploymentProfileView {
     pub job_title: Option<String>,
     pub grade: Option<String>,
     /// The open posting, if there is one.
-    pub place_id: Option<String>,
-    pub place_name: Option<String>,
+    pub unit_id: Option<String>,
+    pub unit_name: Option<String>,
     /// The day the first HIRE took effect. Absent for somebody still a
     /// candidate, which is the honest answer: they have not joined.
     pub joined_on: Option<NaiveDate>,
@@ -403,8 +413,8 @@ fn assignment_views(record: &EmployeeRecord) -> Vec<AssignmentView> {
         .spans()
         .iter()
         .map(|span| AssignmentView {
-            place_id: span.place_id().to_string(),
-            place_name: record.place_names.get(span.place_id().as_str()).cloned(),
+            unit_id: span.unit_id().to_string(),
+            unit_name: record.unit_names.get(span.unit_id().as_str()).cloned(),
             valid_from: span.from(),
             valid_to: span.to(),
             actor: span.authorization().actor().to_string(),
@@ -419,14 +429,14 @@ fn employee_view(record: &EmployeeRecord) -> EmployeeView {
         employee_code: record.employee.code().to_string(),
         status: record.employee.status(),
         selectable: record.employee.status().is_selectable(),
-        current_place_id: record
+        current_unit_id: record
             .assignments
             .current()
-            .map(|span| span.place_id().to_string()),
-        current_place_name: record
+            .map(|span| span.unit_id().to_string()),
+        current_unit_name: record
             .assignments
             .current()
-            .and_then(|span| record.place_names.get(span.place_id().as_str()).cloned()),
+            .and_then(|span| record.unit_names.get(span.unit_id().as_str()).cloned()),
         assignments: assignment_views(record),
         account: record.account.clone(),
         history: record
@@ -522,7 +532,7 @@ fn contracts_view(record: &EmployeeRecord, as_of: NaiveDate) -> ContractsView {
 /// filter the caller believes is applied.
 ///
 /// That strictness is also why every new parameter below is additive. A caller
-/// on the old shape sends `status`, `place_id` and `limit`, all still here and
+/// on the old shape sends `status`, `unit_id` and `limit`, all still here and
 /// all still meaning what they did.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -536,7 +546,7 @@ pub struct ListQuery {
     /// posted to. See [`list`]: naming somebody else's shop is refused, never
     /// quietly replaced with their own.
     #[serde(default)]
-    pub place_id: Option<String>,
+    pub unit_id: Option<String>,
     /// `code`, `name`, `contract_end` or `place`. Anything else is the house
     /// order rather than a 400 — see `EmployeeScope::sort`.
     #[serde(default)]
@@ -578,7 +588,7 @@ pub struct CodeBody {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AssignBody {
-    pub place_id: String,
+    pub unit_id: String,
     pub valid_from: NaiveDate,
     #[serde(default)]
     pub valid_to: Option<NaiveDate>,
@@ -698,11 +708,11 @@ pub async fn list(
     let reach = reach_of(&state, &principal).await?;
     if reach.is_nowhere() {
         return Err(AppError::Forbidden(format!(
-            "{} has no open posting, so no place's workforce is theirs to read",
+            "{} has no open posting, so no unit's workforce is theirs to read",
             principal.username
         )));
     }
-    let place_filter = match (reach.sole_place(), query.place_id.as_deref()) {
+    let unit_filter = match (reach.sole_unit(), query.unit_id.as_deref()) {
         // Unbounded: the caller's filter, whatever it is.
         (None, asked) => asked.map(str::to_owned),
         // Bounded and asked for their own place, or asked for nothing.
@@ -725,10 +735,10 @@ pub async fn list(
                 // the same value for a bounded caller today — and the query
                 // applies both, so the day somebody edits the reconciliation
                 // without reading it, the answer narrows rather than widens.
-                reach_place: reach.sole_place().map(ToString::to_string),
+                reach_unit: reach.sole_unit().map(ToString::to_string),
                 needle: query.q,
                 status: query.status,
-                place_id: place_filter,
+                unit_id: unit_filter,
                 sort: query.sort,
                 desc: query.dir.as_deref() == Some("desc"),
                 cursor: query.cursor,
@@ -751,23 +761,22 @@ pub async fn list(
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct ReachView {
-    /// `EVERYWHERE`, `ONE_PLACE` or `NOWHERE`.
+    /// `EVERYWHERE`, `ONE_UNIT` or `NOWHERE`.
     pub scope: String,
     /// The caller's own open posting, when they have one. Present even for
     /// `EVERYWHERE`: an HR officer posted to head office is still posted
     /// somewhere, and the screen says so.
-    pub place_id: Option<String>,
-    pub place_name: Option<String>,
-    /// `HO` or `STORE`, and nothing else.
+    pub unit_id: Option<String>,
+    pub unit_name: Option<String>,
+    /// `unit.kind`: `HO` or `STORE` (`ONLINE` once that unit is opened).
     ///
-    /// It said `HO`, `DC` or `STORE` until migration 0230 folded the
-    /// distribution centre into head office — the owner's decision of
-    /// 2026-09-13 — and narrowed `org_place.kind` so a third value is
-    /// unstorable. `site.kind` is still `DC` or `STORE` and that is not the
-    /// same question: the warehouse remains a syncing node that receives
-    /// goods, and what changed is only where the people who work there are
-    /// posted.
-    pub place_kind: Option<String>,
+    /// Never `DC`: migration 0230 folded the distribution centre into head
+    /// office — the owner's decision of 2026-09-13 — and since 0450 the
+    /// warehouse is a site of the head-office unit (the Gudang), not a unit.
+    /// `site.kind` is a different question: what kind of premises.
+    pub unit_kind: Option<String>,
+    /// Whether the caller is the PIC in force at their unit (0452).
+    pub in_charge: bool,
     /// The rung the session holds. Sent here rather than left to a second call
     /// to `/auth/me`, because scope and rung are one decision on the screen
     /// that reads them and two requests would let them disagree by a refresh.
@@ -783,27 +792,31 @@ pub async fn reach(
     Extension(principal): Extension<Principal>,
 ) -> Result<Json<ReachView>, AppError> {
     let caller = infrastructure::caller_record(&state.db, &principal.username).await?;
-    let reach = reach_from(&principal, &caller.posting);
-    let (mut place_id, mut place_kind) = match caller.posting {
-        Some((place_id, kind)) => (Some(place_id), Some(kind)),
+    let reach = reach_from(&principal, &caller);
+    let mut in_charge = caller.in_charge;
+    let (mut unit_id, mut unit_kind) = match caller.posting {
+        Some((unit_id, kind)) => (Some(unit_id), Some(kind)),
         None => (None, None),
     };
-    let mut place_name = caller.place_name;
+    let mut unit_name = caller.unit_name;
     // Through a store's till, the place the screen works in is the till's —
     // an Admin posted to head office reaches store-07 there, and a screen told
     // `ho` would ask for head office's roster and be refused.
-    if let Some(bound) = principal.bound_place().filter(|_| !reach.is_nowhere()) {
-        if place_id.as_deref() != Some(bound.as_str()) {
-            place_id = Some(bound.as_str().to_owned());
-            place_name = None;
-            place_kind = None;
+    if let Some(bound) = principal.bound_unit().filter(|_| !reach.is_nowhere()) {
+        if unit_id.as_deref() != Some(bound.as_str()) {
+            unit_id = Some(bound.as_str().to_owned());
+            unit_name = None;
+            unit_kind = None;
+            // In charge of their own unit, not of the one whose till this is.
+            in_charge = false;
         }
     }
     Ok(Json(ReachView {
         scope: reach.code().to_owned(),
-        place_id,
-        place_name,
-        place_kind,
+        unit_id,
+        unit_name,
+        unit_kind,
+        in_charge,
         role: principal.role.as_str().to_owned(),
         employee_id: caller.employee_id,
     }))
@@ -844,7 +857,7 @@ pub async fn detail(
     let access = resolve(&state, &principal, &raw).await?;
     access.may_read(actions::EMPLOYEE_READ)?;
     let record = record(&state, &access.employee_id).await?;
-    access.reaches(current_place(&record))?;
+    access.reaches(current_unit(&record))?;
     Ok(Json(employee_view(&record)))
 }
 
@@ -969,7 +982,7 @@ pub async fn assign(
     let mut record = record(&state, &access.employee_id).await?;
     let authorization = access.authorize(actions::ASSIGNMENT_MANAGE, &body.reason)?;
     let span = AssignmentSpan::try_new(
-        PlaceId::try_new(&body.place_id).map_err(invalid)?,
+        UnitId::try_new(&body.unit_id).map_err(invalid)?,
         body.valid_from,
         body.valid_to,
         authorization,
@@ -1049,14 +1062,14 @@ pub async fn employment_profile(
     let access = resolve(&state, &principal, &raw).await?;
     access.may_read(actions::EMPLOYEE_READ)?;
     let record = record(&state, &access.employee_id).await?;
-    access.reaches(current_place(&record))?;
+    access.reaches(current_unit(&record))?;
 
     let current = record.assignments.current();
-    let place_id = current.map(|span| span.place_id().to_string());
+    let unit_id = current.map(|span| span.unit_id().to_string());
     // Already loaded beside the timeline, so no second query for one word.
-    let place_name = place_id
+    let unit_name = unit_id
         .as_ref()
-        .and_then(|place_id| record.place_names.get(place_id).cloned());
+        .and_then(|unit_id| record.unit_names.get(unit_id).cloned());
     let latest = record.contracts.current();
 
     Ok(Json(EmploymentProfileView {
@@ -1069,8 +1082,8 @@ pub async fn employment_profile(
         status: record.employee.status(),
         job_title: latest.map(|contract| contract.position().as_str().to_owned()),
         grade: latest.map(|contract| contract.grade().as_str().to_owned()),
-        place_id,
-        place_name,
+        unit_id,
+        unit_name,
         // The first HIRE, read out of the history rather than stored beside it.
         joined_on: record
             .employee
@@ -1089,7 +1102,7 @@ pub async fn read_personal_data(
     let access = resolve(&state, &principal, &raw).await?;
     access.may_read(actions::PROFILE_READ)?;
     let record = record(&state, &access.employee_id).await?;
-    access.reaches(current_place(&record))?;
+    access.reaches(current_unit(&record))?;
     let profile = record.profile.ok_or_else(|| {
         AppError::NotFound(format!(
             "no personal data has been recorded for {}",
@@ -1191,7 +1204,7 @@ pub async fn read_contracts(
     let access = resolve(&state, &principal, &raw).await?;
     access.may_read(actions::EMPLOYEE_READ)?;
     let record = record(&state, &access.employee_id).await?;
-    access.reaches(current_place(&record))?;
+    access.reaches(current_unit(&record))?;
     Ok(Json(contracts_view(&record, Utc::now().date_naive())))
 }
 
@@ -1264,7 +1277,7 @@ pub async fn expiring(
     let reach = reach_of(&state, &principal).await?;
     if reach.is_nowhere() {
         return Err(AppError::Forbidden(format!(
-            "{} has no open posting, so no place's contracts are theirs to read",
+            "{} has no open posting, so no unit's contracts are theirs to read",
             principal.username
         )));
     }
@@ -1276,7 +1289,7 @@ pub async fn expiring(
             &state.db,
             as_of,
             before,
-            reach.sole_place().map(|place| place.as_str()),
+            reach.sole_unit().map(|unit| unit.as_str()),
         )
         .await?,
     ))

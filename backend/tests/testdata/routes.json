@@ -204,6 +204,8 @@ cloud	GET	/api/v1/members/segments/saved/{id}	Cashier	-
 cloud	GET	/api/v1/members/unenrolled	Cashier	-
 cloud	GET	/api/v1/notifications	Cashier	-
 cloud	GET	/api/v1/notifications/stream	Cashier	-
+cloud	GET	/api/v1/organisation/units	Cashier	-
+cloud	GET	/api/v1/organisation/units/{unit}/pic	Cashier	-
 cloud	GET	/api/v1/overtime-orders/awaiting	Cashier	-
 cloud	GET	/api/v1/overtime-policy	Cashier	-
 cloud	GET	/api/v1/payment-terms	Cashier	-
@@ -280,8 +282,8 @@ cloud	POST	/api/v1/articles/{article_code}/consequences	Supervisor	article
 cloud	POST	/api/v1/assistant/ask	Supervisor	-
 cloud	POST	/api/v1/attendance-corrections/{id}/decision	Supervisor	-
 cloud	POST	/api/v1/attendance-corrections/{id}/withdrawal	Supervisor	-
-cloud	POST	/api/v1/attendance-periods/{place}/{period}/closure	Supervisor	-
-cloud	POST	/api/v1/attendance-periods/{place}/{period}/reopening	Supervisor	-
+cloud	POST	/api/v1/attendance-periods/{unit}/{period}/closure	Supervisor	-
+cloud	POST	/api/v1/attendance-periods/{unit}/{period}/reopening	Supervisor	-
 cloud	POST	/api/v1/attendance-policy	Supervisor	-
 cloud	POST	/api/v1/attendance-shifts	Supervisor	-
 cloud	POST	/api/v1/attendance-shifts/{id}/retirement	Supervisor	attendance_shift
@@ -474,6 +476,7 @@ cloud	POST	/api/v1/members/segments/saved/{id}/retire	Supervisor	segment
 cloud	POST	/api/v1/members/{member_id}/pairing-code	Cashier	member
 cloud	POST	/api/v1/notifications/read-all	Supervisor	-
 cloud	POST	/api/v1/notifications/{id}/read	Supervisor	notification
+cloud	POST	/api/v1/organisation/units/{unit}/pic	Supervisor	-
 cloud	POST	/api/v1/overtime-policy	Supervisor	-
 cloud	POST	/api/v1/payment-terms/templates	Supervisor	-
 cloud	POST	/api/v1/payment-terms/terms	Supervisor	-

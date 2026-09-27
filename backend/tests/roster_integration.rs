@@ -177,7 +177,7 @@ async fn staff_at(
     cookies: &str,
     csrf: &str,
     code: &str,
-    place_id: &str,
+    unit_id: &str,
 ) -> String {
     let registered = send(
         app.clone(),
@@ -218,7 +218,7 @@ async fn staff_at(
         &format!("/api/v1/employees/{employee_id}/assignments"),
         write_headers(cookies, csrf),
         Some(json!({
-            "place_id": place_id,
+            "unit_id": unit_id,
             "valid_from": "2026-01-05",
             "reason": "penempatan awal",
         })),
@@ -668,7 +668,7 @@ async fn a_manager_can_only_roster_their_own_shop(pool: PgPool) {
     let grid = send(
         app.clone(),
         "GET",
-        "/api/v1/roster?place=store-07&from=2026-04-06&to=2026-04-12",
+        "/api/v1/roster?unit=store-07&from=2026-04-06&to=2026-04-12",
         read_headers(&hers),
         None,
     )
@@ -679,7 +679,7 @@ async fn a_manager_can_only_roster_their_own_shop(pool: PgPool) {
     let elsewhere = send(
         app.clone(),
         "GET",
-        "/api/v1/roster?place=store-03&from=2026-04-06&to=2026-04-12",
+        "/api/v1/roster?unit=store-03&from=2026-04-06&to=2026-04-12",
         read_headers(&hers),
         None,
     )
@@ -756,7 +756,7 @@ async fn a_closed_month_refuses_a_roster_change(pool: PgPool) {
     let before = send(
         app.clone(),
         "GET",
-        "/api/v1/attendance-periods?place=store-07&period=2026-04",
+        "/api/v1/attendance-periods?unit=store-07&period=2026-04",
         read_headers(&hers),
         None,
     )
@@ -961,7 +961,7 @@ async fn undecided_leave_and_unanswered_overtime_block_the_close(pool: PgPool) {
     let readiness = send(
         app.clone(),
         "GET",
-        "/api/v1/attendance-periods?place=store-07&period=2026-04",
+        "/api/v1/attendance-periods?unit=store-07&period=2026-04",
         read_headers(&hers),
         None,
     )

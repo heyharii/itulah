@@ -2612,28 +2612,29 @@ async fn apply_attendance_punch(
     let wire: Wire = serde_json::from_value(payload.clone())
         .map_err(|error| AppError::Validation(format!("malformed attendance punch: {error}")))?;
 
-    // The place comes from the ORIGIN, never from the payload. A node cannot
+    // The unit comes from the ORIGIN, never from the payload. A node cannot
     // file a punch against another unit, because there is no field it could say
-    // so in that anybody reads.
-    let place = super::place_of_origin(pool, origin_id)
+    // so in that anybody reads. (The edge's fact still carries a `place_id`;
+    // `Wire` does not read it, for exactly this reason.)
+    let unit = super::unit_of_origin(pool, origin_id)
         .await?
-        .ok_or_else(|| AppError::Conflict(format!("origin {origin_id} is not bound to a place")))?;
+        .ok_or_else(|| AppError::Conflict(format!("origin {origin_id} is not bound to a unit")))?;
     let terminal = super::load_attendance_terminal(pool, &wire.terminal_id)
         .await?
         .ok_or_else(|| {
             AppError::NotFound(format!("terminal {} is not registered", wire.terminal_id))
         })?;
-    if terminal.place() != &place {
+    if terminal.unit() != &unit {
         return Err(AppError::Forbidden(format!(
-            "terminal {} is registered at {} and this node is {place}",
+            "terminal {} is registered at {} and this node is {unit}",
             wire.terminal_id,
-            terminal.place()
+            terminal.unit()
         )));
     }
     let record = super::load_employee(pool, &wire.employee_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("employee {}", wire.employee_id)))?;
-    let period = super::period_for(pool, &place, wire.business_date).await?;
+    let period = super::period_for(pool, &unit, wire.business_date).await?;
 
     let attestation = terminal
         .attest(record.employee.id().clone())

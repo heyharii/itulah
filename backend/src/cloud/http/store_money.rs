@@ -153,7 +153,7 @@ async fn allow_site(
     Err(AppError::Forbidden(match reach {
         Reach::Nowhere => format!(
             "this login has no open posting, so it cannot act on {site_id}'s money. Ask HR to \
-             post you to a place."
+             post you to a unit."
         ),
         _ => format!("this login does not cover {site_id}"),
     }))
@@ -177,7 +177,7 @@ async fn list_scope(
             "this login has no open posting, so there is no shop whose money it may read".into(),
         ));
     }
-    match (reach.sole_place(), asked) {
+    match (reach.sole_unit(), asked) {
         (Some(mine), Some(asked)) if mine.as_str() != asked => Err(AppError::Forbidden(format!(
             "this login covers {} and not {asked}",
             mine.as_str()

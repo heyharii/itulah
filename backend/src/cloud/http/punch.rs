@@ -22,12 +22,12 @@
 //! one layer down.
 
 use super::auth::Principal;
-use super::employment::{caller_and_reach, current_place, reach_of, resolve};
+use super::employment::{caller_and_reach, current_unit, reach_of, resolve};
 use crate::cloud::{
     application::{AppError, AppState},
     domain::{
         actions, evaluate_day, required_role_for_action, role_allows, AttendanceMonth, Correction, CorrectionEffect, CorrectionId,
-        DayApprovals, DayEvaluation, DayOffset, EmployeeId, MinuteOfDay, PlaceId, PunchDirection,
+        DayApprovals, DayEvaluation, DayOffset, EmployeeId, MinuteOfDay, UnitId, PunchDirection,
         PunchTime, Reach,
     },
     postgres::{self as infrastructure, CorrectionRow, PunchRow},
@@ -193,14 +193,14 @@ pub async fn read_attendance(
     let record = infrastructure::load_employee(&state.db, &access.employee_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("employee {}", access.employee_id)))?;
-    access.reaches(current_place(&record))?;
+    access.reaches(current_unit(&record))?;
 
-    let place = current_place(&record).map(ToOwned::to_owned);
-    let punch_source_connected = match &place {
-        Some(place) => {
-            infrastructure::place_has_terminal(
+    let unit = current_unit(&record).map(ToOwned::to_owned);
+    let punch_source_connected = match &unit {
+        Some(unit) => {
+            infrastructure::unit_has_terminal(
                 &state.db,
-                &PlaceId::try_new(place).map_err(invalid)?,
+                &UnitId::try_new(unit).map_err(invalid)?,
             )
             .await?
         }
@@ -264,7 +264,7 @@ async fn derive_range(
         let chain = infrastructure::load_correction_chain(
             &state.db,
             record.employee.id(),
-            day.place(),
+            day.unit(),
             day.date(),
         )
         .await?;
@@ -315,7 +315,7 @@ async fn derive_range(
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct TodayView {
-    pub place_id: String,
+    pub unit_id: String,
     pub date: NaiveDate,
     /// Everybody with a plan for the day, derived.
     pub days: Vec<AttendanceDayView>,
@@ -332,7 +332,7 @@ pub struct TodayView {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TodayQuery {
-    pub place: String,
+    pub unit: String,
     #[serde(default)]
     pub date: Option<NaiveDate>,
 }
@@ -344,18 +344,18 @@ pub async fn read_today(
     Query(query): Query<TodayQuery>,
 ) -> Result<Json<TodayView>, AppError> {
     let reach = reach_of(&state, &principal).await?;
-    if !reach.covers(Some(&query.place)) {
+    if !reach.covers(Some(&query.unit)) {
         return Err(AppError::Forbidden(format!(
             "{} is not posted anywhere that reaches {}",
-            principal.username, query.place
+            principal.username, query.unit
         )));
     }
-    let place = PlaceId::try_new(&query.place).map_err(invalid)?;
+    let unit = UnitId::try_new(&query.unit).map_err(invalid)?;
     let date = query.date.unwrap_or_else(crate::reporting::local_today);
 
     let mut days = Vec::new();
     let mut underivable = Vec::new();
-    for employee_id in infrastructure::rostered_at_place_on(&state.db, &place, date).await? {
+    for employee_id in infrastructure::rostered_at_unit_on(&state.db, &unit, date).await? {
         let Some(record) = infrastructure::load_employee(&state.db, &employee_id).await? else {
             continue;
         };
@@ -365,12 +365,12 @@ pub async fn read_today(
     }
 
     Ok(Json(TodayView {
-        place_id: query.place,
+        unit_id: query.unit,
         date,
         days,
         underivable,
-        punches: infrastructure::punches_at_place_on(&state.db, &place, date).await?,
-        punch_source_connected: infrastructure::place_has_terminal(&state.db, &place).await?,
+        punches: infrastructure::punches_at_unit_on(&state.db, &unit, date).await?,
+        punch_source_connected: infrastructure::unit_has_terminal(&state.db, &unit).await?,
     }))
 }
 
@@ -431,7 +431,7 @@ pub struct OwnPunchBody {
 pub struct PunchRecorded {
     pub punch_id: String,
     pub employee_id: String,
-    pub place_id: String,
+    pub unit_id: String,
     /// Always `EMPLOYEE_APP` on this route, and sent anyway: the screen that
     /// renders the confirmation is the screen that must not imply a reader saw
     /// this, and a value it reads is harder to get wrong than a value it
@@ -524,7 +524,7 @@ pub async fn record_own_punch(
     let record = infrastructure::load_employee(&state.db, &access.employee_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("employee {}", access.employee_id)))?;
-    let place = current_place(&record).ok_or_else(|| {
+    let unit = current_unit(&record).ok_or_else(|| {
         // Not a 404 and not a silent success. Somebody with no open posting has
         // no unit whose day this would be, and the fix is HR's paperwork rather
         // than a retry.
@@ -534,10 +534,10 @@ pub async fn record_own_punch(
             access.employee_id
         ))
     })?;
-    let place = PlaceId::try_new(place).map_err(invalid)?;
+    let unit = UnitId::try_new(unit).map_err(invalid)?;
 
     // The server's clock, converted to the place's own day. One offset for the
-    // whole estate — every unit is in Indonesia and `org_place` holds no
+    // whole estate — every unit is in Indonesia and `unit` holds no
     // timezone — and it is `reporting`'s constant rather than a second copy,
     // because a shop's business day turning over at a different hour here than
     // in the sales reports is the kind of disagreement nothing catches.
@@ -566,11 +566,11 @@ pub async fn record_own_punch(
     )?;
     let claim = crate::cloud::domain::SelfPunchClaim::make(
         record.employee.id().clone(),
-        place.clone(),
+        unit.clone(),
         authorization,
     )
     .map_err(infrastructure::attendance_error)?;
-    let period = infrastructure::period_for(&state.db, &place, at.business_date()).await?;
+    let period = infrastructure::period_for(&state.db, &unit, at.business_date()).await?;
     let punch = crate::cloud::domain::Punch::claim_own(
         &claim,
         direction,
@@ -588,7 +588,7 @@ pub async fn record_own_punch(
     Ok(Json(PunchRecorded {
         punch_id: punch.id().to_string(),
         employee_id: punch.employee().to_string(),
-        place_id: punch.place().to_string(),
+        unit_id: punch.unit().to_string(),
         source: punch.source().code().to_owned(),
         direction: punch.direction().code().to_owned(),
         business_date: punch.business_date(),
@@ -604,7 +604,7 @@ pub async fn record_own_punch(
 #[serde(deny_unknown_fields)]
 pub struct CorrectionQueueQuery {
     #[serde(default)]
-    pub place: Option<String>,
+    pub unit: Option<String>,
     /// Default `true`: the queue is what is waiting, and a manager with five
     /// minutes wants the list of things waiting on them rather than the
     /// history.
@@ -646,7 +646,7 @@ pub async fn list_corrections(
             principal.username
         )));
     }
-    let places = match (&query.place, &reach) {
+    let units = match (&query.unit, &reach) {
         (Some(asked), _) if !reach.covers(Some(asked)) => {
             return Err(AppError::Forbidden(format!(
                 "{} is not posted anywhere that reaches {asked}",
@@ -661,7 +661,7 @@ pub async fn list_corrections(
         (None, _) => Vec::new(),
     };
     Ok(Json(
-        infrastructure::corrections_at_places(&state.db, &places, query.pending).await?,
+        infrastructure::corrections_at_units(&state.db, &units, query.pending).await?,
     ))
 }
 
@@ -773,14 +773,14 @@ pub async fn file_correction(
     let record = infrastructure::load_employee(&state.db, &access.employee_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("employee {}", access.employee_id)))?;
-    let place = current_place(&record).ok_or_else(|| {
+    let unit = current_unit(&record).ok_or_else(|| {
         AppError::Conflict(format!(
             "{} is not posted anywhere, so there is no unit whose day this would correct",
             access.employee_id
         ))
     })?;
-    access.reaches(Some(place))?;
-    let place = PlaceId::try_new(place).map_err(invalid)?;
+    access.reaches(Some(unit))?;
+    let unit = UnitId::try_new(unit).map_err(invalid)?;
 
     let effect = effect_of(&body)?;
     let authorization = access.authorize(action_key, &body.reason)?;
@@ -790,7 +790,7 @@ pub async fn file_correction(
         // and a caller-supplied id is a caller-supplied collision.
         CorrectionId::try_new(&Uuid::new_v4().to_string()).map_err(invalid)?,
         record.employee.id().clone(),
-        place.clone(),
+        unit.clone(),
         body.business_date,
         effect,
         body.supersedes
@@ -802,11 +802,11 @@ pub async fn file_correction(
     )
     .map_err(infrastructure::attendance_error)?;
 
-    let period = infrastructure::period_for(&state.db, &place, body.business_date).await?;
+    let period = infrastructure::period_for(&state.db, &unit, body.business_date).await?;
     let mut chain = infrastructure::load_correction_chain(
         &state.db,
         record.employee.id(),
-        &place,
+        &unit,
         body.business_date,
     )
     .await?;
@@ -814,7 +814,7 @@ pub async fn file_correction(
         .submit(correction, &period)
         .map_err(infrastructure::attendance_error)?;
     infrastructure::save_correction_chain(&state.db, &chain).await?;
-    day_chain_rows(&state, &record, &place, body.business_date).await
+    day_chain_rows(&state, &record, &unit, body.business_date).await
 }
 
 #[derive(Debug, Deserialize)]
@@ -831,17 +831,17 @@ pub struct DecisionBody {
 #[derive(Debug)]
 struct CorrectionTarget {
     employee: EmployeeId,
-    place: PlaceId,
+    unit: UnitId,
     date: NaiveDate,
 }
 
 async fn target_of(state: &AppState, id: &str) -> Result<CorrectionTarget, AppError> {
-    let (employee, place, date) = infrastructure::correction_target(&state.db, id)
+    let (employee, unit, date) = infrastructure::correction_target(&state.db, id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("correction {id}")))?;
     Ok(CorrectionTarget {
         employee: EmployeeId::try_new(&employee).map_err(invalid)?,
-        place: PlaceId::try_new(&place).map_err(invalid)?,
+        unit: UnitId::try_new(&unit).map_err(invalid)?,
         date,
     })
 }
@@ -860,10 +860,10 @@ pub async fn decide_correction(
 ) -> Result<Json<Vec<CorrectionRow>>, AppError> {
     let target = target_of(&state, &id).await?;
     let reach = reach_of(&state, &principal).await?;
-    if !reach.covers(Some(target.place.as_str())) {
+    if !reach.covers(Some(target.unit.as_str())) {
         return Err(AppError::Forbidden(format!(
             "{} is not posted anywhere that reaches {}",
-            principal.username, target.place
+            principal.username, target.unit
         )));
     }
     if !crate::cloud::domain::role_allows(
@@ -884,11 +884,11 @@ pub async fn decide_correction(
     )
     .map_err(invalid)?;
 
-    let period = infrastructure::period_for(&state.db, &target.place, target.date).await?;
+    let period = infrastructure::period_for(&state.db, &target.unit, target.date).await?;
     let mut chain = infrastructure::load_correction_chain(
         &state.db,
         &target.employee,
-        &target.place,
+        &target.unit,
         target.date,
     )
     .await?;
@@ -903,7 +903,7 @@ pub async fn decide_correction(
     let record = infrastructure::load_employee(&state.db, target.employee.as_str())
         .await?
         .ok_or_else(|| AppError::NotFound(format!("employee {}", target.employee)))?;
-    day_chain_rows(&state, &record, &target.place, target.date).await
+    day_chain_rows(&state, &record, &target.unit, target.date).await
 }
 
 /// Withdraw your own pending correction.
@@ -932,7 +932,7 @@ pub async fn withdraw_correction(
     let mut chain = infrastructure::load_correction_chain(
         &state.db,
         &target.employee,
-        &target.place,
+        &target.unit,
         target.date,
     )
     .await?;
@@ -944,7 +944,7 @@ pub async fn withdraw_correction(
     let record = infrastructure::load_employee(&state.db, target.employee.as_str())
         .await?
         .ok_or_else(|| AppError::NotFound(format!("employee {}", target.employee)))?;
-    day_chain_rows(&state, &record, &target.place, target.date).await
+    day_chain_rows(&state, &record, &target.unit, target.date).await
 }
 
 /// The whole chain for one day, which is what every write above answers with:
@@ -953,7 +953,7 @@ pub async fn withdraw_correction(
 async fn day_chain_rows(
     state: &AppState,
     record: &infrastructure::EmployeeRecord,
-    place: &PlaceId,
+    unit: &UnitId,
     date: NaiveDate,
 ) -> Result<Json<Vec<CorrectionRow>>, AppError> {
     let display_name = record.profile.as_ref().map_or_else(
@@ -964,7 +964,7 @@ async fn day_chain_rows(
         infrastructure::correction_rows_for_day(
             &state.db,
             record.employee.id(),
-            place,
+            unit,
             date,
             &record.employee.code().to_string(),
             &display_name,
@@ -982,7 +982,7 @@ async fn day_chain_rows(
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct PunchReadinessView {
-    pub place_id: String,
+    pub unit_id: String,
     pub period: String,
     /// `null` means **not assessed**: this unit has no registered station, so
     /// there was nothing to count. Not zero.
@@ -994,7 +994,7 @@ pub struct PunchReadinessView {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PeriodQuery {
-    pub place: String,
+    pub unit: String,
     /// `YYYY-MM`.
     pub period: String,
 }
@@ -1006,25 +1006,25 @@ pub async fn read_punch_readiness(
     Query(query): Query<PeriodQuery>,
 ) -> Result<Json<PunchReadinessView>, AppError> {
     let reach = reach_of(&state, &principal).await?;
-    if !reach.covers(Some(&query.place)) {
+    if !reach.covers(Some(&query.unit)) {
         return Err(AppError::Forbidden(format!(
             "{} is not posted anywhere that reaches {}",
-            principal.username, query.place
+            principal.username, query.unit
         )));
     }
-    let place = PlaceId::try_new(&query.place).map_err(invalid)?;
+    let unit = UnitId::try_new(&query.unit).map_err(invalid)?;
     let month = AttendanceMonth::parse(&query.period).map_err(invalid)?;
-    let connected = infrastructure::place_has_terminal(&state.db, &place).await?;
+    let connected = infrastructure::unit_has_terminal(&state.db, &unit).await?;
     let (open_corrections, unrostered_punch_days) = if connected {
         (
-            Some(infrastructure::open_corrections_in(&state.db, &place, month).await?),
-            Some(infrastructure::unrostered_punch_days_in(&state.db, &place, month).await?),
+            Some(infrastructure::open_corrections_in(&state.db, &unit, month).await?),
+            Some(infrastructure::unrostered_punch_days_in(&state.db, &unit, month).await?),
         )
     } else {
         (None, None)
     };
     Ok(Json(PunchReadinessView {
-        place_id: query.place,
+        unit_id: query.unit,
         period: month.to_string(),
         open_corrections,
         unrostered_punch_days,

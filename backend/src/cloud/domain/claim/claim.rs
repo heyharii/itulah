@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 
 use super::catalogue::ClaimTypeCode;
 use super::error::ClaimError;
-use crate::cloud::domain::employment::{Authorization, EmployeeId, PlaceId, ReasonText};
+use crate::cloud::domain::employment::{Authorization, EmployeeId, ReasonText, UnitId};
 
 pub const MAX_CLAIM_ID_LEN: usize = 64;
 pub const MAX_DESCRIPTION_LEN: usize = 280;
@@ -285,7 +285,7 @@ impl ClaimState {
 #[derive(Debug, Clone)]
 pub struct ExpenseClaimWire {
     pub id: ClaimId,
-    pub place: PlaceId,
+    pub unit: UnitId,
     pub employee: EmployeeId,
     pub claimed_by: String,
     pub posted_on: NaiveDate,
@@ -301,7 +301,7 @@ pub struct ExpenseClaim {
     /// `KLC-{place}-{yy}-{seq}`, minted by persistence and never by the
     /// caller: a document number chosen anywhere else is a second authority.
     claim_number: String,
-    place: PlaceId,
+    unit: UnitId,
     employee: EmployeeId,
     claimed_by: String,
     posted_on: NaiveDate,
@@ -333,7 +333,7 @@ impl ExpenseClaim {
     pub fn file(
         id: ClaimId,
         claim_number: String,
-        place: PlaceId,
+        unit: UnitId,
         employee: EmployeeId,
         posted_on: NaiveDate,
         lines: Vec<ClaimLine>,
@@ -354,7 +354,7 @@ impl ExpenseClaim {
         Ok(Self {
             id,
             claim_number,
-            place,
+            unit,
             employee,
             claimed_by: authorization.actor().to_string(),
             posted_on,
@@ -463,7 +463,7 @@ impl ExpenseClaim {
         Ok(Self {
             id: wire.id,
             claim_number: String::new(),
-            place: wire.place,
+            unit: wire.unit,
             employee: wire.employee,
             claimed_by: wire.claimed_by,
             posted_on: wire.posted_on,
@@ -749,8 +749,8 @@ impl ExpenseClaim {
     pub fn claim_number(&self) -> &str {
         &self.claim_number
     }
-    pub fn place(&self) -> &PlaceId {
-        &self.place
+    pub fn unit(&self) -> &UnitId {
+        &self.unit
     }
     pub fn employee(&self) -> &EmployeeId {
         &self.employee

@@ -73,12 +73,12 @@ fn require(principal: &Principal, action_key: &str) -> Result<(), AppError> {
 /// reaches their own posting and nothing else; a login with no posting behind
 /// it reaches nothing, which is the honest reading of "we do not know where
 /// this person works".
-fn reaches(principal: &Principal, reach: &Reach, place_id: &str) -> Result<(), AppError> {
-    if reach.covers(Some(place_id)) {
+fn reaches(principal: &Principal, reach: &Reach, unit_id: &str) -> Result<(), AppError> {
+    if reach.covers(Some(unit_id)) {
         return Ok(());
     }
     Err(AppError::Forbidden(format!(
-        "{} is not posted anywhere that reaches {place_id}",
+        "{} is not posted anywhere that reaches {unit_id}",
         principal.username
     )))
 }
@@ -288,7 +288,7 @@ pub struct CatalogueQuery {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FileAdjustmentBody {
-    pub place_id: String,
+    pub unit_id: String,
     /// `YYYY-MM`.
     pub period: String,
     pub employee_id: String,
@@ -308,7 +308,7 @@ pub struct FileAdjustmentBody {
 #[serde(deny_unknown_fields)]
 pub struct AdjustmentQuery {
     #[serde(default)]
-    pub place: Option<String>,
+    pub unit: Option<String>,
     /// `YYYY-MM`.
     #[serde(default)]
     pub period: Option<String>,
@@ -492,12 +492,12 @@ pub async fn adjustments(
     if reach.is_nowhere() {
         return Ok(Json(Vec::new()));
     }
-    let place = match query.place.as_deref() {
+    let unit = match query.unit.as_deref() {
         Some(asked) => {
             reaches(&principal, &reach, asked)?;
             Some(asked.to_owned())
         }
-        None => reach.sole_place().map(ToString::to_string),
+        None => reach.sole_unit().map(ToString::to_string),
     };
     let period = query
         .period
@@ -509,7 +509,7 @@ pub async fn adjustments(
         .transpose()?;
 
     Ok(Json(
-        infrastructure::adjustments(&state.db, place.as_deref(), period).await?,
+        infrastructure::adjustments(&state.db, unit.as_deref(), period).await?,
     ))
 }
 
@@ -532,9 +532,9 @@ pub async fn file(
 ) -> Result<Json<Vec<PayrollAdjustmentRow>>, AppError> {
     require(&principal, actions::PAYROLL_ADJUSTMENT_FILE)?;
     let reach = reach_of(&state, &principal).await?;
-    reaches(&principal, &reach, &body.place_id)?;
+    reaches(&principal, &reach, &body.unit_id)?;
 
-    let place = crate::cloud::domain::PlaceId::try_new(&body.place_id).map_err(invalid)?;
+    let unit = crate::cloud::domain::UnitId::try_new(&body.unit_id).map_err(invalid)?;
     let month = AttendanceMonth::parse(&body.period).map_err(infrastructure::attendance_error)?;
     let first_day = infrastructure::month_first_day(month)?;
     let component = load(&state, &body.component_code.to_uppercase()).await?;
@@ -555,7 +555,7 @@ pub async fn file(
     .map_err(invalid)?;
     let adjustment = PayrollAdjustment::file(
         format!("adj-{}", Uuid::new_v4()),
-        place.clone(),
+        unit.clone(),
         &body.period,
         &body.employee_id,
         &component,
@@ -569,7 +569,7 @@ pub async fn file(
     // The run already holds slips built before this figure existed. Rebuild
     // them now, so a place that files and then submits cannot send head office
     // an arithmetic the filing did not reach.
-    infrastructure::rebuild_draft_run(&state.db, place.as_str(), first_day).await?;
+    infrastructure::rebuild_draft_run(&state.db, unit.as_str(), first_day).await?;
     // Filed against the EMPLOYEE, not against a row of its own. "Why did Siti
     // get three hundred thousand extra in April" is a question somebody asks on
     // her sheet, and an adjustment id is not a record anybody opens — the shape
@@ -577,7 +577,7 @@ pub async fn file(
     acted_on.set(RecordKind::Employee, body.employee_id.clone());
 
     Ok(Json(
-        infrastructure::adjustments(&state.db, Some(place.as_str()), Some(first_day)).await?,
+        infrastructure::adjustments(&state.db, Some(unit.as_str()), Some(first_day)).await?,
     ))
 }
 
@@ -669,21 +669,21 @@ pub async fn withdraw(
     // inside the delete's transaction, so a 403 is never reached by way of a
     // transaction that has already removed something.
     let reach = reach_of(&state, &principal).await?;
-    let found = infrastructure::adjustment_place_of(&state.db, &id).await?;
-    let Some((place, first_day)) = found else {
+    let found = infrastructure::adjustment_unit_of(&state.db, &id).await?;
+    let Some((unit, first_day)) = found else {
         return Err(AppError::NotFound(format!("payroll adjustment {id}")));
     };
-    reaches(&principal, &reach, place.as_str())?;
+    reaches(&principal, &reach, unit.as_str())?;
 
     let withdrawn = infrastructure::withdraw_adjustment(&state.db, &id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("payroll adjustment {id}")))?;
     // Taking a figure back changes the month too: the slip that carried it
     // must lose it before the batch can be submitted.
-    infrastructure::rebuild_draft_run(&state.db, place.as_str(), first_day).await?;
+    infrastructure::rebuild_draft_run(&state.db, unit.as_str(), first_day).await?;
     acted_on.set(RecordKind::Employee, withdrawn.employee_id().to_owned());
 
     Ok(Json(
-        infrastructure::adjustments(&state.db, Some(place.as_str()), Some(first_day)).await?,
+        infrastructure::adjustments(&state.db, Some(unit.as_str()), Some(first_day)).await?,
     ))
 }

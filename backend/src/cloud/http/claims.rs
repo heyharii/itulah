@@ -27,13 +27,13 @@
 //! — which rests in no state — is still visible to the person it happened to.
 
 use super::auth::Principal;
-use super::employment::{current_place, invalid, reach_of, resolve};
+use super::employment::{current_unit, invalid, reach_of, resolve};
 use crate::cloud::{
     application::{AppError, AppState},
     domain::{
         actions, required_role_for_action, role_allows, Authorization, ClaimId, ClaimLine,
         ClaimLineId, ClaimType, ClaimTypeCatalogue, ClaimTypeCode, EmployeeId, ExpenseClaim,
-        PlaceId,
+        UnitId,
     },
     postgres::{self as infrastructure, ClaimView},
 };
@@ -201,8 +201,8 @@ pub async fn file(
     let record = infrastructure::load_employee(&state.db, &access.employee_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("employee {}", access.employee_id)))?;
-    access.reaches(current_place(&record))?;
-    let place = current_place(&record).ok_or_else(|| {
+    access.reaches(current_unit(&record))?;
+    let unit = current_unit(&record).ok_or_else(|| {
         AppError::Conflict(format!(
             "{} is not posted anywhere, so there is nobody to decide their claim",
             access.employee_id
@@ -231,7 +231,7 @@ pub async fn file(
         // Minted by the insert, inside its transaction: a document number
         // chosen anywhere else is a second authority.
         String::new(),
-        PlaceId::try_new(place).map_err(invalid)?,
+        UnitId::try_new(unit).map_err(invalid)?,
         EmployeeId::try_new(&access.employee_id).map_err(invalid)?,
         body.posted_on.unwrap_or_else(crate::reporting::local_today),
         lines,
@@ -261,7 +261,7 @@ async fn read_back(
 #[serde(deny_unknown_fields)]
 pub struct ClaimQuery {
     #[serde(default)]
-    pub place: Option<String>,
+    pub unit: Option<String>,
     #[serde(default)]
     pub state: Option<String>,
     #[serde(default)]
@@ -283,7 +283,7 @@ pub async fn list_claims(
     let reach = reach_of(&state, &principal).await?;
     if reach.is_nowhere() {
         return Err(AppError::Forbidden(format!(
-            "{} has no open posting, so no place's claims are theirs to read",
+            "{} has no open posting, so no unit's claims are theirs to read",
             principal.username
         )));
     }
@@ -291,10 +291,10 @@ pub async fn list_claims(
     let records = infrastructure::list_claims(
         &state.db,
         &catalogue,
-        query.place.as_deref(),
+        query.unit.as_deref(),
         query.state.as_deref(),
         query.employee.as_deref(),
-        reach.sole_place().map(|place| place.as_str()),
+        reach.sole_unit().map(|unit| unit.as_str()),
     )
     .await?;
     records
@@ -317,7 +317,7 @@ pub async fn list_of_employee(
         let record = infrastructure::load_employee(&state.db, &access.employee_id)
             .await?
             .ok_or_else(|| AppError::NotFound(format!("employee {}", access.employee_id)))?;
-        access.reaches(current_place(&record))?;
+        access.reaches(current_unit(&record))?;
     }
     let catalogue = infrastructure::load_type_catalogue(&state.db).await?;
     let records = infrastructure::list_claims(
@@ -378,11 +378,11 @@ async fn filer_claim(
         // A supervisor act on a colleague's claim is bounded by the caller's
         // own posting, like every other place-scoped write.
         let reach = reach_of(state, principal).await?;
-        if !reach.covers(Some(record.claim.place().as_str())) {
+        if !reach.covers(Some(record.claim.unit().as_str())) {
             return Err(AppError::Forbidden(format!(
                 "{} is not posted anywhere that reaches {}",
                 principal.username,
-                record.claim.place()
+                record.claim.unit()
             )));
         }
     }
@@ -466,11 +466,11 @@ pub async fn decide(
         .ok_or_else(|| AppError::NotFound(format!("expense claim {claim_id}")))?;
     let mut claim = record.claim;
     let reach = reach_of(&state, &principal).await?;
-    if !reach.covers(Some(claim.place().as_str())) {
+    if !reach.covers(Some(claim.unit().as_str())) {
         return Err(AppError::Forbidden(format!(
             "{} is not posted anywhere that reaches {}",
             principal.username,
-            claim.place()
+            claim.unit()
         )));
     }
     let authorization = Authorization::try_new(
@@ -516,11 +516,11 @@ pub async fn returnal(
         .ok_or_else(|| AppError::NotFound(format!("expense claim {claim_id}")))?;
     let mut claim = record.claim;
     let reach = reach_of(&state, &principal).await?;
-    if !reach.covers(Some(claim.place().as_str())) {
+    if !reach.covers(Some(claim.unit().as_str())) {
         return Err(AppError::Forbidden(format!(
             "{} is not posted anywhere that reaches {}",
             principal.username,
-            claim.place()
+            claim.unit()
         )));
     }
     let authorization = Authorization::try_new(
@@ -561,11 +561,11 @@ pub async fn payout(
         .ok_or_else(|| AppError::NotFound(format!("expense claim {claim_id}")))?;
     let mut claim = record.claim;
     let reach = reach_of(&state, &principal).await?;
-    if !reach.covers(Some(claim.place().as_str())) {
+    if !reach.covers(Some(claim.unit().as_str())) {
         return Err(AppError::Forbidden(format!(
             "{} is not posted anywhere that reaches {}",
             principal.username,
-            claim.place()
+            claim.unit()
         )));
     }
     let authorization = Authorization::try_new(
@@ -604,7 +604,7 @@ pub async fn list_advances(
         let record = infrastructure::load_employee(&state.db, &access.employee_id)
             .await?
             .ok_or_else(|| AppError::NotFound(format!("employee {}", access.employee_id)))?;
-        access.reaches(current_place(&record))?;
+        access.reaches(current_unit(&record))?;
     }
     Ok(Json(
         infrastructure::advances_of_employee(&state.db, &access.employee_id).await?,

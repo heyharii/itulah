@@ -1,5 +1,5 @@
 use super::*;
-use crate::cloud::domain::employment::{actions, Authorization, PlaceId};
+use crate::cloud::domain::employment::{actions, Authorization, UnitId};
 use chrono::{DateTime, NaiveDate, Utc};
 use pricing_engine::Money;
 
@@ -405,10 +405,10 @@ fn a_one_off_may_only_name_a_component_with_no_standing_figure() {
         None,
         None,
     );
-    let place = PlaceId::try_new("store-07").unwrap_or_else(|error| panic!("place: {error}"));
+    let unit = UnitId::try_new("store-07").unwrap_or_else(|error| panic!("unit: {error}"));
     let adjustment = PayrollAdjustment::file(
         "adj-1",
-        place.clone(),
+        unit.clone(),
         "2026-04",
         "emp-1",
         &insentif,
@@ -432,7 +432,7 @@ fn a_one_off_may_only_name_a_component_with_no_standing_figure() {
     assert!(matches!(
         PayrollAdjustment::file(
             "adj-2",
-            place.clone(),
+            unit.clone(),
             "2026-04",
             "emp-1",
             &standing,
@@ -447,7 +447,7 @@ fn a_one_off_may_only_name_a_component_with_no_standing_figure() {
     assert!(matches!(
         PayrollAdjustment::file(
             "adj-3",
-            place,
+            unit,
             "2026-04",
             "emp-1",
             &insentif,
@@ -470,10 +470,10 @@ fn a_one_off_deduction_comes_off_the_net() {
         None,
         None,
     );
-    let place = PlaceId::try_new("store-07").unwrap_or_else(|error| panic!("place: {error}"));
+    let unit = UnitId::try_new("store-07").unwrap_or_else(|error| panic!("unit: {error}"));
     let instalment = PayrollAdjustment::file(
         "adj-1",
-        place,
+        unit,
         "2026-04",
         "emp-1",
         &kasbon,
@@ -531,7 +531,7 @@ fn an_authority_for_one_act_does_not_cover_another() {
     assert!(matches!(
         PayrollAdjustment::file(
             "adj-1",
-            PlaceId::try_new("store-07").unwrap_or_else(|error| panic!("place: {error}")),
+            UnitId::try_new("store-07").unwrap_or_else(|error| panic!("unit: {error}")),
             "2026-04",
             "emp-1",
             &insentif,

@@ -64,7 +64,7 @@ async fn the_clock_earns_a_monthly_policy_once(pool: PgPool) {
     });
     sqlx::query(
         "INSERT INTO employee_assignment
-             (id, employee_id, place_id, valid_from, valid_to, authorized)
+             (id, employee_id, unit_id, valid_from, valid_to, authorized)
          VALUES ('as_sched', 'emp_sched', 'ho', '2026-01-01', NULL, $1)",
     )
     .bind(&authorized)

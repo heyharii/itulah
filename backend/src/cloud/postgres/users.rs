@@ -388,8 +388,8 @@ pub struct UserRow {
     /// somebody who has left, which is the row worth putting at the top.
     pub employee_status: Option<String>,
     pub employee_name: Option<String>,
-    pub place_id: Option<String>,
-    pub place_name: Option<String>,
+    pub unit_id: Option<String>,
+    pub unit_name: Option<String>,
 }
 
 /// One value a filter can take, and how many logins would still be there.
@@ -420,7 +420,7 @@ pub struct UserFacets {
     /// posted nowhere: machine accounts and unfinished paperwork are both real,
     /// but the filter has no spelling for "nowhere" and a count nobody can
     /// click is worse than no count.
-    pub places: Vec<UserFacet>,
+    pub units: Vec<UserFacet>,
 }
 
 /// A page of logins, and the shape of everything it was drawn from.
@@ -457,7 +457,7 @@ pub struct UserScope {
     pub active: Option<bool>,
     /// Where the person behind the login is posted.
     #[serde(default)]
-    pub place_id: Option<String>,
+    pub unit_id: Option<String>,
     /// `username`, `role`, `created` or `last_login`. Anything else is
     /// `username` rather than a 400, so a stale bookmark still opens.
     #[serde(default)]
@@ -517,7 +517,7 @@ const USER_ROWS: &str = "
            u.created_at, u.last_login_at,
            u.employee_id, e.code AS employee_code, e.status AS employee_status,
            p.full_name AS employee_name,
-           a.place_id, place.name AS place_name,
+           a.unit_id, unit.name AS unit_name,
            CASE WHEN u.active THEN 'ACTIVE' ELSE 'DISABLED' END AS state,
            COALESCE(u.last_login_at, TIMESTAMPTZ '-infinity') AS login_key
       FROM app_user u
@@ -525,7 +525,7 @@ const USER_ROWS: &str = "
       LEFT JOIN employee_profile p ON p.employee_id = e.id
       LEFT JOIN employee_assignment a
              ON a.employee_id = e.id AND a.valid_to IS NULL
-      LEFT JOIN org_place place ON place.id = a.place_id
+      LEFT JOIN unit unit ON unit.id = a.unit_id
      -- A login, a name, a badge number and the name on the badge. Not the
      -- personal data the profile join happens to reach — see `UserScope::q`.
      WHERE ($1::text IS NULL
@@ -539,7 +539,7 @@ const USER_ROWS: &str = "
 const USER_FILTERS: &str = "
     WHERE ($2::text IS NULL OR role = $2)
       AND ($3::bool IS NULL OR active = $3)
-      AND ($4::text IS NULL OR place_id = $4)
+      AND ($4::text IS NULL OR unit_id = $4)
 ";
 
 /// Every login, one page at a time, beside exactly how many there are.
@@ -605,7 +605,7 @@ pub async fn list_users(pool: &PgPool, scope: UserScope) -> Result<UserList, App
     .bind(&needle)
     .bind(&scope.role)
     .bind(scope.active)
-    .bind(&scope.place_id)
+    .bind(&scope.unit_id)
     .bind(cursor.as_ref().map(|one| one.id))
     .bind(limit)
     .fetch_all(pool)
@@ -637,8 +637,8 @@ pub async fn list_users(pool: &PgPool, scope: UserScope) -> Result<UserList, App
                 employee_code: row.try_get("employee_code")?,
                 employee_status: row.try_get("employee_status")?,
                 employee_name: row.try_get("employee_name")?,
-                place_id: row.try_get("place_id")?,
-                place_name: row.try_get("place_name")?,
+                unit_id: row.try_get("unit_id")?,
+                unit_name: row.try_get("unit_name")?,
             })
         })
         .collect::<Result<Vec<_>, AppError>>()?;
@@ -654,21 +654,21 @@ pub async fn list_users(pool: &PgPool, scope: UserScope) -> Result<UserList, App
          SELECT 'state', state, NULL::text, COUNT(*)::bigint
            FROM searched GROUP BY state
           UNION ALL
-         SELECT 'place', place_id, place_name, COUNT(*)::bigint
-           FROM searched WHERE place_id IS NOT NULL
-          GROUP BY place_id, place_name
+         SELECT 'unit', unit_id, unit_name, COUNT(*)::bigint
+           FROM searched WHERE unit_id IS NOT NULL
+          GROUP BY unit_id, unit_name
           UNION ALL
          SELECT 'all', '', NULL::text, COUNT(*)::bigint FROM kept"
     ))
     .bind(&needle)
     .bind(&scope.role)
     .bind(scope.active)
-    .bind(&scope.place_id)
+    .bind(&scope.unit_id)
     .fetch_all(pool)
     .await?;
 
     let mut total = 0i64;
-    let (mut roles, mut states, mut places) = (Vec::new(), Vec::new(), Vec::new());
+    let (mut roles, mut states, mut units) = (Vec::new(), Vec::new(), Vec::new());
     for row in &counted {
         let facet: String = row.try_get("facet")?;
         let one = UserFacet {
@@ -679,11 +679,11 @@ pub async fn list_users(pool: &PgPool, scope: UserScope) -> Result<UserList, App
         match facet.as_str() {
             "role" => roles.push(one),
             "state" => states.push(one),
-            "place" => places.push(one),
+            "unit" => units.push(one),
             _ => total = one.count,
         }
     }
-    for list in [&mut roles, &mut states, &mut places] {
+    for list in [&mut roles, &mut states, &mut units] {
         list.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.value.cmp(&b.value)));
     }
 
@@ -694,7 +694,7 @@ pub async fn list_users(pool: &PgPool, scope: UserScope) -> Result<UserList, App
         facets: UserFacets {
             roles,
             states,
-            places,
+            units,
         },
     })
 }

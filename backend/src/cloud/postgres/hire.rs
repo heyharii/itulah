@@ -31,7 +31,7 @@
 use crate::cloud::application::AppError;
 use crate::cloud::domain::{
     CandidateName, ContractKind, HireError, HireProposal, HireProposalEvent, HireProposalId,
-    HireProposalState, HireProposalWire, HiringNeed, PlaceId, Position, ProposedTerms,
+    HireProposalState, HireProposalWire, HiringNeed, Position, ProposedTerms, UnitId,
 };
 use chrono::{DateTime, NaiveDate, Utc};
 use pricing_engine::Money;
@@ -68,35 +68,35 @@ pub struct HireProposalRecord {
     /// `EmployeeRecord::place_names` gives: a display name is not part of what
     /// makes a proposal valid, and a screen showing `ho` where it means "Head
     /// Office" is an identifier that has escaped into the interface.
-    pub place_name: Option<String>,
+    pub unit_name: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
 
-const PROPOSAL_COLUMNS: &str = "proposal.id, proposal.place_id, proposal.state, \
+const PROPOSAL_COLUMNS: &str = "proposal.id, proposal.unit_id, proposal.state, \
                                 proposal.history, proposal.created_at, proposal.updated_at, \
-                                unit.name AS place_name";
+                                unit.name AS unit_name";
 
 /// Every read joins the unit, so no caller can serve a proposal whose shop it
 /// forgot to name.
 const PROPOSAL_FROM: &str = "FROM hire_proposal proposal \
-                             LEFT JOIN org_place unit ON unit.id = proposal.place_id";
+                             LEFT JOIN unit unit ON unit.id = proposal.unit_id";
 const VERSION_COLUMNS: &str = "proposal_id, version, position, headcount, need, candidate_name, \
                                start_on, contract_kind, contract_ends_on, base_pay_minor";
 
 /// What a caller may see, and what they asked for.
 ///
-/// `reach_place` is the fence and `place_id` is the filter, the pair
+/// `reach_place` is the fence and `unit_id` is the filter, the pair
 /// `EmployeeScope` established: they are the same value for a bounded caller
 /// today, and the query applies both, so the day somebody edits the
 /// reconciliation in the handler without reading it the answer narrows rather
 /// than widens.
 pub struct HireProposalScope {
     /// The one place a bounded caller may see, or `None` for head office.
-    pub reach_place: Option<String>,
+    pub reach_unit: Option<String>,
     /// The place the caller asked about, already reconciled against their
     /// reach.
-    pub place_id: Option<String>,
+    pub unit_id: Option<String>,
     /// `PROPOSED`, `RETURNED`, `APPROVED`, `REJECTED` or `FILLED`.
     pub state: Option<String>,
     pub limit: Option<i64>,
@@ -186,8 +186,8 @@ fn decode(row: &PgRow, versions: Vec<ProposedTerms>) -> Result<HireProposalRecor
     let proposal = HireProposal::try_new(HireProposalWire {
         id: HireProposalId::try_new(&row.try_get::<String, _>("id")?)
             .map_err(|error| corrupt("hire proposal id", error.to_string()))?,
-        place: PlaceId::try_new(&row.try_get::<String, _>("place_id")?)
-            .map_err(|error| corrupt("hire proposal place", error.to_string()))?,
+        unit: UnitId::try_new(&row.try_get::<String, _>("unit_id")?)
+            .map_err(|error| corrupt("hire proposal unit", error.to_string()))?,
         state,
         versions,
         history,
@@ -196,7 +196,7 @@ fn decode(row: &PgRow, versions: Vec<ProposedTerms>) -> Result<HireProposalRecor
 
     Ok(HireProposalRecord {
         proposal,
-        place_name: row.try_get("place_name")?,
+        unit_name: row.try_get("unit_name")?,
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
     })
@@ -244,14 +244,14 @@ pub async fn list_hire_proposals(
 ) -> Result<Vec<HireProposalRecord>, AppError> {
     let rows = sqlx::query(&format!(
         "SELECT {PROPOSAL_COLUMNS} {PROPOSAL_FROM}
-          WHERE ($1::text IS NULL OR proposal.place_id = $1)
-            AND ($2::text IS NULL OR proposal.place_id = $2)
+          WHERE ($1::text IS NULL OR proposal.unit_id = $1)
+            AND ($2::text IS NULL OR proposal.unit_id = $2)
             AND ($3::text IS NULL OR proposal.state = $3)
           ORDER BY proposal.created_at DESC, proposal.id
           LIMIT $4"
     ))
-    .bind(&scope.reach_place)
-    .bind(&scope.place_id)
+    .bind(&scope.reach_unit)
+    .bind(&scope.unit_id)
     .bind(&scope.state)
     .bind(scope.limit.unwrap_or(MAX_ROWS).clamp(1, MAX_ROWS))
     .fetch_all(pool)
@@ -286,16 +286,14 @@ pub async fn list_hire_proposals(
 
 /// The unit a proposal may name, and its name.
 ///
-/// `None` for a unit `org_place` does not hold, which the handler answers as a
+/// `None` for a unit `unit` does not hold, which the handler answers as a
 /// refusal the caller can read rather than letting the foreign key answer it
 /// with a 500. After 0230 the units are head office plus Store 01 to Store 13.
-pub async fn hire_proposal_unit(pool: &PgPool, place_id: &str) -> Result<Option<String>, AppError> {
-    Ok(
-        sqlx::query_scalar("SELECT name FROM org_place WHERE id = $1")
-            .bind(place_id)
-            .fetch_optional(pool)
-            .await?,
-    )
+pub async fn hire_proposal_unit(pool: &PgPool, unit_id: &str) -> Result<Option<String>, AppError> {
+    Ok(sqlx::query_scalar("SELECT name FROM unit WHERE id = $1")
+        .bind(unit_id)
+        .fetch_optional(pool)
+        .await?)
 }
 
 /// Whether an employee code is already somebody's.
@@ -358,12 +356,12 @@ async fn write_versions(
 pub async fn insert_hire_proposal(pool: &PgPool, proposal: &HireProposal) -> Result<(), AppError> {
     let mut tx = pool.begin().await?;
     let inserted = sqlx::query(
-        "INSERT INTO hire_proposal (id, place_id, state, history)
+        "INSERT INTO hire_proposal (id, unit_id, state, history)
          VALUES ($1, $2, $3, $4)
          ON CONFLICT (id) DO NOTHING",
     )
     .bind(proposal.id().as_str())
-    .bind(proposal.place().as_str())
+    .bind(proposal.unit().as_str())
     .bind(proposal.state().code())
     .bind(serde_json::to_value(proposal.history())?)
     .execute(&mut *tx)
@@ -388,7 +386,7 @@ pub async fn insert_hire_proposal(pool: &PgPool, proposal: &HireProposal) -> Res
 /// hypothetical: it is the queue's whole shape, several officers working one
 /// list.
 ///
-/// `place_id` is not in the statement. Which unit a proposal is for is
+/// `unit_id` is not in the statement. Which unit a proposal is for is
 /// write-once: a revision may change the pay or the start date, and a proposal
 /// that changed shops would be a different proposal.
 pub async fn save_hire_proposal(

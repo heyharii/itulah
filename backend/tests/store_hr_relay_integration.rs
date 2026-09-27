@@ -221,7 +221,7 @@ async fn head_office(app: &axum::Router) -> Vec<(String, String)> {
 }
 
 /// Register, hire and post somebody, returning their employee id.
-async fn employ(app: &axum::Router, hq: &[(String, String)], code: &str, place: &str) -> String {
+async fn employ(app: &axum::Router, hq: &[(String, String)], code: &str, unit: &str) -> String {
     let registered = send(
         app,
         "POST",
@@ -254,7 +254,7 @@ async fn employ(app: &axum::Router, hq: &[(String, String)], code: &str, place: 
         &format!("/api/v1/employees/{employee_id}/assignments"),
         hq.to_vec(),
         Some(json!({
-            "place_id": place,
+            "unit_id": unit,
             "valid_from": "2026-01-06",
             "reason": "penempatan awal",
         })),
@@ -453,7 +453,7 @@ async fn a_relayed_call_is_never_the_development_admin(pool: PgPool) {
 /// Head office HR signed in at store-07's till reaches store-07 — and a
 /// supervisor posted to store-03 reaches nothing there.
 #[sqlx::test(migrations = "./migrations/postgres")]
-async fn a_relayed_call_reaches_the_nodes_place_and_no_other(pool: PgPool) {
+async fn a_relayed_call_reaches_the_nodes_unit_and_no_other(pool: PgPool) {
     cloud::bootstrap_admin(&pool, Some(ADMIN_PASSWORD), true)
         .await
         .unwrap_or_else(|error| panic!("bootstrap: {error}"));
@@ -477,7 +477,7 @@ async fn a_relayed_call_reaches_the_nodes_place_and_no_other(pool: PgPool) {
     )
     .await;
     assert_eq!(list.status, StatusCode::OK, "relayed list: {:?}", list.body);
-    assert_eq!(list.body["place_id"], "store-07");
+    assert_eq!(list.body["unit_id"], "store-07");
     let ids: Vec<&str> = list.body["rows"]
         .as_array()
         .unwrap_or_else(|| panic!("rows: {:?}", list.body))
@@ -490,7 +490,7 @@ async fn a_relayed_call_reaches_the_nodes_place_and_no_other(pool: PgPool) {
     let asked_elsewhere = send(
         &app,
         "GET",
-        "/api/v1/employees?place_id=store-03",
+        "/api/v1/employees?unit_id=store-03",
         relayed(ORIGIN_07, KEY_07, hr),
         None,
     )
@@ -518,8 +518,8 @@ async fn a_relayed_call_reaches_the_nodes_place_and_no_other(pool: PgPool) {
         None,
     )
     .await;
-    assert_eq!(reach.body["scope"], "ONE_PLACE", "{:?}", reach.body);
-    assert_eq!(reach.body["place_id"], "store-07", "{:?}", reach.body);
+    assert_eq!(reach.body["scope"], "ONE_UNIT", "{:?}", reach.body);
+    assert_eq!(reach.body["unit_id"], "store-07", "{:?}", reach.body);
 
     // A supervisor posted to store-03, signed in at store-07's till.
     let visitor = login(&pool, "mgr.three", Role::Supervisor).await;

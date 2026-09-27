@@ -45,7 +45,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use super::employment::{Authorization, EmployeeId, PlaceId};
+use super::employment::{Authorization, EmployeeId, UnitId};
 
 pub const MAX_SUBJECT_LEN: usize = 200;
 pub const MAX_DESCRIPTION_LEN: usize = 4_000;
@@ -389,7 +389,7 @@ impl GrievanceState {
 #[derive(Debug, Clone)]
 pub struct EmployeeGrievanceWire {
     pub id: GrievanceId,
-    pub place: PlaceId,
+    pub unit: UnitId,
     pub type_code: GrievanceTypeCode,
     pub raised_by: EmployeeId,
     pub filed_by: String,
@@ -407,7 +407,7 @@ pub struct EmployeeGrievance {
     id: GrievanceId,
     /// Where the grievance arises — the raiser's posting, read from the
     /// employment record and never taken from the body.
-    place: PlaceId,
+    unit: UnitId,
     type_code: GrievanceTypeCode,
     raised_by: EmployeeId,
     filed_by: String,
@@ -442,7 +442,7 @@ impl EmployeeGrievance {
     /// rested on.
     pub fn file(
         id: GrievanceId,
-        place: PlaceId,
+        unit: UnitId,
         raised_by: EmployeeId,
         against: Option<EmployeeId>,
         subject: String,
@@ -487,7 +487,7 @@ impl EmployeeGrievance {
         catalogue.require_active(type_code)?;
         Ok(Self {
             id,
-            place,
+            unit,
             type_code: type_code.clone(),
             raised_by,
             filed_by: authorization.actor().to_string(),
@@ -552,7 +552,7 @@ impl EmployeeGrievance {
         }
         Ok(Self {
             id: wire.id,
-            place: wire.place,
+            unit: wire.unit,
             type_code: wire.type_code,
             raised_by: wire.raised_by,
             filed_by: wire.filed_by,
@@ -684,8 +684,8 @@ impl EmployeeGrievance {
     pub fn id(&self) -> &GrievanceId {
         &self.id
     }
-    pub fn place(&self) -> &PlaceId {
-        &self.place
+    pub fn unit(&self) -> &UnitId {
+        &self.unit
     }
     pub fn type_code(&self) -> &GrievanceTypeCode {
         &self.type_code

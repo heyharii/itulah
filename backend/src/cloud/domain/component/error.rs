@@ -88,11 +88,11 @@ pub enum ComponentError {
     /// The freeze: an adjustment rides the batch it is part of, so it stops
     /// being writable the moment the place signs for that batch.
     #[error(
-        "the payroll for {place} in {period} is {state}, so its figures are no longer the \
-         place's to change — head office reopens it, which clears both signatures"
+        "the payroll for {unit} in {period} is {state}, so its figures are no longer the \
+         unit's to change — head office reopens it, which clears both signatures"
     )]
     BatchNoLongerDraft {
-        place: String,
+        unit: String,
         period: String,
         state: &'static str,
     },

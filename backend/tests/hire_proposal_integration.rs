@@ -191,7 +191,7 @@ async fn staff_at(
     cookies: &str,
     csrf: &str,
     code: &str,
-    place_id: &str,
+    unit_id: &str,
 ) -> String {
     let registered = send(
         app.clone(),
@@ -232,7 +232,7 @@ async fn staff_at(
         &format!("/api/v1/employees/{employee_id}/assignments"),
         write_headers(cookies, csrf),
         Some(json!({
-            "place_id": place_id,
+            "unit_id": unit_id,
             "valid_from": "2026-01-05",
             "reason": "penempatan awal",
         })),
@@ -294,10 +294,10 @@ async fn manager_at(
     csrf: &str,
     code: &str,
     username: &str,
-    place_id: &str,
+    unit_id: &str,
     password: &str,
 ) -> String {
-    let employee_id = staff_at(app, cookies, csrf, code, place_id).await;
+    let employee_id = staff_at(app, cookies, csrf, code, unit_id).await;
     login_for(
         app,
         cookies,
@@ -311,9 +311,9 @@ async fn manager_at(
     employee_id
 }
 
-fn proposal_body(place_id: &str, base_pay_minor: i64) -> Value {
+fn proposal_body(unit_id: &str, base_pay_minor: i64) -> Value {
     json!({
-        "place_id": place_id,
+        "unit_id": unit_id,
         "position": "Kasir",
         "headcount": 1,
         "need": "REPLACEMENT",
@@ -364,9 +364,9 @@ async fn a_shop_asks_head_office_answers_and_the_answer_becomes_a_record(pool: P
     .await;
     assert_eq!(filed.status, StatusCode::OK, "propose: {:?}", filed.body);
     assert_eq!(filed.body["state"], "PROPOSED");
-    assert_eq!(filed.body["place_id"], "store-01");
+    assert_eq!(filed.body["unit_id"], "store-01");
     // The unit's own name travels with it, so no screen has to render `ho`.
-    assert_eq!(filed.body["place_name"], "C001");
+    assert_eq!(filed.body["unit_name"], "Cikupa");
     assert_eq!(filed.body["current_version"], 1);
     assert_eq!(filed.body["proposed_by"], "budi");
     assert_eq!(filed.body["outstanding"], 1);
@@ -523,7 +523,7 @@ async fn a_shop_asks_head_office_answers_and_the_answer_becomes_a_record(pool: P
     assert_eq!(record.status, StatusCode::OK, "read: {:?}", record.body);
     assert_eq!(record.body["status"], "CANDIDATE");
     assert_eq!(record.body["employee_code"], "K0207");
-    assert_eq!(record.body["current_place_id"], "store-01");
+    assert_eq!(record.body["current_unit_id"], "store-01");
     assert_eq!(record.body["assignments"][0]["valid_from"], "2026-11-01");
 
     // No personal data came across. A proposal has none to give.
@@ -709,7 +709,7 @@ async fn a_manager_reaches_their_own_shops_requests_and_no_others(pool: PgPool) 
     let asking = send(
         app.clone(),
         "GET",
-        "/api/v1/hire-proposals?place_id=store-02",
+        "/api/v1/hire-proposals?unit_id=store-02",
         read_headers(&shop),
         None,
     )
@@ -854,7 +854,7 @@ async fn a_proposed_contract_has_to_be_a_shape_somebody_could_sign(pool: PgPool)
         "/api/v1/hire-proposals",
         write_headers(&hr, &hr_csrf),
         Some(json!({
-            "place_id": "ho",
+            "unit_id": "ho",
             "position": "Staf Pembelian",
             "headcount": 1,
             "need": "ADDITION",
@@ -879,7 +879,7 @@ async fn a_proposed_contract_has_to_be_a_shape_somebody_could_sign(pool: PgPool)
         "/api/v1/hire-proposals",
         write_headers(&hr, &hr_csrf),
         Some(json!({
-            "place_id": "ho",
+            "unit_id": "ho",
             "position": "Staf Pembelian",
             "headcount": 1,
             "need": "ADDITION",
@@ -904,7 +904,7 @@ async fn a_proposed_contract_has_to_be_a_shape_somebody_could_sign(pool: PgPool)
         (
             "headcount",
             json!({
-                "place_id": "ho",
+                "unit_id": "ho",
                 "position": "Staf Pembelian",
                 "headcount": 0,
                 "need": "ADDITION",
@@ -918,7 +918,7 @@ async fn a_proposed_contract_has_to_be_a_shape_somebody_could_sign(pool: PgPool)
         (
             "base_pay_minor",
             json!({
-                "place_id": "ho",
+                "unit_id": "ho",
                 "position": "Staf Pembelian",
                 "headcount": 1,
                 "need": "ADDITION",

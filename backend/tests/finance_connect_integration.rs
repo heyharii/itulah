@@ -614,7 +614,7 @@ async fn an_employer_bpjs_component_lands_on_the_insurance_expense(pool: PgPool)
         .unwrap_or_else(|error| panic!("open: {error}"));
     employee(&pool, "emp-a").await;
     sqlx::query(
-        "INSERT INTO payroll_run (id, place_id, period, state, complete, history)
+        "INSERT INTO payroll_run (id, unit_id, period, state, complete, history)
          VALUES ('run-bpjs', $1, '2026-09-01', 'APPROVED', true, '[]'::jsonb)",
     )
     .bind(SITE)
@@ -652,7 +652,7 @@ async fn payroll_accrues_by_component_and_payment_clears_the_payable(pool: PgPoo
     }
     for (run, place) in [("run-store", SITE), ("run-ho", "ho")] {
         sqlx::query(
-            "INSERT INTO payroll_run (id, place_id, period, state, complete, history)
+            "INSERT INTO payroll_run (id, unit_id, period, state, complete, history)
              VALUES ($1, $2, '2026-09-01', 'APPROVED', true, '[]'::jsonb)",
         )
         .bind(run)

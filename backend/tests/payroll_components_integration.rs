@@ -183,7 +183,7 @@ async fn staff_at(
     cookies: &str,
     csrf: &str,
     code: &str,
-    place_id: &str,
+    unit_id: &str,
 ) -> String {
     let registered = send(
         app.clone(),
@@ -224,7 +224,7 @@ async fn staff_at(
         &format!("/api/v1/employees/{employee_id}/assignments"),
         write_headers(cookies, csrf),
         Some(json!({
-            "place_id": place_id,
+            "unit_id": unit_id,
             "valid_from": "2026-01-05",
             "reason": "penempatan awal",
         })),
@@ -314,7 +314,7 @@ async fn open_run(app: &axum::Router, cookies: &str, csrf: &str) -> Response {
         "/api/v1/payroll/runs",
         write_headers(cookies, csrf),
         Some(json!({
-            "place_id": "store-07",
+            "unit_id": "store-07",
             "period": "2026-04",
             "reason": "penggajian April",
         })),
@@ -453,7 +453,7 @@ async fn a_slip_with_no_ratified_rates_says_so_rather_than_reporting_zeros(pool:
         "/api/v1/payroll/runs",
         write_headers(&cookies, &csrf),
         Some(json!({
-            "place_id": "store-07",
+            "unit_id": "store-07",
             "period": "2026-04",
             "reason": "ulang",
         })),
@@ -748,7 +748,7 @@ async fn a_rate_ratified_for_may_does_not_price_april(pool: PgPool) {
 /// The place files a one-off, the run picks it up, and the submission freezes
 /// it. There is no second approval chain: the figure rides the batch.
 #[sqlx::test(migrations = "./migrations/postgres")]
-async fn a_place_files_a_one_off_and_the_submission_freezes_it(pool: PgPool) {
+async fn a_unit_files_a_one_off_and_the_submission_freezes_it(pool: PgPool) {
     cloud::bootstrap_admin(&pool, Some(ADMIN_PASSWORD), true)
         .await
         .unwrap_or_else(|error| panic!("bootstrap: {error}"));
@@ -831,7 +831,7 @@ async fn a_place_files_a_one_off_and_the_submission_freezes_it(pool: PgPool) {
         "/api/v1/payroll/adjustments",
         write_headers(&theirs, &their_csrf),
         Some(json!({
-            "place_id": "store-07",
+            "unit_id": "store-07",
             "period": "2026-04",
             "employee_id": siti,
             "component_code": "TRANSPORT",
@@ -851,7 +851,7 @@ async fn a_place_files_a_one_off_and_the_submission_freezes_it(pool: PgPool) {
             "/api/v1/payroll/adjustments",
             write_headers(&theirs, &their_csrf),
             Some(json!({
-                "place_id": "store-07",
+                "unit_id": "store-07",
                 "period": "2026-04",
                 "employee_id": siti,
                 "component_code": code,
@@ -876,7 +876,7 @@ async fn a_place_files_a_one_off_and_the_submission_freezes_it(pool: PgPool) {
         "/api/v1/payroll/adjustments",
         write_headers(&theirs, &their_csrf),
         Some(json!({
-            "place_id": "store-07",
+            "unit_id": "store-07",
             "period": "2026-04",
             "employee_id": siti,
             "component_code": "INSENTIF",
@@ -894,7 +894,7 @@ async fn a_place_files_a_one_off_and_the_submission_freezes_it(pool: PgPool) {
         "/api/v1/payroll/adjustments",
         write_headers(&theirs, &their_csrf),
         Some(json!({
-            "place_id": "store-03",
+            "unit_id": "store-03",
             "period": "2026-04",
             "employee_id": siti,
             "component_code": "INSENTIF",
@@ -936,7 +936,7 @@ async fn a_place_files_a_one_off_and_the_submission_freezes_it(pool: PgPool) {
     let listed = send(
         app.clone(),
         "GET",
-        "/api/v1/payroll/adjustments?place=store-07&period=2026-04",
+        "/api/v1/payroll/adjustments?unit=store-07&period=2026-04",
         read_headers(&theirs),
         None,
     )
@@ -992,7 +992,7 @@ async fn a_place_files_a_one_off_and_the_submission_freezes_it(pool: PgPool) {
         "/api/v1/payroll/adjustments",
         write_headers(&theirs, &their_csrf),
         Some(json!({
-            "place_id": "store-07",
+            "unit_id": "store-07",
             "period": "2026-04",
             "employee_id": siti,
             "component_code": "KASBON",

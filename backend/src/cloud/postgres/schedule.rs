@@ -24,7 +24,7 @@ use crate::cloud::application::AppError;
 use crate::cloud::domain::schedule;
 use crate::cloud::domain::{
     actions, Authorization, CarryForward, EmployeeId, LeaveEvent, LeavePolicy, LeaveTypeCatalogue,
-    PlaceId, PolicyTimeline, RosterDay,
+    UnitId, PolicyTimeline, RosterDay,
 };
 use crate::cloud::postgres::{self as infrastructure, NewNotification};
 use chrono::{DateTime, Datelike, Duration, NaiveDate, Utc};
@@ -67,8 +67,8 @@ pub struct SchedulerJobResult {
 #[derive(Clone, Debug)]
 pub struct Posting {
     pub employee_id: String,
-    pub place_id: String,
-    pub place_name: Option<String>,
+    pub unit_id: String,
+    pub unit_name: Option<String>,
 }
 
 /// Claim a period, and say whether this caller won it.
@@ -190,12 +190,12 @@ pub async fn recent_runs(pool: &PgPool, limit: i64) -> Result<Vec<ScheduledRunVi
 /// Everyone who works here and where they are posted, one row per open posting.
 pub async fn active_postings(pool: &PgPool) -> Result<Vec<Posting>, AppError> {
     let rows = sqlx::query(
-        "SELECT a.employee_id, a.place_id, p.name AS place_name
+        "SELECT a.employee_id, a.unit_id, p.name AS unit_name
            FROM employee_assignment a
            JOIN employee e ON e.id = a.employee_id
-           JOIN org_place p ON p.id = a.place_id
+           JOIN unit p ON p.id = a.unit_id
           WHERE a.valid_to IS NULL AND e.status = 'ACTIVE'
-          ORDER BY a.place_id, a.employee_id",
+          ORDER BY a.unit_id, a.employee_id",
     )
     .fetch_all(pool)
     .await?;
@@ -203,8 +203,8 @@ pub async fn active_postings(pool: &PgPool) -> Result<Vec<Posting>, AppError> {
         .map(|row| {
             Ok(Posting {
                 employee_id: row.try_get("employee_id")?,
-                place_id: row.try_get("place_id")?,
-                place_name: row.try_get("place_name")?,
+                unit_id: row.try_get("unit_id")?,
+                unit_name: row.try_get("unit_name")?,
             })
         })
         .collect()
@@ -223,15 +223,15 @@ pub async fn active_employee_ids(pool: &PgPool) -> Result<Vec<String>, AppError>
 }
 
 /// Which places have somebody posted today, with the place's display name.
-pub fn places_of(postings: &[Posting]) -> BTreeMap<String, (Option<String>, Vec<String>)> {
-    let mut places: BTreeMap<String, (Option<String>, Vec<String>)> = BTreeMap::new();
+pub fn units_of(postings: &[Posting]) -> BTreeMap<String, (Option<String>, Vec<String>)> {
+    let mut units: BTreeMap<String, (Option<String>, Vec<String>)> = BTreeMap::new();
     for posting in postings {
-        let entry = places
-            .entry(posting.place_id.clone())
-            .or_insert_with(|| (posting.place_name.clone(), Vec::new()));
+        let entry = units
+            .entry(posting.unit_id.clone())
+            .or_insert_with(|| (posting.unit_name.clone(), Vec::new()));
         entry.1.push(posting.employee_id.clone());
     }
-    places
+    units
 }
 
 // ── one pass over every job ──────────────────────────────────────────────
@@ -589,13 +589,13 @@ pub async fn run_roster_carry(
 
 async fn roster_carry_work(pool: &PgPool, week_from: NaiveDate) -> Result<Value, AppError> {
     let postings = active_postings(pool).await?;
-    let places = places_of(&postings);
+    let units = units_of(&postings);
     let source_from = week_from - Duration::days(7);
     let mut written = 0usize;
     let mut without_source = 0usize;
     let mut skipped_closed = 0usize;
 
-    for (place_id, (_name, employees)) in &places {
+    for (unit_id, (_name, employees)) in &units {
         for employee_id in employees {
             for offset in 0..7i64 {
                 let target_date = week_from + Duration::days(offset);
@@ -614,9 +614,9 @@ async fn roster_carry_work(pool: &PgPool, week_from: NaiveDate) -> Result<Value,
                     without_source += 1;
                     continue;
                 };
-                let place = PlaceId::try_new(place_id)
+                let unit = UnitId::try_new(unit_id)
                     .map_err(|error| AppError::Validation(error.to_string()))?;
-                let period = infrastructure::period_for(pool, &place, target_date).await?;
+                let period = infrastructure::period_for(pool, &unit, target_date).await?;
                 if period.is_closed() {
                     skipped_closed += 1;
                     continue;
@@ -631,7 +631,7 @@ async fn roster_carry_work(pool: &PgPool, week_from: NaiveDate) -> Result<Value,
                 let day = RosterDay::new(
                     EmployeeId::try_new(employee_id)
                         .map_err(|error| AppError::Validation(error.to_string()))?,
-                    place,
+                    unit,
                     target_date,
                     source.plan().clone(),
                     authorization,
@@ -646,7 +646,7 @@ async fn roster_carry_work(pool: &PgPool, week_from: NaiveDate) -> Result<Value,
     Ok(json!({
         "week": week_from,
         "source_week": source_from,
-        "places": places.len(),
+        "units": units.len(),
         "written": written,
         "without_source_plan": without_source,
         "skipped_closed_period": skipped_closed
@@ -703,9 +703,9 @@ pub async fn run_contract_nudges(
                 format!(" ({days} days)")
             }
         );
-        if let Err(error) = raise_for_place(
+        if let Err(error) = raise_for_unit(
             pool,
-            contract.place_id.as_deref(),
+            contract.unit_id.as_deref(),
             schedule::kinds::CONTRACT_NUDGE,
             title,
             &body,
@@ -769,9 +769,9 @@ pub async fn run_period_nudges(
 
 async fn period_nudge_work(pool: &PgPool, month_first: NaiveDate) -> Result<Value, AppError> {
     let postings = active_postings(pool).await?;
-    let places = places_of(&postings);
+    let units = units_of(&postings);
     let closed: BTreeSet<String> = sqlx::query_scalar(
-        "SELECT place_id FROM attendance_period WHERE period = $1 AND status = 'CLOSED'",
+        "SELECT unit_id FROM attendance_period WHERE period = $1 AND status = 'CLOSED'",
     )
     .bind(month_first)
     .fetch_all(pool)
@@ -781,18 +781,18 @@ async fn period_nudge_work(pool: &PgPool, month_first: NaiveDate) -> Result<Valu
 
     let month = month_first.format("%Y-%m").to_string();
     let mut raised = 0usize;
-    for (place_id, (name, _employees)) in &places {
-        if closed.contains(place_id) {
+    for (unit_id, (name, _employees)) in &units {
+        if closed.contains(unit_id) {
             continue;
         }
-        let place_name = name.clone().unwrap_or_else(|| place_id.clone());
+        let unit_name = name.clone().unwrap_or_else(|| unit_id.clone());
         let body = format!(
-            "Attendance at {place_name} for {month} is still open, so its facts are still moving. \
+            "Attendance at {unit_name} for {month} is still open, so its facts are still moving. \
              Close it before its payroll can be built."
         );
-        raise_for_place(
+        raise_for_unit(
             pool,
-            Some(place_id.as_str()),
+            Some(unit_id.as_str()),
             schedule::kinds::PERIOD_NUDGE,
             "Attendance for a month is still open",
             &body,
@@ -801,7 +801,7 @@ async fn period_nudge_work(pool: &PgPool, month_first: NaiveDate) -> Result<Valu
         .await?;
         raised += 1;
     }
-    Ok(json!({ "month": month, "places": places.len(), "raised": raised }))
+    Ok(json!({ "month": month, "units": units.len(), "raised": raised }))
 }
 
 pub async fn run_roster_gap_nudges(
@@ -825,7 +825,7 @@ async fn roster_gap_work(
     week_to: NaiveDate,
 ) -> Result<Value, AppError> {
     let postings = active_postings(pool).await?;
-    let places = places_of(&postings);
+    let units = units_of(&postings);
     let planned: BTreeSet<String> = sqlx::query_scalar(
         "SELECT employee_id FROM roster_day WHERE on_date >= $1 AND on_date <= $2",
     )
@@ -838,7 +838,7 @@ async fn roster_gap_work(
 
     let mut raised = 0usize;
     let mut gaps = 0usize;
-    for (place_id, (name, employees)) in &places {
+    for (unit_id, (name, employees)) in &units {
         let missing: Vec<&String> = employees
             .iter()
             .filter(|employee| !planned.contains(employee.as_str()))
@@ -846,19 +846,19 @@ async fn roster_gap_work(
         if missing.is_empty() {
             continue;
         }
-        let place_name = name.clone().unwrap_or_else(|| place_id.clone());
+        let unit_name = name.clone().unwrap_or_else(|| unit_id.clone());
         let people = if missing.len() == 1 {
             "1 person has".to_owned()
         } else {
             format!("{} people have", missing.len())
         };
         let body = format!(
-            "{people} no roster at {place_name} for the week starting {week_from}. \
+            "{people} no roster at {unit_name} for the week starting {week_from}. \
              A day nobody planned cannot be an absence and cannot be paid."
         );
-        raise_for_place(
+        raise_for_unit(
             pool,
-            Some(place_id),
+            Some(unit_id),
             schedule::kinds::ROSTER_NUDGE,
             "Next week still has unplanned people",
             &body,
@@ -868,7 +868,7 @@ async fn roster_gap_work(
         raised += 1;
         gaps += missing.len();
     }
-    Ok(json!({ "week": week_from, "places": places.len(), "raised": raised, "people": gaps }))
+    Ok(json!({ "week": week_from, "units": units.len(), "raised": raised, "people": gaps }))
 }
 
 /// Resolve who hears a nudge, in their own transaction, and write nothing when
@@ -879,18 +879,18 @@ async fn roster_gap_work(
 /// nudge with no recipient is not a failed nudge — it is a place nobody is
 /// posted to, and the run ledger's detail says so rather than a notification
 /// nobody can clear.
-async fn raise_for_place(
+async fn raise_for_unit(
     pool: &PgPool,
-    place: Option<&str>,
+    unit: Option<&str>,
     kind: &str,
     title: &str,
     body: &str,
     subject: Option<(&str, String)>,
 ) -> Result<(), AppError> {
     let mut tx: Transaction<'_, Postgres> = pool.begin().await?;
-    let recipients = match place {
-        Some(place) => {
-            infrastructure::recipients_with_role_at(&mut tx, &["SUPERVISOR", "ADMIN"], place).await?
+    let recipients = match unit {
+        Some(unit) => {
+            infrastructure::recipients_with_role_at(&mut tx, &["SUPERVISOR", "ADMIN"], unit).await?
         }
         None => infrastructure::recipients_with_role(&mut tx, &["ADMIN"]).await?,
     };

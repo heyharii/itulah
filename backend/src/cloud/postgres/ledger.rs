@@ -316,15 +316,14 @@ pub struct BookLocation {
 /// imported for thirteen locations out of fourteen should say so here rather
 /// than look complete.
 ///
-/// The NAME comes from `org_place`, not from `site`, and that is the whole of
-/// the unit-domain decision taken on 2026-09-13. Accounting's fourteen units
+/// The NAME comes from the site's `unit`, not from `site`, and that is the
+/// whole of the unit-domain decision taken on 2026-09-13 and made a table on
+/// 2026-09-27 (0450): the books belong to units, and a site belongs to one. Accounting's fourteen units
 /// are head office and thirteen shops — suffix `00` is HO in the client's own
 /// codes — while `site` is the fourteen places STOCK sits. The two lists
-/// coincide because HO and the warehouse share a building, and
-/// `org_place.site_id` records that: `ho → ho` since 0256 folded `dc` and
-/// `dc-01` into one row of kind `HO`, under a unique index, so the bridge is
-/// total and one-to-one. It stays a bridge rather than a join on equal ids,
-/// because the day the warehouse moves out again is one row to change.
+/// coincide because head office has one site, the Gudang, and `site.unit_id`
+/// records that (`dc → ho`). It is a column rather than a join on equal ids,
+/// because the day head office opens a second premises is one row to add.
 ///
 /// Reading `site.name` here is what made every finance screen print "DC" where
 /// the books, the chart and this function's own comment all mean head office.
@@ -332,8 +331,8 @@ pub struct BookLocation {
 /// also why the ordering sorts on kind `HO`: there is no longer a `DC` row to
 /// put first, and sorting on one would have quietly filed head office
 /// fourteenth — between `store-13` and nothing.
-/// `COALESCE` rather than an inner join: a site with no place row is a fault
-/// worth seeing as itself rather than as a missing row.
+/// `COALESCE` over a left join for the same reason it always was: a site whose
+/// unit cannot be read is a fault worth seeing as itself, not as a missing row.
 pub async fn book_locations(pool: &PgPool) -> Result<Vec<BookLocation>, AppError> {
     let rows = sqlx::query(
         "SELECT s.id AS site_id,
@@ -341,7 +340,7 @@ pub async fn book_locations(pool: &PgPool) -> Result<Vec<BookLocation>, AppError
                 COALESCE(p.kind, s.kind) AS kind,
                 (SELECT COUNT(*) FROM ledger_account a WHERE a.site_id = s.id)::bigint AS account_count
            FROM site s
-           LEFT JOIN org_place p ON p.site_id = s.id
+           LEFT JOIN unit p ON p.id = s.unit_id
           ORDER BY (s.kind <> 'HO'), s.id",
     )
     .fetch_all(pool)

@@ -29,7 +29,7 @@ use crate::cloud::domain::{
     AllowanceCode, AttendanceMonth, Authorization, BankAccount, ComponentBase, ComponentBasis,
     CountedUnit, FixedAllowance, HandoverState, IdentityAmendment, PayError, PayRecord,
     PayTimeline, PayrollHandover, PayrollHandoverLine, PayrollHandoverWire, PayrollIdentity,
-    PayrollRun, PayrollRunWire, PlaceId, RunEvent, RunState, SlipComputation, SlipFacts, SlipLine,
+    PayrollRun, PayrollRunWire, UnitId, RunEvent, RunState, SlipComputation, SlipFacts, SlipLine,
 };
 use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use pricing_engine::Money;
@@ -190,8 +190,8 @@ fn decode_run(row: &sqlx::postgres::PgRow) -> Result<PayrollRun, AppError> {
     let history: serde_json::Value = row.try_get("history")?;
     PayrollRun::try_new(PayrollRunWire {
         id: row.try_get("id")?,
-        place: PlaceId::try_new(&row.try_get::<String, _>("place_id")?)
-            .map_err(|error| corrupt("place id", error.to_string()))?,
+        unit: UnitId::try_new(&row.try_get::<String, _>("unit_id")?)
+            .map_err(|error| corrupt("unit id", error.to_string()))?,
         period: format!("{:04}-{:02}", period.year(), period.month()),
         state: RunState::parse(&state).ok_or_else(|| corrupt("run state", state.clone()))?,
         complete: row.try_get("complete")?,
@@ -203,7 +203,7 @@ fn decode_run(row: &sqlx::postgres::PgRow) -> Result<PayrollRun, AppError> {
 }
 
 const RUN_COLUMNS: &str =
-    "id, place_id, period, state, complete, incomplete_because, history, created_at";
+    "id, unit_id, period, state, complete, incomplete_because, history, created_at";
 
 pub async fn load_run(pool: &PgPool, id: &str) -> Result<Option<PayrollRun>, AppError> {
     let row = sqlx::query(&format!(
@@ -217,13 +217,13 @@ pub async fn load_run(pool: &PgPool, id: &str) -> Result<Option<PayrollRun>, App
 
 /// Every run at a place, newest first. `None` reads every place — head
 /// office's.
-pub async fn list_runs(pool: &PgPool, place_id: Option<&str>) -> Result<Vec<PayrollRun>, AppError> {
+pub async fn list_runs(pool: &PgPool, unit_id: Option<&str>) -> Result<Vec<PayrollRun>, AppError> {
     let rows = sqlx::query(&format!(
         "SELECT {RUN_COLUMNS} FROM payroll_run
-          WHERE ($1::text IS NULL OR place_id = $1)
-          ORDER BY period DESC, place_id"
+          WHERE ($1::text IS NULL OR unit_id = $1)
+          ORDER BY period DESC, unit_id"
     ))
-    .bind(place_id)
+    .bind(unit_id)
     .fetch_all(pool)
     .await?;
     rows.iter().map(decode_run).collect()
@@ -431,7 +431,7 @@ pub struct AllowanceLine {
 async fn overtime_bands(
     tx: &mut Transaction<'_, Postgres>,
     employee_id: &str,
-    place: &PlaceId,
+    unit: &UnitId,
     first_day: NaiveDate,
 ) -> Result<(i64, i64, i64, i64), AppError> {
     let row = sqlx::query(
@@ -439,7 +439,7 @@ async fn overtime_bands(
              SELECT on_date, day_kind, sum(planned_minutes)::bigint AS minutes
                FROM overtime_order
               WHERE employee_id = $1 AND state = 'AGREED'
-                AND place_id = $3
+                AND unit_id = $3
                 AND on_date >= $2::date AND on_date < ($2::date + interval '1 month')
               GROUP BY on_date, day_kind
          )
@@ -456,7 +456,7 @@ async fn overtime_bands(
     )
     .bind(employee_id)
     .bind(first_day)
-    .bind(place.as_str())
+    .bind(unit.as_str())
     .fetch_one(&mut **tx)
     .await?;
 
@@ -577,13 +577,13 @@ pub async fn build_slips(
     let people = sqlx::query(
         "SELECT DISTINCT a.employee_id FROM employee_assignment a
            JOIN employee e ON e.id = a.employee_id
-          WHERE a.place_id = $1
+          WHERE a.unit_id = $1
             AND a.valid_from < ($2::date + interval '1 month')
             AND (a.valid_to IS NULL OR a.valid_to >= $2::date)
             AND e.status IN ('ACTIVE', 'TERMINATED')
           ORDER BY a.employee_id",
     )
-    .bind(run.place().as_str())
+    .bind(run.unit().as_str())
     .bind(first_day)
     .fetch_all(&mut **tx)
     .await?;
@@ -629,14 +629,14 @@ pub async fn build_slips(
                         jsonb_array_elements_text(lr.chargeable) AS day
                   WHERE lr.employee_id = $1
                     AND lr.state = 'APPROVED'
-                    AND lr.place_id = $3
+                    AND lr.unit_id = $3
                     AND (day)::date >= $2::date
                     AND (day)::date < ($2::date + interval '1 month')
              ) counted",
         )
         .bind(&employee_id)
         .bind(first_day)
-        .bind(run.place().as_str())
+        .bind(run.unit().as_str())
         .fetch_one(&mut **tx)
         .await?;
 
@@ -644,18 +644,18 @@ pub async fn build_slips(
         // sum of the bands rather than a second query, so `overtime_minutes`
         // and the lines that value it cannot disagree.
         let (first_hour, later, rest_day, holiday) =
-            overtime_bands(tx, &employee_id, run.place(), first_day).await?;
+            overtime_bands(tx, &employee_id, run.unit(), first_day).await?;
         let overtime = first_hour + later + rest_day + holiday;
 
         let rostered: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM roster_day
               WHERE employee_id = $1
-                AND place_id = $3
+                AND unit_id = $3
                 AND on_date >= $2::date AND on_date < ($2::date + interval '1 month')",
         )
         .bind(&employee_id)
         .bind(first_day)
-        .bind(run.place().as_str())
+        .bind(run.unit().as_str())
         .fetch_one(&mut **tx)
         .await?;
 
@@ -671,7 +671,7 @@ pub async fn build_slips(
             leave_days_taken: leave_days,
         };
         let adjustments =
-            super::components::adjustments_for_run(tx, run.place(), first_day, &employee_id)
+            super::components::adjustments_for_run(tx, run.unit(), first_day, &employee_id)
                 .await?;
         let computed =
             SlipComputation::compute(Money::new(statutory_base), &facts, &catalogue, &adjustments)
@@ -733,13 +733,13 @@ pub async fn build_slips(
 /// rebuilt and the caller's next view shows the submitted run.
 pub async fn rebuild_draft_run(
     pool: &PgPool,
-    place: &str,
+    unit: &str,
     first_day: NaiveDate,
 ) -> Result<(), AppError> {
     let Some(run_id) = sqlx::query_scalar::<_, String>(
-        "SELECT id FROM payroll_run WHERE place_id = $1 AND period = $2",
+        "SELECT id FROM payroll_run WHERE unit_id = $1 AND period = $2",
     )
-    .bind(place)
+    .bind(unit)
     .bind(first_day)
     .fetch_optional(pool)
     .await?
@@ -776,12 +776,12 @@ pub async fn open_run(
     let mut tx = pool.begin().await?;
     let inserted = sqlx::query(
         "INSERT INTO payroll_run
-             (id, place_id, period, state, complete, incomplete_because, history)
+             (id, unit_id, period, state, complete, incomplete_because, history)
          VALUES ($1, $2, $3, $4, $5, $6, '[]'::jsonb)
-         ON CONFLICT (place_id, period) DO NOTHING",
+         ON CONFLICT (unit_id, period) DO NOTHING",
     )
     .bind(run.id())
-    .bind(run.place().as_str())
+    .bind(run.unit().as_str())
     .bind(first_day)
     .bind(run.state().code())
     .bind(run.complete())
@@ -791,7 +791,7 @@ pub async fn open_run(
     if inserted.rows_affected() == 0 {
         return Err(AppError::Conflict(format!(
             "{} already has a payroll run for {}",
-            run.place(),
+            run.unit(),
             run.period()
         )));
     }
@@ -861,9 +861,9 @@ pub async fn save_reopen(pool: &PgPool, run: &PayrollRun) -> Result<(), AppError
            USING payroll_adjustment a
           WHERE s.payroll_adjustment_id = a.id
             AND s.kind = 'PAYROLL'
-            AND a.place_id = $1 AND a.period = $2",
+            AND a.unit_id = $1 AND a.period = $2",
     )
-    .bind(run.place().as_str())
+    .bind(run.unit().as_str())
     .bind(period_first_day(run.period())?)
     .execute(&mut *tx)
     .await?;
@@ -903,10 +903,10 @@ async fn settle_adjusted_advances(
         "SELECT a.id, a.amount_minor, ad.advance_id
            FROM payroll_adjustment a
            JOIN advance ad ON ad.advance_id = a.advance_id
-          WHERE a.place_id = $1 AND a.period = $2 AND a.advance_id IS NOT NULL
+          WHERE a.unit_id = $1 AND a.period = $2 AND a.advance_id IS NOT NULL
           ORDER BY a.id",
     )
-    .bind(run.place().as_str())
+    .bind(run.unit().as_str())
     .bind(period_first_day(run.period())?)
     .fetch_all(&mut **tx)
     .await?;
@@ -929,12 +929,12 @@ async fn settle_adjusted_advances(
            FROM advance ad
            LEFT JOIN advance_settlement s ON s.advance_id = ad.advance_id
           WHERE ad.advance_id IN (SELECT a.advance_id FROM payroll_adjustment a
-                                   WHERE a.place_id = $1 AND a.period = $2
+                                   WHERE a.unit_id = $1 AND a.period = $2
                                      AND a.advance_id IS NOT NULL)
           GROUP BY ad.advance_id
           ORDER BY ad.advance_number",
     )
-    .bind(run.place().as_str())
+    .bind(run.unit().as_str())
     .bind(period_first_day(run.period())?)
     .fetch_all(&mut **tx)
     .await?;
@@ -1122,13 +1122,13 @@ pub async fn reconcile(
     let without_agreement: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM employee_assignment a
            JOIN employee e ON e.id = a.employee_id
-          WHERE a.place_id = $1 AND a.valid_to IS NULL AND e.status = 'ACTIVE'
+          WHERE a.unit_id = $1 AND a.valid_to IS NULL AND e.status = 'ACTIVE'
             AND NOT EXISTS (
                 SELECT 1 FROM employee_pay pay
                  WHERE pay.employee_id = a.employee_id AND pay.effective_from <= $2
             )",
     )
-    .bind(run.place().as_str())
+    .bind(run.unit().as_str())
     .bind(first_day)
     .fetch_one(pool)
     .await?;
@@ -1250,18 +1250,18 @@ const STANDING_COLUMNS: &str = "h.run_id, h.state, h.gross_minor, h.handed_over,
 
 /// Where every run at a place stands with Finance, in one query.
 ///
-/// One query for the whole list rather than one per run, and `place_id IS NULL`
+/// One query for the whole list rather than one per run, and `unit_id IS NULL`
 /// reads every place — which only an unbounded caller ever asks for.
 pub async fn handover_standings(
     pool: &PgPool,
-    place_id: Option<&str>,
+    unit_id: Option<&str>,
 ) -> Result<Vec<HandoverStanding>, AppError> {
     let rows = sqlx::query(&format!(
         "SELECT {STANDING_COLUMNS} FROM payroll_handover h
-          WHERE ($1::text IS NULL OR h.place_id = $1)
-          ORDER BY h.period DESC, h.place_id"
+          WHERE ($1::text IS NULL OR h.unit_id = $1)
+          ORDER BY h.period DESC, h.unit_id"
     ))
-    .bind(place_id)
+    .bind(unit_id)
     .fetch_all(pool)
     .await?;
     rows.iter().map(standing).collect()
@@ -1292,7 +1292,7 @@ pub async fn load_handover(
     run_id: &str,
 ) -> Result<Option<PayrollHandover>, AppError> {
     let header = sqlx::query(
-        "SELECT run_id, place_id, period, gross_minor, state, handed_over, settled
+        "SELECT run_id, unit_id, period, gross_minor, state, handed_over, settled
            FROM payroll_handover WHERE run_id = $1",
     )
     .bind(run_id)
@@ -1324,8 +1324,8 @@ pub async fn load_handover(
     let state: String = header.try_get("state")?;
     PayrollHandover::try_new(PayrollHandoverWire {
         run_id: header.try_get("run_id")?,
-        place: PlaceId::try_new(&header.try_get::<String, _>("place_id")?)
-            .map_err(|error| corrupt("place id", error.to_string()))?,
+        unit: UnitId::try_new(&header.try_get::<String, _>("unit_id")?)
+            .map_err(|error| corrupt("unit id", error.to_string()))?,
         period: format!("{:04}-{:02}", period.year(), period.month()),
         gross_minor: header.try_get("gross_minor")?,
         state: HandoverState::parse(&state)
@@ -1397,12 +1397,12 @@ pub async fn hand_over(pool: &PgPool, handover: &PayrollHandover) -> Result<(), 
     let first_day = period_first_day(handover.period())?;
     let inserted = sqlx::query(
         "INSERT INTO payroll_handover
-             (run_id, place_id, period, gross_minor, state, handed_over, settled)
+             (run_id, unit_id, period, gross_minor, state, handed_over, settled)
          VALUES ($1, $2, $3, $4, $5, $6, NULL)
          ON CONFLICT (run_id) DO NOTHING",
     )
     .bind(handover.run_id())
-    .bind(handover.place().as_str())
+    .bind(handover.unit().as_str())
     .bind(first_day)
     .bind(handover.gross_minor())
     .bind(handover.state().code())
@@ -1412,7 +1412,7 @@ pub async fn hand_over(pool: &PgPool, handover: &PayrollHandover) -> Result<(), 
     if inserted.rows_affected() == 0 {
         return Err(AppError::Conflict(format!(
             "{} for {} is already with Finance",
-            handover.place(),
+            handover.unit(),
             handover.period()
         )));
     }
@@ -1436,17 +1436,10 @@ pub async fn hand_over(pool: &PgPool, handover: &PayrollHandover) -> Result<(), 
     // (`store_money.rs`), which is the loop closing -- before this posting
     // existed, that debit answered a credit nobody had ever written.
     //
-    // The place pays, but the SITE the ledger knows is the place's own: `ho`
-    // is a place that works at site `dc` (0236), so the site comes from
-    // `org_place` and falls back to the place's own id.
-    let site_id: String =
-        sqlx::query_scalar("SELECT COALESCE(site_id, id) FROM org_place WHERE id = $1")
-            .bind(handover.place().as_str())
-            .fetch_optional(&mut *tx)
-            .await?
-            .ok_or_else(|| {
-                AppError::NotFound(format!("the payroll handover's place {}", handover.place()))
-            })?;
+    // The unit pays, but the SITE the ledger knows is the unit's own: head
+    // office's is the Gudang, `dc`, and a store's is its shop — the ledger is
+    // still kept per site until the books move to units.
+    let site_id = super::book_site_of_unit(&mut *tx, handover.unit().as_str()).await?;
     let lines = payroll_accrual_lines(&mut tx, handover.run_id(), &site_id, handover.gross_minor())
         .await?;
     let intent = PostingIntent {
@@ -1457,7 +1450,7 @@ pub async fn hand_over(pool: &PgPool, handover: &PayrollHandover) -> Result<(), 
         currency: "IDR".into(),
         memo: Some(format!(
             "Payroll {} {} handed to Finance",
-            handover.place(),
+            handover.unit(),
             handover.period()
         )),
         lines,
@@ -1639,16 +1632,11 @@ async fn payroll_accrual_lines(
 pub async fn payroll_accrual_post(
     pool: &PgPool,
     run_id: &str,
-    place_id: &str,
+    unit_id: &str,
     actor: &str,
 ) -> Result<Uuid, AppError> {
     let mut tx = pool.begin().await?;
-    let site_id: String =
-        sqlx::query_scalar("SELECT COALESCE(site_id, id) FROM org_place WHERE id = $1")
-            .bind(place_id)
-            .fetch_optional(&mut *tx)
-            .await?
-            .ok_or_else(|| AppError::NotFound(format!("the payroll place {place_id}")))?;
+    let site_id = super::book_site_of_unit(&mut *tx, unit_id).await?;
     let gross: i64 = sqlx::query_scalar(
         "SELECT COALESCE(SUM(gross_minor), 0)::bigint FROM payroll_slip WHERE run_id = $1",
     )
@@ -1664,7 +1652,7 @@ pub async fn payroll_accrual_post(
             source_id: Some(run_id.to_string()),
             rule_version: "payroll_run/2".into(),
             currency: "IDR".into(),
-            memo: Some(format!("Payroll {place_id} accrued")),
+            memo: Some(format!("Payroll {unit_id} accrued")),
             lines,
         },
         Some("ACCRUAL"),
@@ -1708,13 +1696,11 @@ pub async fn settle_handover(
     // are paid out of the store's petty cash (Dr 2017 / Cr 1003), funded by
     // head office's transfer, through the store payout tasks; recording the
     // run as settled posts nothing more for a store.
-    let (site_id, site_kind): (String, String) = sqlx::query_as(
-        "SELECT s.id, s.kind FROM org_place p JOIN site s ON s.id = COALESCE(p.site_id, p.id)
-          WHERE p.id = $1",
-    )
-    .bind(handover.place().as_str())
-    .fetch_one(pool)
-    .await?;
+    let site_id = super::book_site_of_unit(pool, handover.unit().as_str()).await?;
+    let site_kind: String = sqlx::query_scalar("SELECT kind FROM site WHERE id = $1")
+        .bind(&site_id)
+        .fetch_one(pool)
+        .await?;
     let mut tx = pool.begin().await?;
     if site_kind != "STORE" {
         let (bank_key, bank_qualifier) = paid_from.ok_or_else(|| {
@@ -1755,7 +1741,7 @@ pub async fn settle_handover(
                     currency: "IDR".into(),
                     memo: Some(format!(
                         "Payroll {} {} paid",
-                        handover.place(),
+                        handover.unit(),
                         handover.period()
                     )),
                     lines: vec![

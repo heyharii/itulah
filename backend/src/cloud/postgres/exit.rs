@@ -33,7 +33,7 @@ use crate::cloud::application::AppError;
 use crate::cloud::domain::{
     Authorization, EmployeeId, EmployeeStance, ExitError, ExitId, ExitInterview,
     ExitInterviewState, ExitInterviewWire, FnfEvent, FnfId, FullAndFinalState,
-    FullAndFinalStatement, FullAndFinalWire, PlaceId,
+    FullAndFinalStatement, FullAndFinalWire, UnitId,
 };
 use crate::cloud::postgres::{poster, PostingIntent, HEAD_OFFICE_SITE};
 use chrono::{DateTime, NaiveDate, Utc};
@@ -83,7 +83,7 @@ pub async fn insert_exit_interview(
     interview: &ExitInterview,
 ) -> Result<bool, AppError> {
     let inserted = sqlx::query(
-        "INSERT INTO exit_interview (exit_id, employee_id, place_id, state)
+        "INSERT INTO exit_interview (exit_id, employee_id, unit_id, state)
          VALUES ($1, $2, $3, 'PENDING')
          ON CONFLICT (employee_id) DO NOTHING",
     )
@@ -92,23 +92,23 @@ pub async fn insert_exit_interview(
             .map_err(|error| corrupt("exit id", error.to_string()))?,
     )
     .bind(interview.employee().as_str())
-    .bind(interview.place().as_str())
+    .bind(interview.unit().as_str())
     .execute(pool)
     .await?
     .rows_affected();
     Ok(inserted == 1)
 }
 
-const EXIT_SELECT: &str = "SELECT x.exit_id, x.employee_id, x.place_id, x.state,
+const EXIT_SELECT: &str = "SELECT x.exit_id, x.employee_id, x.unit_id, x.state,
                 x.employee_stance, x.interview_summary, x.conducted_by, x.completed_at,
                 x.cancelled_by, x.cancel_reason, x.created_at,
                 e.code AS employee_code,
                 COALESCE(ep.full_name, e.id) AS employee_name,
-                COALESCE(p.name, p.id) AS place_name
+                COALESCE(p.name, p.id) AS unit_name
            FROM exit_interview x
            JOIN employee e ON e.id = x.employee_id
       LEFT JOIN employee_profile ep ON ep.employee_id = e.id
-           JOIN org_place p ON p.id = x.place_id";
+           JOIN unit p ON p.id = x.unit_id";
 
 /// One interview, folded — the fold is light here (no authorization is
 /// stored beside the completion; the columns are the record) but it still
@@ -151,8 +151,8 @@ fn decode_interview(row: &sqlx::postgres::PgRow) -> Result<ExitInterview, AppErr
             .map_err(|error| corrupt("exit id", error.to_string()))?,
         employee: EmployeeId::try_new(&row.try_get::<String, _>("employee_id")?)
             .map_err(|error| corrupt("exit interview employee", error.to_string()))?,
-        place: PlaceId::try_new(&row.try_get::<String, _>("place_id")?)
-            .map_err(|error| corrupt("exit interview place", error.to_string()))?,
+        unit: UnitId::try_new(&row.try_get::<String, _>("unit_id")?)
+            .map_err(|error| corrupt("exit interview unit", error.to_string()))?,
         state,
     })
     .map_err(exit_error)
@@ -164,8 +164,8 @@ async fn decode_interview_view(row: &sqlx::postgres::PgRow) -> Result<ExitInterv
         employee_id: row.try_get("employee_id")?,
         employee_code: row.try_get("employee_code")?,
         employee_name: row.try_get("employee_name")?,
-        place_id: row.try_get("place_id")?,
-        place_name: row.try_get("place_name")?,
+        unit_id: row.try_get("unit_id")?,
+        unit_name: row.try_get("unit_name")?,
         state: row.try_get("state")?,
         employee_stance: row.try_get("employee_stance")?,
         interview_summary: row.try_get("interview_summary")?,
@@ -198,19 +198,19 @@ pub async fn list_exit_interviews(
     pool: &PgPool,
     state: Option<&str>,
     employee: Option<&str>,
-    reach_place: Option<&str>,
+    reach_unit: Option<&str>,
 ) -> Result<Vec<ExitInterviewView>, AppError> {
     let rows = sqlx::query(&format!(
         "{EXIT_SELECT}
           WHERE ($1::text IS NULL OR x.state = $1)
             AND ($2::text IS NULL OR x.employee_id = $2)
-            AND ($3::text IS NULL OR x.place_id = $3)
+            AND ($3::text IS NULL OR x.unit_id = $3)
           ORDER BY x.created_at DESC
           LIMIT 500"
     ))
     .bind(state)
     .bind(employee)
-    .bind(reach_place)
+    .bind(reach_unit)
     .fetch_all(pool)
     .await?;
     let mut views = Vec::with_capacity(rows.len());
@@ -303,12 +303,12 @@ pub async fn record_interview_cancellation(
 /// automatic path reads and what the backfill falls back to — the interview
 /// belongs to the place the person worked, never to the desk that filed the
 /// paperwork.
-pub async fn leaver_place(
+pub async fn leaver_unit(
     tx: &mut Transaction<'_, Postgres>,
     employee_id: &str,
 ) -> Result<Option<String>, AppError> {
     Ok(sqlx::query_scalar(
-        "SELECT a.place_id
+        "SELECT a.unit_id
            FROM employee_assignment a
           WHERE a.employee_id = $1
           ORDER BY (a.valid_to IS NULL) DESC, a.valid_from DESC, a.id DESC
@@ -321,9 +321,9 @@ pub async fn leaver_place(
 
 /// The same read, outside a transaction — what the create paths use, which
 /// resolve the place before their own transaction begins.
-pub async fn leaver_place_of(pool: &PgPool, employee_id: &str) -> Result<Option<String>, AppError> {
+pub async fn leaver_unit_of(pool: &PgPool, employee_id: &str) -> Result<Option<String>, AppError> {
     Ok(sqlx::query_scalar(
-        "SELECT a.place_id
+        "SELECT a.unit_id
            FROM employee_assignment a
           WHERE a.employee_id = $1
           ORDER BY (a.valid_to IS NULL) DESC, a.valid_from DESC, a.id DESC
@@ -429,7 +429,7 @@ pub async fn insert_full_and_final(
     let mut tx = pool.begin().await?;
     let inserted = sqlx::query(
         "INSERT INTO full_and_final_statement
-             (fnf_id, employee_id, place_id, transaction_on, state,
+             (fnf_id, employee_id, unit_id, transaction_on, state,
               advance_outstanding_minor, claim_payable_minor, asset_recovery_minor,
               final_pay_minor, history, created_by)
          VALUES ($1, $2, $3, $4, 'DRAFT', $5, $6, $7, $8, $9, $10)
@@ -437,7 +437,7 @@ pub async fn insert_full_and_final(
     )
     .bind(fnf_id)
     .bind(statement.employee().as_str())
-    .bind(statement.place().as_str())
+    .bind(statement.unit().as_str())
     .bind(statement.transaction_on())
     .bind(statement.advance_outstanding_minor())
     .bind(statement.claim_payable_minor())
@@ -475,18 +475,18 @@ pub async fn insert_full_and_final(
     Ok(())
 }
 
-const FNF_SELECT: &str = "SELECT f.fnf_id, f.employee_id, f.place_id, f.transaction_on,
+const FNF_SELECT: &str = "SELECT f.fnf_id, f.employee_id, f.unit_id, f.transaction_on,
                 f.state, f.advance_outstanding_minor, f.claim_payable_minor,
                 f.asset_recovery_minor, f.final_pay_minor, f.settled_entry_id,
                 f.settled_by, f.settled_at, f.cancelled_by, f.cancel_reason,
                 f.history, f.created_by, f.created_at,
                 e.code AS employee_code,
                 COALESCE(ep.full_name, e.id) AS employee_name,
-                COALESCE(p.name, p.id) AS place_name
+                COALESCE(p.name, p.id) AS unit_name
            FROM full_and_final_statement f
            JOIN employee e ON e.id = f.employee_id
       LEFT JOIN employee_profile ep ON ep.employee_id = e.id
-           JOIN org_place p ON p.id = f.place_id";
+           JOIN unit p ON p.id = f.unit_id";
 
 async fn asset_rows(pool: &PgPool, fnf_id: Uuid) -> Result<Vec<FnfAssetRowView>, AppError> {
     let rows = sqlx::query(
@@ -596,8 +596,8 @@ pub async fn load_full_and_final(
             .map_err(|error| corrupt("fnf id", error.to_string()))?,
         employee: EmployeeId::try_new(&row.try_get::<String, _>("employee_id")?)
             .map_err(|error| corrupt("fnf employee", error.to_string()))?,
-        place: PlaceId::try_new(&row.try_get::<String, _>("place_id")?)
-            .map_err(|error| corrupt("fnf place", error.to_string()))?,
+        unit: UnitId::try_new(&row.try_get::<String, _>("unit_id")?)
+            .map_err(|error| corrupt("fnf unit", error.to_string()))?,
         transaction_on: row.try_get("transaction_on")?,
         advance_outstanding_minor: row.try_get("advance_outstanding_minor")?,
         claim_payable_minor: row.try_get("claim_payable_minor")?,
@@ -614,7 +614,7 @@ pub async fn load_full_and_final(
         created_at: row.try_get("created_at")?,
         employee_code: row.try_get("employee_code")?,
         employee_name: row.try_get("employee_name")?,
-        place_name: row.try_get("place_name")?,
+        unit_name: row.try_get("unit_name")?,
         settled_entry_id: settled_entry,
         history,
         assets: asset_rows(pool, id).await?,
@@ -681,14 +681,7 @@ pub async fn settle_full_and_final(
         .settle(live_advance, live_claim, authorization.clone())
         .map_err(exit_error)?;
 
-    let site = sqlx::query_scalar::<_, String>(
-        "SELECT COALESCE(p.site_id, $2) FROM org_place p WHERE p.id = $1",
-    )
-    .bind(statement.place().as_str())
-    .bind(HEAD_OFFICE_SITE)
-    .fetch_optional(&mut *tx)
-    .await?
-    .ok_or_else(|| AppError::NotFound(format!("there is no place {}", statement.place())))?;
+    let site = super::book_site_of_unit(&mut *tx, statement.unit().as_str()).await?;
 
     // The person-side line and the cash side. Positive net: the company
     // still pays the leaver, so the payable is credited at the leaver's
@@ -811,8 +804,8 @@ pub struct ExitInterviewView {
     pub employee_id: String,
     pub employee_code: Option<String>,
     pub employee_name: Option<String>,
-    pub place_id: String,
-    pub place_name: Option<String>,
+    pub unit_id: String,
+    pub unit_name: Option<String>,
     pub state: String,
     pub employee_stance: Option<String>,
     pub interview_summary: Option<String>,
@@ -849,7 +842,7 @@ pub struct FullAndFinalRecord {
     pub created_at: DateTime<Utc>,
     pub employee_code: Option<String>,
     pub employee_name: Option<String>,
-    pub place_name: Option<String>,
+    pub unit_name: Option<String>,
     pub settled_entry_id: Option<Uuid>,
 }
 
@@ -860,8 +853,8 @@ pub struct FnfView {
     pub employee_id: String,
     pub employee_code: Option<String>,
     pub employee_name: Option<String>,
-    pub place_id: String,
-    pub place_name: Option<String>,
+    pub unit_id: String,
+    pub unit_name: Option<String>,
     pub transaction_on: NaiveDate,
     pub state: String,
     pub advance_outstanding_minor: i64,
@@ -900,8 +893,8 @@ pub fn fnf_view(record: &FullAndFinalRecord) -> Result<FnfView, AppError> {
         employee_id: statement.employee().to_string(),
         employee_code: record.employee_code.clone(),
         employee_name: record.employee_name.clone(),
-        place_id: statement.place().to_string(),
-        place_name: record.place_name.clone(),
+        unit_id: statement.unit().to_string(),
+        unit_name: record.unit_name.clone(),
         transaction_on: statement.transaction_on(),
         state: statement.state().code().to_owned(),
         advance_outstanding_minor: statement.advance_outstanding_minor(),

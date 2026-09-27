@@ -18,7 +18,7 @@
 //! `hr_policy` holds guidance a decider reads, never a figure a journal
 //! computes from.
 
-use crate::cloud::domain::employment::{actions, Authorization, EmployeeId, PlaceId};
+use crate::cloud::domain::employment::{actions, Authorization, EmployeeId, UnitId};
 use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -71,7 +71,7 @@ pub struct RosterSwap {
     pub id: String,
     pub employee_id: EmployeeId,
     pub with_employee_id: EmployeeId,
-    pub place_id: PlaceId,
+    pub unit_id: UnitId,
     pub on_date: NaiveDate,
     pub reason: String,
     pub state: SwapState,
@@ -83,7 +83,7 @@ impl RosterSwap {
     pub fn file(
         employee_id: EmployeeId,
         with_employee_id: EmployeeId,
-        place_id: PlaceId,
+        unit_id: UnitId,
         on_date: NaiveDate,
         reason: &str,
         requested: Authorization,
@@ -99,7 +99,7 @@ impl RosterSwap {
             id: id("rsw"),
             employee_id,
             with_employee_id,
-            place_id,
+            unit_id,
             on_date,
             reason: reason.to_owned(),
             state: SwapState::Pending,
@@ -232,7 +232,7 @@ impl ChangeState {
 pub struct ChangeProposal {
     pub id: String,
     pub employee_id: EmployeeId,
-    pub place_id: PlaceId,
+    pub unit_id: UnitId,
     pub kind: ChangeKind,
     pub props: Vec<ChangeProp>,
     pub effective_on: NaiveDate,
@@ -248,13 +248,13 @@ impl ChangeProposal {
     ///
     /// - `SALARY` carries exactly one prop, `base_minor`, a positive integer —
     ///   a pay change that also moves somebody is two proposals.
-    /// - `TRANSFER` carries exactly one prop, `place_id`, naming somewhere
+    /// - `TRANSFER` carries exactly one prop, `unit_id`, naming somewhere
     ///   else.
     /// - `PROMOTION` carries `position` and/or `grade`.
     /// - `SEPARATION` carries no props; the date is the last day.
     pub fn file(
         employee_id: EmployeeId,
-        place_id: PlaceId,
+        unit_id: UnitId,
         kind: ChangeKind,
         props: Vec<ChangeProp>,
         effective_on: NaiveDate,
@@ -286,11 +286,11 @@ impl ChangeProposal {
                 }
             }
             ChangeKind::Transfer => {
-                if props.len() != 1 || text("place_id").is_none() {
-                    return Err("a transfer carries exactly one field: place_id".to_owned());
+                if props.len() != 1 || text("unit_id").is_none() {
+                    return Err("a transfer carries exactly one field: unit_id".to_owned());
                 }
-                if text("place_id").as_deref() == Some(place_id.as_str()) {
-                    return Err("a transfer to the current place changes nothing".to_owned());
+                if text("unit_id").as_deref() == Some(unit_id.as_str()) {
+                    return Err("a transfer to the current unit changes nothing".to_owned());
                 }
             }
             ChangeKind::Promotion => {
@@ -309,7 +309,7 @@ impl ChangeProposal {
         Ok(Self {
             id: id("chg"),
             employee_id,
-            place_id,
+            unit_id,
             kind,
             props,
             effective_on,
@@ -543,7 +543,7 @@ impl ApplicantStage {
 pub struct JobApplicant {
     pub id: String,
     pub proposal_id: String,
-    pub place_id: PlaceId,
+    pub unit_id: UnitId,
     pub name: String,
     pub phone: Option<String>,
     pub source: String,
@@ -556,7 +556,7 @@ pub struct JobApplicant {
 impl JobApplicant {
     pub fn file(
         proposal_id: String,
-        place_id: PlaceId,
+        unit_id: UnitId,
         name: &str,
         phone: Option<String>,
         source: &str,
@@ -574,7 +574,7 @@ impl JobApplicant {
         Ok(Self {
             id: id("app"),
             proposal_id,
-            place_id,
+            unit_id,
             name: name.to_owned(),
             phone,
             source: source.to_owned(),
@@ -793,7 +793,7 @@ impl JobOffer {
 #[serde(deny_unknown_fields)]
 pub struct StaffingPlan {
     pub id: String,
-    pub place_id: PlaceId,
+    pub unit_id: UnitId,
     pub position: String,
     pub span: String,
     pub headcount: u32,
@@ -803,7 +803,7 @@ pub struct StaffingPlan {
 
 impl StaffingPlan {
     pub fn define(
-        place_id: PlaceId,
+        unit_id: UnitId,
         position: &str,
         span: &str,
         headcount: u32,
@@ -826,7 +826,7 @@ impl StaffingPlan {
         }
         Ok(Self {
             id: id("stp"),
-            place_id,
+            unit_id,
             position: position.to_owned(),
             span: span.to_owned(),
             headcount,

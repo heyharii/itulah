@@ -103,6 +103,7 @@ pub mod sync_generation;
 pub mod sync_health;
 pub mod tax;
 pub mod terminal;
+pub mod unit_register;
 pub mod units;
 pub mod vocabulary;
 pub mod vouchers;
@@ -379,6 +380,15 @@ pub fn router(state: AppState) -> Router {
     .route(
         "/api/v1/vocabulary/{kind}/{code}",
         patch(vocabulary::update_term).delete(vocabulary::delete_term),
+    )
+    // The organisation's units — head office and the stores — with the
+    // sites each owns and who is in charge. Not the units of measure below:
+    // those kept `/units` before this vocabulary existed. Appointing a PIC
+    // is Admin's, checked in the handler against `people.unit_pic.set`.
+    .route("/api/v1/organisation/units", get(unit_register::list_units))
+    .route(
+        "/api/v1/organisation/units/{unit}/pic",
+        get(unit_register::pic_history).post(unit_register::appoint_pic),
     )
     // Units of measure and what each is worth in another — one LUSIN is
     // twelve PCS. One read for both, because a picker offering a unit is
@@ -1316,7 +1326,7 @@ pub fn router(state: AppState) -> Router {
     )
     // The grid a manager builds, and the week one person reads. Both
     // bounded by the caller's posting; `{id}` accepts `me`.
-    .route("/api/v1/roster", get(roster::place_roster))
+    .route("/api/v1/roster", get(roster::unit_roster))
     .route(
         "/api/v1/employees/{id}/roster",
         get(roster::read_roster).post(roster::plan_day),
@@ -1326,11 +1336,11 @@ pub fn router(state: AppState) -> Router {
     // closed anything.
     .route("/api/v1/attendance-periods", get(roster::read_periods))
     .route(
-        "/api/v1/attendance-periods/{place}/{period}/closure",
+        "/api/v1/attendance-periods/{unit}/{period}/closure",
         post(roster::close_period),
     )
     .route(
-        "/api/v1/attendance-periods/{place}/{period}/reopening",
+        "/api/v1/attendance-periods/{unit}/{period}/reopening",
         post(roster::reopen_period),
     )
     // Pay and payroll: head office only, all of it. A place manager's

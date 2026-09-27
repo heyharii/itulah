@@ -8,7 +8,7 @@
 
 use super::*;
 use crate::cloud::domain::employment::{
-    actions, ActorId, Authorization, ContractKind, EmployeeId, PlaceId, Position,
+    actions, ActorId, Authorization, ContractKind, EmployeeId, Position, UnitId,
 };
 use chrono::{DateTime, NaiveDate, Utc};
 use pricing_engine::Money;
@@ -53,8 +53,8 @@ fn terms(headcount: u32) -> ProposedTerms {
     .unwrap_or_else(|error| panic!("terms: {error}"))
 }
 
-fn place() -> PlaceId {
-    PlaceId::try_new("store-07").unwrap_or_else(|error| panic!("place: {error}"))
+fn unit() -> UnitId {
+    UnitId::try_new("store-07").unwrap_or_else(|error| panic!("unit: {error}"))
 }
 
 fn identifier() -> HireProposalId {
@@ -64,7 +64,7 @@ fn identifier() -> HireProposalId {
 fn filed(headcount: u32) -> HireProposal {
     HireProposal::propose(
         identifier(),
-        place(),
+        unit(),
         terms(headcount),
         proposing("store07.manager", 0),
     )
@@ -410,7 +410,7 @@ fn a_stored_proposal_rebuilds_into_what_was_filed() {
 
     let rebuilt = HireProposal::try_new(HireProposalWire {
         id: proposal.id().clone(),
-        place: proposal.place().clone(),
+        unit: proposal.unit().clone(),
         state: proposal.state(),
         versions: proposal.versions().cloned().collect(),
         history: proposal.history().to_vec(),
@@ -427,7 +427,7 @@ fn a_state_the_history_does_not_produce_fails_to_load() {
     let proposal = filed(1);
     let refused = HireProposal::try_new(HireProposalWire {
         id: proposal.id().clone(),
-        place: proposal.place().clone(),
+        unit: proposal.unit().clone(),
         // Nobody approved it. There is no APPROVED step in the history.
         state: HireProposalState::Approved,
         versions: proposal.versions().cloned().collect(),
@@ -461,7 +461,7 @@ fn an_approval_signed_by_the_proposer_fails_to_load() {
     );
     let refused = HireProposal::try_new(HireProposalWire {
         id: proposal.id().clone(),
-        place: proposal.place().clone(),
+        unit: proposal.unit().clone(),
         state: HireProposalState::Approved,
         versions: proposal.versions().cloned().collect(),
         history,
@@ -482,7 +482,7 @@ fn the_versions_and_the_history_have_to_agree_about_how_many_there_are() {
     let proposal = filed(1);
     let refused = HireProposal::try_new(HireProposalWire {
         id: proposal.id().clone(),
-        place: proposal.place().clone(),
+        unit: proposal.unit().clone(),
         state: HireProposalState::Proposed,
         versions: vec![terms(1), terms(2)],
         history: proposal.history().to_vec(),
@@ -499,7 +499,7 @@ fn the_versions_and_the_history_have_to_agree_about_how_many_there_are() {
     assert_eq!(
         HireProposal::try_new(HireProposalWire {
             id: proposal.id().clone(),
-            place: proposal.place().clone(),
+            unit: proposal.unit().clone(),
             state: HireProposalState::Proposed,
             versions: vec![terms(1)],
             history: Vec::new(),
@@ -558,7 +558,7 @@ fn a_decision_must_name_the_version_in_force() {
     );
     let refused = HireProposal::try_new(HireProposalWire {
         id: proposal.id().clone(),
-        place: proposal.place().clone(),
+        unit: proposal.unit().clone(),
         state: HireProposalState::Approved,
         versions: proposal.versions().cloned().collect(),
         history,
@@ -598,7 +598,7 @@ fn more_records_than_were_asked_for_fails_to_load() {
     }
     let refused = HireProposal::try_new(HireProposalWire {
         id: proposal.id().clone(),
-        place: proposal.place().clone(),
+        unit: proposal.unit().clone(),
         state: HireProposalState::Filled,
         versions: proposal.versions().cloned().collect(),
         history,

@@ -73,7 +73,7 @@ pub enum AttendanceError {
     CloseEventWithoutReadiness,
     #[error("a reopen is not taken under a readiness assessment")]
     ReopenEventWithReadiness,
-    #[error("this period record belongs to another place")]
+    #[error("this period record belongs to another unit")]
     PeriodIdentityMismatch,
     #[error("{date} is outside the period")]
     DateOutsidePeriod { date: NaiveDate },
@@ -116,8 +116,8 @@ pub enum AttendanceError {
     ActionForbidsOwnPunch { action_key: String },
     #[error("`{code}` is not a punch source")]
     UnreadablePunchSource { code: String },
-    #[error("this punch belongs to another place")]
-    PunchPlaceMismatch,
+    #[error("this punch belongs to another unit")]
+    PunchUnitMismatch,
     #[error("a punch with this identity is already recorded")]
     DuplicatePunchIdentity,
     #[error("the stored punch no longer matches its terminal: {field}")]
@@ -129,8 +129,8 @@ pub enum AttendanceError {
         status: &'static str,
         date: NaiveDate,
     },
-    #[error("this person was not posted to the terminal's place on {date}")]
-    NotPostedToPlaceOnDate { date: NaiveDate },
+    #[error("this person was not posted to the terminal's unit on {date}")]
+    NotPostedToUnitOnDate { date: NaiveDate },
     #[error("`{code}` is not a clock quality")]
     UnreadableClockQuality { code: String },
 
@@ -162,7 +162,7 @@ pub enum AttendanceError {
     ActionForbidsCorrectionDecision { action_key: String },
     #[error("a corrected arrival must come before the corrected departure")]
     CorrectionArrivalNotBeforeDeparture,
-    #[error("this correction is about another employee, place or day")]
+    #[error("this correction is about another employee, unit or day")]
     CorrectionTargetMismatch,
     #[error("only the requester may withdraw a correction; anybody else rejects it")]
     CorrectionWithdrawalNotByRequester,
@@ -174,7 +174,7 @@ pub enum AttendanceError {
     CorrectionSupersedesTheWrongLink { expected: String },
     #[error("the period is closed and will not take a correction: {period}")]
     ClosedPeriodRejectsCorrection { period: String },
-    #[error("this chain holds a correction belonging to another employee, place or day")]
+    #[error("this chain holds a correction belonging to another employee, unit or day")]
     CorrectionChainMismatch,
 
     // ── enrolment ────────────────────────────────────────────────────────
@@ -228,12 +228,12 @@ impl AttendanceError {
             Self::ClaimEmployeeMismatch => "attendance_claim_employee_mismatch",
             Self::ActionForbidsOwnPunch { .. } => "attendance_action_forbids_own_punch",
             Self::UnreadablePunchSource { .. } => "attendance_unreadable_punch_source",
-            Self::PunchPlaceMismatch => "attendance_punch_place_mismatch",
+            Self::PunchUnitMismatch => "attendance_punch_unit_mismatch",
             Self::DuplicatePunchIdentity => "attendance_duplicate_punch_identity",
             Self::PunchProvenanceMismatch { .. } => "attendance_punch_provenance_mismatch",
             Self::ClosedPeriodRejectsPunch { .. } => "attendance_closed_rejects_punch",
             Self::EmploymentForbidsAttendance { .. } => "attendance_employment_forbids",
-            Self::NotPostedToPlaceOnDate { .. } => "attendance_not_posted_to_place",
+            Self::NotPostedToUnitOnDate { .. } => "attendance_not_posted_to_unit",
             Self::UnreadableClockQuality { .. } => "attendance_unreadable_clock_quality",
             Self::EmptyOutcomeSet => "attendance_empty_outcome_set",
             Self::DuplicateOutcome { .. } => "attendance_duplicate_outcome",
@@ -288,7 +288,7 @@ impl AttendanceError {
                 | Self::CorrectionAlreadyDecided { .. }
                 | Self::CorrectionSupersedesTheWrongLink { .. }
                 | Self::EmploymentForbidsAttendance { .. }
-                | Self::NotPostedToPlaceOnDate { .. }
+                | Self::NotPostedToUnitOnDate { .. }
                 | Self::PunchesOnApprovedLeaveDay
         )
     }

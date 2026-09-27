@@ -20,7 +20,7 @@ use crate::cloud::{
     application::{AppError, AppState},
     domain::{
         actions, required_role_for_action, role_allows, Authorization, CalendarChange, Holiday,
-        HolidayCalendar, HolidayKind, HolidayName, HolidayScope, PlaceId,
+        HolidayCalendar, HolidayKind, HolidayName, HolidayScope, UnitId,
     },
     postgres as infrastructure,
 };
@@ -46,7 +46,7 @@ pub struct HolidayView {
     pub consumes_annual_leave: bool,
     /// `null` for a nationwide day. A list rather than an absence, because
     /// "everywhere" is a decision the operator stated.
-    pub places: Option<Vec<String>>,
+    pub units: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -82,7 +82,7 @@ pub struct CalendarYearsView {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct HolidayOnDayView {
     pub date: NaiveDate,
-    pub place_id: String,
+    pub unit_id: String,
     pub holiday: bool,
     /// Absent on an ordinary working day, which is the common answer and is not
     /// an error.
@@ -95,10 +95,10 @@ fn holiday_view(holiday: &Holiday) -> HolidayView {
         name: holiday.name().as_str().to_owned(),
         kind: holiday.kind().code().to_owned(),
         consumes_annual_leave: holiday.consumes_annual_leave(),
-        places: holiday
+        units: holiday
             .scope()
             .named()
-            .map(|places| places.iter().map(ToString::to_string).collect()),
+            .map(|units| units.iter().map(ToString::to_string).collect()),
     }
 }
 
@@ -141,7 +141,7 @@ pub struct HolidayBody {
     /// Empty for a nationwide day. Required for a regional one, and refused for
     /// the other two — the kernel says so, and the refusal names the date.
     #[serde(default)]
-    pub places: Vec<String>,
+    pub units: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -163,10 +163,10 @@ pub struct AmendBody {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct PlaceQuery {
+pub struct UnitQuery {
     /// Which place is asking. A regional day is a holiday in some shops and a
     /// working day in others, so there is no place-free answer to give.
-    pub place: String,
+    pub unit: String,
 }
 
 fn invalid(error: impl std::fmt::Display) -> AppError {
@@ -180,13 +180,13 @@ fn build_holiday(body: HolidayBody) -> Result<Holiday, AppError> {
             body.kind
         ))
     })?;
-    let scope = if body.places.is_empty() {
+    let scope = if body.units.is_empty() {
         HolidayScope::Nationwide
     } else {
-        HolidayScope::places(
-            body.places
+        HolidayScope::units(
+            body.units
                 .iter()
-                .map(|place| PlaceId::try_new(place).map_err(invalid))
+                .map(|unit| UnitId::try_new(unit).map_err(invalid))
                 .collect::<Result<Vec<_>, AppError>>()?,
         )
         .map_err(infrastructure::holiday_error)?
@@ -298,16 +298,16 @@ pub async fn amend(
 pub async fn on_day(
     State(state): State<AppState>,
     Path((year, date)): Path<(i32, NaiveDate)>,
-    Query(query): Query<PlaceQuery>,
+    Query(query): Query<UnitQuery>,
 ) -> Result<Json<HolidayOnDayView>, AppError> {
-    let place = PlaceId::try_new(&query.place).map_err(invalid)?;
+    let unit = UnitId::try_new(&query.unit).map_err(invalid)?;
     let calendar = infrastructure::load_calendar(&state.db, year)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("no calendar has been published for {year}")))?;
-    let detail = calendar.on(date, &place);
+    let detail = calendar.on(date, &unit);
     Ok(Json(HolidayOnDayView {
         date,
-        place_id: place.to_string(),
+        unit_id: unit.to_string(),
         holiday: detail.is_some(),
         detail: detail.map(holiday_view),
     }))
