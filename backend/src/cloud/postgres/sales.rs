@@ -18,7 +18,8 @@ use uuid::Uuid;
 
 pub async fn create_sale(pool: &PgPool, request: CreateSaleRequest) -> Result<Value, AppError> {
     let site = SiteId::new(&request.site_id).map_err(|e| AppError::Validation(e.to_string()))?;
-    if site.kind() != SiteKind::Store {
+    // What the site is comes from its row, never from how its id is spelled.
+    if super::sites::site_kind(pool, site.as_str()).await? != Some(SiteKind::Store) {
         return Err(AppError::Validation(
             "Sales is a Store Edge capability".into(),
         ));
@@ -211,7 +212,16 @@ pub async fn add_sale_line(
         .get(&sku_id)
         .cloned()
         .ok_or_else(|| AppError::NotFound("a published price for this SKU".into()))?;
-    let context = crate::reporting::pricing_context(&site_id, channel.as_str(), sale_created_at);
+    // The shop's own clock, from `site.timezone` (0474).
+    let utc_offset_minutes =
+        super::sites::business_utc_offset_minutes(&mut *tx, Some(site_id.as_str()), sale_created_at)
+            .await?;
+    let context = crate::reporting::pricing_context(
+        &site_id,
+        channel.as_str(),
+        sale_created_at,
+        utc_offset_minutes,
+    );
     // The catalogue reading, not the basket one: a promotion is a statement
     // about a whole basket, and this path prices a line as it is added. What it
     // does now honour is the markdown, which IS this product's price.
@@ -588,10 +598,21 @@ pub async fn get_sale(pool: &PgPool, sale_id: Uuid) -> Result<Value, AppError> {
 /// See [`SaleQuery`] for why the window is on `created_at`. Both bounds are
 /// optional and independent — "everything since the first" is as ordinary a
 /// question as "that fortnight" — and both are read at the caller's UTC
-/// offset, defaulting to WIB, so a day means the day a shop had.
+/// offset, defaulting to the named shop's own clock (head office's for the
+/// fleet), so a day means the day a shop had.
 pub async fn list_sales(pool: &PgPool, query: SaleQuery) -> Result<Value, AppError> {
     let limit = query.limit.unwrap_or(100).clamp(1, 500);
-    let offset_minutes = crate::reporting::offset_of(query.utc_offset_minutes);
+    let offset_minutes = match query.utc_offset_minutes {
+        Some(minutes) => crate::reporting::offset_of(Some(minutes)),
+        None => {
+            let site = query
+                .site_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|site| !site.is_empty());
+            super::sites::business_utc_offset_minutes(pool, site, Utc::now()).await?
+        }
+    };
     if let (Some(from), Some(to)) = (query.from, query.to) {
         if to < from {
             return Err(AppError::Validation(format!(

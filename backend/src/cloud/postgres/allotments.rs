@@ -8,7 +8,7 @@ use crate::cloud::{
     domain::{
         AllotmentStatus, AllotmentType, DestinationType, FulfillmentStatus, InventoryState,
         MovementCause, MovementCommand, MovementGroupId, MovementLine, OperationalPool, Place,
-        SiteId, SubjectId, HEAD_OFFICE_SITE_ID,
+        SiteId, SubjectId,
     },
 };
 use crate::edge::OperationalPool as EdgeOperationalPool;
@@ -751,7 +751,9 @@ pub async fn execute_allotment(
 
     let allotment_type = AllotmentType::from_str(&header.get::<String, _>("type"))
         .map_err(|error| AppError::Conflict(error.to_string()))?;
-    let (cause, destination_place_id) = execution_transition(allotment_type, &identity)?;
+    let head_office = super::sites::head_office_site_id(&mut *tx).await?;
+    let (cause, destination_place_id) =
+        execution_transition(allotment_type, &identity, &head_office)?;
     let source_place_id = format!("{}:on_hand", identity.source_pool_id);
     let movement_lines = allocate_source_subjects(
         &mut tx,
@@ -1939,10 +1941,15 @@ fn validate_create_line(
             let source_matches_store = line.identity.source_pool_id == format!("{site}.warehouse")
                 || line.identity.source_pool_id == format!("{site}.floor")
                 || line.identity.source_pool_id == format!("{site}.reject");
+            // Head office by the kind its row carries, not by its id.
+            let destination_is_head_office = context
+                .destination_kinds
+                .get(&line.identity.destination_id)
+                .is_some_and(|kind| kind == HEAD_OFFICE_KIND);
             if source_site_kind != "STORE"
                 || !source_matches_store
                 || line.identity.destination_type != DestinationType::Dc
-                || line.identity.destination_id != HEAD_OFFICE_SITE_ID
+                || !destination_is_head_office
             {
                 return Err(AppError::Validation(
                     "RETURN_TO_DC requires a Store warehouse/floor/reject source and DC/ho destination"
@@ -1953,7 +1960,10 @@ fn validate_create_line(
         AllotmentType::ReturnToSupplier => {
             // A site id on the left, a pool id on the right. They stopped
             // being the same word at 0256 and only the first one moved.
-            if line.identity.source_site_id != HEAD_OFFICE_SITE_ID
+            // The source pool is already proved to stand at `source_site_id`
+            // (the `operational_pool JOIN site` above); its kind says whether
+            // that is head office.
+            if source_site_kind != HEAD_OFFICE_KIND
                 || line.identity.source_pool_id != "dc.reject.dc"
                 || line.identity.destination_type != DestinationType::Supplier
                 || line.identity.destination_id != "external/supplier"
@@ -1971,10 +1981,11 @@ fn validate_create_line(
 fn execution_transition(
     allotment_type: AllotmentType,
     identity: &LineIdentity,
+    head_office: &str,
 ) -> Result<(MovementCause, String), AppError> {
     match allotment_type {
         AllotmentType::ToStore
-            if identity.source_site_id == HEAD_OFFICE_SITE_ID
+            if identity.source_site_id == head_office
                 && identity.source_pool_id == DEFAULT_SOURCE_POOL_ID
                 && identity.destination_type == DestinationType::Store =>
         {
@@ -1996,7 +2007,7 @@ fn execution_transition(
         }
         AllotmentType::ReturnToDc
             if identity.destination_type == DestinationType::Dc
-                && identity.destination_id == HEAD_OFFICE_SITE_ID =>
+                && identity.destination_id == head_office =>
         {
             // The site the goods are going to is `ho`; the shelf they land on
             // is still called `dc.warehouse`. Both spellings are correct and

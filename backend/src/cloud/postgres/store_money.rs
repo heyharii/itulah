@@ -43,12 +43,6 @@ use serde_json::{json, Value};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use uuid::Uuid;
 
-/// Head office. Every bank account belongs here, and every fund leaves from
-/// here. The same constant `sync.rs` keeps, restated rather than imported
-/// because that one is private to the sync protocol and this is a fact about
-/// the books.
-const HEAD_OFFICE_SITE_ID: &str = "dc";
-
 // ---------------------------------------------------------------------------
 // The two seams to neighbouring lanes
 // ---------------------------------------------------------------------------
@@ -880,6 +874,7 @@ pub async fn store_deposit_hand_over(
     actor: &str,
 ) -> Result<Value, AppError> {
     let mut tx = pool.begin().await?;
+    let head_office = super::sites::head_office_site_id(&mut *tx).await?;
     let row = deposit_for_update(&mut tx, deposit_id).await?;
     let status: String = row.try_get("status")?;
     if status != "PREPARED" {
@@ -907,7 +902,7 @@ pub async fn store_deposit_hand_over(
         lines: vec![
             PostingLine::debit("affiliate_receivable", &site_id, amount)
                 .with_qualifier("PEMBIAYAAN")
-                .with_counter_site(HEAD_OFFICE_SITE_ID),
+                .with_counter_site(&head_office),
             PostingLine::credit("cash", &site_id, amount),
         ],
     };
@@ -964,6 +959,7 @@ pub async fn store_deposit_confirm(
     actor: &str,
 ) -> Result<Value, AppError> {
     let mut tx = pool.begin().await?;
+    let head_office = super::sites::head_office_site_id(&mut *tx).await?;
     let row = deposit_for_update(&mut tx, deposit_id).await?;
     let number: String = row.try_get("deposit_number")?;
     let status: String = row.try_get("status")?;
@@ -993,9 +989,9 @@ pub async fn store_deposit_confirm(
         currency: row.try_get::<String, _>("currency")?,
         memo: Some(format!("{number} — setoran diterima bank")),
         lines: vec![
-            PostingLine::debit(&bank_key, HEAD_OFFICE_SITE_ID, amount)
+            PostingLine::debit(&bank_key, &head_office, amount)
                 .with_qualifier(&bank_qualifier),
-            PostingLine::credit("affiliate_payable", HEAD_OFFICE_SITE_ID, amount)
+            PostingLine::credit("affiliate_payable", &head_office, amount)
                 .with_qualifier("PEMBIAYAAN")
                 .with_counter_site(&site_id),
         ],
@@ -1742,6 +1738,7 @@ pub async fn operating_fund_send(
         ));
     }
     let mut tx = pool.begin().await?;
+    let head_office = super::sites::head_office_site_id(&mut *tx).await?;
     site_exists(&mut tx, &request.site_id).await?;
 
     let custodian = sqlx::query("SELECT id, code, status FROM employee WHERE id = $1")
@@ -1788,14 +1785,14 @@ pub async fn operating_fund_send(
             {
                 let mut leg = PostingLine::debit(
                     "affiliate_receivable",
-                    HEAD_OFFICE_SITE_ID,
+                    &head_office,
                     request.amount_minor,
                 )
                 .with_qualifier("PEMBIAYAAN");
                 leg.counter_site_id = Some(request.site_id.clone());
                 leg
             },
-            PostingLine::credit(&request.bank_key, HEAD_OFFICE_SITE_ID, request.amount_minor)
+            PostingLine::credit(&request.bank_key, &head_office, request.amount_minor)
                 .with_qualifier(&request.bank_qualifier),
         ],
     };
@@ -1822,7 +1819,7 @@ pub async fn operating_fund_send(
     .bind(request.amount_minor)
     .bind(&request.bank_key)
     .bind(&request.bank_qualifier)
-    .bind(HEAD_OFFICE_SITE_ID)
+    .bind(&head_office)
     .bind(request.payout_bank_name.trim())
     .bind(request.payout_account_no.trim())
     .bind(request.payout_account_name.trim())
@@ -1862,6 +1859,7 @@ pub async fn operating_fund_receive(
     actor: &str,
 ) -> Result<Value, AppError> {
     let mut tx = pool.begin().await?;
+    let head_office = super::sites::head_office_site_id(&mut *tx).await?;
     let fund = fund_for_update(&mut tx, fund_id).await?;
     let received: Option<DateTime<Utc>> = fund.try_get("received_at")?;
     if received.is_some() {
@@ -1882,7 +1880,7 @@ pub async fn operating_fund_receive(
             {
                 let mut leg = PostingLine::credit("affiliate_payable", &site_id, amount)
                     .with_qualifier("PEMBIAYAAN");
-                leg.counter_site_id = Some(HEAD_OFFICE_SITE_ID.to_string());
+                leg.counter_site_id = Some(head_office.clone());
                 leg
             },
         ],
@@ -1999,6 +1997,7 @@ pub async fn fund_settlement_record(
     }
     let kind = request.kind.trim().to_ascii_uppercase();
     let mut tx = pool.begin().await?;
+    let head_office = super::sites::head_office_site_id(&mut *tx).await?;
     let fund = fund_for_update(&mut tx, request.fund_id).await?;
     let site_id: String = fund.try_get("site_id")?;
     let number: String = fund.try_get("fund_number")?;
@@ -2025,7 +2024,7 @@ pub async fn fund_settlement_record(
 
     let lines = match kind.as_str() {
         "VENDOR_BILL" => vec![
-            PostingLine::debit("trade_payable", HEAD_OFFICE_SITE_ID, request.amount_minor),
+            PostingLine::debit("trade_payable", &head_office, request.amount_minor),
             PostingLine::credit("petty_cash", &site_id, request.amount_minor),
         ],
         "PAYROLL" => vec![
@@ -2045,7 +2044,7 @@ pub async fn fund_settlement_record(
         "RETURN" => vec![
             PostingLine::debit(
                 &fund.try_get::<String, _>("bank_key")?,
-                HEAD_OFFICE_SITE_ID,
+                &head_office,
                 request.amount_minor,
             )
             .with_qualifier(&fund.try_get::<String, _>("bank_qualifier")?),
@@ -2880,10 +2879,15 @@ pub async fn store_expense_claim(
 
     let mut tx = pool.begin().await?;
     site_exists(&mut tx, &request.site_id).await?;
+    // Counted under the internal id, printed under the display code (0474):
+    // the counter's scope does not move, so no number is ever issued twice.
+    let printed = super::sites::display_code(&mut *tx, &request.site_id)
+        .await?
+        .to_uppercase();
     let number = next_document_number(
         &mut tx,
         &format!("KK:{}", request.site_id),
-        &format!("KK-{}", request.site_id.to_uppercase()),
+        &format!("KK-{printed}"),
         request.spent_on,
     )
     .await?;
@@ -3209,6 +3213,7 @@ pub async fn petty_cash_replenish(
         ));
     }
     let mut tx = pool.begin().await?;
+    let head_office = super::sites::head_office_site_id(&mut *tx).await?;
     site_exists(&mut tx, &request.site_id).await?;
     let number = next_document_number(&mut tx, "RPL", "KK-RPL", request.replenish_date).await?;
     let replenishment_id = Uuid::new_v4();
@@ -3225,7 +3230,7 @@ pub async fn petty_cash_replenish(
         )),
         lines: vec![
             PostingLine::debit("petty_cash", &request.site_id, request.amount_minor),
-            PostingLine::credit(&request.bank_key, HEAD_OFFICE_SITE_ID, request.amount_minor)
+            PostingLine::credit(&request.bank_key, &head_office, request.amount_minor)
                 .with_qualifier(&request.bank_qualifier),
         ],
     };

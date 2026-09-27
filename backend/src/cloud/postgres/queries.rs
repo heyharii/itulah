@@ -332,25 +332,17 @@ WITH ledger_deltas AS (
     WHERE $4
     GROUP BY commitment.source_pool_id
 )
--- Two id spaces meet in this SELECT. `pool.id` is a POOL id and spells the
--- warehouse `dc.…`; `pool.site_id` is a SITE id and spells it `dc` too — the
--- rename to `ho` is migration 0256, which `9b273f83` set aside unlanded.
---
--- This block read `'ho'` for a while, against a column no row spelled that
--- way, and the comment here described the consequence as a thing it prevented:
--- the allotted column computed for every pool in the fleet, and a `dc_first`
--- sort key that never fires. Both were happening. `<> 'ho'` is true of every
--- row when nothing is `ho`.
---
--- When 0256 lands these three literals move with `domain::ids::
--- HEAD_OFFICE_SITE_ID`, and the pool ids move separately — they are not the
--- same word and never were.
+-- Two id spaces meet in this SELECT. `pool.id` is a POOL id and still spells
+-- the warehouse `dc.…` (the pool grammar, a later step's to change). Whether a
+-- pool stands at head office is NOT read off `pool.site_id`: it is the kind on
+-- the site row it joins (0474), so a head office with any id sorts first and
+-- keeps its allotted column.
 SELECT pool.id,pool.site_id,site.name site_name,site.kind site_kind,pool.group_code,pool.pool_code,pool.label,
        pool.store_origin_site_id,pool.display_order,pool.is_placement,pool.outbound_stage,pool.destination_store_id,
        COALESCE(normal.quantity,0)::bigint normal,
        COALESCE(missing.quantity,0)::bigint missing,
        COALESCE(observed.quantity,0)::bigint observed,
-       CASE WHEN $4 AND pool.is_placement AND (pool.id IN ('dc.warehouse','dc.reject.dc') OR pool.site_id<>'dc')
+       CASE WHEN $4 AND pool.is_placement AND (pool.id IN ('dc.warehouse','dc.reject.dc') OR site.kind<>'HO')
             THEN COALESCE(allotted.quantity,0) ELSE NULL END::bigint allotted,
        risk.lost::bigint lost_quantity,
        CASE WHEN GREATEST(risk.opening,0)+risk.inbound > 0
@@ -361,13 +353,13 @@ SELECT pool.id,pool.site_id,site.name site_name,site.kind site_kind,pool.group_c
        -- Sort keys. Every one non-null: see the note above the constant.
        (COALESCE(normal.quantity,0)+COALESCE(missing.quantity,0))::bigint stock_key,
        (COALESCE(normal.quantity,0)
-        - CASE WHEN $4 AND pool.is_placement AND (pool.id IN ('dc.warehouse','dc.reject.dc') OR pool.site_id<>'dc')
+        - CASE WHEN $4 AND pool.is_placement AND (pool.id IN ('dc.warehouse','dc.reject.dc') OR site.kind<>'HO')
                THEN COALESCE(allotted.quantity,0) ELSE 0 END)::bigint on_hand_key,
        COALESCE(missing.quantity,0)::bigint missing_key,
        COALESCE(observed.quantity,0)::bigint observed_key,
        COALESCE(last_count.at,TIMESTAMPTZ '-infinity') last_count_key,
        COALESCE(site.name,pool.site_id) site_key,
-       CASE WHEN pool.site_id='dc' THEN 0 ELSE 1 END dc_first,
+       CASE WHEN site.kind='HO' THEN 0 ELSE 1 END dc_first,
        CASE WHEN pool.is_placement THEN 1 ELSE 0 END placement_rank,
        COALESCE(pool.destination_store_id,'') destination_key,
        CASE WHEN last_count.at IS NULL THEN 'NEVER' ELSE 'COUNTED' END counted_state
@@ -1462,14 +1454,13 @@ pub async fn list_fleet_pools(
         })
         .collect();
     let mut ambiguous_canonical_dc = Vec::<String>::new();
+    // The site the centre files the warehouse under: head office, by its kind.
+    let head_office = super::sites::head_office_site_id(pool).await?;
     match reported_dc_origins.as_slice() {
         [(origin_id, owner)] => {
             let runs_as = owner.get("site_id").and_then(Value::as_str).unwrap_or("");
-            if runs_as != sync::CANONICAL_WAREHOUSE_SITE_ID {
-                active_edge_sites.insert(
-                    sync::CANONICAL_WAREHOUSE_SITE_ID.to_string(),
-                    (*origin_id).clone(),
-                );
+            if runs_as != head_office {
+                active_edge_sites.insert(head_office.clone(), (*origin_id).clone());
             }
         }
         several if several.len() > 1 => {

@@ -546,7 +546,7 @@ fn sql_complaint(error: &sqlx::Error) -> String {
 /// `information_schema` is the whole truth about names and none of the truth
 /// about meaning. It says `sale.status` exists; it does not say a void still
 /// has a `total_minor` and must be excluded, or that the business day ends at
-/// UTC+7, or that `edge_sale` is one shop's own account of itself rather than
+/// the shop's own midnight (`site.timezone`), or that `edge_sale` is one shop's own account of itself rather than
 /// the fleet's. A model given only the column list writes a query that runs,
 /// returns a number, and is wrong — which is the one failure this whole
 /// arrangement cannot survive, because nothing on the screen looks different.
@@ -563,11 +563,11 @@ fn sql_complaint(error: &sqlx::Error) -> String {
 const CAVEATS: &[(&str, &str)] = &[
     (
         "sale",
-        "Only `status = 'COMPLETED'` counts as trade; VOIDED rows keep their          `total_minor` and will inflate any sum that forgets them. Date a sale by          `completed_at`, never `created_at`. The business day is UTC+7, so the local          day is `(completed_at AT TIME ZONE 'UTC') + make_interval(mins => 420)` —          dating by the UTC calendar moves the evening's takings into tomorrow.",
+        "Only `status = 'COMPLETED'` counts as trade; VOIDED rows keep their          `total_minor` and will inflate any sum that forgets them. Date a sale by          `completed_at`, never `created_at`. The business day is the shop's own: each site keeps an IANA zone in          `site.timezone`, and the local day is `site_local_date(completed_at, site_id)` —          dating by the UTC calendar moves the evening's takings into tomorrow.",
     ),
     (
         "sale_line",
-        "Join to `sale` and filter `sale.status = 'COMPLETED'`: a line survives the          voiding of the sale it belongs to. Same UTC+7 business day as `sale`.",
+        "Join to `sale` and filter `sale.status = 'COMPLETED'`: a line survives the          voiding of the sale it belongs to. Same shop-local business day as `sale`.",
     ),
     (
         "sale_payment",

@@ -215,6 +215,13 @@ pub(crate) const PURCHASE_UNIT_SCHEMA: &str = include_str!(concat!(
     "/migrations/sqlite/0048_a_dc_counts_in_any_unit.sql"
 ));
 
+/// What head office says about this node's site and the others (`0049`):
+/// kind, display code, time zone. See `edge::site_profile`.
+pub(crate) const SITE_DIRECTORY_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0049_a_node_learns_its_site_from_head_office.sql"
+));
+
 /// How a sale was paid for, and not only how much.
 pub(crate) const SALE_TENDER_SCHEMA: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -1160,6 +1167,11 @@ impl SqliteEdge {
                 .execute_batch(PURCHASE_UNIT_SCHEMA)
                 .map_err(db)?;
         }
+        // The site directory (`0049`): one table and one index, both
+        // `IF NOT EXISTS`, so no probe.
+        connection
+            .execute_batch(SITE_DIRECTORY_SCHEMA)
+            .map_err(db)?;
         if a_stream_says_whose_seqs_it_writes == 0 {
             connection
                 .execute_batch(SYNC_HANDSHAKE_SCHEMA)
@@ -1527,6 +1539,15 @@ impl SqliteEdge {
         } else {
             Err(EdgeError::Forbidden(reason.into()))
         }
+    }
+
+    /// The shop's name at the head of a receipt: its display name as head
+    /// office gave it, or — until this node has heard — its id in capitals, as
+    /// it always printed.
+    fn receipt_shop_name(&self, connection: &Connection) -> String {
+        crate::edge::site_profile::own(connection)
+            .map(|site| site.name)
+            .unwrap_or_else(|| self.node.site_id.as_str().to_ascii_uppercase())
     }
 
     fn lock(&self) -> Result<MutexGuard<'_, Connection>, EdgeError> {
@@ -2101,9 +2122,15 @@ impl SqliteEdge {
         })
     }
 
-    fn normalized_store_id(value: &str) -> Result<SiteId, EdgeError> {
+    /// A destination must be a shop. The id's shape is the id's to check;
+    /// whether it names a shop is head office's to say (`site_profile`), never
+    /// the spelling's. A site head office has not described is taken on trust,
+    /// as every site was before it described any.
+    fn normalized_store_id(connection: &Connection, value: &str) -> Result<SiteId, EdgeError> {
         let site = SiteId::new(value).map_err(|error| EdgeError::Validation(error.to_string()))?;
-        if site.kind() != SiteKind::Store {
+        if crate::edge::site_profile::kind_of(connection, site.as_str())
+            .is_some_and(|kind| kind != SiteKind::Store)
+        {
             return Err(EdgeError::Validation(
                 "destination_store_id must identify a Store site".into(),
             ));
@@ -2333,7 +2360,7 @@ impl SqliteEdge {
                 stage.as_str()
             )));
         }
-        let destination_store = Self::normalized_store_id(&destination_store_id)?;
+        let destination_store = Self::normalized_store_id(&tx, &destination_store_id)?;
         let shipment_reference = match stage {
             FulfillmentStage::Shipment => {
                 let reference = shipment_reference
@@ -3851,7 +3878,8 @@ impl EdgeInventory for SqliteEdge {
             ));
         }
         Self::validate_command_identity(&request.idempotency_key, &request.actor_id)?;
-        let destination_store = Self::normalized_store_id(&request.destination_store_id)?;
+        let destination_store =
+            Self::normalized_store_id(&self.lock()?, &request.destination_store_id)?;
         if request.epcs.is_empty() {
             return Err(EdgeError::Validation(
                 "Pack requires at least one scanned EPC".into(),
@@ -4297,7 +4325,8 @@ impl EdgeInventory for SqliteEdge {
     ) -> Result<crate::edge::outbound::KoliManifest, EdgeError> {
         self.require_dc("outbound work happens at a DC")?;
         Self::validate_command_identity(&request.idempotency_key, &request.actor_id)?;
-        let destination_store = Self::normalized_store_id(&request.destination_store_id)?;
+        let destination_store =
+            Self::normalized_store_id(&self.lock()?, &request.destination_store_id)?;
         request.destination_store_id = destination_store.to_string();
         request.actor_id = request.actor_id.trim().to_owned();
         request.idempotency_key = request.idempotency_key.trim().to_owned();
@@ -4523,14 +4552,16 @@ impl EdgeInventory for SqliteEdge {
                 "only Store Edge can receive Store stock".into(),
             ));
         }
-        if request
-            .source_dc_id
-            .as_ref()
-            .is_some_and(|source_dc_id| source_dc_id.kind() != SiteKind::Dc)
-        {
-            return Err(EdgeError::Validation(
-                "source_dc_id must identify a DC site".into(),
-            ));
+        // Refused only when head office said the source is a shop: a warehouse
+        // node's own id (`dc-01`) is often not a row the centre holds.
+        if let Some(source_dc_id) = request.source_dc_id.as_ref() {
+            if crate::edge::site_profile::kind_of(&self.lock()?, source_dc_id.as_str())
+                == Some(SiteKind::Store)
+            {
+                return Err(EdgeError::Validation(
+                    "source_dc_id must identify a DC site".into(),
+                ));
+            }
         }
         Self::validate_command_identity(&request.idempotency_key, &request.actor_id)?;
         let request_json = Self::encode_idempotent_request(&request)?;
@@ -4632,14 +4663,16 @@ impl EdgeInventory for SqliteEdge {
                 request.lines.len()
             )));
         }
-        if request
-            .source_dc_id
-            .as_ref()
-            .is_some_and(|source_dc_id| source_dc_id.kind() != SiteKind::Dc)
-        {
-            return Err(EdgeError::Validation(
-                "source_dc_id must identify a DC site".into(),
-            ));
+        // Refused only when head office said the source is a shop: a warehouse
+        // node's own id (`dc-01`) is often not a row the centre holds.
+        if let Some(source_dc_id) = request.source_dc_id.as_ref() {
+            if crate::edge::site_profile::kind_of(&self.lock()?, source_dc_id.as_str())
+                == Some(SiteKind::Store)
+            {
+                return Err(EdgeError::Validation(
+                    "source_dc_id must identify a DC site".into(),
+                ));
+            }
         }
         Self::validate_command_identity(&request.idempotency_key, &request.actor_id)?;
         let request_json = Self::encode_idempotent_request(&request)?;
@@ -7111,7 +7144,7 @@ impl EdgeInventory for SqliteEdge {
         crate::edge::till::receipt_document(
             &connection,
             sale_id,
-            &self.node.site_id.as_str().to_ascii_uppercase(),
+            &self.receipt_shop_name(&connection),
             self.node.site_id.as_str(),
             Some(RECEIPT_FOOTER),
         )
@@ -7127,7 +7160,7 @@ impl EdgeInventory for SqliteEdge {
             crate::edge::till::receipt_document(
                 &connection,
                 sale_id,
-                &self.node.site_id.as_str().to_ascii_uppercase(),
+                &self.receipt_shop_name(&connection),
                 self.node.site_id.as_str(),
                 Some(RECEIPT_FOOTER),
             )?
@@ -9496,7 +9529,14 @@ impl SqliteEdge {
         let receipt_id = Uuid::new_v4();
         let arrived_at = request.arrived_at.unwrap_or_else(|| self.clock.now());
         let opened_at = self.clock.now();
-        let receipt_number = format!("GRN-{}-{next:06}", self.node.site_id);
+        // The delivery number the supplier quotes back: the site's display code
+        // as head office gave it (0474), or its id until this node has heard.
+        // The counter is the node's own and does not follow the code, so a
+        // number is never issued twice.
+        let receipt_number = format!(
+            "GRN-{}-{next:06}",
+            crate::edge::site_profile::own_display_code(&tx, self.node.site_id.as_str())
+        );
         tx.execute(
             "INSERT INTO goods_receipt
                  (receipt_id, receipt_number, supplier_id, arrived_at, status, opened_by,

@@ -137,6 +137,9 @@ mod roster;
 /// claimed period does. See `0363` for why a claim ledger is not a
 /// `last_run_at` column.
 mod schedule;
+/// What a site is — head office, kind, clock, display code — read from its
+/// row and never from its id. Reached by path, not glob-exported.
+pub mod sites;
 /// A day's takings, carried into the general ledger — the one `source_kind`
 /// the schema has always allowed and nothing ever wrote.
 mod sale_day;

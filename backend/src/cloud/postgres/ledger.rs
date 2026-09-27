@@ -9,7 +9,6 @@
 //! accounts; they are not parsed to infer ancestors. This permits a compact,
 //! stable four-digit COA while preserving arbitrary chart depth.
 
-use super::poster::HEAD_OFFICE_SITE;
 use crate::cloud::application::AppError;
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
@@ -2582,7 +2581,8 @@ const CORRECTION_KINDS: [&str; 3] = ["RECLASS", "ADJUSTMENT", "WRITE_OFF"];
 /// The account, its policy, its bank accounts and the category the line names —
 /// everything [`validate_account_posting`] decides on, in one read.
 const POLICY_SELECT: &str = "
-    SELECT a.name, a.posting_mode, a.manual_je_policy, a.dimension,
+    SELECT head_office_site_id() AS head_office,
+           a.name, a.posting_mode, a.manual_je_policy, a.dimension,
            a.requires_counter_site, a.category_family,
            cat.family AS given_family, cat.is_active AS given_active,
            choices.codes AS choices,
@@ -2725,6 +2725,9 @@ pub async fn validate_account_posting(
     // already said "no account {code} in the chart" in the poster's own words.
     let Some(row) = row else { return Ok(None) };
 
+    // Head office by its kind, in the same round trip (0474). `None` only on a
+    // database with no HO site, where a company account has nowhere to post.
+    let head_office: Option<String> = row.try_get("head_office")?;
     let name: String = row.try_get("name")?;
     let account_mode: String = row.try_get("posting_mode")?;
     let account_manual: String = row.try_get("manual_je_policy")?;
@@ -2877,9 +2880,10 @@ pub async fn validate_account_posting(
 
     // `dimension = 'unit'` needs no check: `journal_line.site_id` is NOT NULL,
     // so a line always carries one. `company` is the one that can be wrong.
-    if dimension.as_deref() == Some("company") && facts.site_id != HEAD_OFFICE_SITE {
+    if dimension.as_deref() == Some("company") && head_office.as_deref() != Some(facts.site_id) {
         return Err(AppError::Validation(format!(
-            "{code} {name} belongs to the company and not to a shop; it posts at {HEAD_OFFICE_SITE}, and this line is at {}.",
+            "{code} {name} belongs to the company and not to a shop; it posts at {}, and this line is at {}.",
+            head_office.as_deref().unwrap_or("head office"),
             facts.site_id
         )));
     }

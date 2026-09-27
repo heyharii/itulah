@@ -1,4 +1,4 @@
-use super::{SiteId, SiteKind};
+use super::SiteId;
 use serde::{Deserialize, Serialize};
 use std::{fmt, str::FromStr};
 use thiserror::Error;
@@ -100,9 +100,27 @@ pub enum PlaceError {
     ExpectedStore(String),
 }
 
+// The POOL grammar, not the site id.
+//
+// A pool id is `{site}.{stage}`, and `x.warehouse` is a warehouse rack or a
+// shop's stockroom depending on which side of the grammar `x` is spelled on:
+// `dc`/`dc-…` for the warehouse, `store-…` for a shop. That is how pool ids
+// are written today, and a pool's role is the pool grammar's to say — until
+// the flow-template step gives pools a role column and this goes. It lives
+// here, beside the grammar that needs it, and nowhere else: `SiteId` itself
+// knows only its shape, and nothing outside the pool grammar may ask it for a
+// kind.
+fn spelled_as_warehouse(site: &str) -> bool {
+    site == "dc" || site.starts_with("dc-")
+}
+
+fn spelled_as_shop(site: &str) -> bool {
+    site.len() > "store-".len() && site.starts_with("store-")
+}
+
 fn dc(value: &str) -> Result<SiteId, PlaceError> {
     let site = SiteId::new(value).map_err(|_| PlaceError::ExpectedDc(value.to_owned()))?;
-    if site.kind() != SiteKind::Dc {
+    if !spelled_as_warehouse(site.as_str()) {
         return Err(PlaceError::ExpectedDc(value.to_owned()));
     }
     Ok(site)
@@ -110,7 +128,7 @@ fn dc(value: &str) -> Result<SiteId, PlaceError> {
 
 fn store(value: &str) -> Result<SiteId, PlaceError> {
     let site = SiteId::new(value).map_err(|_| PlaceError::ExpectedStore(value.to_owned()))?;
-    if site.kind() != SiteKind::Store {
+    if !spelled_as_shop(site.as_str()) {
         return Err(PlaceError::ExpectedStore(value.to_owned()));
     }
     Ok(site)
@@ -226,7 +244,7 @@ impl FromStr for OperationalPool {
             });
         }
         if let Some(site_id) = value.strip_suffix(".warehouse") {
-            return if site_id == "dc" || site_id.starts_with("dc-") {
+            return if spelled_as_warehouse(site_id) {
                 Ok(Self::DcWarehouse {
                     dc_id: dc(site_id)?,
                 })
@@ -247,7 +265,7 @@ impl FromStr for OperationalPool {
             });
         }
         if let Some(site_id) = value.strip_suffix(".reject") {
-            if site_id.starts_with("store-") {
+            if spelled_as_shop(site_id) {
                 return Ok(Self::StoreReject {
                     store_id: store(site_id)?,
                 });

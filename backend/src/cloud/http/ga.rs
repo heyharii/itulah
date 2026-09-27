@@ -365,11 +365,11 @@ pub async fn contract_types(
     // Through a shop's till the accounts are the shop's: its own site, never
     // the DC's default and never another shop's.
     let asked: Vec<String> = single_value(&params, "site").into_iter().collect();
-    let site = principal
-        .site_filter(asked)?
-        .into_iter()
-        .next()
-        .unwrap_or_else(|| "dc".into());
+    // Nobody named a site: head office's, found by its kind (0474).
+    let site = match principal.site_filter(asked)?.into_iter().next() {
+        Some(site) => site,
+        None => infrastructure::sites::head_office_site_id(&state.db).await?,
+    };
     Ok(Json(infrastructure::ga_contract_types(&state.db, &site).await?))
 }
 
@@ -985,7 +985,10 @@ pub async fn account_suggestion(
             "supplier",
         ],
     )?;
-    let site = single_value(&params, "site").unwrap_or_else(|| "dc".into());
+    let site = match single_value(&params, "site") {
+        Some(site) => site,
+        None => infrastructure::sites::head_office_site_id(&state.db).await?,
+    };
     let prepaid = matches!(
         single_value(&params, "prepaid").as_deref(),
         Some("true") | Some("1")

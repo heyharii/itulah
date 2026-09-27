@@ -111,6 +111,9 @@ pub struct AppConfig {
     /// `INVENTORY_DEFAULT_DESTINATION_SITE_ID=dc-01` to match, because the
     /// canonical-name fallback in `inventory_dc_owner_tx` now answers to `ho`
     /// and no longer rescues a mismatched `dc`.
+    ///
+    /// Empty — the default since 0474 — means head office's own site, found
+    /// by its kind when an order is raised rather than spelled here.
     pub default_destination_site_id: String,
 }
 
@@ -209,7 +212,7 @@ impl AppConfig {
             media: crate::cloud::media::MediaConfig::from_env(),
             attachments: crate::cloud::attachments::AttachmentConfig::from_env(),
             default_destination_site_id: env_opt("INVENTORY_DEFAULT_DESTINATION_SITE_ID")
-                .unwrap_or_else(|| "dc".into()),
+                .unwrap_or_default(),
             assistant_api_key: env_opt("OPENROUTER_API_KEY"),
             assistant_base_url: env_opt("OPENROUTER_BASE_URL")
                 .unwrap_or_else(|| "https://openrouter.ai/api/v1".into())
@@ -966,8 +969,8 @@ pub struct SaleQuery {
     /// Last day in the window, INCLUSIVE — a caller asking for "1 to 30
     /// September" means the thirtieth to be in it, as everywhere else here.
     pub to: Option<NaiveDate>,
-    /// Minutes east of UTC the two dates are read in; defaults to WIB
-    /// (UTC+7 = 420), like every other dated read in this module.
+    /// Minutes east of UTC the two dates are read in; defaults to the named
+    /// shop's own clock (`site.timezone`), head office's for the fleet.
     pub utc_offset_minutes: Option<i32>,
     pub limit: Option<i64>,
 }
@@ -1378,8 +1381,8 @@ pub struct DailyReportQuery {
     pub site_id: String,
     /// Local business date the report covers (YYYY-MM-DD).
     pub date: NaiveDate,
-    /// Minutes east of UTC for the business-day boundary; defaults to WIB
-    /// (UTC+7 = 420) when omitted.
+    /// Minutes east of UTC for the business-day boundary; defaults to the
+    /// shop's own clock (`site.timezone`) when omitted.
     pub utc_offset_minutes: Option<i32>,
 }
 
@@ -1400,8 +1403,9 @@ pub struct SalesSeriesQuery {
     pub to: NaiveDate,
     /// `day` (default) · `week` (ISO, Monday) · `month`.
     pub bucket: Option<String>,
-    /// Minutes east of UTC for the business-day boundary; defaults to WIB
-    /// (UTC+7 = 420) when omitted, like the daily report.
+    /// Minutes east of UTC for the business-day boundary; defaults to head
+    /// office's clock (`site.timezone`) when omitted — a chart of the fleet
+    /// keeps the company's day.
     pub utc_offset_minutes: Option<i32>,
 }
 

@@ -60,14 +60,10 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Postgres, Row, Transaction};
 use uuid::Uuid;
 
-/// The unit whose books carry every inter-unit receivable.
-///
-/// A constant and not configuration: it is the same `dc` that migration 0122
-/// maps the affiliate accounts against and that `import-coa.py` files the
-/// client's `00` suffix under, and a second place to say it is a second place
-/// for it to be said differently. The kernel still takes it as an argument —
-/// that is what keeps the kernel testable without a database.
-pub const HEAD_OFFICE_SITE: &str = "dc";
+// The unit whose books carry every inter-unit receivable is head office, read
+// from data on every posting (`sites::head_office_site_id`: the one site of
+// kind HO) — no longer a `"dc"` constant here. The kernel still takes it as an
+// argument, which is what keeps the kernel testable without a database.
 
 /// The step a document posts for when it has only one, which is nearly always.
 pub const MAIN: &str = "MAIN";
@@ -423,7 +419,10 @@ fn check_balanced(lines: &[PostingLine]) -> Result<i64, AppError> {
 /// and the legs are added second. The legs are then validated exactly like the
 /// rule's own lines: they resolve through `account_map` and they must name a
 /// postable account, which is why this happens before resolution and not after.
-fn balanced_per_site(intent: &PostingIntent) -> Result<(Vec<PostingLine>, i64), AppError> {
+fn balanced_per_site(
+    intent: &PostingIntent,
+    head_office: &str,
+) -> Result<(Vec<PostingLine>, i64), AppError> {
     let total = check_balanced(&intent.lines)?;
 
     let movements: Vec<SiteMovement> = intent
@@ -432,7 +431,7 @@ fn balanced_per_site(intent: &PostingIntent) -> Result<(Vec<PostingLine>, i64), 
         .map(|line| SiteMovement::new(&line.site_id, line.debit_minor, line.credit_minor))
         .collect();
     let kind = kind_for_source(&intent.source_kind);
-    let legs = balancing_legs(&movements, kind, HEAD_OFFICE_SITE);
+    let legs = balancing_legs(&movements, kind, head_office);
     if legs.is_empty() {
         return Ok((intent.lines.clone(), total));
     }
@@ -558,7 +557,8 @@ pub async fn post(
         .map(str::trim)
         .filter(|p| !p.is_empty())
         .unwrap_or(MAIN);
-    let (lines, total) = balanced_per_site(intent)?;
+    let head_office = super::sites::head_office_site_id(&mut **tx).await?;
+    let (lines, total) = balanced_per_site(intent, &head_office)?;
 
     // Resolved before anything is written, so an unmapped meaning fails without
     // leaving half an entry behind for the rollback to tidy up.

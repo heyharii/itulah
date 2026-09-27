@@ -480,9 +480,9 @@ async fn write_line(
     Ok(())
 }
 
-/// The unit's posting site: a store's shop, or head office's Gudang. The same
-/// rule `pay.rs` and `exit.rs` use — `book_site_of_unit` — while the books are
-/// still kept per site.
+/// The unit's posting site: a store's shop, or head office's site — found by
+/// its kind, never by an id. The same rule `pay.rs` and `exit.rs` use —
+/// `book_site_of_unit` — while the books are still kept per site.
 async fn posting_site(
     tx: &mut Transaction<'_, Postgres>,
     unit: &UnitId,
@@ -676,10 +676,14 @@ pub async fn pay_claim(
 
     let mut tx = pool.begin().await?;
     let site = posting_site(&mut tx, claim.unit()).await?;
+    // Counted under the internal id, printed under the display code (0474).
+    let printed = super::sites::display_code(&mut *tx, &site)
+        .await?
+        .to_uppercase();
     let document_number = next_document_number(
         &mut tx,
         &format!("KKC:{site}"),
-        &format!("KKC-{}", site.to_uppercase()),
+        &format!("KKC-{printed}"),
         paid_on,
     )
     .await?;

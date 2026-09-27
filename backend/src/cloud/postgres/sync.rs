@@ -10,11 +10,11 @@ use crate::cloud::application::{AppError, DeadLetterQuery};
 use crate::cloud::domain::{
     admit_batch, cooldown_after_failure, ingest_rejection_reason, stale_generation_message,
     BatchAdmission, BatchFact, BreakerPolicy, DestinationType, IngestBatch, IngestResponse,
-    MovementCommand, RejectedFact, SyncFact, HEAD_OFFICE_SITE_ID,
+    MovementCommand, RejectedFact, SyncFact,
 };
 use crate::edge::{
     EdgeRole, InventoryState, MovementCause as EdgeMovementCause, MovementLine as EdgeMovementLine,
-    NodeContext, OperationalPool, Place, SiteId, SubjectId,
+    NodeContext, OperationalPool, Place, SiteId, SiteKind, SubjectId,
 };
 use crate::sync::inventory::{PoolSnapshotPayload, INVENTORY_POOL_SNAPSHOT_V1};
 use crate::sync::rfid::{RfidObservationBatchPayload, INVENTORY_RFID_OBSERVATION_BATCH_V1};
@@ -622,13 +622,23 @@ pub async fn ingest_batch(pool: &PgPool, batch: &IngestBatch) -> Result<IngestRe
             }
         } else if fact.event_type == INVENTORY_TRANSFER_CLAIM_V1 {
             match serde_json::from_value::<TransferClaimPayload>(fact.payload.clone()) {
-                Ok(payload) => validate_transfer_binding(
-                    &payload,
-                    &batch.origin_id,
-                    batch.generation,
-                    inventory_binding.as_ref(),
-                )
-                .err(),
+                Ok(payload) => {
+                    let mut connection = pool.acquire().await?;
+                    let kinds = fact_site_kinds(
+                        &mut connection,
+                        &payload.destination_store_id,
+                        payload.source_dc_id.as_deref(),
+                    )
+                    .await?;
+                    validate_transfer_binding(
+                        &payload,
+                        &batch.origin_id,
+                        batch.generation,
+                        inventory_binding.as_ref(),
+                        kinds,
+                    )
+                    .err()
+                }
                 Err(error) => Some(format!("invalid inventory transfer claim: {error}")),
             }
         } else if fact.event_type == INVENTORY_ALLOTMENT_APPLICATION_RESULT_V1 {
@@ -708,13 +718,18 @@ pub async fn ingest_batch(pool: &PgPool, batch: &IngestBatch) -> Result<IngestRe
                 Ok(payload) if fact.event_id != payload.progress_id => {
                     Some("fulfillment progress_id must equal event_id".into())
                 }
-                Ok(payload) => validate_fulfillment_progress_binding(
-                    &payload,
-                    &batch.origin_id,
-                    batch.generation,
-                    inventory_binding.as_ref(),
-                )
-                .err(),
+                Ok(payload) => {
+                    let destination_kind =
+                        super::sites::site_kind(pool, &payload.destination_store_id).await?;
+                    validate_fulfillment_progress_binding(
+                        &payload,
+                        &batch.origin_id,
+                        batch.generation,
+                        inventory_binding.as_ref(),
+                        destination_kind,
+                    )
+                    .err()
+                }
                 Err(error) => Some(format!("invalid fulfillment progress: {error}")),
             }
         } else if fact.event_type == INVENTORY_RFID_OBSERVATION_BATCH_V1 {
@@ -1778,11 +1793,30 @@ fn validate_allotment_pick_binding(
     Ok(node)
 }
 
+/// What `site` says the named sites are, for the fact validators below.
+///
+/// Read from the rows (0474), never from the spelling of the ids. `None` is
+/// "the centre holds no such row" — a warehouse node's own id (`dc-01`) is
+/// often one — and the validators refuse only a kind they were TOLD.
+async fn fact_site_kinds(
+    executor: &mut sqlx::PgConnection,
+    destination: &str,
+    source: Option<&str>,
+) -> Result<(Option<SiteKind>, Option<SiteKind>), AppError> {
+    let destination_kind = super::sites::site_kind(&mut *executor, destination).await?;
+    let source_kind = match source {
+        Some(source) => super::sites::site_kind(&mut *executor, source).await?,
+        None => None,
+    };
+    Ok((destination_kind, source_kind))
+}
+
 fn validate_fulfillment_progress_binding(
     payload: &FulfillmentProgressPayload,
     batch_origin_id: &str,
     generation: i64,
     binding: Option<&InventoryOriginBinding>,
+    destination_kind: Option<SiteKind>,
 ) -> Result<NodeContext, String> {
     payload.validate()?;
     let binding = binding.ok_or_else(|| {
@@ -1816,7 +1850,7 @@ fn validate_fulfillment_progress_binding(
         .map_err(|error| error.to_string())?;
     let destination =
         SiteId::new(&payload.destination_store_id).map_err(|error| error.to_string())?;
-    if destination.kind() != crate::edge::SiteKind::Store
+    if destination_kind.is_some_and(|kind| kind != SiteKind::Store)
         || destination.to_string() != payload.destination_store_id
     {
         return Err("fulfillment destination_store_id must be a canonical Store site".into());
@@ -1829,6 +1863,7 @@ fn validate_transfer_binding(
     batch_origin_id: &str,
     generation: i64,
     binding: Option<&InventoryOriginBinding>,
+    (destination_kind, source_kind): (Option<SiteKind>, Option<SiteKind>),
 ) -> Result<NodeContext, String> {
     payload.validate().map_err(|error| error.to_string())?;
     let binding = binding
@@ -1860,7 +1895,7 @@ fn validate_transfer_binding(
 
     let destination =
         SiteId::new(&payload.destination_store_id).map_err(|error| error.to_string())?;
-    if destination.kind() != crate::edge::SiteKind::Store {
+    if destination_kind.is_some_and(|kind| kind != SiteKind::Store) {
         return Err("transfer destination_store_id must identify a Store".into());
     }
     let source = payload
@@ -1869,10 +1904,7 @@ fn validate_transfer_binding(
         .map(SiteId::new)
         .transpose()
         .map_err(|error| error.to_string())?;
-    if source
-        .as_ref()
-        .is_some_and(|site| site.kind() != crate::edge::SiteKind::Dc)
-    {
+    if source.is_some() && source_kind == Some(SiteKind::Store) {
         return Err("transfer source_dc_id must identify a DC".into());
     }
 
@@ -3043,7 +3075,13 @@ async fn apply_transfer_claim(
     {
         return Ok(false);
     }
-    let node = validate_transfer_binding(claim, origin_id, generation, binding.as_ref())
+    let kinds = fact_site_kinds(
+        &mut **tx,
+        &claim.destination_store_id,
+        claim.source_dc_id.as_deref(),
+    )
+    .await?;
+    let node = validate_transfer_binding(claim, origin_id, generation, binding.as_ref(), kinds)
         .map_err(AppError::Validation)?;
     let claim_kind = match claim.claim_kind {
         TransferClaimKind::InTransit => "IN_TRANSIT",
@@ -3771,9 +3809,16 @@ async fn apply_fulfillment_progress(
     {
         return Ok(false);
     }
-    let node =
-        validate_fulfillment_progress_binding(progress, origin_id, generation, binding.as_ref())
-            .map_err(AppError::Validation)?;
+    let destination_kind =
+        super::sites::site_kind(&mut **tx, &progress.destination_store_id).await?;
+    let node = validate_fulfillment_progress_binding(
+        progress,
+        origin_id,
+        generation,
+        binding.as_ref(),
+        destination_kind,
+    )
+    .map_err(AppError::Validation)?;
     if sqlx::query("SELECT 1 FROM edge_fulfillment_progress_fact WHERE event_id=$1")
         .bind(event_id)
         .fetch_optional(&mut **tx)
@@ -4973,32 +5018,11 @@ fn validate_issued_command(command_type: &str, payload: &Value) -> Result<(), Ap
     Ok(())
 }
 
-/// Resolve the exact authoritative DC for a site inside the caller's business
-/// transaction. No aliasing and no broadcast fallback are permitted.
-///
-/// What the CENTRE calls the building the warehouse stands in — `site.id`, and
-/// `ho` since 0256 folded `dc` and `dc-01` into head office. Not what the box
-/// in that building calls itself: an edge node registers under the site id it
-/// runs as, which is still `dc` or `dc-01`, and that spelling lives in
-/// `sync_origin_credential.site_id`. The gap between the two is exactly what
-/// [`sole_dc_origin_tx`] exists to bridge, and it is why this constant must
-/// follow `site` and not the origin table.
-pub(super) const CANONICAL_WAREHOUSE_SITE_ID: &str = HEAD_OFFICE_SITE_ID;
-
-/// Every name the CENTRE has used for that one building, for the sole purpose
-/// of deciding whether a site id that no origin answers to is worth resolving
-/// to the one registered DC.
-///
-/// Two entries and not one, because 0256 renamed the site but could not rename
-/// what is already written down elsewhere: `purchase_order.destination_site_id`
-/// carries no foreign key into `site`, holds `dc` on every database, and is the
-/// default `INVENTORY_DEFAULT_DESTINATION_SITE_ID` still hands out. Dropping
-/// `dc` here would refuse every purchase order raised on a rig whose DC edge
-/// registers as `dc-01` — which is what `.claude/launch.json` configures.
-///
-/// A store id is deliberately absent: a shop that no origin answers to is a
-/// real miss and must stay one.
-const WAREHOUSE_SITE_ALIASES: [&str; 2] = [CANONICAL_WAREHOUSE_SITE_ID, "dc"];
+// What the CENTRE calls the building the warehouse stands in is head office's
+// `site.id`, found by its kind (`sites::head_office_site_id`, 0474) — never a
+// constant. What the box in that building calls itself is the site id it was
+// enrolled under (`dc`, `dc-01`, anything), kept on
+// `sync_origin_credential.site_id`. [`sole_dc_origin_tx`] bridges the two.
 
 /// The single registered DC origin, or nothing when that is not unambiguous.
 async fn sole_dc_origin_tx(tx: &mut Transaction<'_, Postgres>) -> Result<Option<String>, AppError> {
@@ -5095,7 +5119,12 @@ pub(super) async fn inventory_dc_owner_tx(
         // without pretending the model supports several. If a second DC ever
         // registers this refuses rather than guessing, because picking one of
         // two warehouses to send a count to is not a decision code may make.
-        if WAREHOUSE_SITE_ALIASES.contains(&site_id) {
+        // Only head office's own site resolves this way — by the kind on its
+        // row, whatever it is called. A shop that no origin answers to is a
+        // real miss and stays one.
+        if super::sites::site_kind(&mut **tx, site_id).await?
+            == Some(crate::ids::SiteKind::HeadOffice)
+        {
             return sole_dc_origin_tx(tx).await;
         }
         return Ok(None);
@@ -7928,7 +7957,7 @@ const ORDER_BOOK_ROWS: &str = "
            (b.order_status = 'ISSUED'
             AND NOT b.all_lines_settled
             AND b.received_stock_units < b.expected_stock_units
-            AND b.expected_arrival < (now() AT TIME ZONE 'Asia/Jakarta')::date) AS overdue,
+            AND b.expected_arrival < site_local_date(now(), b.destination_site_id)) AS overdue,
            -- The house order as one number, so a keyset can seek on it: late
            -- orders first, the longest-late at the top; then everything else,
            -- the newest issued first.
@@ -7936,7 +7965,7 @@ const ORDER_BOOK_ROWS: &str = "
                WHEN b.order_status = 'ISSUED'
                     AND NOT b.all_lines_settled
                     AND b.received_stock_units < b.expected_stock_units
-                    AND b.expected_arrival < (now() AT TIME ZONE 'Asia/Jakarta')::date
+                    AND b.expected_arrival < site_local_date(now(), b.destination_site_id)
                     THEN extract(epoch FROM b.expected_arrival::timestamp)::bigint
                ELSE 1000000000000
                     - extract(epoch FROM COALESCE(b.issued_at, TIMESTAMPTZ 'epoch'))::bigint

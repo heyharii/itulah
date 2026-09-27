@@ -1905,11 +1905,9 @@ pub async fn company_bank_accounts(
 pub async fn banking_readiness(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<BankingSetupGap>>, AppError> {
-    Ok(Json(
-        // One constant, in one place: the head office is `dc` until the rename
-        // 0256 holds lands, and `poster` is where that fact lives.
-        infrastructure::banking_readiness(&state.db, infrastructure::HEAD_OFFICE_SITE).await?,
-    ))
+    // Head office by its kind, from the one lookup that says how (0474).
+    let head_office = infrastructure::sites::head_office_site_id(&state.db).await?;
+    Ok(Json(infrastructure::banking_readiness(&state.db, &head_office).await?))
 }
 
 /// The institutions, from the master, with what we keep at each.
@@ -2255,9 +2253,10 @@ pub async fn land_deposit(
 /// filter in this module does. `from` and `to` are TRADING days, not instants.
 /// `posted=true` or `posted=false` narrows to one side of the gap; leaving it
 /// off shows both, which is what a person opening the screen wants to see.
-/// `offset` is the day boundary in minutes east of UTC and defaults to WIB —
-/// the same default every sales report uses, so a day here and a day there are
-/// the same day.
+/// `offset` is the day boundary in minutes east of UTC and defaults to the
+/// shop's own clock when one shop is asked for, head office's otherwise
+/// (`site.timezone`) — the same default every sales report uses, so a day
+/// here and a day there are the same day.
 pub async fn sale_days(
     State(state): State<AppState>,
     Query(params): Query<Vec<(String, String)>>,

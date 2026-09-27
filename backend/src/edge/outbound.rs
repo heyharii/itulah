@@ -30,9 +30,9 @@ use super::zpl::{preview_koli_label, render_koli_label, KoliLabelData, LabelBran
 use qrcode::render::svg;
 use qrcode::{EcLevel, QrCode};
 
-/// Which counter to draw from. Numbers are minted here at the DC; the site
-/// inside each one is what keeps them unique across the fleet without a
-/// central allocator handing them out.
+/// Which counter to draw from. Numbers are minted here at the DC; the site's
+/// display code inside each one is what keeps them unique across the fleet
+/// without a central allocator handing them out.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NumberKind {
     Koli,
@@ -70,6 +70,20 @@ fn now_text() -> String {
 /// Take the next number of its kind, bumping the counter in the same
 /// transaction that writes the row it belongs to. Two boxes sealed at the same
 /// instant get adjacent numbers, never equal ones.
+///
+/// # What is printed
+///
+/// `KOLI-HO-GUDANG-000001`, `SJ-HO-GUDANG-000045`: the site's DISPLAY code as
+/// head office gave it (`site.code`, 0474), never its internal id — a surat
+/// jalan is paper a store signs, and `dc-01` means nothing to the person
+/// signing it. Until head office has told this node its code, the id is
+/// printed, exactly as before.
+///
+/// The counter is per kind and never per code, so a number is never issued
+/// twice even if the code changes or a node prints under its id first and its
+/// code later. A number already issued is stored whole and looked up whole;
+/// nothing parses it, so the old `KOLI-dc-01-…` numbers stay valid wherever
+/// they are scanned or quoted.
 pub fn next_number(
     tx: &Transaction<'_>,
     kind: NumberKind,
@@ -87,7 +101,8 @@ pub fn next_number(
             |row| row.get(0),
         )
         .map_err(db)?;
-    Ok(format!("{}-{}-{:06}", kind.prefix(), site_id, last))
+    let code = crate::edge::site_profile::own_display_code(tx, site_id);
+    Ok(format!("{}-{}-{:06}", kind.prefix(), code, last))
 }
 
 /// Render a payload as an inline SVG QR code.
@@ -262,6 +277,9 @@ pub struct Koli {
     pub koli_id: String,
     pub koli_number: String,
     pub destination_store_id: String,
+    /// What is printed for the destination: the shop's display code as head
+    /// office gave it (`C007-TOKO`), or its id until the node has heard.
+    pub destination_code: String,
     pub packing_session_id: Option<String>,
     pub shipment_id: Option<String>,
     pub sealed_at: Option<String>,
@@ -377,7 +395,7 @@ pub fn seal_koli(
 }
 
 pub fn load_koli(connection: &Connection, koli_id: &str) -> Result<Koli, EdgeError> {
-    connection
+    let mut koli = connection
         .query_row(
             "SELECT k.koli_id,k.koli_number,k.destination_store_id,k.packing_session_id,
                     k.shipment_id,k.sealed_at,k.sealed_by,
@@ -398,6 +416,7 @@ pub fn load_koli(connection: &Connection, koli_id: &str) -> Result<Koli, EdgeErr
                     koli_id: row.get(0)?,
                     koli_number: row.get(1)?,
                     destination_store_id: row.get(2)?,
+                    destination_code: String::new(),
                     packing_session_id: row.get(3)?,
                     shipment_id: row.get(4)?,
                     sealed_at: row.get(5)?,
@@ -410,7 +429,10 @@ pub fn load_koli(connection: &Connection, koli_id: &str) -> Result<Koli, EdgeErr
         .map_err(|error| match error {
             rusqlite::Error::QueryReturnedNoRows => EdgeError::NotFound(format!("koli {koli_id}")),
             other => db(other),
-        })
+        })?;
+    koli.destination_code =
+        crate::edge::site_profile::display_code(connection, &koli.destination_store_id);
+    Ok(koli)
 }
 
 /// What is in the box, on the stock the caller says the bench holds.
@@ -448,7 +470,7 @@ pub fn koli_manifest_on(
     let qr_payload = format!("K1:{}", koli.koli_number);
     let label = KoliLabelData {
         koli_number: &koli.koli_number,
-        destination_store_id: &koli.destination_store_id,
+        destination_store_id: &koli.destination_code,
         unit_count: koli.unit_count,
         sealed_at: koli.sealed_at.as_deref(),
     };
@@ -481,6 +503,9 @@ pub struct Shipment {
     pub shipment_id: String,
     pub shipment_number: String,
     pub destination_store_id: String,
+    /// What the surat jalan prints for the destination: the shop's display
+    /// code as head office gave it, or its id until the node has heard.
+    pub destination_code: String,
     pub dispatch_id: Option<String>,
     pub koli_count: i64,
     pub unit_count: i64,
@@ -622,7 +647,7 @@ pub fn create_shipment(
 }
 
 pub fn load_shipment(connection: &Connection, shipment_id: &str) -> Result<Shipment, EdgeError> {
-    connection
+    let mut shipment = connection
         .query_row(
             "SELECT s.shipment_id,s.shipment_number,s.destination_store_id,s.dispatch_id,
                     (SELECT COUNT(*) FROM koli WHERE shipment_id=s.shipment_id),
@@ -642,6 +667,7 @@ pub fn load_shipment(connection: &Connection, shipment_id: &str) -> Result<Shipm
                     shipment_id: row.get(0)?,
                     shipment_number: row.get(1)?,
                     destination_store_id: row.get(2)?,
+                    destination_code: String::new(),
                     dispatch_id: row.get(3)?,
                     koli_count: row.get(4)?,
                     unit_count: row.get(5)?,
@@ -654,7 +680,10 @@ pub fn load_shipment(connection: &Connection, shipment_id: &str) -> Result<Shipm
                 EdgeError::NotFound(format!("shipment {shipment_id}"))
             }
             other => db(other),
-        })
+        })?;
+    shipment.destination_code =
+        crate::edge::site_profile::display_code(connection, &shipment.destination_store_id);
+    Ok(shipment)
 }
 
 #[derive(Debug, Serialize)]

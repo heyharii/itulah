@@ -569,7 +569,13 @@ pub async fn create_catalog_purchase_order(
     // idempotency key replayed across a config change then still answers for
     // the order it actually created.
     if request.destination_site_id.is_none() {
-        request.destination_site_id = Some(state.config.default_destination_site_id.clone());
+        let configured = state.config.default_destination_site_id.trim();
+        request.destination_site_id = Some(if configured.is_empty() {
+            // Nothing configured: head office's own site, by its kind.
+            infrastructure::sites::head_office_site_id(&state.db).await?
+        } else {
+            configured.to_string()
+        });
     }
     let key = idempotency_key(&headers)?;
     let request_digest = digest(&json!({

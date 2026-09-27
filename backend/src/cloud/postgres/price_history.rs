@@ -206,7 +206,10 @@ pub async fn price_history(
         )
         .await?;
 
-        let mut context = crate::reporting::pricing_context(site_id, channel, *moment);
+        let utc_offset_minutes =
+            super::sites::business_utc_offset_minutes(&mut *tx, Some(site_id), *moment).await?;
+        let mut context =
+            crate::reporting::pricing_context(site_id, channel, *moment, utc_offset_minutes);
         context.at = *moment;
         // Priced as a one-line basket, through the engine's own entry point,
         // rather than by asking the cascade for a base price.

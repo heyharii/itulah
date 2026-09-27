@@ -31,7 +31,7 @@ use super::payment_ledger::{
     ple_delink, ple_open, ple_settle_claim, PaymentLedgerClaim, PaymentLedgerItem,
     PaymentLedgerPartyType, PaymentLedgerSide,
 };
-use super::poster::{post, reverse, LineAccount, PostingIntent, PostingLine, HEAD_OFFICE_SITE};
+use super::poster::{post, reverse, LineAccount, PostingIntent, PostingLine};
 use crate::cloud::application::AppError;
 use crate::cloud::domain::three_way::{
     match_bill_to_deliveries, LineFault, MatchLine, MatchTolerance,
@@ -245,7 +245,7 @@ pub(super) async fn cost_layer_on_setup(
 ) -> Result<(), AppError> {
     let Some(line) = sqlx::query(
         "SELECT l.receipt_id, pl.article_code, l.quantity, pl.unit_price_minor,
-                (l.verified_at AT TIME ZONE 'Asia/Jakarta')::date AS accepted_on
+                site_local_date(l.verified_at, (SELECT gr.site_id FROM goods_receipt gr WHERE gr.receipt_id = l.receipt_id)) AS accepted_on
            FROM goods_receipt_line l
            JOIN purchase_order_line pl ON pl.po_line_id = l.po_line_id
           WHERE l.receipt_line_id = $1 AND l.posting_id IS NOT NULL",
@@ -517,11 +517,11 @@ pub async fn receipt_post(
     posting_date: Option<NaiveDate>,
     actor: &str,
 ) -> Result<ReceiptPosting, AppError> {
-    // The days still to value, in the company's own calendar: a lorry accepted
-    // at half past six in the morning in Bandung was accepted that day, not
-    // the day before, whatever UTC says.
+    // The days still to value, in the receiving site's own calendar
+    // (`site.timezone`, 0474): a lorry accepted at half past six in the
+    // morning was accepted that day, not the day before, whatever UTC says.
     let days: Vec<NaiveDate> = sqlx::query_scalar(
-        "SELECT DISTINCT (l.verified_at AT TIME ZONE 'Asia/Jakarta')::date
+        "SELECT DISTINCT site_local_date(l.verified_at, (SELECT gr.site_id FROM goods_receipt gr WHERE gr.receipt_id = l.receipt_id))
            FROM goods_receipt_line l
           WHERE l.receipt_id = $1 AND l.posting_id IS NULL
           ORDER BY 1",
@@ -598,12 +598,12 @@ async fn receipt_post_tranche(
 
     let lines = sqlx::query(
         "SELECT l.receipt_line_id, pl.article_code, l.quantity, pl.unit_price_minor,
-                (l.verified_at AT TIME ZONE 'Asia/Jakarta')::date AS accepted_on
+                site_local_date(l.verified_at, (SELECT gr.site_id FROM goods_receipt gr WHERE gr.receipt_id = l.receipt_id)) AS accepted_on
            FROM goods_receipt_line l
            JOIN purchase_order_line pl ON pl.po_line_id = l.po_line_id
           WHERE l.receipt_id = $1
             AND l.posting_id IS NULL
-            AND ($2::date IS NULL OR (l.verified_at AT TIME ZONE 'Asia/Jakarta')::date = $2)
+            AND ($2::date IS NULL OR site_local_date(l.verified_at, (SELECT gr.site_id FROM goods_receipt gr WHERE gr.receipt_id = l.receipt_id)) = $2)
           ORDER BY pl.line_number, l.receipt_line_id",
     )
     .bind(receipt_id)
@@ -638,6 +638,7 @@ async fn receipt_post_tranche(
         (Uuid::new_v4(), format!("TRANCHE_{}", tranches + 1))
     };
 
+    let head_office = super::sites::head_office_site_id(&mut *tx).await?;
     let intent = PostingIntent {
         posting_date: date,
         source_kind: "GOODS_RECEIPT".into(),
@@ -652,7 +653,7 @@ async fn receipt_post_tranche(
         // shop Dr inventory / Cr 2029 Atas Barang, head office Dr 1058 / Cr 2002.
         lines: vec![
             PostingLine::debit("inventory", &site_id, value),
-            PostingLine::credit("trade_payable", HEAD_OFFICE_SITE, value).for_supplier(&supplier_id),
+            PostingLine::credit("trade_payable", &head_office, value).for_supplier(&supplier_id),
         ],
     };
 
@@ -686,7 +687,7 @@ async fn receipt_post_tranche(
         &mut tx,
         "trade_payable",
         "GOODS_RECEIPT",
-        HEAD_OFFICE_SITE,
+        &head_office,
         &supplier_id,
         supplier_name.as_deref(),
         posting_id,
@@ -1359,6 +1360,7 @@ pub async fn merchandise_debit_lines(
     }
 
     let trade_payable_code = super::ledger::resolve_account_code(pool, "trade_payable", site_id, "").await?;
+    let head_office = super::sites::head_office_site_id(pool).await?;
     let receipt_rows = sqlx::query(
         "SELECT p.journal_entry_id, p.value_minor,
                 (SELECT jl.account_code
@@ -1393,7 +1395,7 @@ pub async fn merchandise_debit_lines(
             // The receipt credited the payable at dc (owner rule, 25 Sep), so
             // the invoice clears it there. The goods may be at a shop; the debt
             // never was.
-            PostingLine::debit("trade_payable", HEAD_OFFICE_SITE, value).for_supplier(supplier_id)
+            PostingLine::debit("trade_payable", &head_office, value).for_supplier(supplier_id)
         } else {
             // Clear historical receipts using the exact account code their
             // original journal credited. New receipts never take this branch.

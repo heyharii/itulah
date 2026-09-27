@@ -722,8 +722,7 @@ fn outflow_posting(event_kind: &str) -> Option<(&'static str, &'static str, &'st
 /// Dr 2002 / Cr 1058. The balancer cannot be left to add these itself: a credit
 /// at the shop reads as value it GAVE head office (a receivable), where the
 /// whole point of a return is that the shop owes head office LESS.
-fn supplier_return_lines(site_id: &str, value: i64) -> Vec<PostingLine> {
-    let ho = super::poster::HEAD_OFFICE_SITE;
+fn supplier_return_lines(site_id: &str, value: i64, ho: &str) -> Vec<PostingLine> {
     let mut lines = vec![
         PostingLine::debit("trade_payable", ho, value),
         PostingLine::credit("inventory", site_id, value),
@@ -1090,6 +1089,7 @@ pub async fn stock_ledger_return_to_supplier(
             as i64
     };
 
+    let head_office = super::sites::head_office_site_id(&mut **tx).await?;
     let posted = if value > 0 {
         Some(
             post(
@@ -1101,7 +1101,7 @@ pub async fn stock_ledger_return_to_supplier(
                     rule_version: "supplier_return/1".into(),
                     currency: "IDR".into(),
                     memo: request.memo.clone(),
-                    lines: supplier_return_lines(&request.site_id, value),
+                    lines: supplier_return_lines(&request.site_id, value, &head_office),
                 },
                 // Keyed on the layer and not the article: one credit note can
                 // send back goods from two receipts of the same article, and
@@ -1348,6 +1348,7 @@ async fn price_correction(
         "PRICE_CORRECTION|{}|{}|{}",
         request.source_id, request.layer_id, request.amount_minor
     );
+    let head_office = super::sites::head_office_site_id(&mut **tx).await?;
     if let Some(existing) = replay(tx, &key).await? {
         let row = sqlx::query(
             "SELECT inventory_portion_minor, cogs_portion_minor
@@ -1373,7 +1374,7 @@ async fn price_correction(
         let affiliate_lines = price_correction_affiliate_lines(
             site.as_deref().unwrap_or_default(),
             request.amount_minor,
-            super::poster::HEAD_OFFICE_SITE,
+            &head_office,
         );
         return Ok(PriceCorrectionOutcome {
             inventory_minor,
@@ -1422,7 +1423,7 @@ async fn price_correction(
     // consumption breakdown the company-wide queue deliberately does not keep —
     // and 0098 refuses a cross-location line anyway, because the honest credit
     // is an inter-unit balance no rule writes yet.
-    let ho = super::poster::HEAD_OFFICE_SITE;
+    let ho = head_office.as_str();
     // The stock adjustment stays where the goods are: on hand → inventory,
     // already sold → cost of sales (the split `split_price_correction` made).
     let mut stock_lines = Vec::with_capacity(2);
@@ -1791,12 +1792,13 @@ pub async fn stock_transfer_post_pending(pool: &PgPool, actor: &str) -> Result<i
     .await?;
     let mut booked = 0i64;
     let today = chrono::Utc::now().date_naive();
+    let head_office = super::sites::head_office_site_id(pool).await?;
     for row in &lines {
         let line_id: Uuid = row.try_get("id")?;
         let source: String = row.try_get("source_site_id")?;
         let destination: String = row.try_get("destination_id")?;
         let article_id: Uuid = row.try_get("article_id")?;
-        if source != super::poster::HEAD_OFFICE_SITE && destination != super::poster::HEAD_OFFICE_SITE {
+        if source != head_office && destination != head_office {
             continue;
         }
         for (stage, done, already) in [

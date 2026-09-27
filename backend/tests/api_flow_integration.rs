@@ -1045,8 +1045,10 @@ async fn a_purchase_order_leaves_the_dc_on_a_truck_entirely_over_http(pool: PgPo
         .unwrap_or_else(|| panic!("no koli_number: {manifest}"))
         .to_string();
     assert!(
-        koli_number.starts_with(&format!("KOLI-{DC_SITE}-")),
-        "a koli number carries the DC that minted it: {koli_number}"
+        // The site's display code (0474), which the policy published above
+        // told the node — never the internal id `dc`.
+        koli_number.starts_with("KOLI-HO-GUDANG-"),
+        "a koli number carries the code of the site that minted it: {koli_number}"
     );
     assert_eq!(manifest["qr_payload"], json!(format!("K1:{koli_number}")));
     assert!(
@@ -1072,7 +1074,7 @@ async fn a_purchase_order_leaves_the_dc_on_a_truck_entirely_over_http(pool: PgPo
     assert!(
         shipment["shipment_number"]
             .as_str()
-            .is_some_and(|number| number.starts_with(&format!("SJ-{DC_SITE}-"))),
+            .is_some_and(|number| number.starts_with("SJ-HO-GUDANG-")),
         "the consignment number is what a store signs against: {shipment}"
     );
     assert_eq!(shipment["koli_count"], 1);

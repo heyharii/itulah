@@ -335,7 +335,11 @@ pub async fn move_balance(
     }
     infrastructure::append_movement(&state.db, &access.employee_id, leave_type, &entry).await?;
 
-    let on = crate::reporting::local_today();
+    // Head office's day: leave is kept by head office (`site.timezone`, 0474).
+    let on = crate::reporting::local_today_at(
+        infrastructure::sites::business_utc_offset_minutes(&state.db, None, chrono::Utc::now())
+            .await?,
+    );
     Ok(Json(
         infrastructure::balances_of(&state.db, &access.employee_id, &catalogue, on).await?,
     ))

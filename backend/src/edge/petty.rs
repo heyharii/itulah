@@ -538,13 +538,18 @@ pub fn position(connection: &Connection) -> Result<PettyCashPosition, EdgeError>
 ///
 /// The span is the shop's own wall clock, not UTC: `spent_at` is RFC3339 in UTC
 /// and `window_of` turns two local dates into the instants that bound them, the
-/// same way the sales window does. A shop in Jakarta asking for "today" before
-/// seven in the morning otherwise gets yesterday.
+/// same way the sales window does. A shop asking for "today" before its own
+/// clock has passed UTC's midnight otherwise gets yesterday.
 pub fn window(
     connection: &Connection,
     query: &ExpenseWindowQuery,
 ) -> Result<ExpenseWindow, EdgeError> {
-    let utc_offset_minutes = offset_of(query.utc_offset_minutes);
+    // The caller's offset, else this shop's own clock as head office told it.
+    let utc_offset_minutes = offset_of(
+        query
+            .utc_offset_minutes
+            .or_else(|| crate::edge::site_profile::own_utc_offset_minutes(connection)),
+    );
     let (start, end) =
         window_of(query.from, query.to, utc_offset_minutes).map_err(EdgeError::Validation)?;
     let limit = query.limit.unwrap_or(100).clamp(1, 500);

@@ -2448,7 +2448,8 @@ async fn next_po_number(
 ) -> Result<String, AppError> {
     let row = sqlx::query(
         "WITH today AS (
-             SELECT (now() AT TIME ZONE 'Asia/Jakarta')::date AS day
+             -- Head office's day: it is head office that numbers orders (0474).
+             SELECT site_local_date(now(), head_office_site_id()) AS day
          ),
          filed AS (
              SELECT today.day,

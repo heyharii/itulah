@@ -298,22 +298,41 @@ pub async fn appoint_unit_pic(
 /// Every posting a unit makes — a payroll accrual, a sanctioned claim, a
 /// leaver's statement — names a `site_id` today, because `journal_line` is
 /// keyed by site; the books move to `unit_id` in a later step. Until then this
-/// is the one answer to "which site's books": the unit's only site. Head
-/// office's is the Gudang (`dc`), a store's is its shop — exactly what the
-/// dropped `org_place.site_id` used to say.
+/// is the one answer to "which site's books". Head office's is the site
+/// `head_office_site_id()` names — found by its kind, never by an id, and
+/// still the answer once head office owns an office beside the Gudang. A
+/// store's is its only site, its shop — exactly what the dropped
+/// `org_place.site_id` used to say.
 ///
-/// A unit with no site, or with several, is refused by name rather than
+/// A store unit with no site, or with several, is refused by name rather than
 /// guessed at: which of two premises a unit's payroll lands on is a decision
 /// about the books, and it belongs to the step that moves them.
 pub async fn book_site_of_unit(
     executor: impl sqlx::PgExecutor<'_>,
     unit: &str,
 ) -> Result<String, AppError> {
-    let sites: Vec<String> =
-        sqlx::query_scalar("SELECT id FROM site WHERE unit_id = $1 ORDER BY id")
-            .bind(unit)
-            .fetch_all(executor)
-            .await?;
+    // One round trip: the executor may be a transaction borrowed only once.
+    let row = sqlx::query(
+        "SELECT u.kind,
+                head_office_site_id() AS head_office,
+                ARRAY(SELECT s.id FROM site s WHERE s.unit_id = u.id ORDER BY s.id) AS sites
+           FROM unit u
+          WHERE u.id = $1",
+    )
+    .bind(unit)
+    .fetch_optional(executor)
+    .await?
+    .ok_or_else(|| AppError::NotFound(format!("unit {unit}")))?;
+    let kind: String = row.try_get("kind")?;
+    if kind == "HO" {
+        let head_office: Option<String> = row.try_get("head_office")?;
+        return head_office.ok_or_else(|| {
+            AppError::Configuration(
+                "no site is head office: exactly one site must have kind HO".into(),
+            )
+        });
+    }
+    let sites: Vec<String> = row.try_get("sites")?;
     match sites.as_slice() {
         [only] => Ok(only.clone()),
         [] => Err(AppError::NotFound(format!(

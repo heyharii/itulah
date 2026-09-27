@@ -35,7 +35,7 @@ use crate::cloud::domain::{
     ExitInterviewState, ExitInterviewWire, FnfEvent, FnfId, FullAndFinalState,
     FullAndFinalStatement, FullAndFinalWire, UnitId,
 };
-use crate::cloud::postgres::{poster, PostingIntent, HEAD_OFFICE_SITE};
+use crate::cloud::postgres::{poster, PostingIntent};
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::Serialize;
 use sqlx::{PgPool, Postgres, Row, Transaction};
@@ -657,7 +657,7 @@ pub async fn list_full_and_final(
 /// poster adds whatever affiliate legs the two sites need — see
 /// `domain::exit`'s module doc for the placement and why.
 ///
-/// The cash side is `petty_cash` at `HEAD_OFFICE_SITE` — the same
+/// The cash side is `petty_cash` at head office (found by its kind) — the same
 /// operator-mapped meaning the imprest spends from, and the cash family is
 /// mapped through the Account Map, never by a migration. Until Finance has
 /// pointed HO's petty cash somewhere, settle refuses by name naming the
@@ -682,6 +682,7 @@ pub async fn settle_full_and_final(
         .map_err(exit_error)?;
 
     let site = super::book_site_of_unit(&mut *tx, statement.unit().as_str()).await?;
+    let head_office = super::sites::head_office_site_id(&mut *tx).await?;
 
     // The person-side line and the cash side. Positive net: the company
     // still pays the leaver, so the payable is credited at the leaver's
@@ -692,13 +693,13 @@ pub async fn settle_full_and_final(
         (
             poster::PostingLine::credit("employee_claim_payable", &site, net)
                 .for_employee(statement.employee().as_str()),
-            poster::PostingLine::debit("petty_cash", HEAD_OFFICE_SITE, net),
+            poster::PostingLine::debit("petty_cash", &head_office, net),
         )
     } else {
         (
             poster::PostingLine::debit("employee_claim_payable", &site, -net)
                 .for_employee(statement.employee().as_str()),
-            poster::PostingLine::credit("petty_cash", HEAD_OFFICE_SITE, -net),
+            poster::PostingLine::credit("petty_cash", &head_office, -net),
         )
     };
     let posted = poster::post(

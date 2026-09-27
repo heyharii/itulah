@@ -461,12 +461,12 @@ pub async fn finance_close_readiness(
 
     // Trading days that never became a document.
     let unposted: i64 = sqlx::query_scalar(
+        // Each shop's day by its own clock (`site.timezone`, 0474).
         "SELECT COUNT(*)::bigint FROM (
-             SELECT DISTINCT s.site_id,
-                    ((s.occurred_at AT TIME ZONE 'UTC') + make_interval(mins => 420))::date AS day
+             SELECT DISTINCT s.site_id, site_local_date(s.occurred_at, s.site_id) AS day
                FROM edge_sale s
-              WHERE EXTRACT(YEAR FROM (s.occurred_at AT TIME ZONE 'UTC') + make_interval(mins => 420)) = $1
-                AND EXTRACT(MONTH FROM (s.occurred_at AT TIME ZONE 'UTC') + make_interval(mins => 420)) = $2
+              WHERE EXTRACT(YEAR FROM site_local_date(s.occurred_at, s.site_id)) = $1
+                AND EXTRACT(MONTH FROM site_local_date(s.occurred_at, s.site_id)) = $2
          ) traded
          WHERE NOT EXISTS (
              SELECT 1 FROM sales_posting p
