@@ -217,6 +217,20 @@ pub(crate) const IN_TRANSIT_RELEASE_SCHEMA: &str = include_str!(concat!(
     "/migrations/sqlite/0055_the_origin_lets_go_when_the_goods_arrive.sql"
 ));
 
+/// What the goods flows touching this site did, as head office relays it
+/// (`0058`, `edge::flows`). Creates only, so it runs on every open.
+pub(crate) const FLOW_NOTICE_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0058_a_node_hears_what_its_goods_flows_did.sql"
+));
+
+/// A store's return inspected and tagged goods put away (`0059`,
+/// `edge::flows`). Creates only, so it runs on every open.
+pub(crate) const FLOW_STEP_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0059_a_return_is_inspected_and_tagged_goods_are_put_away.sql"
+));
+
 /// Who raised a purchase order, and whether the centre cancelled it
 /// (`0047`). ALTERs, so applied only when the columns are absent.
 pub(crate) const PURCHASE_ORDER_CANCEL_SCHEMA: &str = include_str!(concat!(
@@ -1205,6 +1219,10 @@ impl SqliteEdge {
         connection
             .execute_batch(IN_TRANSIT_RELEASE_SCHEMA)
             .map_err(db)?;
+        // Goods flows (`0058`, `0059`): what head office's flows said, and the
+        // inspections and putaways done here. Creates only, no probe.
+        connection.execute_batch(FLOW_NOTICE_SCHEMA).map_err(db)?;
+        connection.execute_batch(FLOW_STEP_SCHEMA).map_err(db)?;
         // A cancelled order (`0047`): an ALTER, so probed first.
         let an_order_can_be_cancelled: i64 = connection
             .query_row(
@@ -4941,6 +4959,66 @@ impl EdgeInventory for SqliteEdge {
     ) -> Result<crate::edge::inbound::StoreInboundDetail, EdgeError> {
         let connection = self.lock()?;
         crate::edge::inbound::detail(&connection, delivery_id.trim())
+    }
+
+    fn flow_notices(&self, open: bool) -> Result<crate::edge::flows::FlowNoticeList, EdgeError> {
+        let connection = self.lock()?;
+        crate::edge::flows::notices(&connection, open)
+    }
+
+    fn return_inspections(&self) -> Result<crate::edge::flows::ReturnInspectionList, EdgeError> {
+        let connection = self.lock()?;
+        crate::edge::flows::return_inspections(&connection, &self.node)
+    }
+
+    fn return_inspection(
+        &self,
+        delivery_id: &str,
+    ) -> Result<crate::edge::flows::ReturnInspectionDetail, EdgeError> {
+        let connection = self.lock()?;
+        crate::edge::flows::return_inspection(&connection, &self.node, delivery_id.trim())
+    }
+
+    /// Inspect a received store return in ONE transaction: the movement out of
+    /// the return pool, the inspection written down, and head office told.
+    fn inspect_return(
+        &self,
+        delivery_id: &str,
+        request: crate::edge::flows::InspectReturnRequest,
+    ) -> Result<crate::edge::flows::InspectReturnResult, EdgeError> {
+        Self::validate_command_identity(&request.idempotency_key, &request.actor_id)?;
+        let mut connection = self.lock()?;
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db)?;
+        let result = crate::edge::flows::inspect_return(
+            &tx,
+            &self.node,
+            delivery_id.trim(),
+            &request,
+            self.clock.now(),
+        )?;
+        tx.commit().map_err(db)?;
+        Ok(result)
+    }
+
+    fn putaway_work(&self) -> Result<crate::edge::flows::PutawayWork, EdgeError> {
+        let connection = self.lock()?;
+        crate::edge::flows::putaway_work(&connection, &self.node)
+    }
+
+    fn put_away(
+        &self,
+        request: crate::edge::flows::PutawayRequest,
+    ) -> Result<crate::edge::flows::PutawayResult, EdgeError> {
+        Self::validate_command_identity(&request.idempotency_key, &request.actor_id)?;
+        let mut connection = self.lock()?;
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db)?;
+        let result = crate::edge::flows::put_away(&tx, &self.node, &request, self.clock.now())?;
+        tx.commit().map_err(db)?;
+        Ok(result)
     }
 
     /// Receive an announced delivery, blind, in ONE transaction.

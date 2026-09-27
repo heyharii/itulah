@@ -597,6 +597,8 @@ dc	GET	/api/v1/dc/goods-receipts	-	-
 dc	GET	/api/v1/dc/goods-receipts/{receipt_id}/invoice-document	-	-
 dc	GET	/api/v1/dc/inbound	-	-
 dc	GET	/api/v1/dc/inbound/{delivery_id}	-	-
+dc	GET	/api/v1/dc/inbound/{delivery_id}/inspection	-	-
+dc	GET	/api/v1/dc/inspections	-	-
 dc	GET	/api/v1/dc/koli	-	-
 dc	GET	/api/v1/dc/koli/{koli_id}	-	-
 dc	GET	/api/v1/dc/official-counts	-	-
@@ -611,6 +613,7 @@ dc	GET	/api/v1/dc/picklists	-	-
 dc	GET	/api/v1/dc/print-sessions/{session_id}	-	-
 dc	GET	/api/v1/dc/purchase-counts	-	-
 dc	GET	/api/v1/dc/purchase-orders	-	-
+dc	GET	/api/v1/dc/putaways	-	-
 dc	GET	/api/v1/dc/shipments	-	-
 dc	GET	/api/v1/dc/shipments/{shipment_id}	-	-
 dc	GET	/api/v1/dc/tagging-jobs	-	-
@@ -621,6 +624,7 @@ dc	POST	/api/v1/dc/goods-receipts	-	-
 dc	POST	/api/v1/dc/goods-receipts/{receipt_id}/invoice	-	-
 dc	POST	/api/v1/dc/goods-receipts/{receipt_id}/invoice-document	-	-
 dc	POST	/api/v1/dc/goods-receipts/{receipt_id}/reject	-	-
+dc	POST	/api/v1/dc/inbound/{delivery_id}/inspection	-	-
 dc	POST	/api/v1/dc/inbound/{delivery_id}/receive	-	-
 dc	POST	/api/v1/dc/intake	-	-
 dc	POST	/api/v1/dc/koli	-	-
@@ -649,6 +653,7 @@ dc	POST	/api/v1/dc/print-sessions/{session_id}/run	-	-
 dc	POST	/api/v1/dc/printer/test	-	-
 dc	POST	/api/v1/dc/purchase-counts	-	-
 dc	POST	/api/v1/dc/purchase-verifications	-	-
+dc	POST	/api/v1/dc/putaways	-	-
 dc	POST	/api/v1/dc/shipments	-	-
 dc	POST	/api/v1/dc/tagging-confirmations	-	-
 dc	POST	/api/v1/dc/tagging-jobs/{job_id}/label-preview	-	-
@@ -714,6 +719,7 @@ edge-common	GET	/api/v1/catalog/identities	-	-
 edge-common	GET	/api/v1/catalog/image	-	-
 edge-common	GET	/api/v1/catalog/snapshot	-	-
 edge-common	GET	/api/v1/catalog/snapshot/items	-	-
+edge-common	GET	/api/v1/flow-notices	-	-
 edge-common	GET	/api/v1/health	-	-
 edge-common	GET	/api/v1/inventory/control/clock	-	-
 edge-common	GET	/api/v1/inventory/movements	-	-

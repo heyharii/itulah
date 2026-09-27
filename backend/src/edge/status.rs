@@ -75,6 +75,7 @@ impl StatusSource {
             // What this build takes, so head office sends it nothing newer.
             capabilities: Some(vec![
                 crate::sync::workflow::GOODS_ROUTES_CAPABILITY.to_owned(),
+                crate::sync::flow::FLOWS_CAPABILITY.to_owned(),
             ]),
         }
     }
