@@ -6,10 +6,17 @@ import { Sheet } from "@/components/ui/sheet"
 import { Problem } from "@/components/ui/states"
 import { toast } from "@/lib/toast"
 import { gaKeys } from "@/lib/queries/ga"
-import { openStores, setupKeys, useSetupStatus } from "@/lib/queries/setup"
+import {
+  openStores,
+  setupKeys,
+  useSetupStatus,
+  type CreatedStore,
+} from "@/lib/queries/setup"
+import { ManagerLinks } from "@/screens/setup/manager-links"
 import {
   StoreList,
   draftStore,
+  storesReady,
   storesToOpen,
   type DraftStore,
 } from "@/screens/setup/store-list"
@@ -34,7 +41,9 @@ export function OpenStoresSheet({
   const setup = useSetupStatus(open)
   const [rows, setRows] = useState<DraftStore[]>(() => [draftStore()])
   const [key, setKey] = useState(() => crypto.randomUUID())
+  const [created, setCreated] = useState<readonly CreatedStore[] | null>(null)
   const toOpen = storesToOpen(rows)
+  const ready = storesReady(rows)
 
   const save = useMutation({
     mutationFn: () => openStores(toOpen, key),
@@ -50,55 +59,94 @@ export function OpenStoresSheet({
           : `${codes.length} stores opened · ${codes[0]}–${codes[codes.length - 1]}`,
         {
           description:
-            "Pair each store's server with its code in System › Nodes.",
+            "Pair each store's server with its code in System › Store servers.",
         }
       )
-      setRows([draftStore()])
-      setKey(crypto.randomUUID())
-      onClose()
+      setCreated(answer.created)
     },
   })
+
+  function reset() {
+    setRows([draftStore()])
+    setKey(crypto.randomUUID())
+    setCreated(null)
+    save.reset()
+  }
 
   return (
     <Sheet
       open={open}
-      onOpenChange={(next) => !next && onClose()}
-      title="Open store"
-      caption="A name and a city. Paste a list to open several at once."
+      onOpenChange={(next) => {
+        if (!next) {
+          reset()
+          onClose()
+        }
+      }}
+      title={created ? "Send these links" : "Open store"}
+      caption={
+        created
+          ? undefined
+          : "A name, a city and a manager for each. Paste a list to open several at once."
+      }
       footer={
-        <div className="flex items-center gap-2">
-          <Button variant="quiet" onClick={onClose}>
-            Cancel
-          </Button>
-          <span className="flex-1" />
-          <Button
-            variant="primary"
-            disabled={toOpen.length === 0}
-            pending={save.isPending}
-            onClick={() => save.mutate()}
-          >
-            {save.isPending
-              ? "Opening stores…"
-              : toOpen.length > 1
-                ? `Open ${toOpen.length} stores`
-                : "Open store"}
-          </Button>
-        </div>
+        created ? (
+          <div className="flex justify-end">
+            <Button
+              onClick={() => {
+                reset()
+                onClose()
+              }}
+            >
+              Done
+            </Button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <Button
+              variant="quiet"
+              onClick={() => {
+                reset()
+                onClose()
+              }}
+            >
+              Cancel
+            </Button>
+            <span className="flex-1" />
+            <Button
+              variant="primary"
+              disabled={!ready}
+              pending={save.isPending}
+              onClick={() => save.mutate()}
+            >
+              {save.isPending
+                ? "Opening stores…"
+                : toOpen.length > 1
+                  ? `Open ${toOpen.length} stores`
+                  : "Open store"}
+            </Button>
+          </div>
+        )
       }
     >
-      <StoreList
-        existing={setup.data?.stores ?? null}
-        showExisting={false}
-        rows={rows}
-        onChange={setRows}
-      />
-      <p className="mt-4 text-meta text-body">
-        Each store gets its own cash and reports, floor, back-room and reject
-        stock, a return pool at the central warehouse, and a code to pair its
-        server. The chart of accounts does not change — stores use the
-        company&apos;s accounts.
-      </p>
-      <Problem error={save.error} className="mt-4" />
+      {created ? (
+        <ManagerLinks stores={created} />
+      ) : (
+        <>
+          <StoreList
+            existing={setup.data?.stores ?? null}
+            showExisting={false}
+            rows={rows}
+            onChange={setRows}
+          />
+          <p className="mt-4 text-meta text-body">
+            Each store gets its own cash and reports, floor, back-room and
+            reject stock, a return pool at the central warehouse, a code to
+            pair its server, and a manager invited by link — the same link
+            every other invitation sends.
+          </p>
+          <Problem error={save.error} className="mt-4" />
+        </>
+      )}
     </Sheet>
   )
 }

@@ -415,7 +415,7 @@ export const searchSources: readonly SearchSource[] = [
           id: user.id,
           title: user.display_name,
           subtitle: user.role,
-          to: "/system/access",
+          to: "/system/users",
           sheet: { key: "user" as const, value: user.username },
         }))
     },

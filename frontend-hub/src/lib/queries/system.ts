@@ -10,7 +10,10 @@ import type {
   SetUserRoleRequest,
   SyncFleetHealth,
   UpsertEdgeAssignmentRequest,
+  UserRow as GeneratedUserRow,
 } from "@itulah/contract"
+
+export type { UserNode } from "@itulah/contract"
 
 /// System reads and writes: the node register, the command lane, the identity
 /// store, and the notification list.
@@ -29,33 +32,11 @@ import type {
 /// hands back from an RFID register or rotate is deliberately not modelled: a
 /// value this app cannot render is a value it should not hold.
 
-/// Somebody with an account at the centre.
-export interface UserRow {
-  readonly id: string
-  readonly username: string
-  readonly display_name: string
-  readonly role: Role
-  readonly active: boolean
-  readonly created_by: string
-  readonly created_at: string
-  /// Null until they have signed in once. A dormant account is the one a
-  /// person actually has to decide about.
-  readonly last_login_at: string | null
-  /// Who this credential belongs to, from `app_user.employee_id`.
-  ///
-  /// Null in all of them together means nobody: a machine account moving stock
-  /// between nodes, or a login HR has not finished the paperwork for. The two
-  /// read the same here and the console says so in words rather than leaving a
-  /// blank cell to be read as a loading bug.
-  readonly employee_id: string | null
-  readonly employee_code: string | null
-  /// The employment record's status, not the account's. `TERMINATED` beside
-  /// `active: true` is a live credential for somebody who has left.
-  readonly employee_status: string | null
-  readonly employee_name: string | null
-  readonly unit_id: string | null
-  readonly unit_name: string | null
-}
+/// Somebody with an account at the centre — the server's own generated
+/// shape now (0633/0635 added `role_code`, `role_name`, `node_reach` and
+/// `nodes`; see `UserRow.ts`), re-exported under this module's own name
+/// rather than imported ad hoc at every call site.
+export type UserRow = GeneratedUserRow
 
 /// A node the centre has issued an ingest key to. The key itself is never in
 /// this answer — `list_origin_credentials` selects around it on purpose.

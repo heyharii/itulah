@@ -429,6 +429,12 @@ export const SHEET_PARAMS = {
   enrol: flag,
   // people
   employee: id,
+  /// The invite-people composer — a flag, like `company` above: there is
+  /// nothing to identify until the links come back, and those are shown once
+  /// and never reopened by a URL.
+  invite: flag,
+  /// One invitation on the Invitations list.
+  invitation: id,
   /// Which request in the queue is open. A request id, not an employee id: one
   /// person can have two waiting on the same desk, and the thing being decided
   /// is the request rather than the person.
@@ -636,6 +642,8 @@ export const SHEET_PARAMS = {
 
   // system
   user: id,
+  /// A job role's edit sheet, on the Roles tab of Users & roles.
+  role: id,
   origin: id,
   /// A till, printer or reader in the device registry.
   device: id,

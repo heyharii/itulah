@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query"
 import { RouterProvider } from "@tanstack/react-router"
-import { Suspense, lazy, useEffect } from "react"
+import { Suspense, lazy, useEffect, useState } from "react"
 
 import { LoginForm } from "@/components/login-form"
 import { Toasts } from "@/components/ui/toast"
@@ -13,8 +13,17 @@ import {
   useIdentity,
 } from "@/lib/session"
 import { router } from "@/routes"
+import { JoinPage } from "@/screens/join/join-page"
 import { deferSetup, useSetupDeferred } from "@/screens/setup/defer"
 import { ApiError, type Identity } from "@itulah/contract/client"
+
+/// `/join/{token}` out of the address bar, once, at mount — the invited
+/// person's own link, and the one URL this app answers before it has asked
+/// anybody to sign in.
+function joinTokenFromLocation(): string | null {
+  const match = /^\/join\/([^/?#]+)/.exec(window.location.pathname)
+  return match ? decodeURIComponent(match[1]) : null
+}
 
 /// Fetched only when a company has not finished setting up, which is once.
 const Onboarding = lazy(() =>
@@ -25,6 +34,14 @@ const Onboarding = lazy(() =>
 
 export function App() {
   const queryClient = useQueryClient()
+
+  // An invited person's own link, outside the signed-in shell entirely and
+  // checked before anything else below asks whether somebody is signed in —
+  // a person setting their password for the first time has no session for
+  // that question to be about. Read once, at mount: after acceptance this is
+  // set back to `null` and the address bar is corrected to `/` without a
+  // reload, the way `LoginForm.onSignedIn` hands off into the ordinary app.
+  const [joinToken, setJoinToken] = useState(joinTokenFromLocation)
 
   // Three states, not two. While the session query is pending nobody has been
   // asked anything: showing a login box during that moment makes an
@@ -62,6 +79,26 @@ export function App() {
         ? session.error.message
         : "could not reach the server"
 
+  if (joinToken !== null) {
+    return (
+      <>
+        <JoinPage
+          token={joinToken}
+          onAccepted={(me) => {
+            // The response already carries who the server just signed in as —
+            // writing it is what clears the login box on an ordinary sign-in
+            // too, and re-asking `/auth/me` here would be a request the
+            // browser has no fresher cookie to answer differently.
+            queryClient.setQueryData<Identity | null>(cacheKey.me(), me)
+            window.history.replaceState(null, "", "/")
+            setJoinToken(null)
+          }}
+        />
+        <Toasts />
+      </>
+    )
+  }
+
   if (session.isPending) {
     return (
       <main className="grid h-full place-items-center">
@@ -77,13 +114,20 @@ export function App() {
           problem={problem ?? signedOutElsewhere()}
           onSignedIn={(signedIn) => {
             clearSignedOutElsewhere()
-            // Writing the answer rather than refetching it: the login response
-            // already carries the person the server just authenticated, and it
-            // clears the failure with it.
+            // Writing the answer rather than waiting for a refetch clears the
+            // login box without a flicker: the login response already carries
+            // the person the server just authenticated. But `SessionUser`
+            // predates job roles and carries none of `role_code`, `sections`
+            // or `read_only` the way `/auth/me`'s `CloudMe` does — so this is
+            // believed only for a moment, and invalidated right behind it,
+            // rather than forever (`useIdentity`'s `staleTime` is `Infinity`):
+            // the sidebar's section gate and `useCanWrite` need the real
+            // answer, not this narrower one.
             queryClient.setQueryData<Identity | null>(
               cacheKey.me(),
-              signedIn.user
+              signedIn.user as Identity
             )
+            void queryClient.invalidateQueries({ queryKey: cacheKey.me() })
           }}
         />
       </main>

@@ -14,12 +14,22 @@ import type {
 
 export type {
   NewStore,
+  NewStoreManager,
+  OpenStoresAnswer,
   SetupBooks,
   SetupCompany,
   SetupStatus,
   SetupStore,
   SetupTask,
+  StoreManagerInvitation,
 } from "@itulah/contract"
+
+/// `SetupStore`, with its manager's join link — the owner's decision of
+/// 2026-09-27 that every store gets a manager the moment it opens. Kept as
+/// an alias rather than a fresh type: `SetupStore.manager_invitation` is
+/// already there in the generated contract; this name is only what the
+/// screens that show it call it.
+export type CreatedStore = OpenStoresAnswer["created"][number]
 
 /// Setup — the first minutes of a company that has nothing yet.
 ///
@@ -96,9 +106,9 @@ export function saveCompany(
 
 /// One store or thirty, in one transaction: per store a unit, a shop site,
 /// its floor, back-room and reject pools, its return pool at the warehouse,
-/// and a pairing code for its node. No accounts — the chart is per company
-/// and a store is a dimension on the journal, so the store inherits every
-/// account link scoped to all stores.
+/// a pairing code for its node, and now an invitation for its manager — the
+/// server refuses the whole batch (422, naming the stores) if any store in
+/// it has none.
 export function openStores(
   stores: readonly NewStore[],
   idempotencyKey: string

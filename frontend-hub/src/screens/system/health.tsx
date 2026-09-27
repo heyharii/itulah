@@ -86,7 +86,7 @@ const VERDICT: Readonly<
     word: "All clear",
     tone: "ok",
     sentence:
-      "Every node is talking, nothing is blocked, and no fact was refused today.",
+      "Every store server is talking, nothing is blocked, and no fact was refused today.",
   },
   ATTENTION: {
     word: "Needs attention",
@@ -115,7 +115,11 @@ const FILL: Readonly<Record<Tone, string>> = {
   neutral: "bg-hairline-strong",
 }
 
-export function Health() {
+export function Health({
+  /// Rendered as the "Health" tab of "Store servers"
+  /// (`screens/system/servers.tsx`) rather than as its own page.
+  embedded = false,
+}: { embedded?: boolean } = {}) {
   const health = useQuery({
     queryKey: systemKeys.health(),
     queryFn: ({ signal }) => syncHealth(signal),
@@ -130,35 +134,35 @@ export function Health() {
   })
   const now = useNow()
 
-  return (
-    <PageContent>
-      <PageHeader
-        crumb="System"
-        title="Health"
-        sub="Whether data is moving between the centre and every node, in both directions, and whether it is safe to leave running."
-        actions={
-          <>
-            <span className="text-[0.875rem] text-mute tabular-nums">
-              {health.dataUpdatedAt > 0
-                ? `Checked ${sinceMs(now - health.dataUpdatedAt)} · every ${REFRESH_MS / 1000} s`
-                : "Checking…"}
-            </span>
-            <Button
-              disabled={health.isFetching}
-              onClick={() => {
-                void health.refetch()
-                void positions.refetch()
-              }}
-            >
-              {health.isFetching ? "Checking…" : "Check now"}
-            </Button>
-            <AppLink to="/system/sync" variant="quiet">
-              Sync console
-            </AppLink>
-          </>
-        }
-      />
+  const actions = (
+    <>
+      <span className="text-[0.875rem] text-mute tabular-nums">
+        {health.dataUpdatedAt > 0
+          ? `Checked ${sinceMs(now - health.dataUpdatedAt)} · every ${REFRESH_MS / 1000} s`
+          : "Checking…"}
+      </span>
+      <Button
+        disabled={health.isFetching}
+        onClick={() => {
+          void health.refetch()
+          void positions.refetch()
+        }}
+      >
+        {health.isFetching ? "Checking…" : "Check now"}
+      </Button>
+      {!embedded && (
+        <AppLink to="/system/servers" variant="quiet">
+          Sync
+        </AppLink>
+      )}
+    </>
+  )
 
+  const body = (
+    <>
+      {embedded && (
+        <div className="mb-3 flex flex-wrap items-center gap-2">{actions}</div>
+      )}
       {queryState(health, {
         loading: "Asking every lane…",
         render: (data) => (
@@ -169,6 +173,20 @@ export function Health() {
           />
         ),
       })}
+    </>
+  )
+
+  if (embedded) return body
+
+  return (
+    <PageContent>
+      <PageHeader
+        crumb="System"
+        title="Health"
+        sub="Whether data is moving between the centre and every store server, in both directions, and whether it is safe to leave running."
+        actions={actions}
+      />
+      {body}
     </PageContent>
   )
 }
@@ -191,7 +209,7 @@ function Board({
   const exceptions = useMemo<Exception[]>(() => {
     const rows: Exception[] = []
     for (const node of data.origins) {
-      const open = () => go("/system", { key: "origin", value: node.origin_id })
+      const open = () => go("/system/servers", { key: "origin", value: node.origin_id })
       const title = node.label ?? node.origin_id
       if (node.status === "STALLED") {
         const stuck = node.command_blocked
@@ -237,7 +255,7 @@ function Board({
         amount: `${count(node.pending_commands)} waiting`,
         severity: "low",
         icon: <Unplug className="size-4" />,
-        onOpen: () => go("/system", { key: "origin", value: node.origin_id }),
+        onOpen: () => go("/system/servers", { key: "origin", value: node.origin_id }),
       })
     } else if (never.length > 1) {
       const waiting = never.reduce(
@@ -251,7 +269,7 @@ function Board({
         amount: `${count(waiting)} waiting`,
         severity: "low",
         icon: <Unplug className="size-4" />,
-        onOpen: () => go("/system"),
+        onOpen: () => go("/system/servers"),
       })
     }
     const rank = { high: 0, medium: 1, low: 2 }
@@ -276,15 +294,15 @@ function Board({
       )}
 
       <ExceptionQueue
-        title="Nodes needing a person"
+        title="Servers needing a person"
         exceptions={exceptions}
-        empty="No node is stuck, silent, or waiting to be brought up."
+        empty="No store server is stuck, silent, or waiting to be brought up."
         className="mb-0"
       />
 
       <KpiStrip className="mb-0">
         <Kpi
-          label="Nodes talking"
+          label="Servers talking"
           value={`${count(talking)} / ${count(data.fleet.origins)}`}
         />
         <Kpi label="Stuck" value={count(data.fleet.stalled)} />
@@ -492,7 +510,7 @@ function Lanes({ data }: { data: SyncFleetHealth }) {
   return (
     <Card className="overflow-hidden">
       <CardHeader>
-        <CardTitle>Centre ↔ nodes</CardTitle>
+        <CardTitle>Centre ↔ store servers</CardTitle>
         <span className="text-[0.875rem] text-mute">
           silent after {span(data.silent_after_seconds)}
         </span>
@@ -509,9 +527,9 @@ function Lanes({ data }: { data: SyncFleetHealth }) {
               "hidden border-b border-hairline bg-soft px-3.5 py-2 text-[0.875rem] font-medium text-body @2xl:grid"
             )}
           >
-            <span>Node</span>
-            <span>Centre → node</span>
-            <span>Node → centre</span>
+            <span>Server</span>
+            <span>Centre → server</span>
+            <span>Server → centre</span>
             <span>State</span>
           </div>
           {data.origins.length === 0 ? (
@@ -606,7 +624,7 @@ function NodeRow({
         </span>
         <div className="min-w-0">
           <AppLink
-            to="/system"
+            to="/system/servers"
             sheet={{ key: "origin", value: node.origin_id }}
             className="block truncate text-[0.875rem] font-medium text-ink hover:underline"
           >
@@ -759,11 +777,8 @@ function Security({
         </>
       )}
       <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-hairline px-4 py-2.5 text-[0.875rem] text-mute">
-        <AppLink to="/system/account" className="hover:text-ink">
-          Accounts
-        </AppLink>
-        <AppLink to="/system/access" className="hover:text-ink">
-          Access at nodes
+        <AppLink to="/system/users" className="hover:text-ink">
+          Users & roles
         </AppLink>
         <AppLink to="/system/activity" className="hover:text-ink">
           Request log
@@ -873,10 +888,10 @@ function Positions({
         ) : (
           <MiniTable
             head={[
-              "Node",
+              "Server",
               { label: "Pool", align: "left" },
               "Centre",
-              "Node says",
+              "Server says",
               "Gap",
             ]}
           >
@@ -899,8 +914,8 @@ function Positions({
         )}
       </div>
       <div className="border-t border-hairline px-4 py-2.5 text-[0.875rem] text-mute">
-        <AppLink to="/system/sync" className="hover:text-ink">
-          Reconciliation, dead letters and commands
+        <AppLink to="/system/servers" className="hover:text-ink">
+          Store servers — reconciliation, dead letters and commands
         </AppLink>
       </div>
     </Card>

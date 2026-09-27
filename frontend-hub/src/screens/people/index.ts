@@ -4,6 +4,7 @@ import { Claims } from "@/screens/people/claims"
 import { Directory } from "@/screens/people/directory"
 import { Grievances } from "@/screens/people/grievances"
 import { NewEmployees } from "@/screens/people/hire"
+import { Invitations } from "@/screens/people/invitations"
 import { Overtime } from "@/screens/people/overtime"
 import { PeopleOverview } from "@/screens/people/overview"
 import { PeopleReports } from "@/screens/people/reports"
@@ -25,6 +26,7 @@ export const screens: ScreenMap = {
   "/people/overview": PeopleOverview,
   "/people": Directory,
   "/people/hire": NewEmployees,
+  "/people/invitations": Invitations,
   "/people/claims": Claims,
   /// The confidential channel, read at head office and nowhere else.
   "/people/grievances": Grievances,

@@ -6,12 +6,13 @@ import {
   domainForPath,
   flatDomain,
   modulesOfDomain,
+  moduleAllowed,
   moduleForPath,
   shown,
   type AppModule,
   type NavItem,
 } from "@/lib/navigation"
-import { useIdentity, useSignOut } from "@/lib/session"
+import { useIdentity, useSections, useSignOut } from "@/lib/session"
 import { cn } from "@/lib/utils"
 
 /// The sidebar — one module's screens, and only ever one module's.
@@ -56,7 +57,15 @@ export function Sidebar({
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const active = moduleForPath(pathname)
   const domain = domainForPath(pathname)
-  const owned = domain ? modulesOfDomain(domain) : [active]
+  const { sections, bypass } = useSections()
+  // The module a caller's role does not hold is dropped from the list — never
+  // the one they are actually standing on, pasted link or not: hiding the
+  // sub-items of the very screen on screen would leave this column blank
+  // beside a page that is plainly open. See `moduleAllowed`.
+  const owned = (domain ? modulesOfDomain(domain) : [active]).filter(
+    (module) =>
+      module.id === active.id || moduleAllowed(module, sections, bypass)
+  )
   // Headings when there are groups to name, and not when the domain is a run
   // of one-screen modules whose rows already say what the headings would —
   // see `flatDomain`.
