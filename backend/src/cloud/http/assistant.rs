@@ -1167,13 +1167,13 @@ fn catalogue() -> &'static [Tool] {
             name: "trial_balance",
             title: "Trial balance",
             description: "The ledger's trial balance as of a date, optionally for one \
-                site. Amounts are in minor units (sen).",
+                unit's books (head office or a store). Amounts are in minor units (sen).",
             schema: || {
                 json!({
                     "type": "object",
                     "properties": {
                         "as_of": { "type": "string", "description": "YYYY-MM-DD. Omit for today." },
-                        "site_id": { "type": "string" }
+                        "unit_id": { "type": "string", "description": "The unit whose books, e.g. store-07. Omit for the company." }
                     },
                     "additionalProperties": false,
                 })
@@ -1335,7 +1335,7 @@ async fn run_tool(state: &AppState, name: &str, input: &Value) -> Result<ToolOut
                 &state.db,
                 infrastructure::TrialBalanceScope {
                     as_of: Some(as_of),
-                    site_id: text("site_id"),
+                    unit_id: text("unit_id"),
                     // The assistant asks for a proof, not a page: it reads the
                     // totals and reports whether the books balance. The rows
                     // come back at the endpoint's own default, which is what
