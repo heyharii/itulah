@@ -3571,11 +3571,17 @@ fn lock_devices(
 }
 
 /// Who this node is, for a till looking for its shop's server. Open, and
-/// carries nothing that is not printed on the shop's receipts.
-async fn node_identity(State(state): State<EdgeState>) -> Json<Value> {
-    Json(json!(crate::edge::devices::node_identity(
-        state.inventory.node()
-    )))
+/// carries nothing that is not printed on the shop's receipts — the site's
+/// display code and name included, from the site directory.
+async fn node_identity(State(state): State<EdgeState>) -> Result<Json<Value>, ApiError> {
+    let connection = state.auth.connection();
+    let node = state.inventory.node().clone();
+    let identity = run_blocking(move || {
+        let guard = lock_devices(&connection)?;
+        Ok(crate::edge::devices::node_identity(&guard, &node))
+    })
+    .await?;
+    Ok(Json(json!(identity)))
 }
 
 /// Every device this node holds, as head office will see it.

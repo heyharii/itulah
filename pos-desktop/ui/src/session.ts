@@ -70,6 +70,10 @@ export type NodeConfig = {
 export type JoinedNode = {
   readonly origin_id: string
   readonly site_id: string
+  /// The shop in head office's words when this till joined. Absent when the
+  /// node had not heard from head office yet.
+  readonly site_code?: string | null
+  readonly site_name?: string | null
   /// "Kasir 3" — also this terminal's `terminal_id`.
   readonly label: string
   /// Unix seconds.

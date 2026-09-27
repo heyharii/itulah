@@ -329,6 +329,15 @@ pub struct NodeIdentity {
     pub service: String,
     pub origin_id: String,
     pub site_id: String,
+    /// The site's display code (`C004-TOKO`) and name (`Bumiayu`), as head
+    /// office last described them (`site_directory`, sqlite 0049). What a
+    /// person at a till recognises — a site id is a label nobody reads.
+    /// Absent until the node has heard from head office, and from a node that
+    /// predates the directory; a till then shows the site id instead.
+    #[serde(default)]
+    pub site_code: Option<String>,
+    #[serde(default)]
+    pub site_name: Option<String>,
     pub node_role: String,
     pub version: String,
     /// Where a till asks to join.

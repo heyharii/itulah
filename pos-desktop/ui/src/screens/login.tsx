@@ -32,6 +32,7 @@ import { useEffect, useState, type FormEvent } from "react"
 
 import { authMethods, pairTerminal, type StepUp } from "@/api"
 import { Icon } from "@/icons"
+import { siteTitle } from "@/joining"
 import { PinPad } from "@/pinpad"
 import { useNodeConfig, useSession } from "@/session"
 import { Brand, Topbar } from "@/till"
@@ -446,7 +447,7 @@ export function SetupScreen({
               <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
                 {config?.joined != null ? (
                   <span className="badge ok">
-                    {config.joined.label} · {config.joined.site_id}
+                    {config.joined.label} · {siteTitle(config.joined)}
                   </span>
                 ) : config?.pairing_id != null ? (
                   <span className="badge ok">Terpasang</span>

@@ -655,9 +655,11 @@ pub async fn run(
     let listener = tokio::net::TcpListener::bind(bind).await?;
     tracing::info!(%bind, "Store Edge running independently with SQLite");
     // Tills, tablets and handhelds on the LAN find this node by browsing for
-    // it (`edge/discovery.rs`). Held to the end of this function: dropping it
-    // says goodbye on the network.
-    let _advertisement = crate::edge::discovery::advertise(&lan_identity, bind);
+    // it (`edge/discovery.rs`), and read the shop's code and name off it from
+    // the site directory. Held to the end of this function: dropping it says
+    // goodbye on the network.
+    let _advertisement =
+        crate::edge::discovery::advertise(&lan_identity, inventory.connection(), bind);
     sd_notify("READY=1\nSTATUS=Serving");
     let router = store_router_with_sync(inventory.clone(), auth, frontend, sync)?.merge(
         console::router(console::Console {

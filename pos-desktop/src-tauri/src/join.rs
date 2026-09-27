@@ -165,7 +165,12 @@ fn waiting(pending: &Pending, approver: Option<&Approver>) -> JoinView {
     }
 }
 
-fn finished(pending: &Pending, status: &str, label: Option<String>, reason: Option<String>) -> JoinView {
+fn finished(
+    pending: &Pending,
+    status: &str,
+    label: Option<String>,
+    reason: Option<String>,
+) -> JoinView {
     JoinView {
         status: status.into(),
         base_url: pending.base_url.clone(),
@@ -358,6 +363,10 @@ fn adopt(
     held.joined = Some(JoinedNode {
         origin_id,
         site_id,
+        // What the node said about its shop when this till asked: the code
+        // and name a person reads, kept beside the ids nobody does.
+        site_code: pending.node.site_code.clone(),
+        site_name: pending.node.site_name.clone(),
         label,
         joined_at: edge::now_seconds(),
     });
@@ -509,7 +518,14 @@ pub async fn join_poll(app: tauri::AppHandle) -> Result<JoinView, String> {
                 site_id,
                 origin_id,
             } => {
-                adopt(&app, &pending, terminal_id, label.clone(), site_id, origin_id);
+                adopt(
+                    &app,
+                    &pending,
+                    terminal_id,
+                    label.clone(),
+                    site_id,
+                    origin_id,
+                );
                 forget(&app);
                 // Tell the node what is plugged into this till, now that it can
                 // be told as this till. Not waited for: the window has better
@@ -597,7 +613,9 @@ pub async fn join_supervisor_sign_in(
             .and_then(Value::as_str)
             .filter(|token| !token.is_empty())
             .map(str::to_string)
-            .ok_or_else(|| "Node menerima kata sandi itu tetapi tidak mengirim sesi.".to_string())?;
+            .ok_or_else(|| {
+                "Node menerima kata sandi itu tetapi tidak mengirim sesi.".to_string()
+            })?;
 
         // The tills already at this node, so a replacement can be named.
         let listed = call(
@@ -617,7 +635,9 @@ pub async fn join_supervisor_sign_in(
                     items
                         .iter()
                         .filter(|item| item.get("kind").and_then(Value::as_str) == Some("TILL"))
-                        .filter(|item| item.get("status").and_then(Value::as_str) != Some("REVOKED"))
+                        .filter(|item| {
+                            item.get("status").and_then(Value::as_str) != Some("REVOKED")
+                        })
                         .filter_map(|item| {
                             Some(TillRow {
                                 device_id: item.get("device_id")?.as_str()?.to_string(),

@@ -98,6 +98,13 @@ pub struct NodeConfig {
 pub struct JoinedNode {
     pub origin_id: String,
     pub site_id: String,
+    /// The shop in head office's words when the till joined — `C004-TOKO`,
+    /// `Bumiayu` — so Setelan can say which shop this counter belongs to. Only
+    /// shown; absent when the node had not heard from head office yet.
+    #[serde(default)]
+    pub site_code: Option<String>,
+    #[serde(default)]
+    pub site_name: Option<String>,
     /// "Kasir 3": the label the node gave this till, or the one it inherited
     /// from the till it replaced. Also this terminal's `terminal_id`.
     pub label: String,

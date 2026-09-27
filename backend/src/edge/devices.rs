@@ -128,11 +128,25 @@ fn record_event(
 // ════════════════════════════════════════════════════════════════════════════
 
 /// What `GET /api/v1/node/identity` answers to anybody on the shop's LAN.
-pub fn node_identity(node: &NodeContext) -> NodeIdentity {
+///
+/// The site's display code and name come from what head office last said
+/// about this node's own site (`edge::site_profile`), never from the site id:
+/// a till shows "C004-TOKO · Bumiayu", and only falls back to the id while the
+/// node has not heard. Both are printed on the shop's receipts already, so
+/// they are no more secret than the rest of the answer.
+pub fn node_identity(connection: &Connection, node: &NodeContext) -> NodeIdentity {
+    let site = crate::edge::site_profile::own(connection);
     NodeIdentity {
         service: wire::NODE_SERVICE.to_string(),
         origin_id: node.node_id.clone(),
         site_id: node.site_id.to_string(),
+        site_code: site
+            .as_ref()
+            .and_then(|site| site.code.clone())
+            .filter(|code| !code.trim().is_empty()),
+        site_name: site
+            .map(|site| site.name)
+            .filter(|name| !name.trim().is_empty()),
         node_role: node.role.to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         join_path: wire::JOIN_PATH.to_string(),
@@ -196,6 +210,9 @@ pub fn begin_join(
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(db)?;
     expire_stale_joins(&tx, now)?;
+    // Read inside the transaction, before it is spent: the site's code and
+    // name come from this node's own tables.
+    let identity = node_identity(&tx, node);
 
     let existing: Option<(String, String, String, String)> = tx
         .query_row(
@@ -214,7 +231,7 @@ pub fn begin_join(
             code: wire::display_join_code(&code),
             verification,
             expires_at: parse_stamp(&expires_at)?,
-            node: node_identity(node),
+            node: identity,
         });
     }
 
@@ -291,7 +308,7 @@ pub fn begin_join(
         code: wire::display_join_code(&code),
         verification,
         expires_at,
-        node: node_identity(node),
+        node: identity,
     })
 }
 

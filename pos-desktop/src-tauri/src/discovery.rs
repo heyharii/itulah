@@ -19,6 +19,14 @@
 //! supervisor reading the same code and number on both screens, not which
 //! machine the till found first.
 //!
+//! # What a person reads
+//!
+//! The shop, in head office's words: its display code and name, "C004-TOKO ·
+//! Bumiayu", which the node reads from its site directory and says both in
+//! its identity answer and in its TXT records (`code`, `name`). A site id is a
+//! label nobody at a counter recognises, so it is shown only while the node
+//! has not heard from head office yet.
+//!
 //! # The typed address stays
 //!
 //! A router that drops multicast is common in shops, and a node on another
@@ -61,6 +69,13 @@ pub struct NodeIdentity {
     pub origin_id: String,
     #[serde(default)]
     pub site_id: String,
+    /// The site's display code and name as head office last gave them
+    /// (`C004-TOKO`, `Bumiayu`). Absent from a node that has not heard yet,
+    /// and from one older than the site directory: the site id is shown then.
+    #[serde(default)]
+    pub site_code: Option<String>,
+    #[serde(default)]
+    pub site_name: Option<String>,
     #[serde(default)]
     pub node_role: String,
     #[serde(default)]
@@ -80,7 +95,9 @@ pub struct FoundNode {
     /// What it said about itself. `None` when it would not answer as our node,
     /// in which case the window shows it greyed out with `problem`.
     pub identity: Option<NodeIdentity>,
-    /// The site its advertisement claimed. Only ever shown beside a failure.
+    /// The shop its advertisement claimed — "C004-TOKO · Bumiayu" when the TXT
+    /// records carry head office's words, the site id when they do not. Only
+    /// ever shown beside a failure.
     pub advertised_site: Option<String>,
     pub problem: Option<String>,
 }
@@ -90,7 +107,25 @@ struct Heard {
     host: String,
     port: u16,
     addresses: Vec<IpAddr>,
+    /// The shop it claimed to be, in the words a person reads.
     site: Option<String>,
+}
+
+/// "C004-TOKO · Bumiayu" from what an advertisement's TXT records say: the
+/// code and name when either is there, the site id otherwise.
+fn claimed_site(site: Option<&str>, code: Option<&str>, name: Option<&str>) -> Option<String> {
+    let tidy = |value: Option<&str>| {
+        value
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    };
+    let words: Vec<String> = [tidy(code), tidy(name)].into_iter().flatten().collect();
+    if words.is_empty() {
+        tidy(site)
+    } else {
+        Some(words.join(" · "))
+    }
 }
 
 /// An address as a person types it, as the shell will use it.
@@ -142,9 +177,9 @@ pub fn identify(base_url: &str, patience: Duration) -> Result<NodeIdentity, Stri
         .call()
     {
         Ok(response) => {
-            let identity: NodeIdentity = response.into_json().map_err(|_| {
-                format!("{base_url} menjawab, tetapi bukan sebagai node toko.")
-            })?;
+            let identity: NodeIdentity = response
+                .into_json()
+                .map_err(|_| format!("{base_url} menjawab, tetapi bukan sebagai node toko."))?;
             if identity.service != NODE_SERVICE {
                 return Err(format!(
                     "{base_url} menjawab, tetapi bukan sebagai node toko itulah."
@@ -202,7 +237,11 @@ fn browse(listen: Duration) -> Result<Vec<Heard>, String> {
                         host: service.get_hostname().trim_end_matches('.').to_string(),
                         port: service.get_port(),
                         addresses,
-                        site: service.get_property_val_str("site").map(str::to_string),
+                        site: claimed_site(
+                            service.get_property_val_str("site"),
+                            service.get_property_val_str("code"),
+                            service.get_property_val_str("name"),
+                        ),
                     },
                 );
             }
@@ -248,7 +287,8 @@ fn confirm(heard: &Heard) -> FoundNode {
         host: heard.host.clone(),
         identity: None,
         advertised_site: heard.site.clone(),
-        problem: problem.or_else(|| Some("Node ini tidak mengumumkan alamat yang bisa dipakai.".into())),
+        problem: problem
+            .or_else(|| Some("Node ini tidak mengumumkan alamat yang bisa dipakai.".into())),
     }
 }
 

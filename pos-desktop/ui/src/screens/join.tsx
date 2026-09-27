@@ -41,6 +41,7 @@ import {
   identifyNode,
   pollJoin,
   refusedBecause,
+  siteTitle,
   spaced,
   supervisorLeave,
   supervisorSignIn,
@@ -266,7 +267,7 @@ function FindNode({ onPick }: { onPick: (node: FoundNode) => void }) {
                   <Icon name="plug" />
                 </span>
                 <span className="grow">
-                  <strong>{identity.site_id}</strong>
+                  <strong>{siteTitle(identity)}</strong>
                   <small className="num">
                     {identity.origin_id} · {node.host} · versi {identity.version}
                   </small>
@@ -358,7 +359,7 @@ function ConfirmNode({
           <Icon name="plug" />
         </span>
         <div>
-          <strong>{identity?.site_id ?? node.host}</strong>
+          <strong>{identity !== null ? siteTitle(identity) : node.host}</strong>
           <p className="num">
             {identity !== null ? `${identity.origin_id} · ` : ""}
             {node.base_url}
@@ -487,7 +488,7 @@ function Waiting({
           </div>
         </div>
         <p className="muted" style={{ fontSize: 12.5, textAlign: "left" }}>
-          {view.node?.site_id ?? view.base_url}
+          {view.node !== null ? siteTitle(view.node) : view.base_url}
           {view.node !== null && <> · {view.node.origin_id}</>}
           {left !== null ? <> · berlaku {left} lagi</> : <> · kedaluwarsa</>}
         </p>
@@ -618,7 +619,7 @@ function ApproveHere({ view, onClose }: { view: JoinView; onClose: () => void })
             Bisa untuk kasir pertama di toko ini, atau dengan akun Admin. Untuk
             kasir berikutnya node meminta sidik jari atau PIN supervisor di kasir
             yang sudah tergabung. Masuk di sini mengeluarkan akun itu dari
-            perangkat lain di node {view.node?.site_id ?? ""}.
+            perangkat lain di node {siteTitle(view.node)}.
           </p>
           <label className="field">
             Nama pengguna supervisor
@@ -756,7 +757,7 @@ function Approved({
       <h3>Kasir ini sudah tergabung</h3>
       <div className="join-code">{view.label}</div>
       <p className="muted num" style={{ fontSize: 12.5 }}>
-        {view.node?.site_id ?? ""} · {view.base_url}
+        {siteTitle(view.node)} · {view.base_url}
       </p>
       <div className="notice" style={{ width: "100%", textAlign: "left" }}>
         Nama ini tercetak di struk dan dipakai untuk shift kas. Perangkat yang

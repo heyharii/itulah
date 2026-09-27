@@ -13,6 +13,11 @@ export type NodeIdentity = {
   readonly service: string
   readonly origin_id: string
   readonly site_id: string
+  /// The shop in head office's words — `C004-TOKO`, `Bumiayu` — from the
+  /// node's site directory. Absent until the node has heard from head office,
+  /// and from a node older than the directory.
+  readonly site_code?: string | null
+  readonly site_name?: string | null
   readonly node_role: string
   readonly version: string
   readonly join_path: string
@@ -93,6 +98,26 @@ export const approveHere = (
   shellCall<ApprovedHere>("join_approve_here", { replacesTerminalId, label })
 
 export const supervisorLeave = () => shellCall<null>("join_supervisor_leave")
+
+/// Which shop a node is, as a person at the counter reads it: "C004-TOKO ·
+/// Bumiayu". The site id only while the node has not heard from head office —
+/// an id is a label, and nobody standing at a till recognises one.
+export function siteTitle(
+  site:
+    | {
+        readonly site_id: string
+        readonly site_code?: string | null
+        readonly site_name?: string | null
+      }
+    | null
+    | undefined,
+): string {
+  if (site === null || site === undefined) return ""
+  const words = [site.site_code, site.site_name]
+    .map((word) => (word ?? "").trim())
+    .filter((word) => word !== "")
+  return words.length > 0 ? words.join(" · ") : site.site_id
+}
 
 /// "482913" → "482 913": read aloud across a counter in two breaths.
 export function spaced(digits: string | null): string {
