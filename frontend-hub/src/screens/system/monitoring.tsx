@@ -101,6 +101,10 @@ function name(node: NodeUptime, health: FleetNodeHealth | undefined) {
   return health?.site_name ?? health?.site_id ?? node.origin_id
 }
 
+/// Always rendered above `<Nodes>`, inside the "Servers" tab of "Store
+/// servers" (`screens/system/servers.tsx`) — never a page of its own, which
+/// is why it takes no `embedded` flag the way `Nodes`/`Health`/`SyncLane` do:
+/// there is no other place left that calls it.
 export function Monitoring() {
   const monitor = useSheet("monitor")
   const uptime = useQuery({
@@ -133,24 +137,16 @@ export function Monitoring() {
     nodes.filter((node) => node.state === state).length
   const open = nodes.find((node) => node.origin_id === monitor.value)
 
-  return (
-    <PageContent>
-      <PageHeader
-        crumb="System"
-        title="Monitoring"
-        sub="Every store server, whether it is up, and how often it goes down."
-      />
-
-      {queryState(uptime, {
-        loading: "Loading status…",
-        render: () =>
-          nodes.length === 0 ? (
-            <Card>
-              <EmptyState>
-                No store servers yet. Install one from the Nodes page.
-              </EmptyState>
-            </Card>
-          ) : (
+  const body = queryState(uptime, {
+    loading: "Loading status…",
+    render: () =>
+      nodes.length === 0 ? (
+        <Card>
+          <EmptyState>
+            No store servers yet. Install one below.
+          </EmptyState>
+        </Card>
+      ) : (
             <div className="flex flex-col gap-4">
               <Card className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-3.5">
@@ -253,15 +249,18 @@ export function Monitoring() {
               </p>
             </div>
           ),
-      })}
+  })
 
+  return (
+    <>
+      {body}
       <MonitorSheet
         node={open ?? null}
         health={open ? byOrigin.get(open.origin_id) : undefined}
         open={monitor.value !== undefined}
         onClose={monitor.close}
       />
-    </PageContent>
+    </>
   )
 }
 
@@ -432,7 +431,11 @@ function MonitorSheet({
 }
 
 /// Every outage of every server, newest first.
-export function Incidents() {
+export function Incidents({
+  /// Rendered as the "Incidents" tab of "Store servers"
+  /// (`screens/system/servers.tsx`) rather than as its own page.
+  embedded = false,
+}: { embedded?: boolean } = {}) {
   const uptime = useQuery({
     queryKey: systemKeys.uptime(),
     queryFn: ({ signal }) => listUptime(signal),
@@ -450,6 +453,43 @@ export function Incidents() {
         ),
     [uptime.data]
   )
+  const body = (
+    <Card className="divide-y divide-hairline overflow-hidden">
+      {queryState(uptime, {
+        loading: "Loading incidents…",
+        render: () =>
+          rows.length === 0 ? (
+            <EmptyState>No incidents recorded yet.</EmptyState>
+          ) : (
+            rows.slice(0, 200).map(({ origin, outage }) => (
+              <button
+                key={origin + outage.start + outage.kind}
+                type="button"
+                onClick={() => monitor.open(origin)}
+                className="grid w-full grid-cols-[6.5rem_minmax(0,1fr)] gap-3 px-5 py-3 text-left hover:bg-soft sm:grid-cols-[6.5rem_8rem_minmax(0,1fr)_auto]"
+              >
+                <Pill tone={outage.kind === "DOWN" ? "bad" : "info"}>
+                  {outage.kind === "DOWN" ? "Down" : "Maintenance"}
+                </Pill>
+                <span className="font-mono text-[0.875rem] text-ink">
+                  {origin}
+                </span>
+                <span className="text-[0.875rem] text-text">
+                  {outage.cause}
+                </span>
+                <span className="font-mono text-meta text-mute sm:text-right">
+                  {moment(outage.start)} · {span(outage.seconds)}
+                  {outage.end ? "" : " · ongoing"}
+                </span>
+              </button>
+            ))
+          ),
+      })}
+    </Card>
+  )
+
+  if (embedded) return body
+
   return (
     <PageContent>
       <PageHeader
@@ -457,38 +497,7 @@ export function Incidents() {
         title="Incidents"
         sub="Every time a store server went down, anywhere, newest first."
       />
-      <Card className="divide-y divide-hairline overflow-hidden">
-        {queryState(uptime, {
-          loading: "Loading incidents…",
-          render: () =>
-            rows.length === 0 ? (
-              <EmptyState>No incidents recorded yet.</EmptyState>
-            ) : (
-              rows.slice(0, 200).map(({ origin, outage }) => (
-                <button
-                  key={origin + outage.start + outage.kind}
-                  type="button"
-                  onClick={() => monitor.open(origin)}
-                  className="grid w-full grid-cols-[6.5rem_minmax(0,1fr)] gap-3 px-5 py-3 text-left hover:bg-soft sm:grid-cols-[6.5rem_8rem_minmax(0,1fr)_auto]"
-                >
-                  <Pill tone={outage.kind === "DOWN" ? "bad" : "info"}>
-                    {outage.kind === "DOWN" ? "Down" : "Maintenance"}
-                  </Pill>
-                  <span className="font-mono text-[0.875rem] text-ink">
-                    {origin}
-                  </span>
-                  <span className="text-[0.875rem] text-text">
-                    {outage.cause}
-                  </span>
-                  <span className="font-mono text-meta text-mute sm:text-right">
-                    {moment(outage.start)} · {span(outage.seconds)}
-                    {outage.end ? "" : " · ongoing"}
-                  </span>
-                </button>
-              ))
-            ),
-        })}
-      </Card>
+      {body}
     </PageContent>
   )
 }

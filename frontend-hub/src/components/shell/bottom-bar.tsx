@@ -56,7 +56,10 @@ const TABS = [
 ] as const
 
 const MESSAGES = ["/chat", "/discussions"]
-const PROFILE = ["/me", "/system/account"]
+// The personal account sheet (password) lives ON `/me` now, not at a route of
+// its own — see `screens/me/profile.tsx` — so this is one path, kept as an
+// array because `within` below is written for one.
+const PROFILE = ["/me"]
 
 function within(path: string, base: string): boolean {
   return path === base || path.startsWith(`${base}/`)

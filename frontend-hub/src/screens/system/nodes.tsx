@@ -228,7 +228,12 @@ const columns: ColumnDef<TableSetup, NodeRow>[] = [
   },
 ]
 
-export function Nodes() {
+export function Nodes({
+  /// Rendered as one tab of "Store servers" (`screens/system/servers.tsx`)
+  /// rather than as its own page: no `PageHeader`, and its actions move into
+  /// a plain row above the register instead.
+  embedded = false,
+}: { embedded?: boolean } = {}) {
   const [query, setQuery] = useState("")
   // A form's visibility is NOT "which record is open": it holds half-typed
   // input, and a URL that reopened it would restore an empty form over
@@ -330,55 +335,53 @@ export function Nodes() {
     [rows, origin]
   )
 
-  return (
-    <PageContent>
-      <PageHeader
-        crumb="System"
-        title="Nodes"
-        sub="Every node the centre has issued a key to, and how far behind it is."
-        actions={
-          <>
-            <Input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search"
-              className="h-8 w-48"
-            />
-            {/* Typing keys is the fallback now; a code the machine claims is
-                the way a server joins. */}
-            <Button onClick={() => setRegistering(true)}>
-              Register by key
-            </Button>
-            <Button variant="primary" onClick={() => setInstalling(true)}>
-              Install server
-            </Button>
-          </>
-        }
+  const actions = (
+    <>
+      <Input
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        placeholder="Search"
+        className="h-8 w-48"
       />
+      {/* Typing keys is the fallback now; a code the machine claims is
+          the way a server joins. */}
+      <Button onClick={() => setRegistering(true)}>Register by key</Button>
+      <Button variant="primary" onClick={() => setInstalling(true)}>
+        Install server
+      </Button>
+    </>
+  )
 
+  const body = (
+    <>
       {/* A page-level fact, not a toast: the list is still usable without the
           convergence figures, and it has to say which half is missing. */}
       {fleet.isError && (
         <Banner tone="warn" className="mb-3">
-          The register loaded, but the fleet's command positions did not. Every
-          node below is shown without how far behind it is.
+          The register loaded, but the fleet's command positions did not.
+          Every server below is shown without how far behind it is.
         </Banner>
+      )}
+
+      {embedded && (
+        <div className="mb-3 flex flex-wrap items-center gap-2">{actions}</div>
       )}
 
       <EnrolmentQueue />
 
       {rows.length > 0 && (
         <ExceptionQueue
-          title="Nodes needing a person"
+          title="Servers needing a person"
           exceptions={exceptions}
-          empty="Every registered node is keeping up with the command lane."
+          empty="Every registered server is keeping up with the command lane."
         />
       )}
 
       {/* Below the exception queue, because the two answer different
           questions: the queue is the fleet telling you who to ring, and these
           clauses are you asking the register something it does not volunteer —
-          every store node, every node with no site, everything not current. */}
+          every store server, every server with no site, everything not
+          current. */}
       <Toolbar>
         <FilterPanel model={filters} table={table} />
       </Toolbar>
@@ -389,15 +392,15 @@ export function Nodes() {
           render: () =>
             rows.length === 0 ? (
               <EmptyState>
-                No node has been registered yet. A node cannot send facts to the
-                centre until it has been issued a key here.
+                No store server has been registered yet. A server cannot send
+                facts to the centre until it has been issued a key here.
               </EmptyState>
             ) : (
               <DataTable<NodeRow>
                 table={table}
                 onRowClick={(row) => origin.open(row.origin_id)}
                 isSelected={(row) => row.origin_id === origin.value}
-                empty="No node matches that search."
+                empty="No server matches that search."
                 className="max-h-[calc(100vh-14rem)]"
               />
             ),
@@ -417,6 +420,20 @@ export function Nodes() {
         onClose={() => setRegistering(false)}
         onRegistered={() => setRegistering(false)}
       />
+    </>
+  )
+
+  if (embedded) return body
+
+  return (
+    <PageContent>
+      <PageHeader
+        crumb="System"
+        title="Store servers"
+        sub="Every store server the centre has issued a key to, and how far behind it is."
+        actions={actions}
+      />
+      {body}
     </PageContent>
   )
 }

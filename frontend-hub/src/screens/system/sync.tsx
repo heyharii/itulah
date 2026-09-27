@@ -67,12 +67,12 @@ const tabs = [
 const discrepancyColumns: ColumnDef<TableSetup, PoolDiscrepancy>[] = [
   {
     accessorKey: "origin_id",
-    header: "Node",
+    header: "Server",
     size: 150,
     // One node disagreeing about forty pools and forty nodes disagreeing about
     // one pool are two different faults, and in a list sorted by the gap they
     // look identical. The clause is what tells them apart.
-    meta: { filter: { kind: "option", label: "Node" } },
+    meta: { filter: { kind: "option", label: "Server" } },
   },
   {
     accessorKey: "site_id",
@@ -98,7 +98,7 @@ const discrepancyColumns: ColumnDef<TableSetup, PoolDiscrepancy>[] = [
   },
   {
     accessorKey: "observed_on_hand",
-    header: "Node says",
+    header: "Server says",
     size: 120,
     meta: { align: "right" },
     cell: ({ row }) => count(row.original.observed_on_hand),
@@ -141,7 +141,11 @@ const discrepancyColumns: ColumnDef<TableSetup, PoolDiscrepancy>[] = [
   },
 ]
 
-export function SyncLane() {
+export function SyncLane({
+  /// Rendered as the "Sync" tab of "Store servers"
+  /// (`screens/system/servers.tsx`) rather than as its own page.
+  embedded = false,
+}: { embedded?: boolean } = {}) {
   const client = useQueryClient()
   const [tab, setTab] = useState<Tab>("reconciliation")
   const [issuing, setIssuing] = useState(false)
@@ -162,26 +166,22 @@ export function SyncLane() {
     },
   })
 
-  return (
-    <PageContent>
-      <PageHeader
-        crumb="System"
-        title="Sync"
-        sub="What the centre refused, what it issued, and where the two sides disagree."
-        actions={
-          <>
-            <Button
-              pending={breaker.isPending}
-              onClick={() => breaker.mutate()}
-            >
-              {breaker.isPending ? "Resetting…" : "Reset breaker"}
-            </Button>
-            <Button variant="primary" onClick={() => setIssuing(true)}>
-              Issue command
-            </Button>
-          </>
-        }
-      />
+  const actions = (
+    <>
+      <Button pending={breaker.isPending} onClick={() => breaker.mutate()}>
+        {breaker.isPending ? "Resetting…" : "Reset breaker"}
+      </Button>
+      <Button variant="primary" onClick={() => setIssuing(true)}>
+        Issue command
+      </Button>
+    </>
+  )
+
+  const body = (
+    <>
+      {embedded && (
+        <div className="mb-3 flex flex-wrap items-center gap-2">{actions}</div>
+      )}
 
       {breakerSaid && (
         <Banner
@@ -221,6 +221,20 @@ export function SyncLane() {
           setTraced(commandId)
         }}
       />
+    </>
+  )
+
+  if (embedded) return body
+
+  return (
+    <PageContent>
+      <PageHeader
+        crumb="System"
+        title="Sync"
+        sub="What the centre refused, what it issued, and where the two sides disagree."
+        actions={actions}
+      />
+      {body}
     </PageContent>
   )
 }
@@ -502,7 +516,7 @@ function CommandsTab({
 
                 {command.pending.length > 0 && (
                   <Section title="Still owed">
-                    <MiniTable head={["Node", "Acked", "Wanted", "Blocked"]}>
+                    <MiniTable head={["Server", "Acked", "Wanted", "Blocked"]}>
                       {command.pending.map((target) => (
                         <tr
                           key={target.origin_id}
@@ -555,7 +569,7 @@ function CommandsTab({
                       </Field>
                       <Field
                         label="Master sync key"
-                        hint="Only needed when this node was started with one."
+                        hint="Only needed when this store server was started with one."
                       >
                         <Secret
                           value={masterKey}
@@ -738,7 +752,7 @@ function IssueSheet({
             <Field
               label="Command type"
               required
-              hint="As the nodes' handlers name it."
+              hint="As the store server's handlers name it."
             >
               <Input
                 value={field.state.value}
@@ -756,7 +770,7 @@ function IssueSheet({
             <Field
               label="Payload"
               required
-              hint="JSON. Checked here before it is sent, because a malformed broadcast blocks every node it reaches."
+              hint="JSON. Checked here before it is sent, because a malformed broadcast blocks every store server it reaches."
               problem={parsePayload(field.state.value).problem}
             >
               <Textarea
@@ -799,7 +813,7 @@ function IssueSheet({
           {(field) => (
             <Field
               label="Master sync key"
-              hint="Only needed when this node was started with one. Held for this request and never stored."
+              hint="Only needed when this store server was started with one. Held for this request and never stored."
             >
               <Secret
                 value={field.state.value}

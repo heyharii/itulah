@@ -1,3 +1,4 @@
+import { useForm } from "@tanstack/react-form"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
@@ -7,31 +8,48 @@ import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
-import { Field, Input, Textarea } from "@/components/ui/field"
+import { Field, Input, Select, Textarea } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { MiniTable } from "@/components/ui/rows"
-import { Toolbar } from "@/components/ui/segmented"
+import { ButtonGroup, Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
+import { SubTabs } from "@/components/ui/sub-tabs"
 import { Tag } from "@/components/ui/tag"
-import { useFilters } from "@/lib/filters"
+import {
+  useFilterState,
+  useFilters,
+  type Filter,
+  type FilterField,
+} from "@/lib/filters"
 import { ago, day, moment } from "@/lib/format"
 import {
   deviceHistory,
   listDevices,
+  listOrigins,
+  registerRfidDevice,
+  rfidDevicesPage,
+  rotateRfidDeviceKey,
   setDeviceStatus,
+  setRfidDeviceActive,
+  setRfidDeviceKind,
   systemKeys,
+  type AccessScope,
   type DeviceKind,
   type DeviceStatus,
   type RegistryDevice,
+  type RfidDevice,
+  type RfidKind,
+  type SyncOrigin,
 } from "@/lib/queries/system"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
+import { useDebounced } from "@/lib/use-debounced"
 import { Section } from "@/screens/system/shared"
-import { saying } from "@/screens/system/units"
+import { saying, span } from "@/screens/system/units"
 
 /// Every machine enrolled to a node, per site.
 ///
@@ -153,15 +171,52 @@ const columns: ColumnDef<TableSetup, RegistryDevice>[] = [
   },
 ]
 
+type Tab = "devices" | "readers"
+
+const TABS: readonly { value: Tab; label: string }[] = [
+  { value: "devices", label: "Devices" },
+  { value: "readers", label: "Readers" },
+]
+
 export function Devices() {
+  const [tab, setTab] = useState<Tab>("devices")
+  const [registering, setRegistering] = useState(false)
+
+  return (
+    <PageContent>
+      <PageHeader
+        crumb="System"
+        title="Devices"
+        sub="Every till, printer, EDC and reader enrolled to a store server, and the punch stations registered at each site."
+        actions={
+          tab === "readers" ? (
+            <Button variant="primary" onClick={() => setRegistering(true)}>
+              Register reader
+            </Button>
+          ) : undefined
+        }
+      />
+
+      <SubTabs tabs={TABS} value={tab} onChange={(next) => setTab(next as Tab)} />
+
+      {tab === "devices" ? (
+        <DevicesTab />
+      ) : (
+        <ReadersTab registering={registering} onRegisteringChange={setRegistering} />
+      )}
+    </PageContent>
+  )
+}
+
+function DevicesTab() {
   const [query, setQuery] = useState("")
   const device = useSheet("device")
   const [sorting, setSorting] = useState<SortingState>([
     { id: "site", desc: false },
   ])
 
-  // A node reports once a minute; reading twice as often keeps a switched-off
-  // till from looking switched on for long.
+  // A store server reports once a minute; reading twice as often keeps a
+  // switched-off till from looking switched on for long.
   const devices = useQuery({
     queryKey: systemKeys.devices(),
     queryFn: ({ signal }) => listDevices(signal),
@@ -191,22 +246,14 @@ export function Devices() {
   )
 
   return (
-    <PageContent>
-      <PageHeader
-        crumb="System"
-        title="Devices"
-        sub="Every till, printer and reader enrolled to a node, as the node last reported it, and the punch stations and EDCs registered at each site."
-        actions={
-          <Input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search"
-            className="h-8 w-48"
-          />
-        }
-      />
-
+    <>
       <Toolbar>
+        <Input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search"
+          className="h-8 w-48"
+        />
         <FilterPanel model={filters} table={table} />
       </Toolbar>
 
@@ -216,9 +263,10 @@ export function Devices() {
           render: () =>
             rows.length === 0 ? (
               <EmptyState>
-                No node has reported a device yet, and no punch station or EDC
-                is registered. A till appears here once it has joined its shop's
-                node and the node has sent its next heartbeat.
+                No store server has reported a device yet, and no punch
+                station or EDC is registered. A till appears here once it has
+                joined its shop's server and the server has sent its next
+                heartbeat.
               </EmptyState>
             ) : (
               <DataTable<RegistryDevice>
@@ -237,7 +285,601 @@ export function Devices() {
         open={device.value !== undefined}
         onClose={device.close}
       />
-    </PageContent>
+    </>
+  )
+}
+
+// ── readers ──────────────────────────────────────────────────────────────
+//
+// Moved here from System › Access on 2026-09-27: an RFID reader is a device
+// like a till or a printer, so it is registered, suspended and rotated among
+// the rest of them rather than on a screen of its own. This is a different
+// register from the one above — that one reads what a server SELF-REPORTS
+// seeing; this one is the centre's own key registry, the thing a server
+// checks a reader's key against — which is why the two do not share a table.
+
+const RFID_KIND_LABEL: Record<RfidKind, string> = {
+  RFID_READER: "Fixed reader",
+  HANDHELD: "Handheld",
+}
+
+const READER_SORTS: Record<string, string> = {
+  origin_id: "origin",
+  device_id: "device",
+  label: "label",
+  last_seen: "last_seen",
+  offline_ttl_seconds: "lease",
+}
+
+const READER_NODE: FilterField = {
+  column: "origin_id",
+  label: "Store server",
+  spec: { kind: "option", single: true, operators: ["isAnyOf"] },
+}
+const READER_STATE: FilterField = {
+  column: "state",
+  label: "State",
+  spec: { kind: "option", single: true, operators: ["isAnyOf"] },
+}
+const READER_FIELDS: FilterField[] = [READER_NODE, READER_STATE]
+
+function readerScopeFromFilters(filters: readonly Filter[]): AccessScope {
+  const scope: { origin_id?: string; active?: boolean } = {}
+  for (const { column, operator, values } of filters) {
+    if (values.length === 0 || operator !== "isAnyOf") continue
+    if (column === "origin_id") scope.origin_id = values[0]
+    else if (column === "state") scope.active = values[0] === "ACTIVE"
+  }
+  return scope
+}
+
+function readerColumns(on: {
+  setActive: (row: RfidDevice, active: boolean) => void
+  setKind: (row: RfidDevice, kind: RfidKind) => void
+  rotate: (row: RfidDevice) => void
+  busy: boolean
+}): ColumnDef<TableSetup, RfidDevice>[] {
+  return [
+    {
+      accessorKey: "device_id",
+      header: "Reader",
+      size: 170,
+      cell: ({ row }) => (
+        <span className="font-mono text-id text-body">
+          {row.original.device_id}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "label",
+      header: "Label",
+      size: 180,
+      cell: ({ row }) => (
+        <span className="font-medium text-ink">{row.original.label}</span>
+      ),
+    },
+    {
+      id: "kind",
+      accessorFn: (row) => RFID_KIND_LABEL[row.kind] ?? row.kind,
+      header: "Kind",
+      size: 120,
+      enableSorting: false,
+      cell: ({ row }) => (
+        <Tag>{RFID_KIND_LABEL[row.original.kind] ?? row.original.kind}</Tag>
+      ),
+    },
+    {
+      accessorKey: "origin_id",
+      header: "Store server",
+      size: 140,
+    },
+    {
+      id: "pools",
+      accessorFn: (row) => row.pools.join(" "),
+      header: "Pools",
+      size: 200,
+      enableSorting: false,
+      cell: ({ row }) => (
+        <span className="flex gap-1">
+          {row.original.pools.length === 0 ? (
+            <span className="text-mute">—</span>
+          ) : (
+            row.original.pools.map((pool) => <Tag key={pool}>{pool}</Tag>)
+          )}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "offline_ttl_seconds",
+      header: "Offline lease",
+      size: 120,
+      meta: { align: "right" },
+      cell: ({ row }) => span(row.original.offline_ttl_seconds),
+    },
+    {
+      id: "last_seen",
+      accessorFn: (row) =>
+        row.last_seen_at === null ? 0 : Date.parse(row.last_seen_at),
+      header: "Last seen",
+      size: 140,
+      meta: { align: "right" },
+      cell: ({ row }) =>
+        row.original.last_seen_at === null ? (
+          <span className="font-medium text-warn-fg">Never</span>
+        ) : (
+          day(row.original.last_seen_at)
+        ),
+    },
+    {
+      id: "state",
+      accessorFn: (row) => (row.active ? "Active" : "Off"),
+      header: "State",
+      size: 100,
+      enableSorting: false,
+      cell: ({ row }) => (
+        <Pill tone={row.original.active ? "ok" : "neutral"}>
+          {row.original.active ? "Active" : "Off"}
+        </Pill>
+      ),
+    },
+    {
+      id: "act",
+      header: "",
+      size: 300,
+      enableSorting: false,
+      cell: ({ row }) => (
+        <ButtonGroup className="[&>button:disabled]:opacity-50">
+          <button
+            type="button"
+            disabled={on.busy}
+            onClick={() =>
+              on.setKind(
+                row.original,
+                row.original.kind === "HANDHELD" ? "RFID_READER" : "HANDHELD"
+              )
+            }
+          >
+            {row.original.kind === "HANDHELD" ? "Make fixed" : "Make handheld"}
+          </button>
+          <button
+            type="button"
+            disabled={on.busy}
+            onClick={() => on.rotate(row.original)}
+          >
+            Rotate key
+          </button>
+          <button
+            type="button"
+            disabled={on.busy}
+            onClick={() => on.setActive(row.original, !row.original.active)}
+          >
+            {row.original.active ? "Turn off" : "Turn on"}
+          </button>
+        </ButtonGroup>
+      ),
+    },
+  ]
+}
+
+function ReadersTab({
+  registering,
+  onRegisteringChange,
+}: {
+  registering: boolean
+  onRegisteringChange: (next: boolean) => void
+}) {
+  const client = useQueryClient()
+  const [query, setQuery] = useState("")
+  const [sorting, setSorting] = useState<SortingState>([
+    { id: "last_seen", desc: false },
+  ])
+  const [rotating, setRotating] = useState<RfidDevice | null>(null)
+
+  // `f2`, not `f`: the Devices tab already claims `f` for its own columns,
+  // some named the same — "State" — as these, and a clause typed on one tab
+  // must not half-apply itself the moment somebody switches to the other.
+  const filters = useFilterState(READER_FIELDS, "f2")
+  const needle = useDebounced(query.trim(), 400)
+  const scope = useMemo<AccessScope>(() => {
+    const by = sorting[0]
+    return {
+      ...readerScopeFromFilters(filters.filters),
+      ...(needle === "" ? {} : { q: needle }),
+      sort: by === undefined ? undefined : READER_SORTS[by.id],
+      desc: by?.desc === true,
+    }
+  }, [filters.filters, needle, sorting])
+  const narrowed = needle !== "" || filters.filters.length > 0
+
+  const devices = useQuery({
+    queryKey: systemKeys.rfidDevices(scope),
+    queryFn: ({ signal }) => rfidDevicesPage({ ...scope }, signal),
+  })
+  const rows = devices.data?.rows ?? []
+
+  const switchReader = useMutation({
+    mutationFn: (input: { row: RfidDevice; active: boolean }) =>
+      setRfidDeviceActive(input.row.device_id, input.active),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: systemKeys.rfidDevices() })
+      void client.invalidateQueries({ queryKey: systemKeys.fleet() })
+    },
+  })
+  const kindReader = useMutation({
+    mutationFn: (input: { row: RfidDevice; kind: RfidKind }) =>
+      setRfidDeviceKind(input.row.device_id, input.kind),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: systemKeys.rfidDevices() })
+      void client.invalidateQueries({ queryKey: systemKeys.devices() })
+    },
+  })
+
+  const actions = useMemo(
+    () => ({
+      setActive: (row: RfidDevice, active: boolean) =>
+        switchReader.mutate({ row, active }),
+      setKind: (row: RfidDevice, kind: RfidKind) =>
+        kindReader.mutate({ row, kind }),
+      rotate: (row: RfidDevice) => setRotating(row),
+      busy: switchReader.isPending || kindReader.isPending,
+    }),
+    [switchReader, kindReader]
+  )
+
+  const columns = useMemo(() => readerColumns(actions), [actions])
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: rows,
+        columns,
+        getRowId: (row: RfidDevice) => row.device_id,
+        state: { sorting },
+        manualSorting: true,
+        onSortingChange: setSorting,
+      }),
+      [rows, columns, sorting]
+    )
+  )
+
+  const failure = switchReader.error ?? kindReader.error
+
+  return (
+    <>
+      {failure && (
+        <Banner tone="bad" className="mb-3">
+          {saying(failure)}
+        </Banner>
+      )}
+      <Toolbar>
+        <Input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search"
+          className="h-8 w-48"
+        />
+        <FilterPanel model={{ ...filters, fields: READER_FIELDS }} />
+      </Toolbar>
+
+      <Card className="overflow-hidden">
+        {queryState(devices, {
+          loading: "Loading the readers…",
+          render: () =>
+            rows.length === 0 ? (
+              <EmptyState>
+                {narrowed
+                  ? "No reader matches what you asked for."
+                  : "No reader has been registered. A store server will not accept tag reads from a device the centre has not vouched for."}
+              </EmptyState>
+            ) : (
+              <DataTable<RfidDevice>
+                table={table}
+                className="max-h-[calc(100vh-18rem)]"
+              />
+            ),
+        })}
+      </Card>
+
+      <RegisterReaderSheet
+        open={registering}
+        onClose={() => onRegisteringChange(false)}
+      />
+      <RotateReaderSheet device={rotating} onClose={() => setRotating(null)} />
+    </>
+  )
+}
+
+interface ReaderDraft {
+  deviceId: string
+  originId: string
+  label: string
+  kind: RfidKind
+  pools: string
+  lease: string
+}
+
+function readerReady(draft: ReaderDraft): boolean {
+  return (
+    draft.deviceId.trim() !== "" &&
+    draft.originId !== "" &&
+    draft.label.trim() !== "" &&
+    draft.pools.trim() !== ""
+  )
+}
+
+function RegisterReaderSheet({
+  open,
+  onClose,
+}: {
+  open: boolean
+  onClose: () => void
+}) {
+  const client = useQueryClient()
+
+  const origins = useQuery({
+    queryKey: systemKeys.origins(),
+    queryFn: ({ signal }) => listOrigins(signal),
+    enabled: open,
+  })
+
+  const register = useMutation({
+    mutationFn: (draft: ReaderDraft) =>
+      registerRfidDevice({
+        device_id: draft.deviceId.trim(),
+        origin_id: draft.originId,
+        label: draft.label.trim(),
+        pools: draft.pools
+          .split(",")
+          .map((pool) => pool.trim())
+          .filter((pool) => pool !== ""),
+        offline_ttl_seconds:
+          draft.lease.trim() === "" ? null : Number(draft.lease),
+        kind: draft.kind,
+      }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: systemKeys.rfidDevices() })
+      void client.invalidateQueries({ queryKey: systemKeys.fleet() })
+      clear()
+      onClose()
+    },
+  })
+
+  const form = useForm({
+    defaultValues: {
+      deviceId: "",
+      originId: "",
+      label: "",
+      kind: "RFID_READER",
+      pools: "",
+      lease: "",
+    } as ReaderDraft,
+    onSubmit: ({ value }) => register.mutate(value),
+  })
+
+  function clear() {
+    form.reset()
+    register.reset()
+  }
+
+  return (
+    <Sheet
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) {
+          clear()
+          onClose()
+        }
+      }}
+      title="Register a reader"
+      footer={
+        <div className="flex justify-end gap-2">
+          <Button
+            variant="quiet"
+            onClick={() => {
+              clear()
+              onClose()
+            }}
+          >
+            Cancel
+          </Button>
+          <form.Subscribe selector={(state) => readerReady(state.values)}>
+            {(ready) => (
+              <Button
+                pending={register.isPending}
+                disabled={!ready}
+                onClick={() => form.handleSubmit()}
+              >
+                {register.isPending ? "Registering…" : "Register"}
+              </Button>
+            )}
+          </form.Subscribe>
+        </div>
+      }
+    >
+      <form
+        onSubmit={(event) => {
+          event.preventDefault()
+          if (readerReady(form.state.values) && !register.isPending) {
+            form.handleSubmit()
+          }
+        }}
+        className="flex flex-col gap-3.5"
+      >
+        <Banner tone="info">
+          The store server mints this reader's key and hands it back once.
+          This console does not keep it and will not display it, so finish
+          provisioning at the server itself.
+        </Banner>
+
+        <form.Field name="deviceId">
+          {(field) => (
+            <Field
+              label="Device id"
+              required
+              hint="3–96 characters of A–Z, 0–9, '-', '_' or '.'. Upper-cased by the server."
+            >
+              <Input
+                value={field.state.value}
+                onBlur={field.handleBlur}
+                onChange={(event) => field.handleChange(event.target.value)}
+                autoComplete="off"
+                className="font-mono"
+              />
+            </Field>
+          )}
+        </form.Field>
+
+        <form.Field name="originId">
+          {(field) => (
+            <Field label="Store server" required>
+              <Select
+                value={field.state.value}
+                onChange={(next) => field.handleChange(next)}
+              >
+                <option value="">Choose a store server…</option>
+                {(origins.data ?? []).map((origin: SyncOrigin) => (
+                  <option key={origin.origin_id} value={origin.origin_id}>
+                    {origin.label ?? origin.origin_id}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
+        </form.Field>
+
+        <form.Field name="label">
+          {(field) => (
+            <Field
+              label="Label"
+              required
+              hint="Where on the floor this reader stands."
+            >
+              <Input
+                value={field.state.value}
+                onBlur={field.handleBlur}
+                onChange={(event) => field.handleChange(event.target.value)}
+              />
+            </Field>
+          )}
+        </form.Field>
+
+        <form.Field name="kind">
+          {(field) => (
+            <Field
+              label="Kind"
+              required
+              hint="A handheld is carried round the floor; a fixed reader stays over a door or a bench. The server reports it under this kind."
+            >
+              <Select
+                value={field.state.value}
+                onChange={(next) => field.handleChange(next as RfidKind)}
+              >
+                <option value="RFID_READER">Fixed reader</option>
+                <option value="HANDHELD">Handheld</option>
+              </Select>
+            </Field>
+          )}
+        </form.Field>
+
+        <form.Field name="pools">
+          {(field) => (
+            <Field
+              label="Pools"
+              required
+              hint="Comma separated. The store server refuses any pool it does not own."
+            >
+              <Input
+                value={field.state.value}
+                onBlur={field.handleBlur}
+                onChange={(event) => field.handleChange(event.target.value)}
+                className="font-mono"
+              />
+            </Field>
+          )}
+        </form.Field>
+
+        <form.Field name="lease">
+          {(field) => (
+            <Field
+              label="Offline lease, in seconds"
+              hint="Leave empty for the default of seven days."
+            >
+              <Input
+                value={field.state.value}
+                inputMode="numeric"
+                onBlur={field.handleBlur}
+                onChange={(event) => field.handleChange(event.target.value)}
+              />
+            </Field>
+          )}
+        </form.Field>
+
+        {register.isError && (
+          <Banner tone="bad">{saying(register.error)}</Banner>
+        )}
+      </form>
+    </Sheet>
+  )
+}
+
+function RotateReaderSheet({
+  device,
+  onClose,
+}: {
+  device: RfidDevice | null
+  onClose: () => void
+}) {
+  const client = useQueryClient()
+
+  const rotate = useMutation({
+    mutationFn: () => rotateRfidDeviceKey(device!.device_id),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: systemKeys.rfidDevices() })
+      void client.invalidateQueries({ queryKey: systemKeys.fleet() })
+      onClose()
+    },
+  })
+
+  return (
+    <Sheet
+      open={device !== null}
+      onOpenChange={(next) => {
+        if (!next) {
+          rotate.reset()
+          onClose()
+        }
+      }}
+      id={device?.device_id}
+      title="Cancel this reader's key"
+      footer={
+        <div className="flex justify-end gap-2">
+          <Button variant="quiet" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="danger"
+            pending={rotate.isPending}
+            onClick={() => rotate.mutate()}
+          >
+            {rotate.isPending ? "Rotating…" : "Rotate key"}
+          </Button>
+        </div>
+      }
+    >
+      <div className="flex flex-col gap-3.5">
+        <Banner tone="warn">
+          The reader will stop working as soon as the new policy reaches its
+          store server, and the new key is not shown in this console.
+          Somebody has to be at {device?.origin_id ?? "the store server"} to
+          provision it again.
+        </Banner>
+        <p className="text-[0.875rem] text-body">
+          {device?.label} · last seen{" "}
+          {device?.last_seen_at ? moment(device.last_seen_at) : "never"}.
+        </p>
+        {rotate.isError && <Banner tone="bad">{saying(rotate.error)}</Banner>}
+      </div>
+    </Sheet>
   )
 }
 
@@ -320,7 +962,7 @@ function switchedWhere(device: RegistryDevice): string {
     case "EDC":
       return "Switched on and off in Finance → Sales & banks, where its bank is kept."
     default:
-      return "Switched on and off in System → Access, where its key is kept."
+      return "Switched on and off in the Readers tab above, where its key is kept."
   }
 }
 
