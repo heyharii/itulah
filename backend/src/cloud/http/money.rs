@@ -45,9 +45,9 @@ pub struct CashDocumentQuery {
     pub status: Option<String>,
     /// `PAY`, `RECEIVE` or `TRANSFER`.
     pub kind: Option<String>,
-    /// Either side. A shop's screen wants the documents that touched it,
-    /// whichever direction the money went.
-    pub site_id: Option<String>,
+    /// Either side. A unit's screen wants the documents that touched its
+    /// books, whichever direction the money went.
+    pub unit_id: Option<String>,
     pub limit: Option<i64>,
 }
 
@@ -60,7 +60,7 @@ pub async fn cash_documents(
             &state.db,
             query.status.as_deref(),
             query.kind.as_deref(),
-            query.site_id.as_deref(),
+            query.unit_id.as_deref(),
             limit_of(query.limit),
         )
         .await?,

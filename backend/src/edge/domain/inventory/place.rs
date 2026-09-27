@@ -1,4 +1,5 @@
 use super::SiteId;
+pub use crate::pool_role::{OutboundStage, PoolRole};
 use serde::{Deserialize, Serialize};
 use std::{fmt, str::FromStr};
 use thiserror::Error;
@@ -19,27 +20,52 @@ impl InventoryState {
     }
 }
 
+/// A pool as a pool id spells it: `{site}.{role path}`.
+///
+/// The SITE half is a label and says nothing (owner, 2026-09-27). The ROLE
+/// path is the pool grammar, and it alone says what the pool is for
+/// ([`PoolRole`]). Which of these pools a site actually has is data — the
+/// centre's `operational_pool`, made from a template (postgres `0610`).
+///
+/// Several variants keep the names they were given when only the Gudang sent
+/// goods (`Dc…`, `Store…`). The names are history; the site in them is any
+/// site. Legacy spellings are read for ever because movement history names
+/// them, and are never written by new code:
+///
+/// * `{site}.outbound.{stage}.{destination}` — the per-destination stage leaves
+///   (`0009`). A stage now stands at its origin ([`Self::Outbound`]) and the
+///   destination travels on the koli.
+/// * `{site}.reject.dc` — the first Gudang's own reject; a newer site's is
+///   `{site}.reject`.
+/// * `{site}.reject.{store}` — a store's return pool at the Gudang; a newer one
+///   is `{site}.return.{unit}`.
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum OperationalPool {
+    /// RECEIVING: `{site}.pending.unidentified`.
     DcPendingUnidentified {
         dc_id: SiteId,
     },
+    /// RECEIVING: `{site}.pending.untagged`.
     DcPendingUntagged {
         dc_id: SiteId,
     },
-    DcWarehouse {
-        dc_id: SiteId,
+    /// STOCKROOM: `{site}.warehouse` — the Gudang's racks or a shop's back
+    /// room. One role, one spelling, whatever the site is.
+    Stockroom {
+        site_id: SiteId,
     },
-    /// Off the racks and on the floor of the outbound area, not yet in a box.
+    /// PICKING: `{site}.outbound.picking`. Off the racks and on the floor of
+    /// the outbound area, not yet in a box.
     ///
     /// Deliberately not scoped to a destination: picking fetches a SKU and a
-    /// number, and which piece serves which shop is settled when it goes into a
-    /// carton. A place that claimed to know the store would be asserting a
-    /// decision nobody has made.
+    /// number, and which piece serves which site is settled when it goes into
+    /// a carton. A place that claimed to know the destination would be
+    /// asserting a decision nobody has made.
     DcOutboundPicking {
         dc_id: SiteId,
     },
+    /// Legacy per-destination leaves (`0009`, `0252`).
     DcOutboundPicked {
         dc_id: SiteId,
         store_id: SiteId,
@@ -60,19 +86,32 @@ pub enum OperationalPool {
         dc_id: SiteId,
         store_id: SiteId,
     },
+    /// An outbound stage at its ORIGIN: `{site}.outbound.{stage}`. Where the
+    /// koli is going is the koli's to say, not the pool's.
+    Outbound {
+        site_id: SiteId,
+        stage: OutboundStage,
+    },
+    /// REJECT, legacy spelling: `{site}.reject.dc`.
     DcRejectDc {
         dc_id: SiteId,
     },
+    /// RETURN, legacy spelling: `{site}.reject.{store}`.
     DcRejectStore {
         dc_id: SiteId,
         store_id: SiteId,
     },
-    StoreWarehouse {
-        store_id: SiteId,
+    /// RETURN: `{site}.return.{unit}` — one store unit's returned goods at a
+    /// warehouse, waiting to be inspected.
+    Return {
+        site_id: SiteId,
+        origin_id: SiteId,
     },
+    /// FLOOR: `{site}.floor`.
     StoreFloor {
         store_id: SiteId,
     },
+    /// REJECT: `{site}.reject`.
     StoreReject {
         store_id: SiteId,
     },
@@ -98,40 +137,33 @@ pub enum PlaceError {
     ExpectedDc(String),
     #[error("expected a Store site identifier: {0}")]
     ExpectedStore(String),
+    #[error("not a site identifier: {0}")]
+    ExpectedSite(String),
 }
 
-// The POOL grammar, not the site id.
-//
-// A pool id is `{site}.{stage}`, and `x.warehouse` is a warehouse rack or a
-// shop's stockroom depending on which side of the grammar `x` is spelled on:
-// `dc`/`dc-…` for the warehouse, `store-…` for a shop. That is how pool ids
-// are written today, and a pool's role is the pool grammar's to say — until
-// the flow-template step gives pools a role column and this goes. It lives
-// here, beside the grammar that needs it, and nowhere else: `SiteId` itself
-// knows only its shape, and nothing outside the pool grammar may ask it for a
-// kind.
-fn spelled_as_warehouse(site: &str) -> bool {
-    site == "dc" || site.starts_with("dc-")
+// The site half of a pool id. Its SHAPE is checked and nothing else: whether
+// it names a warehouse or a shop is data, and the role path says what the
+// pool is for.
+fn site(value: &str) -> Result<SiteId, PlaceError> {
+    SiteId::new(value).map_err(|_| PlaceError::ExpectedSite(value.to_owned()))
 }
 
-fn spelled_as_shop(site: &str) -> bool {
-    site.len() > "store-".len() && site.starts_with("store-")
-}
-
-fn dc(value: &str) -> Result<SiteId, PlaceError> {
-    let site = SiteId::new(value).map_err(|_| PlaceError::ExpectedDc(value.to_owned()))?;
-    if !spelled_as_warehouse(site.as_str()) {
-        return Err(PlaceError::ExpectedDc(value.to_owned()));
-    }
-    Ok(site)
-}
-
-fn store(value: &str) -> Result<SiteId, PlaceError> {
-    let site = SiteId::new(value).map_err(|_| PlaceError::ExpectedStore(value.to_owned()))?;
-    if !spelled_as_shop(site.as_str()) {
-        return Err(PlaceError::ExpectedStore(value.to_owned()));
-    }
-    Ok(site)
+/// `{site}.outbound.{stage}.{destination}`: a legacy per-destination leaf.
+fn legacy_leaf(
+    value: &str,
+    dc_id: SiteId,
+    stage: &str,
+    destination: &str,
+) -> Result<OperationalPool, PlaceError> {
+    let store_id = site(destination)?;
+    Ok(match stage {
+        "picked" => OperationalPool::DcOutboundPicked { dc_id, store_id },
+        "packed" => OperationalPool::DcOutboundPacked { dc_id, store_id },
+        "shipment" => OperationalPool::DcOutboundShipment { dc_id, store_id },
+        "loaded" => OperationalPool::DcOutboundLoaded { dc_id, store_id },
+        "in-transit" => OperationalPool::DcOutboundInTransit { dc_id, store_id },
+        _ => return Err(PlaceError::UnknownPool(value.to_owned())),
+    })
 }
 
 impl OperationalPool {
@@ -139,7 +171,7 @@ impl OperationalPool {
         match self {
             Self::DcPendingUnidentified { dc_id } => format!("{dc_id}.pending.unidentified"),
             Self::DcPendingUntagged { dc_id } => format!("{dc_id}.pending.untagged"),
-            Self::DcWarehouse { dc_id } => format!("{dc_id}.warehouse"),
+            Self::Stockroom { site_id } => format!("{site_id}.warehouse"),
             Self::DcOutboundPicking { dc_id } => format!("{dc_id}.outbound.picking"),
             Self::DcOutboundPicked { dc_id, store_id } => {
                 format!("{dc_id}.outbound.picked.{store_id}")
@@ -156,9 +188,10 @@ impl OperationalPool {
             Self::DcOutboundInTransit { dc_id, store_id } => {
                 format!("{dc_id}.outbound.in-transit.{store_id}")
             }
+            Self::Outbound { site_id, stage } => format!("{site_id}.outbound.{}", stage.slug()),
             Self::DcRejectDc { dc_id } => format!("{dc_id}.reject.dc"),
             Self::DcRejectStore { dc_id, store_id } => format!("{dc_id}.reject.{store_id}"),
-            Self::StoreWarehouse { store_id } => format!("{store_id}.warehouse"),
+            Self::Return { site_id, origin_id } => format!("{site_id}.return.{origin_id}"),
             Self::StoreFloor { store_id } => format!("{store_id}.floor"),
             Self::StoreReject { store_id } => format!("{store_id}.reject"),
         }
@@ -168,7 +201,6 @@ impl OperationalPool {
         match self {
             Self::DcPendingUnidentified { dc_id }
             | Self::DcPendingUntagged { dc_id }
-            | Self::DcWarehouse { dc_id }
             | Self::DcOutboundPicking { dc_id }
             | Self::DcOutboundPicked { dc_id, .. }
             | Self::DcOutboundPacked { dc_id, .. }
@@ -177,46 +209,66 @@ impl OperationalPool {
             | Self::DcOutboundInTransit { dc_id, .. }
             | Self::DcRejectDc { dc_id }
             | Self::DcRejectStore { dc_id, .. } => dc_id,
-            Self::StoreWarehouse { store_id }
-            | Self::StoreFloor { store_id }
-            | Self::StoreReject { store_id } => store_id,
+            Self::Stockroom { site_id }
+            | Self::Outbound { site_id, .. }
+            | Self::Return { site_id, .. } => site_id,
+            Self::StoreFloor { store_id } | Self::StoreReject { store_id } => store_id,
         }
     }
 
-    pub fn is_dc_fulfillment_source_for(&self, dc_id: &SiteId) -> bool {
+    /// What the pool is for. Read from the role path, never from the site.
+    pub const fn role(&self) -> PoolRole {
+        match self {
+            Self::DcPendingUnidentified { .. } | Self::DcPendingUntagged { .. } => {
+                PoolRole::Receiving
+            }
+            Self::Stockroom { .. } => PoolRole::Stockroom,
+            Self::DcOutboundPicking { .. } | Self::DcOutboundPicked { .. } => PoolRole::Picking,
+            Self::DcOutboundPacked { .. } => PoolRole::Packed,
+            Self::DcOutboundShipment { .. } => PoolRole::Shipment,
+            Self::DcOutboundLoaded { .. } => PoolRole::Loaded,
+            Self::DcOutboundInTransit { .. } => PoolRole::InTransit,
+            Self::Outbound { stage, .. } => stage.role(),
+            Self::DcRejectDc { .. } | Self::StoreReject { .. } => PoolRole::Reject,
+            Self::DcRejectStore { .. } | Self::Return { .. } => PoolRole::Return,
+            Self::StoreFloor { .. } => PoolRole::Floor,
+        }
+    }
+
+    /// Spelled the way nothing new is written: a per-destination leaf.
+    pub const fn is_legacy_leaf(&self) -> bool {
         matches!(
             self,
-            Self::DcPendingUnidentified { dc_id: owner }
-                | Self::DcPendingUntagged { dc_id: owner }
-                | Self::DcWarehouse { dc_id: owner }
-                // Goods already off the racks are the ordinary source for a
-                // carton; that is the whole point of having fetched them.
-                | Self::DcOutboundPicking { dc_id: owner }
-                | Self::DcRejectDc { dc_id: owner }
-                | Self::DcRejectStore { dc_id: owner, .. }
-                if owner == dc_id
+            Self::DcOutboundPicked { .. }
+                | Self::DcOutboundPacked { .. }
+                | Self::DcOutboundShipment { .. }
+                | Self::DcOutboundLoaded { .. }
+                | Self::DcOutboundInTransit { .. }
         )
     }
 
+    /// Goods at rest at `site`, from which a carton may be filled — for any
+    /// route, from any site. The legacy per-destination pick leaves are not
+    /// one: they were never written by a node and take no new writes.
+    pub fn is_fulfillment_source_for(&self, site: &SiteId) -> bool {
+        self.site_id() == site && self.role().is_fulfillment_source() && !self.is_legacy_leaf()
+    }
+
     pub const fn group(&self) -> GroupCode {
-        match self {
-            Self::DcPendingUnidentified { .. } | Self::DcPendingUntagged { .. } => {
-                GroupCode::Pending
-            }
-            Self::DcWarehouse { .. } => GroupCode::Warehouse,
-            Self::DcOutboundPicking { .. }
-            | Self::DcOutboundPicked { .. }
-            | Self::DcOutboundPacked { .. }
-            | Self::DcOutboundShipment { .. }
-            | Self::DcOutboundLoaded { .. }
-            | Self::DcOutboundInTransit { .. } => GroupCode::Outbound,
-            Self::DcRejectDc { .. } | Self::DcRejectStore { .. } | Self::StoreReject { .. } => {
-                GroupCode::Reject
-            }
-            Self::StoreWarehouse { .. } | Self::StoreFloor { .. } => GroupCode::StoreInventory,
+        match self.role() {
+            PoolRole::Receiving => GroupCode::Pending,
+            PoolRole::Stockroom => GroupCode::Warehouse,
+            PoolRole::Floor => GroupCode::StoreInventory,
+            PoolRole::Reject | PoolRole::Return => GroupCode::Reject,
+            PoolRole::Picking
+            | PoolRole::Packed
+            | PoolRole::Shipment
+            | PoolRole::Loaded
+            | PoolRole::InTransit => GroupCode::Outbound,
         }
     }
 
+    /// The destination a LEGACY leaf spells. A stage at its origin names none.
     pub fn outbound_destination(&self) -> Option<&SiteId> {
         match self {
             Self::DcOutboundPicked { store_id, .. }
@@ -227,77 +279,63 @@ impl OperationalPool {
             _ => None,
         }
     }
+
+    /// The outbound stage the pool is, legacy leaf or stage at its origin.
+    pub const fn outbound_stage(&self) -> Option<OutboundStage> {
+        match self {
+            Self::DcOutboundPacked { .. } => Some(OutboundStage::Packed),
+            Self::DcOutboundShipment { .. } => Some(OutboundStage::Shipment),
+            Self::DcOutboundLoaded { .. } => Some(OutboundStage::Loaded),
+            Self::DcOutboundInTransit { .. } => Some(OutboundStage::InTransit),
+            Self::Outbound { stage, .. } => Some(*stage),
+            _ => None,
+        }
+    }
+
+    /// The store unit whose returned goods a return pool holds.
+    pub fn return_origin(&self) -> Option<&SiteId> {
+        match self {
+            Self::DcRejectStore { store_id, .. } => Some(store_id),
+            Self::Return { origin_id, .. } => Some(origin_id),
+            _ => None,
+        }
+    }
 }
 
 impl FromStr for OperationalPool {
     type Err = PlaceError;
 
+    /// The role path decides; the site half is only checked for shape.
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        if let Some(site_id) = value.strip_suffix(".pending.unidentified") {
-            return Ok(Self::DcPendingUnidentified {
-                dc_id: dc(site_id)?,
-            });
+        let (site_part, path) = value
+            .split_once('.')
+            .ok_or_else(|| PlaceError::UnknownPool(value.to_owned()))?;
+        let site_id = site(site_part)?;
+        let segments: Vec<&str> = path.split('.').collect();
+        match segments.as_slice() {
+            ["pending", "unidentified"] => Ok(Self::DcPendingUnidentified { dc_id: site_id }),
+            ["pending", "untagged"] => Ok(Self::DcPendingUntagged { dc_id: site_id }),
+            ["warehouse"] => Ok(Self::Stockroom { site_id }),
+            ["floor"] => Ok(Self::StoreFloor { store_id: site_id }),
+            ["reject"] => Ok(Self::StoreReject { store_id: site_id }),
+            // A fixed token of the pool grammar, not a site id: the first
+            // Gudang's own reject was spelled this way.
+            ["reject", "dc"] => Ok(Self::DcRejectDc { dc_id: site_id }),
+            ["reject", origin] => Ok(Self::DcRejectStore {
+                dc_id: site_id,
+                store_id: site(origin)?,
+            }),
+            ["return", origin] => Ok(Self::Return {
+                site_id,
+                origin_id: site(origin)?,
+            }),
+            ["outbound", "picking"] => Ok(Self::DcOutboundPicking { dc_id: site_id }),
+            ["outbound", stage] => OutboundStage::from_slug(stage)
+                .map(|stage| Self::Outbound { site_id, stage })
+                .ok_or_else(|| PlaceError::UnknownPool(value.to_owned())),
+            ["outbound", stage, destination] => legacy_leaf(value, site_id, stage, destination),
+            _ => Err(PlaceError::UnknownPool(value.to_owned())),
         }
-        if let Some(site_id) = value.strip_suffix(".pending.untagged") {
-            return Ok(Self::DcPendingUntagged {
-                dc_id: dc(site_id)?,
-            });
-        }
-        if let Some(site_id) = value.strip_suffix(".warehouse") {
-            return if spelled_as_warehouse(site_id) {
-                Ok(Self::DcWarehouse {
-                    dc_id: dc(site_id)?,
-                })
-            } else {
-                Ok(Self::StoreWarehouse {
-                    store_id: store(site_id)?,
-                })
-            };
-        }
-        if let Some(site_id) = value.strip_suffix(".outbound.picking") {
-            return Ok(Self::DcOutboundPicking {
-                dc_id: dc(site_id)?,
-            });
-        }
-        if let Some(site_id) = value.strip_suffix(".floor") {
-            return Ok(Self::StoreFloor {
-                store_id: store(site_id)?,
-            });
-        }
-        if let Some(site_id) = value.strip_suffix(".reject") {
-            if spelled_as_shop(site_id) {
-                return Ok(Self::StoreReject {
-                    store_id: store(site_id)?,
-                });
-            }
-        }
-        if let Some(site_id) = value.strip_suffix(".reject.dc") {
-            return Ok(Self::DcRejectDc {
-                dc_id: dc(site_id)?,
-            });
-        }
-        for (marker, stage) in [
-            (".outbound.picked.", 0_u8),
-            (".outbound.packed.", 1_u8),
-            (".outbound.shipment.", 2_u8),
-            (".outbound.loaded.", 3_u8),
-            (".outbound.in-transit.", 4_u8),
-            (".reject.", 5_u8),
-        ] {
-            if let Some((dc_id, store_id)) = value.split_once(marker) {
-                let dc_id = dc(dc_id)?;
-                let store_id = store(store_id)?;
-                return Ok(match stage {
-                    0 => Self::DcOutboundPicked { dc_id, store_id },
-                    1 => Self::DcOutboundPacked { dc_id, store_id },
-                    2 => Self::DcOutboundShipment { dc_id, store_id },
-                    3 => Self::DcOutboundLoaded { dc_id, store_id },
-                    4 => Self::DcOutboundInTransit { dc_id, store_id },
-                    _ => Self::DcRejectStore { dc_id, store_id },
-                });
-            }
-        }
-        Err(PlaceError::UnknownPool(value.to_owned()))
     }
 }
 
@@ -324,6 +362,13 @@ pub enum SystemPlace {
     /// movement group that touches it leaves it at zero, and a non-zero
     /// balance means a transformation was recorded by halves.
     Identification,
+    /// Goods another site of ours has counted in, let go of by the site they
+    /// left (inventory-fleet G3). No movement crosses a node boundary: the
+    /// destination books them in from `system/opening`, and the origin, told
+    /// by head office once the two claims pair, moves them out of its
+    /// in-transit pool to here. The two ledgers meet in the claims, and each
+    /// closes its own side.
+    HandedOver,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
@@ -366,6 +411,9 @@ impl Place {
             Self::System {
                 place: SystemPlace::Identification,
             } => "system/identification".into(),
+            Self::System {
+                place: SystemPlace::HandedOver,
+            } => "system/handed_over".into(),
         }
     }
 
@@ -423,6 +471,9 @@ impl FromStr for Place {
             }),
             "system/identification" => Ok(Self::System {
                 place: SystemPlace::Identification,
+            }),
+            "system/handed_over" => Ok(Self::System {
+                place: SystemPlace::HandedOver,
             }),
             _ => {
                 let (pool, state) = value

@@ -162,32 +162,35 @@ pub async fn list_counts(
     Ok(counts)
 }
 
-/// What the ledger holds on one account at one place, at the end of a day.
+/// What the ledger holds on one account in one unit's books, at the end of a
+/// day.
 ///
 /// The same sum `/finance/money` makes, and deliberately the same shape: two
 /// different sums of one account are two answers, and a treasurer comparing a
-/// count against one of them would be comparing it against the wrong one.
+/// count against one of them would be comparing it against the wrong one. A
+/// count happens at a site and keeps it; the books it is compared with are
+/// those of the unit that owns the site (`unit_of_site`).
 async fn books_at(
     pool: &PgPool,
     account_code: &str,
-    site_id: &str,
+    unit_id: &str,
     on: NaiveDate,
 ) -> Result<i64, AppError> {
     let row = sqlx::query(
         "SELECT COALESCE(SUM(l.debit_minor - l.credit_minor), 0)::bigint AS balance
            FROM journal_line l
            JOIN journal_entry e USING (entry_id)
-          WHERE l.account_code = $1 AND l.site_id = $2 AND e.posting_date <= $3",
+          WHERE l.account_code = $1 AND l.unit_id = $2 AND e.posting_date <= $3",
     )
     .bind(account_code)
-    .bind(site_id)
+    .bind(unit_id)
     .bind(on)
     .fetch_one(pool)
     .await?;
     Ok(row.try_get("balance")?)
 }
 
-/// Which meaning carries this drawer here.
+/// Which meaning carries this drawer in this unit's books.
 ///
 /// Refused rather than guessed when the account is not a mapped cash meaning:
 /// a count against a bank account, or against an account nobody mapped, is a
@@ -196,24 +199,24 @@ async fn books_at(
 async fn drawer_meaning(
     pool: &PgPool,
     account_code: &str,
-    site_id: &str,
+    unit_id: &str,
 ) -> Result<(String, String), AppError> {
     let rows = sqlx::query(
         "SELECT role AS semantic_key, source_id AS qualifier FROM account_resolution
-          WHERE account_code = $1 AND site_id = $2 AND role = ANY($3)
+          WHERE account_code = $1 AND unit_id = $2 AND role = ANY($3)
             AND source_type = 'COMPANY'
           ORDER BY role, source_id",
     )
     .bind(account_code)
-    .bind(site_id)
+    .bind(unit_id)
     .bind(&CASH_MEANINGS[..])
     .fetch_all(pool)
     .await?;
 
     match rows.len() {
         0 => Err(AppError::Validation(format!(
-            "{account_code} at {site_id} is not a cash drawer: point one of {} at it on the \
-             Account Links screen, or count the account that is",
+            "{account_code} in the books of {unit_id} is not a cash drawer: point one of {} at \
+             it on the Account Links screen, or count the account that is",
             CASH_MEANINGS.join(", ")
         ))),
         1 => Ok((
@@ -221,8 +224,9 @@ async fn drawer_meaning(
             rows[0].try_get("qualifier")?,
         )),
         _ => Err(AppError::Validation(format!(
-            "{account_code} at {site_id} is mapped by more than one meaning; one account carries \
-             one meaning, so fix the links on the Account Links screen before counting against it"
+            "{account_code} in the books of {unit_id} is mapped by more than one meaning; one \
+             account carries one meaning, so fix the links on the Account Links screen before \
+             counting against it"
         ))),
     }
 }
@@ -257,16 +261,13 @@ pub async fn record_count(
         )));
     }
 
-    // Refused here rather than at posting time. See the note on `drawer_meaning`.
-    drawer_meaning(pool, &request.account_code, &request.site_id).await?;
+    // The drawer is at a site; its books are the unit's that owns the site.
+    let unit_id = super::sites::unit_of_site(pool, &request.site_id).await?;
 
-    let books = books_at(
-        pool,
-        &request.account_code,
-        &request.site_id,
-        request.counted_on,
-    )
-    .await?;
+    // Refused here rather than at posting time. See the note on `drawer_meaning`.
+    drawer_meaning(pool, &request.account_code, &unit_id).await?;
+
+    let books = books_at(pool, &request.account_code, &unit_id, request.counted_on).await?;
 
     let count_id = Uuid::new_v4();
     let mut tx = pool.begin().await?;
@@ -326,7 +327,7 @@ pub async fn record_count(
 /// shortage booked there was a cost hiding inside income. Both legs go through
 /// `account_resolution`, so this function names no client account code — and a
 /// difference cannot be posted anywhere until somebody has said where the
-/// meaning it needs lives at that location.
+/// meaning it needs lives in the books of the unit that owns the drawer's site.
 /// The decision to post, and the sentence that justifies it.
 #[derive(Clone, Debug, Default, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
@@ -382,19 +383,20 @@ pub async fn post_variance(
 
     let account_code: String = row.try_get("account_code")?;
     let site_id: String = row.try_get("site_id")?;
+    let unit_id = super::sites::unit_of_site(pool, &site_id).await?;
     let counted_on: NaiveDate = row.try_get("counted_on")?;
-    let (meaning, qualifier) = drawer_meaning(pool, &account_code, &site_id).await?;
+    let (meaning, qualifier) = drawer_meaning(pool, &account_code, &unit_id).await?;
 
     let amount = variance.abs();
     let (drawer_leg, variance_leg) = if variance > 0 {
         (
-            PostingLine::debit(&meaning, &site_id, amount).with_qualifier(&qualifier),
-            PostingLine::credit(VARIANCE_MEANING, &site_id, amount),
+            PostingLine::debit(&meaning, &unit_id, amount).with_qualifier(&qualifier),
+            PostingLine::credit(VARIANCE_MEANING, &unit_id, amount),
         )
     } else {
         (
-            PostingLine::credit(&meaning, &site_id, amount).with_qualifier(&qualifier),
-            PostingLine::debit(SHORTAGE_MEANING, &site_id, amount),
+            PostingLine::credit(&meaning, &unit_id, amount).with_qualifier(&qualifier),
+            PostingLine::debit(SHORTAGE_MEANING, &unit_id, amount),
         )
     };
 

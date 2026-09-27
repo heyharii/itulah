@@ -1039,7 +1039,8 @@ async fn ga_contract_bills(
         .collect()
 }
 
-/// One meaning's qualifier→account rows at one site, as a plain map.
+/// One meaning's qualifier→account rows at one site, as a plain map. The map
+/// is kept per unit (0606); a site reads the books of the unit that owns it.
 async fn mapped_accounts(
     pool: &PgPool,
     site_id: &str,
@@ -1048,7 +1049,7 @@ async fn mapped_accounts(
 ) -> Result<std::collections::HashMap<String, String>, AppError> {
     let rows = sqlx::query(
         "SELECT source_id AS qualifier, account_code FROM account_resolution
-          WHERE role = $1 AND site_id = $2 AND source_type = 'COMPANY'
+          WHERE role = $1 AND unit_id = unit_of_site($2) AND source_type = 'COMPANY'
             AND source_id = ANY($3)",
     )
     .bind(semantic_key)
@@ -1068,9 +1069,9 @@ async fn mapped_accounts(
 
 /// The seventeen types, with the accounts they resolve to at one site.
 ///
-/// The map is per site and the codes are the map's answers AT that site, so
-/// the endpoint names the site: without it, "which account" has no answer
-/// this estate is willing to guess. The prepaid side is paired through
+/// The map is per unit and the codes are the map's answers in the books of the
+/// unit that owns that site, so the endpoint names the site: without it,
+/// "which account" has no answer this estate is willing to guess. The prepaid side is paired through
 /// `domain::ga::CONTRACT_PREPAID_KINDS`, because `prepaid_expense` speaks the
 /// `prepaid_kind` vocabulary, not the contract-type one — and the pairing is
 /// the constant's job, done here in Rust, where it is spelled exactly once.

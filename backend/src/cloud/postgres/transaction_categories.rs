@@ -8,7 +8,7 @@
 //! see: an expense in the right family and the wrong leaf still balances.
 //!
 //! So they pick a category — a word about the business — and
-//! `transaction_category` plus `account_resolution` plus the location turn it into the
+//! `transaction_category` plus `account_resolution` plus the unit turn it into the
 //! twelve-digit code. Two lookups, both of them somebody else's decision made
 //! once. The code appears on the journal line and nowhere on the screen.
 //!
@@ -82,7 +82,7 @@ pub struct TransactionCategoryRow {
     /// became the account and half became this; offering the account alone
     /// would be offering one row of `6301` for forty-eight kinds of expense.
     pub expects_category_code: Option<String>,
-    /// What the meaning resolves to at the location asked about, today. Read
+    /// What the meaning resolves to in the unit asked about, today. Read
     /// through the map on every read rather than remembered, so it follows a
     /// remapping instead of recording where the account used to be. `None` when
     /// nobody has mapped the key yet — which is the honest answer and the one
@@ -100,12 +100,12 @@ pub struct TransactionCategoryRow {
     pub created_at: DateTime<Utc>,
 }
 
-/// Which location the resolved account is read for.
+/// Which unit the resolved account is read for.
 ///
-/// A category means the same thing everywhere and lands on a different leaf at
-/// every one of the client's fourteen: `ops_cleaning` at store C003 is
+/// A category means the same thing everywhere and lands on a different leaf in
+/// every one of the client's fourteen books: `ops_cleaning` at store C003 is
 /// `601031000103` and at head office `601031000100`. So the row a screen reads
-/// is a category AND a place, and the place has to be said.
+/// is a category AND a unit, and the unit has to be said.
 const CATEGORY_COLUMNS: &str = "c.code, c.display_name, c.family, c.direction,
      c.semantic_key, c.qualifier, c.qualifier_asked, c.source_document,
      c.requires_party, c.requires_reference, c.requires_approval,
@@ -142,7 +142,7 @@ const CATEGORY_FROM: &str = "FROM transaction_category c
      LEFT JOIN account_resolution m ON m.role = c.semantic_key
                                    AND m.source_type = 'COMPANY'
                                    AND m.source_id = c.qualifier
-                                   AND m.site_id = $1
+                                   AND m.unit_id = $1
      LEFT JOIN ledger_account a ON a.account_code = m.account_code
      -- What the quoted client code became, when it became one of the forty.
      -- LEFT, because an expectation naming an account the remap has no row for
@@ -179,14 +179,14 @@ fn to_category(row: &sqlx::postgres::PgRow) -> Result<TransactionCategoryRow, Ap
     })
 }
 
-/// The default location. Head office keeps the bank accounts, so a category
-/// asked about with no place named is asked about there — the same default
-/// `bank_rule` takes, and for the same reason. Head office is found by its
-/// kind (0603), never spelled.
-async fn site_or_head_office(pool: &PgPool, site_id: Option<&str>) -> Result<String, AppError> {
-    match site_id {
-        Some(site) => Ok(site.to_string()),
-        None => super::sites::head_office_site_id(pool).await,
+/// The default unit. Head office keeps the bank accounts, so a category
+/// asked about with no unit named is asked about in head office's books — the
+/// same default `bank_rule` takes, and for the same reason. Head office is
+/// found by its kind (0605), never spelled.
+async fn unit_or_head_office(pool: &PgPool, unit_id: Option<&str>) -> Result<String, AppError> {
+    match unit_id {
+        Some(unit) => Ok(unit.to_string()),
+        None => super::sites::head_office_unit_id(pool).await,
     }
 }
 
@@ -218,7 +218,7 @@ fn facts_of(row: &TransactionCategoryRow) -> CategoryFacts<'_> {
 /// worse than a shorter list.
 pub async fn transaction_category_list(
     pool: &PgPool,
-    site_id: Option<&str>,
+    unit_id: Option<&str>,
     direction: Option<&str>,
     family: Option<&str>,
     domain: Option<&str>,
@@ -250,9 +250,9 @@ pub async fn transaction_category_list(
             AND ($5::text IS NULL OR $5 = ANY(c.domains))
           ORDER BY c.family, c.sort_order, c.code"
     );
-    let site = site_or_head_office(pool, site_id).await?;
+    let unit = unit_or_head_office(pool, unit_id).await?;
     let rows = sqlx::query(&sql)
-        .bind(&site)
+        .bind(&unit)
         .bind(include_retired)
         .bind(directions.as_deref())
         .bind(family.map(str::trim).filter(|f| !f.is_empty()))
@@ -265,12 +265,12 @@ pub async fn transaction_category_list(
 pub async fn transaction_category_read(
     pool: &PgPool,
     code: &str,
-    site_id: Option<&str>,
+    unit_id: Option<&str>,
 ) -> Result<TransactionCategoryRow, AppError> {
     let sql = format!("SELECT {CATEGORY_COLUMNS} {CATEGORY_FROM} WHERE c.code = $2");
-    let site = site_or_head_office(pool, site_id).await?;
+    let unit = unit_or_head_office(pool, unit_id).await?;
     let row = sqlx::query(&sql)
-        .bind(&site)
+        .bind(&unit)
         .bind(code.trim())
         .fetch_optional(pool)
         .await?
@@ -288,16 +288,16 @@ pub async fn transaction_category_read(
 /// how somebody finds out before a person on a statement screen does.
 pub async fn transaction_category_unmapped(
     pool: &PgPool,
-    site_id: Option<&str>,
+    unit_id: Option<&str>,
 ) -> Result<Vec<TransactionCategoryRow>, AppError> {
     let sql = format!(
         "SELECT {CATEGORY_COLUMNS} {CATEGORY_FROM}
           WHERE c.active AND m.account_code IS NULL
           ORDER BY c.family, c.sort_order, c.code"
     );
-    let site = site_or_head_office(pool, site_id).await?;
+    let unit = unit_or_head_office(pool, unit_id).await?;
     let rows = sqlx::query(&sql)
-        .bind(&site)
+        .bind(&unit)
         .fetch_all(pool)
         .await?;
     rows.iter().map(to_category).collect()
@@ -522,7 +522,8 @@ pub struct BankLineOptions {
     /// downstream reads this and nothing re-derives it.
     pub outgoing: bool,
     pub statement_account_code: String,
-    pub site_id: String,
+    /// Whose books the statement's account is kept in (0605).
+    pub unit_id: String,
     /// Set when this line is already agreed with an entry, or already became a
     /// document. All three blocks come back empty then: there is nothing left
     /// to decide, and offering the doors anyway would offer a second one.
@@ -545,14 +546,14 @@ struct LineContext {
     debit_minor: i64,
     credit_minor: i64,
     account_code: String,
-    site_id: String,
+    unit_id: String,
     settled: Option<String>,
 }
 
 async fn line_context(pool: &PgPool, line_id: Uuid) -> Result<LineContext, AppError> {
     let row = sqlx::query(
         "SELECT l.statement_id, l.value_date, l.description, l.reference,
-                l.debit_minor, l.credit_minor, l.account_code, s.site_id,
+                l.debit_minor, l.credit_minor, l.account_code, s.unit_id,
                 (SELECT e.entry_number FROM bank_line_match m
                    JOIN journal_line jl ON jl.line_id = m.journal_line_id
                    JOIN journal_entry e ON e.entry_id = jl.entry_id
@@ -584,7 +585,7 @@ async fn line_context(pool: &PgPool, line_id: Uuid) -> Result<LineContext, AppEr
         debit_minor: row.try_get("debit_minor")?,
         credit_minor: row.try_get("credit_minor")?,
         account_code: row.try_get("account_code")?,
-        site_id: row.try_get("site_id")?,
+        unit_id: row.try_get("unit_id")?,
         settled,
     })
 }
@@ -724,7 +725,7 @@ pub async fn bank_line_options(pool: &PgPool, line_id: Uuid) -> Result<BankLineO
             credit_minor: context.credit_minor,
             outgoing,
             statement_account_code: context.account_code,
-            site_id: context.site_id,
+            unit_id: context.unit_id,
             settled: context.settled,
             matches: Vec::new(),
             creatable: Vec::new(),
@@ -822,7 +823,7 @@ pub async fn bank_line_options(pool: &PgPool, line_id: Uuid) -> Result<BankLineO
     // which categories exist.
     let all = transaction_category_list(
         pool,
-        Some(&context.site_id),
+        Some(&context.unit_id),
         Some(if outgoing { "OUTFLOW" } else { "INFLOW" }),
         None,
         Some("BANK"),
@@ -892,7 +893,7 @@ pub async fn bank_line_options(pool: &PgPool, line_id: Uuid) -> Result<BankLineO
         credit_minor: context.credit_minor,
         outgoing,
         statement_account_code: context.account_code,
-        site_id: context.site_id,
+        unit_id: context.unit_id,
         settled: None,
         matches,
         creatable,
@@ -959,7 +960,7 @@ pub async fn bank_line_categorise(
         )));
     }
     let category =
-        transaction_category_read(pool, request.category_code.trim(), Some(&context.site_id))
+        transaction_category_read(pool, request.category_code.trim(), Some(&context.unit_id))
             .await?;
     let facts = facts_of(&category);
     let outgoing = context.debit_minor > 0;
@@ -1053,10 +1054,10 @@ pub async fn bank_line_categorise(
             semantic_key: category.semantic_key.clone(),
             qualifier,
             // The category means the same thing everywhere; which leaf it lands
-            // on is the statement's own location. A category posted at head
-            // office for a charge on a shop's account would be filed in the
-            // wrong book and still balance.
-            site_id: context.site_id.clone(),
+            // on is the statement's own unit. A category posted in head
+            // office's books for a charge on a store's account would be filed
+            // in the wrong book and still balance.
+            unit_id: context.unit_id.clone(),
         },
         request.party_name.as_deref().unwrap_or("Bank"),
         &memo,

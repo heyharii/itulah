@@ -2,7 +2,7 @@
 
 export type ExpenseCategory = { code: string, name: string, for_stores: boolean, for_claims: boolean, is_active: boolean, note: string | null, 
 /**
- * How many sites the category resolves an account at. Zero means a cost
- * filed under it is refused until Finance links it.
+ * How many units' books the category resolves an account in. Zero means
+ * a cost filed under it is refused until Finance links it.
  */
-linked_sites: number, created_by: string, created_at: string, };
+linked_units: number, created_by: string, created_at: string, };

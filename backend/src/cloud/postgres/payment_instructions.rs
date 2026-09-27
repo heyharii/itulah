@@ -907,7 +907,7 @@ pub async fn settle_instruction(
         )));
     }
 
-    let payment = sqlx::query("SELECT status, site_id FROM supplier_payment WHERE payment_id = $1")
+    let payment = sqlx::query("SELECT status, unit_id FROM supplier_payment WHERE payment_id = $1")
         .bind(request.payment_id)
         .fetch_optional(pool)
         .await?
@@ -920,11 +920,15 @@ pub async fn settle_instruction(
                 .into(),
         ));
     }
-    let payment_site: String = payment.try_get("site_id")?;
-    if payment_site != existing.site_id {
+    // The ask is raised at a site and the payment leaves a unit's books
+    // (0606); they agree when the payment is in the books of the unit that
+    // owns the asking site.
+    let payment_unit: String = payment.try_get("unit_id")?;
+    let asking_unit = super::sites::unit_of_site(pool, &existing.site_id).await?;
+    if payment_unit != asking_unit {
         return Err(AppError::Validation(format!(
-            "the payment is at {payment_site} and the ask came from {}; a payment settles the \
-             unit it was made for",
+            "the payment is in the books of {payment_unit} and the ask came from {} (in the \
+             books of {asking_unit}); a payment settles the unit it was made for",
             existing.site_id
         )));
     }

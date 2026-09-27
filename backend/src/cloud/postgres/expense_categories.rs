@@ -18,9 +18,9 @@ pub struct ExpenseCategory {
     pub for_claims: bool,
     pub is_active: bool,
     pub note: Option<String>,
-    /// How many sites the category resolves an account at. Zero means a cost
-    /// filed under it is refused until Finance links it.
-    pub linked_sites: i64,
+    /// How many units' books the category resolves an account in. Zero means
+    /// a cost filed under it is refused until Finance links it.
+    pub linked_units: i64,
     pub created_by: String,
     pub created_at: DateTime<Utc>,
 }
@@ -49,9 +49,9 @@ fn yes() -> bool {
 const CATEGORY_ROWS: &str = "
     SELECT c.code, c.name, c.for_stores, c.for_claims, c.is_active, c.note, c.created_by,
            c.created_at,
-           (SELECT COUNT(DISTINCT r.site_id) FROM account_resolution r
+           (SELECT COUNT(DISTINCT r.unit_id) FROM account_resolution r
              WHERE r.role = 'expense' AND r.source_type = 'EXPENSE_CATEGORY'
-               AND r.source_id = c.code)::bigint AS linked_sites
+               AND r.source_id = c.code)::bigint AS linked_units
       FROM expense_category c";
 
 fn to_category(row: &sqlx::postgres::PgRow) -> Result<ExpenseCategory, AppError> {
@@ -62,7 +62,7 @@ fn to_category(row: &sqlx::postgres::PgRow) -> Result<ExpenseCategory, AppError>
         for_claims: row.try_get("for_claims")?,
         is_active: row.try_get("is_active")?,
         note: row.try_get("note")?,
-        linked_sites: row.try_get("linked_sites")?,
+        linked_units: row.try_get("linked_units")?,
         created_by: row.try_get("created_by")?,
         created_at: row.try_get("created_at")?,
     })

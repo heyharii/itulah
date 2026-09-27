@@ -1436,12 +1436,15 @@ pub async fn hand_over(pool: &PgPool, handover: &PayrollHandover) -> Result<(), 
     // (`store_money.rs`), which is the loop closing -- before this posting
     // existed, that debit answered a credit nobody had ever written.
     //
-    // The unit pays, but the SITE the ledger knows is the unit's own: head
-    // office's is the Gudang, `dc`, and a store's is its shop — the ledger is
-    // still kept per site until the books move to units.
-    let site_id = super::book_site_of_unit(&mut *tx, handover.unit().as_str()).await?;
-    let lines = payroll_accrual_lines(&mut tx, handover.run_id(), &site_id, handover.gross_minor())
-        .await?;
+    // The unit's payroll, in the unit's books (0605): no premises is looked
+    // up on the way.
+    let lines = payroll_accrual_lines(
+        &mut tx,
+        handover.run_id(),
+        handover.unit().as_str(),
+        handover.gross_minor(),
+    )
+    .await?;
     let intent = PostingIntent {
         posting_date: Utc::now().date_naive(),
         source_kind: "PAYROLL_RUN".into(),
@@ -1473,7 +1476,7 @@ pub async fn hand_over(pool: &PgPool, handover: &PayrollHandover) -> Result<(), 
 /// deduction credits its component's `payroll_deduction` link (0466) — the
 /// component says where it lands, nothing is read off its code. Base pay, which
 /// no component explains, is the company's `payroll_expense` / SALARY link, by
-/// the kind of site (6012 at a shop, 6026 at head office). What the employee is
+/// the kind of unit (6012 at a store, 6026 at head office). What the employee is
 /// owed net is `payroll_payable` (2017); stage two (payment) clears it.
 ///
 /// A deduction the company bears (`employer_borne`, PPh 21 by owner decision)
@@ -1488,7 +1491,7 @@ pub async fn hand_over(pool: &PgPool, handover: &PayrollHandover) -> Result<(), 
 async fn payroll_accrual_lines(
     tx: &mut Transaction<'_, Postgres>,
     run_id: &str,
-    site_id: &str,
+    unit_id: &str,
     handed_gross: i64,
 ) -> Result<Vec<PostingLine>, AppError> {
     use std::collections::BTreeMap;
@@ -1577,48 +1580,48 @@ async fn payroll_accrual_lines(
     };
     for (code, amount) in &earnings {
         let line = if *amount > 0 {
-            PostingLine::debit("payroll_expense", site_id, *amount)
+            PostingLine::debit("payroll_expense", unit_id, *amount)
         } else {
-            PostingLine::credit("payroll_expense", site_id, -amount)
+            PostingLine::credit("payroll_expense", unit_id, -amount)
         };
         lines.extend(signed(*amount, line.from_source("PAY_COMPONENT", code)));
     }
     if base_pay > 0 {
-        lines.push(PostingLine::debit("payroll_expense", site_id, base_pay).with_qualifier("SALARY"));
+        lines.push(PostingLine::debit("payroll_expense", unit_id, base_pay).with_qualifier("SALARY"));
     } else if base_pay < 0 {
-        lines.push(PostingLine::credit("payroll_expense", site_id, -base_pay).with_qualifier("SALARY"));
+        lines.push(PostingLine::credit("payroll_expense", unit_id, -base_pay).with_qualifier("SALARY"));
     }
     if from_accrual > 0 {
-        lines.push(PostingLine::debit("thr_payable", site_id, from_accrual));
+        lines.push(PostingLine::debit("thr_payable", unit_id, from_accrual));
     }
     let mut withheld = 0i64;
     for (code, amount) in &deductions {
         if *amount > 0 {
             withheld += amount;
             lines.push(
-                PostingLine::credit("payroll_deduction", site_id, *amount)
+                PostingLine::credit("payroll_deduction", unit_id, *amount)
                     .from_source("PAY_COMPONENT", code),
             );
         }
     }
     let net = gross_total - withheld;
     if net > 0 {
-        lines.push(PostingLine::credit("payroll_payable", site_id, net));
+        lines.push(PostingLine::credit("payroll_payable", unit_id, net));
     } else if net < 0 {
-        lines.push(PostingLine::debit("payroll_payable", site_id, -net));
+        lines.push(PostingLine::debit("payroll_payable", unit_id, -net));
     }
     if thr_accrual > 0 {
-        lines.push(PostingLine::debit("payroll_expense", site_id, thr_accrual).with_qualifier("THR"));
-        lines.push(PostingLine::credit("thr_payable", site_id, thr_accrual));
+        lines.push(PostingLine::debit("payroll_expense", unit_id, thr_accrual).with_qualifier("THR"));
+        lines.push(PostingLine::credit("thr_payable", unit_id, thr_accrual));
     }
     for (code, amount) in &borne {
         if *amount > 0 {
             lines.push(
-                PostingLine::debit("payroll_expense", site_id, *amount)
+                PostingLine::debit("payroll_expense", unit_id, *amount)
                     .from_source("PAY_COMPONENT", code),
             );
             lines.push(
-                PostingLine::credit("payroll_deduction", site_id, *amount)
+                PostingLine::credit("payroll_deduction", unit_id, *amount)
                     .from_source("PAY_COMPONENT", code),
             );
         }
@@ -1636,14 +1639,13 @@ pub async fn payroll_accrual_post(
     actor: &str,
 ) -> Result<Uuid, AppError> {
     let mut tx = pool.begin().await?;
-    let site_id = super::book_site_of_unit(&mut *tx, unit_id).await?;
     let gross: i64 = sqlx::query_scalar(
         "SELECT COALESCE(SUM(gross_minor), 0)::bigint FROM payroll_slip WHERE run_id = $1",
     )
     .bind(run_id)
     .fetch_one(&mut *tx)
     .await?;
-    let lines = payroll_accrual_lines(&mut tx, run_id, &site_id, gross).await?;
+    let lines = payroll_accrual_lines(&mut tx, run_id, unit_id, gross).await?;
     let posted = post(
         &mut tx,
         &PostingIntent {
@@ -1696,13 +1698,15 @@ pub async fn settle_handover(
     // are paid out of the store's petty cash (Dr 2017 / Cr 1003), funded by
     // head office's transfer, through the store payout tasks; recording the
     // run as settled posts nothing more for a store.
-    let site_id = super::book_site_of_unit(pool, handover.unit().as_str()).await?;
-    let site_kind: String = sqlx::query_scalar("SELECT kind FROM site WHERE id = $1")
-        .bind(&site_id)
-        .fetch_one(pool)
-        .await?;
+    // Which is which is the unit's kind, read from its row (0600).
+    let unit_id = handover.unit().as_str();
+    let unit_kind: String = sqlx::query_scalar("SELECT kind FROM unit WHERE id = $1")
+        .bind(unit_id)
+        .fetch_optional(pool)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("unit {unit_id}")))?;
     let mut tx = pool.begin().await?;
-    if site_kind != "STORE" {
+    if unit_kind != "STORE" {
         let (bank_key, bank_qualifier) = paid_from.ok_or_else(|| {
             AppError::Validation(
                 "a head-office payroll is paid from a bank: say which (bank_key and \
@@ -1720,19 +1724,19 @@ pub async fn settle_handover(
                FROM journal_line l
                JOIN journal_entry e ON e.entry_id = l.entry_id
               WHERE e.source_kind = 'PAYROLL_RUN' AND e.source_id = $1
-                AND e.purpose IN ('ACCRUAL', 'MAIN') AND l.site_id = $2
+                AND e.purpose IN ('ACCRUAL', 'MAIN') AND l.unit_id = $2
                 AND l.account_code = (SELECT account_code FROM account_resolution
                                        WHERE role = 'payroll_payable'
-                                         AND site_id = $2 AND source_type = 'COMPANY'
+                                         AND unit_id = $2 AND source_type = 'COMPANY'
                                          AND source_id = '')",
         )
         .bind(handover.run_id().to_string())
-        .bind(&site_id)
+        .bind(unit_id)
         .fetch_one(&mut *tx)
         .await?;
         if owed > 0 {
-            // The bank that pays is head office's, found by its kind (0603).
-            let head_office = super::sites::head_office_site_id(&mut *tx).await?;
+            // The bank that pays is head office's, found by its kind (0605).
+            let head_office = super::sites::head_office_unit_id(&mut *tx).await?;
             post(
                 &mut tx,
                 &PostingIntent {
@@ -1747,7 +1751,7 @@ pub async fn settle_handover(
                         handover.period()
                     )),
                     lines: vec![
-                        PostingLine::debit("payroll_payable", &site_id, owed),
+                        PostingLine::debit("payroll_payable", unit_id, owed),
                         PostingLine::credit(bank_key, &head_office, owed)
                             .with_qualifier(bank_qualifier),
                     ],

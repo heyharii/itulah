@@ -4,4 +4,4 @@ import type { BankStatementFacet } from "./BankStatementFacet";
 /**
  * The three things the statement list can be narrowed by.
  */
-export type BankStatementFacets = { sites: Array<BankStatementFacet>, accounts: Array<BankStatementFacet>, states: Array<BankStatementFacet>, };
+export type BankStatementFacets = { units: Array<BankStatementFacet>, accounts: Array<BankStatementFacet>, states: Array<BankStatementFacet>, };

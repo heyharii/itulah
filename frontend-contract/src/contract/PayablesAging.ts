@@ -5,7 +5,12 @@ import type { PayablesAgingRow } from "./PayablesAgingRow";
 /**
  * What is owed, to whom, and how late.
  */
-export type PayablesAging = { as_of: string, site_id: string | null, 
+export type PayablesAging = { as_of: string, 
+/**
+ * Whose books were asked about, when one unit was (0605): its bills are
+ * the ones received at its sites.
+ */
+unit_id: string | null, 
 /**
  * Heaviest first: an ageing report is read to decide who to pay next.
  */
@@ -24,7 +29,7 @@ on_hold_count: number, on_hold_minor: number,
  * `trade_payable` or `non_merchandise_payable`, as at `as_of`, in this
  * scope, as a positive debt.
  *
- * Resolved through `account_map` here rather than by an account code in
+ * Resolved through `account_resolution` here rather than by an account code in
  * the screen: the screen used to ask for a client code (`2012001`) that
  * the chart in use does not have, got a ledger of nothing back, and
  * reported the whole ageing as a difference "against the books".

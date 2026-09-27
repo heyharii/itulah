@@ -16,9 +16,9 @@
 //! one run the unit key existed for was the one run with no site to post to,
 //! and posting it meant deciding that head office's payroll books at the
 //! warehouse's site. That was a real decision about the client's chart of
-//! accounts and not this lane's to guess. (It has since been taken: every site
-//! belongs to a unit, head office's is the Gudang, and `postgres::pay` books
-//! the accrual at `book_site_of_unit` until the ledger moves to units.)
+//! accounts and not this lane's to guess. (It has since been answered the
+//! other way round: the ledger is keyed by unit (0605), so `postgres::pay`
+//! books the accrual in the run's own unit and no premises is involved.)
 //!
 //! So the handover is the honest half: it records, once and immovably, that a
 //! named gross liability for one place and one month has been given to Finance,

@@ -56,7 +56,8 @@ pub struct FinancialStatementLine {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct BalanceSheet {
     pub as_of: NaiveDate,
-    pub site_id: Option<String>,
+    /// One unit's books (0605), or the company's when absent.
+    pub unit_id: Option<String>,
     pub assets_minor: i64,
     pub liabilities_minor: i64,
     pub equity_minor: i64,
@@ -92,7 +93,8 @@ pub struct BalanceSheet {
 pub struct ProfitAndLoss {
     pub from: NaiveDate,
     pub to: NaiveDate,
-    pub site_id: Option<String>,
+    /// One unit's books (0605), or the company's when absent.
+    pub unit_id: Option<String>,
     pub revenue_minor: i64,
     pub cost_of_sales_minor: i64,
     pub gross_profit_minor: i64,
@@ -192,7 +194,7 @@ async fn statement_lines(
     pool: &PgPool,
     from: Option<NaiveDate>,
     to: NaiveDate,
-    site_id: Option<&str>,
+    unit_id: Option<&str>,
     sections: &[&str],
     with_closing: bool,
 ) -> Result<Vec<FinancialStatementLine>, AppError> {
@@ -211,7 +213,7 @@ async fn statement_lines(
           WHERE a.statement_section = ANY($1)
             AND e.posting_date <= $2
             AND ($3::date IS NULL OR e.posting_date >= $3)
-            AND ($4::text IS NULL OR l.site_id = $4)
+            AND ($4::text IS NULL OR l.unit_id = $4)
             AND ($5 OR NOT journal_entry_closes_books(e.source_kind, e.reversal_of))
           GROUP BY l.account_code, a.name, a.statement_section, a.parent_code, parent.name
          HAVING SUM(l.debit_minor - l.credit_minor) <> 0
@@ -220,7 +222,7 @@ async fn statement_lines(
     .bind(&owned)
     .bind(to)
     .bind(from)
-    .bind(site_id)
+    .bind(unit_id)
     .bind(with_closing)
     .fetch_all(pool)
     .await?;
@@ -245,20 +247,20 @@ async fn statement_lines(
 pub async fn balance_sheet(
     pool: &PgPool,
     as_of: NaiveDate,
-    site_id: Option<&str>,
+    unit_id: Option<&str>,
 ) -> Result<BalanceSheet, AppError> {
     let lines = statement_lines(
         pool,
         None,
         as_of,
-        site_id,
+        unit_id,
         &["ASSET", "LIABILITY", "EQUITY"],
         true,
     )
     .await?;
     // With the closing vouchers: a closed period's profit is already in
     // retained earnings, and counting it here as well would count it twice.
-    let result_lines = statement_lines(pool, None, as_of, site_id, &RESULT_SECTIONS, true).await?;
+    let result_lines = statement_lines(pool, None, as_of, unit_id, &RESULT_SECTIONS, true).await?;
 
     let assets: i64 = lines
         .iter()
@@ -292,7 +294,7 @@ pub async fn balance_sheet(
     let difference = assets - liabilities - equity - result;
     Ok(BalanceSheet {
         as_of,
-        site_id: site_id.map(str::to_string),
+        unit_id: unit_id.map(str::to_string),
         assets_minor: assets,
         liabilities_minor: liabilities,
         equity_minor: equity,
@@ -308,11 +310,11 @@ pub async fn profit_and_loss(
     pool: &PgPool,
     from: NaiveDate,
     to: NaiveDate,
-    site_id: Option<&str>,
+    unit_id: Option<&str>,
 ) -> Result<ProfitAndLoss, AppError> {
     // Without the closing vouchers (0464): a closed period still reports what
     // it earned, as ERPNext's P&L does.
-    let lines = statement_lines(pool, Some(from), to, site_id, &RESULT_SECTIONS, false).await?;
+    let lines = statement_lines(pool, Some(from), to, unit_id, &RESULT_SECTIONS, false).await?;
     let layers = Layers::from_sections(|section| {
         lines
             .iter()
@@ -323,7 +325,7 @@ pub async fn profit_and_loss(
     Ok(ProfitAndLoss {
         from,
         to,
-        site_id: site_id.map(str::to_string),
+        unit_id: unit_id.map(str::to_string),
         revenue_minor: layers.revenue,
         cost_of_sales_minor: layers.cost_of_sales,
         gross_profit_minor: layers.gross_profit,
@@ -340,10 +342,18 @@ pub async fn profit_and_loss(
 }
 
 /// One unit's P&L, in the same layers as [`ProfitAndLoss`].
+///
+/// A unit — head office or a store — and not a premises (0605): head
+/// office's result is one row however many sites it keeps, and it is found by
+/// the unit, never by a site id.
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct UnitResult {
-    pub site_id: String,
+    pub unit_id: String,
+    /// The client's code (`HO`, `C004`) and the unit's name, so a screen shows
+    /// what people read and never the internal id.
+    pub unit_code: String,
+    pub unit_name: String,
     pub revenue_minor: i64,
     pub cost_of_sales_minor: i64,
     pub gross_profit_minor: i64,
@@ -359,9 +369,11 @@ pub struct UnitResult {
 }
 
 impl UnitResult {
-    fn new(site_id: String, layers: Layers) -> Self {
+    fn new(unit_id: String, unit_code: String, unit_name: String, layers: Layers) -> Self {
         Self {
-            site_id,
+            unit_id,
+            unit_code,
+            unit_name,
             revenue_minor: layers.revenue,
             cost_of_sales_minor: layers.cost_of_sales,
             gross_profit_minor: layers.gross_profit,
@@ -386,16 +398,17 @@ pub async fn unit_results(
 ) -> Result<Vec<UnitResult>, AppError> {
     let owned: Vec<String> = RESULT_SECTIONS.iter().map(|s| (*s).to_string()).collect();
     let rows = sqlx::query(
-        "SELECT l.site_id, a.statement_section,
+        "SELECT l.unit_id, u.code AS unit_code, u.name AS unit_name, a.statement_section,
                 SUM(l.debit_minor - l.credit_minor)::bigint AS movement
            FROM journal_line l
            JOIN journal_entry e ON e.entry_id = l.entry_id
            JOIN ledger_account a ON a.account_code = l.account_code
+           JOIN unit u ON u.id = l.unit_id
           WHERE a.statement_section = ANY($3)
             AND e.posting_date BETWEEN $1 AND $2
             AND NOT journal_entry_closes_books(e.source_kind, e.reversal_of)
-          GROUP BY l.site_id, a.statement_section
-          ORDER BY l.site_id",
+          GROUP BY l.unit_id, u.code, u.name, u.kind, a.statement_section
+          ORDER BY (u.kind <> 'HO'), u.code",
     )
     .bind(from)
     .bind(to)
@@ -403,21 +416,28 @@ pub async fn unit_results(
     .fetch_all(pool)
     .await?;
 
-    // (site, section, presented amount), folded per site in first-seen order.
-    let mut sites: Vec<(String, Vec<(String, i64)>)> = Vec::new();
+    // (unit, section, presented amount), folded per unit in first-seen order —
+    // head office first, then the stores by code.
+    type Folded = (String, String, String, Vec<(String, i64)>);
+    let mut units: Vec<Folded> = Vec::new();
     for row in &rows {
-        let site: String = row.try_get("site_id")?;
+        let unit: String = row.try_get("unit_id")?;
         let section: String = row.try_get("statement_section")?;
         let movement: i64 = row.try_get("movement")?;
         let amount = presented(&section, movement);
-        match sites.iter_mut().find(|(id, _)| *id == site) {
-            Some((_, sections)) => sections.push((section, amount)),
-            None => sites.push((site, vec![(section, amount)])),
+        match units.iter_mut().find(|(id, _, _, _)| *id == unit) {
+            Some((_, _, _, sections)) => sections.push((section, amount)),
+            None => units.push((
+                unit,
+                row.try_get("unit_code")?,
+                row.try_get("unit_name")?,
+                vec![(section, amount)],
+            )),
         }
     }
-    Ok(sites
+    Ok(units
         .into_iter()
-        .map(|(site, sections)| {
+        .map(|(unit, code, name, sections)| {
             let layers = Layers::from_sections(|wanted| {
                 sections
                     .iter()
@@ -425,7 +445,7 @@ pub async fn unit_results(
                     .map(|(_, amount)| *amount)
                     .sum()
             });
-            UnitResult::new(site, layers)
+            UnitResult::new(unit, code, name, layers)
         })
         .collect())
 }
@@ -484,7 +504,7 @@ pub async fn dimension_results(
     dimension: &str,
     from: NaiveDate,
     to: NaiveDate,
-    site_id: Option<&str>,
+    unit_id: Option<&str>,
 ) -> Result<Vec<DimensionResult>, AppError> {
     let owned: Vec<String> = RESULT_SECTIONS.iter().map(|s| (*s).to_string()).collect();
     let rows = sqlx::query(
@@ -497,7 +517,7 @@ pub async fn dimension_results(
                   ON d.line_id = l.line_id AND d.dimension_code = $3
           WHERE a.statement_section = ANY($4)
             AND e.posting_date BETWEEN $1 AND $2
-            AND ($5::text IS NULL OR l.site_id = $5)
+            AND ($5::text IS NULL OR l.unit_id = $5)
             AND NOT journal_entry_closes_books(e.source_kind, e.reversal_of)
           GROUP BY d.value_code, a.statement_section
           ORDER BY d.value_code NULLS LAST",
@@ -506,7 +526,7 @@ pub async fn dimension_results(
     .bind(to)
     .bind(dimension.trim().to_ascii_uppercase())
     .bind(&owned)
-    .bind(site_id)
+    .bind(unit_id)
     .fetch_all(pool)
     .await?;
 

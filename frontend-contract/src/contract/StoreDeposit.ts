@@ -5,13 +5,12 @@
  */
 export type StoreDeposit = { deposit_id: string, deposit_number: string, 
 /**
- * The unit, on the row, as it is on both postings this will make.
+ * The unit, on the row, as it is on both postings this will make (0607).
  *
- * Carried as an id and never as a name: a unit is named from `org_place`
- * through `book_locations`, which is the one place that knows head office
- * is not spelled "DC".
+ * Carried as an id and never as a name: a unit is named from `unit`
+ * through `book_locations`.
  */
-site_id: string, drawer_account_code: string, drawer_account_name: string, 
+unit_id: string, drawer_account_code: string, drawer_account_name: string, 
 /**
  * Which pot the money left, on the accounts that keep several in one.
  * `None` where the account declares no family, which is how every deposit

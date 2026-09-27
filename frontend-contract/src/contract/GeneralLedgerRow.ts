@@ -39,7 +39,11 @@ account_name: string,
  * `6301` every row would otherwise be called "Beban Umum & Administrasi",
  * and telling them apart would mean opening each voucher.
  */
-category_code: string | null, category_name: string | null, site_id: string, 
+category_code: string | null, category_name: string | null, 
+/**
+ * Whose books the line is in (0605).
+ */
+unit_id: string, 
 /**
  * The unit on the other side of the movement, when the posting named
  * one. 0120 put it on the line.
@@ -50,7 +54,7 @@ category_code: string | null, category_name: string | null, site_id: string,
  * trial balance cannot disagree. See `interunit`. This column answers
  * the other half of the question, which movements rather than how much.
  */
-counter_site_id: string | null, 
+counter_unit_id: string | null, 
 /**
  * Who the other side was, when the posting named one.
  *

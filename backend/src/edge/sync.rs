@@ -1020,18 +1020,33 @@ fn require_dc_work_owner(tx: &Transaction<'_>, site_id: &str) -> Result<NodeCont
     Ok(node)
 }
 
+/// The node that owns the site an allotment's goods leave from, whatever its
+/// role: the Gudang for an allotment, a shop for its own return or transfer
+/// (owner, 2026-09-27). Head office decided the route when it raised the
+/// allotment and sends the command only to the owner of the source site.
+fn require_work_owner(tx: &Transaction<'_>, site_id: &str) -> Result<NodeContext, SyncError> {
+    let node = command_node(tx)?;
+    if node.site_id.as_str() != site_id {
+        return Err(err(format!(
+            "inventory work for site {site_id} cannot apply on {}/{}",
+            node.role, node.site_id
+        )));
+    }
+    Ok(node)
+}
+
 fn apply_allotment_activation(
     tx: &Transaction<'_>,
     command_id: Uuid,
     payload: &AllotmentActivationPayload,
 ) -> Result<(), SyncError> {
-    let node = require_dc_work_owner(tx, &payload.source_site_id)?;
+    let node = require_work_owner(tx, &payload.source_site_id)?;
     let mut requested_by_stock = BTreeMap::<(String, String), i64>::new();
     for line in &payload.lines {
         let source = OperationalPool::from_str(&line.source_pool_id).map_err(err)?;
-        if !source.is_dc_fulfillment_source_for(&node.site_id) {
+        if !source.is_fulfillment_source_for(&node.site_id) {
             return Err(err(format!(
-                "allotment source pool {} is not an allowed non-fulfillment pool for {}",
+                "allotment source pool {} is not a pool of goods at rest at {}",
                 line.source_pool_id, node.site_id
             )));
         }
@@ -1148,7 +1163,13 @@ fn apply_allotment_activation(
             payload.allotment_id.to_string(),
             command_id.to_string(),
             payload.allotment_number,
-            payload.allotment_type,
+            // This table's CHECK knows the words before 0611; a head office
+            // that sends the new ones is filed under the old.
+            match payload.allotment_type.as_str() {
+                "TO_SITE" => "TO_STORE",
+                "RETURN_TO_WAREHOUSE" => "RETURN_TO_DC",
+                other => other,
+            },
             payload.source_site_id,
             application_status,
             fulfillment_status,
@@ -1206,7 +1227,7 @@ fn apply_allotment_cancellation(
     command_id: Uuid,
     payload: &AllotmentCancellationPayload,
 ) -> Result<(), SyncError> {
-    let node = require_dc_work_owner(tx, &payload.source_site_id)?;
+    let node = require_work_owner(tx, &payload.source_site_id)?;
     let (application_status, fulfillment_status): (String, String) = tx
         .query_row(
             "SELECT application_status,fulfillment_status
@@ -2320,6 +2341,147 @@ fn apply_tagging_job(
     Ok(())
 }
 
+/// Let go of one EPC the site it went to has counted in (inventory-fleet G3).
+///
+/// The node writes its own movement — out of in-transit, to
+/// `system/handed_over` — because its ledger is its own to write; head office
+/// only says that the pair of claims matched. Out of the stage at this origin,
+/// or, for a koli an older build packed, the legacy leaf that names its
+/// destination.
+///
+/// Every outcome is recorded and none blocks: a release addressed to another
+/// site is ignored, one for an EPC that no longer stands in transit here (let
+/// go already, or settled by Inventory another way) or that this node never
+/// knew is written down and passed. Stopping the command stream over goods
+/// that are already where they should be would be worse than the gap it
+/// closes.
+fn apply_in_transit_release(
+    tx: &Transaction<'_>,
+    command_id: Uuid,
+    payload: &crate::sync::transfer::InTransitReleasePayload,
+) -> Result<(), SyncError> {
+    let node = resident_node(tx)?;
+    if node.site_id.as_str() != payload.source_site_id {
+        tracing::warn!(
+            release = %payload.release_id,
+            source = %payload.source_site_id,
+            node_site = %node.site_id,
+            "ignoring an in-transit release addressed to another site"
+        );
+        return Ok(());
+    }
+    let already: Option<String> = tx
+        .query_row(
+            "SELECT outcome FROM in_transit_release WHERE release_id=?1",
+            [payload.release_id.to_string()],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(err)?;
+    if already.is_some() {
+        return Ok(());
+    }
+    let released_at = now_text();
+    let record = |outcome: &str, movement_group_id: Option<String>| {
+        tx.execute(
+            "INSERT INTO in_transit_release
+                 (release_id,command_id,koli_id,epc,destination_site_id,outcome,
+                  movement_group_id,released_at)
+             VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
+            params![
+                payload.release_id.to_string(),
+                command_id.to_string(),
+                payload.koli_id.to_string(),
+                payload.epc,
+                payload.destination_site_id,
+                outcome,
+                movement_group_id,
+                released_at
+            ],
+        )
+        .map(|_| ())
+        .map_err(err)
+    };
+
+    let subject: Option<String> = tx
+        .query_row(
+            "SELECT id FROM inventory_subject WHERE epc=?1",
+            [&payload.epc],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(err)?;
+    let Some(subject) = subject else {
+        return record("NOT_HELD", None);
+    };
+    let subject_id = crate::edge::SubjectId(Uuid::parse_str(&subject).map_err(err)?);
+
+    // Where it stands in transit: the stage at this origin, or a legacy leaf.
+    let destination = SiteId::new(&payload.destination_site_id).map_err(err)?;
+    let in_transit = [
+        OperationalPool::Outbound {
+            site_id: node.site_id.clone(),
+            stage: crate::pool_role::OutboundStage::InTransit,
+        },
+        OperationalPool::DcOutboundInTransit {
+            dc_id: node.site_id.clone(),
+            store_id: destination,
+        },
+    ]
+    .into_iter()
+    .map(|pool| Place::Operational {
+        pool,
+        state: InventoryState::Normal,
+    })
+    .find(|place| {
+        tx.query_row(
+            "SELECT quantity FROM inventory_projection WHERE subject_id=?1 AND place_id=?2",
+            params![subject_id.0.to_string(), place.id()],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()
+        .ok()
+        .flatten()
+        .is_some_and(|quantity| quantity >= 1)
+    });
+    let Some(from) = in_transit else {
+        return record("NOT_IN_TRANSIT", None);
+    };
+
+    let command = MovementCommand {
+        movement_group_id: MovementGroupId::new(),
+        lines: vec![MovementLine {
+            subject_id,
+            quantity: 1,
+            from,
+            to: Place::System {
+                place: SystemPlace::HandedOver,
+            },
+        }],
+        cause: MovementCause::HandedOver,
+        reference_type: Some("TRANSFER_RECEIPT".into()),
+        reference_id: Some(payload.release_id.to_string()),
+        reason: format!(
+            "Counted in at {} ({}); custody passed",
+            payload.destination_site_id,
+            payload.shipment_reference.as_deref().unwrap_or("no surat jalan")
+        ),
+        actor_id: "system:in-transit-release".into(),
+        occurred_at: Utc::now(),
+    };
+    let result = crate::edge::SqliteEdge::append_movement(
+        &node,
+        tx,
+        &format!("in-transit-release-{}", payload.release_id),
+        &command,
+    )
+    .map_err(err)?;
+    record("RELEASED", Some(result.movement_group_id.to_string()))?;
+    crate::edge::SqliteEdge::enqueue_pool_snapshot(tx, &node, Uuid::new_v4())
+        .map(|_| ())
+        .map_err(err)
+}
+
 fn apply_purchase_order(
     tx: &Transaction<'_>,
     order: &PurchaseOrderPayload,
@@ -2707,6 +2869,14 @@ fn apply_command_effect(tx: &Transaction<'_>, command: &PushedCommand) -> Result
                     .map_err(err)?;
             crate::edge::inbound::apply_announcement(tx, command.command_id, &payload)
                 .map_err(|error| err(error.to_string()))
+        }
+        // A site of ours counted in what this one sent: let go of it here.
+        // Only ever sent to a node whose heartbeat carries the goods-route
+        // capability, so an older build never receives it.
+        crate::sync::transfer::INVENTORY_IN_TRANSIT_RELEASE_V1 => {
+            let payload = crate::sync::transfer::parse_in_transit_release(&command.payload)
+                .map_err(err)?;
+            apply_in_transit_release(tx, command.command_id, &payload)
         }
         // Head office suspended, reactivated or revoked a till or a printer.
         // Only ever sent to a node whose heartbeat carries a device list, so

@@ -24,7 +24,13 @@ Three categories, and an agent must not mix them:
 - **TO_CONFIRM** — not decided. It must not be hard-coded; a posting on it is
   refused or marked, never defaulted silently.
 
-Site ids: HO = `dc`; stores C001..C013 = `store-01`..`store-13`.
+Books are kept per **unit** (owner, 27 Sep; migrations 0605–0609): head office
+is the unit of kind `HO` (id `ho`, found by its kind and never by its id) and
+the stores C001..C013 are the units `store-01`..`store-13`. A site is a
+premises that belongs to one unit — head office's Gudang is the site `dc` — and
+a document that happens at a site is booked to its unit (`unit_of_site`). Where
+this file says "unit" it means head office or a store; "a unit" opposite "head
+office" means a store unit.
 
 ---
 
@@ -33,15 +39,15 @@ Site ids: HO = `dc`; stores C001..C013 = `store-01`..`store-13`.
 | # | Rule | Where it lives | Test |
 |---|---|---|---|
 | I1 | Domain holds the event, Finance holds the journal. | `poster.rs` is the only writer of `journal_entry`/`journal_line` | — |
-| I2 | Only Finance HO writes manual journals, and Finance HO may post to **every account of every site** (a manual journal may target any store). Stores have no manual-journal access whatsoever; units record events. | `manual_je_policy`, `HAND_KEYED_KINDS` (`ledger.rs`); HTTP role check on `/api/v1/finance/journal` | `finance_api_integration::a_shop_role_cannot_post_a_manual_journal`, `finance_hard_rules::finance_ho_posts_prive_on_a_stores_books` |
-| I3 | Every entry balances, and every site balances in its own books. | `interunit::balancing_legs`, deferred trigger 0120 | `finance_connect_integration::every_crossing_goes_through_the_affiliate_accounts` |
-| I4 | A unit never holds a supplier payable (2002/2004) or a lender/loan (2035–2040, 2043–2048, the owner's loan included). It reaches the same result through the affiliate accounts. A unit **may** hold its own bank accounts (1005–1015), the outstanding giro drawn on them (2005–2009), and its tax payables (2011–2015), as the client does. | **`external_party_account` registry + trigger `journal_line_external_party_is_head_office` + `dimension='company'`** (0376, narrowed by 0380) | `finance_hard_rules::a_supplier_payable_cannot_sit_at_a_shop`, `a_unit_may_hold_outstanding_giro_for_its_own_bank_account`, `a_unit_giro_paying_a_head_office_supplier_crosses_on_pembiayaan` |
+| I2 | Only Finance HO writes manual journals, and Finance HO may post to **every account of every unit** (a manual journal may target any store). Stores have no manual-journal access whatsoever; units record events. | `manual_je_policy`, `HAND_KEYED_KINDS` (`ledger.rs`); HTTP role check on `/api/v1/finance/journal` | `finance_api_integration::a_shop_role_cannot_post_a_manual_journal`, `finance_hard_rules::finance_ho_posts_prive_on_a_stores_books` |
+| I3 | Every entry balances, and every unit balances in its own books. | `interunit::balancing_legs`, deferred trigger `journal_line_balances_per_unit` (0605; per site from 0120) | `finance_connect_integration::every_crossing_goes_through_the_affiliate_accounts` |
+| I4 | A unit never holds a supplier payable (2002/2004) or a lender/loan (2035–2040, 2043–2048, the owner's loan included). It reaches the same result through the affiliate accounts. A unit **may** hold its own bank accounts (1005–1015), the outstanding giro drawn on them (2005–2009), and its tax payables (2011–2015), as the client does. | **`external_party_account` registry + trigger `journal_line_external_party_is_head_office` + `dimension='company'`** (0376, narrowed by 0380; the HO unit by its kind since 0605) | `finance_hard_rules::a_supplier_payable_cannot_sit_at_a_shop`, `a_unit_may_hold_outstanding_giro_for_its_own_bank_account`, `a_unit_giro_paying_a_head_office_supplier_crosses_on_pembiayaan` |
 | I5 | A shop's cash is 1002 Cash on Hand, 1003 Petty Cash, 1004 Modal Kasir. | 0348 leaves | `finance_hard_rules` 1–5 |
 | I6 | Modal Kasir (1004) pays for nothing. | `account_source_rule` ALLOW = `CASH_SHIFT`, `OPENING` (0376) | `finance_hard_rules::modal_kasir_cannot_pay_an_expense` |
-| I7 | Three inter-unit families, no more: PEMBIAYAAN (unit 2028 / HO 1057), BARANG (unit 2029 / HO 1058), LAIN (unit 2030 / HO 1059). **The unit side is always the hutang account and head office always the piutang account**, whichever way value moved; balances may go negative. | `interunit::kind_for_source` picks the family and the meaning; the `affiliate_*` links resolve, per family, to hutang for STORE sites and piutang for HO (0460; the counterparty is on the line, not in the link); `2030.requires_counter_site` | `finance_hard_rules` 2–5, 12, 13, 15; `finance_api` harness `assert_sound` |
-| I8 | HO ↔ unit only; unit ↔ unit always goes through HO (counter-site of a unit line is always `dc`). | `balancing_legs` | `finance_connect_integration`, `finance_hard_rules` 13 |
+| I7 | Three inter-unit families, no more: PEMBIAYAAN (unit 2028 / HO 1057), BARANG (unit 2029 / HO 1058), LAIN (unit 2030 / HO 1059). **The unit side is always the hutang account and head office always the piutang account**, whichever way value moved; balances may go negative. | `interunit::kind_for_source` picks the family and the meaning; the `affiliate_*` links resolve, per family, to hutang for STORE units and piutang for the HO unit (0460, 0606; the counterparty is on the line as `counter_unit_id`, not in the link); `2030.requires_counter_site` | `finance_hard_rules` 2–5, 12, 13, 15; `finance_api` harness `assert_sound` |
+| I8 | HO ↔ unit only; unit ↔ unit always goes through HO (the counter unit of a store's line is always the HO unit, found by its kind). | `balancing_legs` (head office from `head_office_unit_id()`) | `finance_connect_integration`, `finance_hard_rules` 13 |
 | I9 | A rule names a meaning, never a code. The map decides the account. | `poster.rs` `LineAccount::Meaning`; `resolve_account` has no default | `finance_connect_integration::every_meaning_a_writer_names_resolves_at_every_site` |
-| I10 | **Replaced 27 Sep (owner: "sama dengan ERPNext").** Closing a month only locks it. Moving profit to retained earnings is a Period Closing Voucher, as in ERPNext and as the client's 7Soft does at year end (C001: Laba Ditahan 2024→2025 rose by exactly its 2024 net profit, 2,125,007,102). A voucher closes a period that follows the last closed one, per site, zeroing the P&L accounts into 3003 Laba (Rugi) Ditahan; run it once a year (7Soft / older ERPNext) or per period (current ERPNext). | to build: `period_closing_voucher` | to write |
+| I10 | **Replaced 27 Sep (owner: "sama dengan ERPNext").** Closing a month only locks it. Moving profit to retained earnings is a Period Closing Voucher, as in ERPNext and as the client's 7Soft does at year end (C001: Laba Ditahan 2024→2025 rose by exactly its 2024 net profit, 2,125,007,102). A voucher closes a period that follows the last closed one, per unit, zeroing the P&L accounts into 3003 Laba (Rugi) Ditahan; run it once a year (7Soft / older ERPNext) or per period (current ERPNext). | to build: `period_closing_voucher` | to write |
 | I11 | Bank charge and bank interest are two events. | `bank_admin_fee`→6043 (expense); `interest_income`→8002 (income). Never `Dr 6043 / Cr 8002`. | (documentation; 0376 comment) |
 | I12 | 1110 Disposed Inventory is reached only by a Finance HO hand-keyed journal or the opening import. | `account_source_rule` ALLOW = MANUAL, RECLASS, ADJUSTMENT, WRITE_OFF, OPENING; no account link (0380, 0460) | `finance_hard_rules::disposed_inventory_takes_a_manual_journal_and_nothing_automatic` |
 
@@ -56,10 +62,10 @@ database; what they apply to is edited by Finance from the screen:
 | I2 | role gate on `/api/v1/finance/journal` | `role_permission` overrides (0472) |
 | I4 | trigger `journal_line_external_party_is_head_office` | head-office accounts screen (`external_party_account`, 0471) |
 | I6, I12, P21 | `validate_account_posting` + `account_source_rule` | source-rule screen (0471) |
-| I7 | balancer `interunit::balancing_legs` | affiliate account links per family and kind of site (0460) |
+| I7 | balancer `interunit::balancing_legs` | affiliate account links per family and kind of unit (0460, 0606) |
 | I9 | `LineAccount::Meaning` → `account_link` | Account Links screen, by source (0460, 0465–0469) |
 | I10 | replaced — Period Closing Voucher (0464) | Finance runs it per period or per year |
-| counter-site accounts | line check | `ledger_account.requires_counter_site`, set in the chart editor (0471) |
+| counter-unit accounts | line check (`counter_unit_id`) | `ledger_account.requires_counter_site`, set in the chart editor (0471) |
 | — (new) | trigger `journal_line_account_not_frozen` | `ledger_account.is_frozen`, ERPNext freeze_account (0471) |
 
 ## 2. OWNER POLICY (decided; change only by a new decision)
@@ -68,7 +74,7 @@ database; what they apply to is edited by Finance from the screen:
 |---|---|---|
 | P1 | Chart | **Replaced 27 Sep:** the chart is edited from the screen and applies at once, as in ERPNext and 7Soft (no approval step); who may edit is a permission, and every change is kept in `ledger_account_change` (0461). |
 | P2 | HO → unit cash | always cash into 1003 Petty Cash. |
-| P3 | Store remittance | store Dr 2028 / Cr 1002; HO Dr bank / Cr 1057. Two same-site entries; the pair sits unmatched until HO confirms. |
+| P3 | Store remittance | store Dr 2028 / Cr 1002; HO Dr bank / Cr 1057. Two entries, each within one unit's books; the pair sits unmatched until HO confirms. |
 | P4 | HO pays a unit's bill | unit Dr expense / Cr 2028; HO Dr 1057 / Cr bank/AP. The unit never has the supplier. |
 | P5 | Receiving & supplier invoice | supplier payable 2002/2004 always at HO. Goods straight to a shop: shop Dr inventory / Cr 2029, HO Dr 1058 / Cr 2002. A goods return unit → HO: shop Dr 2029 / Cr inventory, HO Dr inventory / Cr 1058. **No Suspend/GRNI** (2003 is not used). |
 | P6 | Costing | provenance per unit (SKU × receipt), not FIFO, not moving average. Short layers post at last known cost, flagged, trued up. |
@@ -80,13 +86,13 @@ database; what they apply to is edited by Finance from the screen:
 | P12 | No new affiliate kind | PEMBIAYAAN / BARANG / LAIN only. |
 | P13 | All HO ↔ unit through the affiliate accounts (decision A, 25 Sep) | every HO ↔ unit transaction crosses on hutang/piutang afiliasi; unit ↔ unit is forbidden and crosses only via HO (I7, I8). |
 | P14 | Giro follows the bank account (decision B, 25 Sep; 0380) | 11 of 13 stores have their own giro bank accounts (1005–1009); 9 carry outstanding giro (2005/2006/2008, ~3.1B). 2005–2009 are unit accounts, out of the registry; 2032 stays retired. A unit giro paying an HO supplier: unit Dr 2028 / Cr 2005; HO Dr 2002 / Cr 1057 (the payable stays at HO). |
-| P15 | 2030 is the unit side of Lain-lain (decision C, revised 25 Sep; 0380) | The client pairs 1057/2028, 1058/2029, 1059/2030; there is no "Piutang Afiliasi Principal". 2030: `dimension='unit'`, `requires_counter_site`, out of the registry. Unit side always 2030, HO side always 1059; a unit balance may go negative. Example (repaying the owner's loan from C001's cash, P21): C001 Dr 2030 (counter dc) / Cr 1002; HO Dr 2043 / Cr 1059 (counter store-01). `principal_payable` (→2030, no writer) removed. Principal (owner) transactions (`EQUITY_MOVEMENT`) cross on Lain-lain. 2031 Hutang Lain-lain stays the generic other payable (leasing, employee claims); client balances on it are zero everywhere. |
+| P15 | 2030 is the unit side of Lain-lain (decision C, revised 25 Sep; 0380) | The client pairs 1057/2028, 1058/2029, 1059/2030; there is no "Piutang Afiliasi Principal". 2030: `dimension='unit'`, `requires_counter_site`, out of the registry. Unit side always 2030, HO side always 1059; a unit balance may go negative. Example (repaying the owner's loan from C001's cash, P21): C001 Dr 2030 (counter HO) / Cr 1002; HO Dr 2043 / Cr 1059 (counter C001). `principal_payable` (→2030, no writer) removed. Principal (owner) transactions (`EQUITY_MOVEMENT`) cross on Lain-lain. 2031 Hutang Lain-lain stays the generic other payable (leasing, employee claims); client balances on it are zero everywhere. |
 | P16 | Tax stays per unit (decision D) | 2011–2015 remain unit-postable (every store carries a small PPh 25 payable). |
 | P17 | P&L layered like the client (0379) | PENJUALAN → Laba kotor → BEBAN USAHA (GOP) → BEBAN USAHA LAINNYA, section `OTHER_OPERATING_EXPENSE` (NOP) → non-operating (NPBT) → PAJAK PENGHASILAN, section `INCOME_TAX` (NPAT). 8004 Potongan Pembelian is non-operating (OTHER_NET), not cost of sales. |
 | P18 | Discounts | every promotion benefit (line and basket) is booked net inside revenue; **4012 Discount/Potongan Penjualan receives only voucher redemptions**. There is no manual cashier/bill discount in the POS, by owner policy — it must not be built. Same as the ERPNext default; ERPNext's "Enable discount accounting for selling" (discounts to their own account) becomes a setting, default off, matching the client (27 Sep). |
 | P19 | Divisions (0382) | seeded to the client's nine (KODE DIVISI 1–9). |
 | P20 | 1110 Disposed Inventory (0380) | reopened manual-only for the client's opening balances (2.73B across 12 stores); no automatic writer yet (I12). |
-| P21 | Owner takes money at a unit (25 Sep) | Finance HO posts it as a manual journal **on the store's own books**: Dr 3004 Prive (store) / Cr 1002 Cash (store). If it repays the owner's loan it crosses on Lain-lain, also posted by HO: store Dr 2030 (counter dc) / Cr cash; HO Dr 2043 Pinjaman Jangka Panjang Principal / Cr 1059 (counter the store). The store itself has no access. 3004 is reached only by HO hand-keyed kinds, `EQUITY_MOVEMENT` (the principal document, Admin only) and OPENING (0380). |
+| P21 | Owner takes money at a unit (25 Sep) | Finance HO posts it as a manual journal **on the store's own books**: Dr 3004 Prive (store) / Cr 1002 Cash (store). If it repays the owner's loan it crosses on Lain-lain, also posted by HO: store Dr 2030 (counter HO) / Cr cash; HO Dr 2043 Pinjaman Jangka Panjang Principal / Cr 1059 (counter the store). The store itself has no access. 3004 is reached only by HO hand-keyed kinds, `EQUITY_MOVEMENT` (the principal document, Admin only) and OPENING (0380). |
 
 ## 3. TO_CONFIRM (must not be hard-coded)
 
@@ -102,7 +108,7 @@ database; what they apply to is edited by Finance from the screen:
 | T8 | "NON DIVISI" sales (790.6M, HPP 60k) | ask the client what it is. |
 | T9 | The client's inter-unit balances do not eliminate: per-unit HO vs unit sides differ ~5.6B net, plus 17.1B on HO self rows (11.48B of it on "Hutang Lain-lain Principal HEAD OFFICE - HO"). The per-branch balance sheet does not balance at C008 (−1.48B), C013 (162M) and HO (−110M). | must be cleaned by the client accountant before opening balances. `ledger_account_source_code` (0381) now names every affiliate row's counterparty and tags SELF_ROUTE / UNIT_TO_UNIT / OPENING_RECLASS rows. |
 | T10 | 4012 in the client's 2025 books (22,022,050) | **Closed 27 Sep:** the client's item discounts (828,836,975) are already net in revenue; the 22M is 7Soft's cashier total-bill discount, which our POS does not have (P18). |
-| T11 | Opening reclass of unit rows on HO-only accounts | 0381 tags 182 crosswalk rows (2002, 2004, 2035–2040, 2043–2048 at units) OPENING_RECLASS: opening moves the balance to HO and the unit carries 2028 (counter dc). `opening.rs` does not read the crosswalk, so the preparer of the opening sheet applies it. |
+| T11 | Opening reclass of unit rows on HO-only accounts | 0381 tags 182 crosswalk rows (2002, 2004, 2035–2040, 2043–2048 at units) OPENING_RECLASS: opening moves the balance to HO and the unit carries 2028 (counter HO). `opening.rs` does not read the crosswalk, so the preparer of the opening sheet applies it. |
 | T12 | Client rows on the wrong side of the convention (I7) | the client has HO rows on hutang accounts and unit rows on piutang accounts, e.g. 13 HO rows on 2030 with a unit counterparty ("Hutang Lain-lain Principal <unit> - HO") and every store's 2030 "HEAD OFFICE" balance (net −19.5B). Under I7 they open on the other side of the same family (HO on 1057/1058/1059, units on 2028/2029/2030); how each nets is for the client accountant. |
 
 ---
@@ -145,20 +151,20 @@ Changed in `0376`, plus writers:
 - Modal Kasir locked to `CASH_SHIFT`/`OPENING` (I6).
 - `bpjs_payable` gets its own canonical mapping (T1) and `pay.rs` routes BPJS to
   it instead of silently folding it into 2017.
-- Store remittance posts the two same-site halves (P3, I7); the old
-  `Dr cash_in_transit / Cr cash` no-op is gone, and `PostingLine::with_counter_site`
-  lets a rule post an affiliate line itself.
+- Store remittance posts the two same-unit halves (P3, I7); the old
+  `Dr cash_in_transit / Cr cash` no-op is gone, and `PostingLine::with_counter_unit`
+  (spelled `with_counter_site` until 0605) lets a rule post an affiliate line itself.
 - Goods receipt and supplier invoice put the payable at HO (P5); a shop that
   receives directly gets 1058/2029 from the balancer.
 
 Changed in `0380` / `0381`:
 
 - Giro 2005–2009 and 2030 leave the registry; both are unit accounts; 2030
-  requires a counter site (P14, P15). The registry is now 2002, 2004,
+  requires a counter unit (P14, P15). The registry is now 2002, 2004,
   2035–2040, 2043–2048.
 - `affiliate_payable` / `affiliate_receivable` resolve, for every family, to the
-  hutang account at every unit (2028/2029/2030) and the piutang account at HO
-  (1057/1058/1059) (I7). The balancer and the writers still name meanings, so no
+  hutang account at every store unit (2028/2029/2030) and the piutang account at
+  the HO unit (1057/1058/1059) (I7). The balancer and the writers still name meanings, so no
   writer changed; store remittance, card settlement into an HO bank and a unit
   paying an HO supplier now land store Dr 2028 / HO Cr 1057.
 - `principal_payable` removed; `EQUITY_MOVEMENT` crosses on Lain-lain
@@ -170,5 +176,20 @@ Changed in `0380` / `0381`:
   002..014 = C001..C013), verified against the BDP rows and the client's own
   names. 84 SELF_ROUTE rows (counter NULL), 936 UNIT_TO_UNIT rows, 156 HO ↔
   unit rows, and 182 OPENING_RECLASS rows (T9, T11).
+
+Changed in `0605`–`0609` (27 Sep, the books move from site to unit):
+
+- `journal_line.site_id` / `counter_site_id` are `unit_id` / `counter_unit_id`,
+  translated through `site.unit_id` (`dc` → `ho`); history is re-keyed, not
+  re-posted. The per-unit balance trigger replaces the per-site one (I3); the
+  external-party trigger asks `head_office_unit_id()` (I4).
+- Account links hold for `ALL`, a `UNIT_KIND` or one `UNIT`, and
+  `account_resolution` answers per unit (I7, I9).
+- Store money, bank accounts and statements, giro, tax, budgets, the Payment
+  Ledger, opening balances, cash documents, tender reconciliations,
+  corrections, prepaid schedules, bank rules and payment batches are keyed by
+  unit. Documents that happen at a premises (receipts, bills, shifts, sales,
+  settlement lines, assets, cash counts, stock) keep their site and are booked
+  to its unit.
 
 Still to do: `runs/finance-guards/2026-09-25/PLAN.md`.

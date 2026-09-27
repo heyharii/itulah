@@ -34,13 +34,17 @@
 //!
 //! ```text
 //!   monthly, per class per location:
-//!     Dr  replacement_expense  (site, class)   the rate
-//!     Cr  replacement_reserve  (site, class)
+//!     Dr  replacement_expense  (unit, class)   the rate
+//!     Cr  replacement_reserve  (unit, class)
 //!
 //!   a replacement purchase flagged as drawing:
-//!     Dr  replacement_reserve  (site, class)   instead of an expense
+//!     Dr  replacement_reserve  (unit, class)   instead of an expense
 //!     Cr  the supplier payable
 //! ```
+//!
+//! A rate is set per location (`asset_replacement_rate.site_id`), because the
+//! racks stand at a shop; the charge is booked to the unit that owns the shop
+//! (`unit_of_site`), because that is whose books the reserve is in.
 //!
 //! Without the draw the reserve only ever grows — the same half-a-lifecycle
 //! mistake 0096 fixed for the register and 0084 for payables. The draw lives in
@@ -432,7 +436,8 @@ pub async fn asset_reserve_charge(
 }
 
 /// Write one location's month: one entry, two lines per class, and a charge row
-/// per class so the month cannot be charged twice.
+/// per class so the month cannot be charged twice. Both lines land in the books
+/// of the unit that owns the location.
 async fn flush(
     pool: &PgPool,
     site_id: &str,
@@ -443,6 +448,7 @@ async fn flush(
     if batch.is_empty() {
         return Ok((0, 0));
     }
+    let unit = super::sites::unit_of_site(pool, site_id).await?;
     let mut posting = Vec::with_capacity(batch.len() * 2);
     let mut total = 0i64;
     for (class_code, _, amount) in batch {
@@ -455,12 +461,12 @@ async fn flush(
         //
         // Checked per class rather than once, because the map is kept per class
         // and one class mapped wrongly is what a reader has to be told about.
-        charge_legs(pool, ChargeKind::ReplacementReserve, site_id, class_code).await?;
+        charge_legs(pool, ChargeKind::ReplacementReserve, &unit, class_code).await?;
         posting.push(
-            PostingLine::debit("replacement_expense", site_id, *amount).with_qualifier(class_code),
+            PostingLine::debit("replacement_expense", &unit, *amount).with_qualifier(class_code),
         );
         posting.push(
-            PostingLine::credit("replacement_reserve", site_id, *amount).with_qualifier(class_code),
+            PostingLine::credit("replacement_reserve", &unit, *amount).with_qualifier(class_code),
         );
         total += *amount;
     }

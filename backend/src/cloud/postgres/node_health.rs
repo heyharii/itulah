@@ -138,6 +138,17 @@ pub async fn record_heartbeat(
     if let Some(devices) = &status.device_list {
         super::devices::record_reported_devices(&mut tx, origin_id, devices).await?;
     }
+    // A node that takes the goods-route commands is told, in instalments, to
+    // let go of what it sent that has since been counted in elsewhere
+    // (inventory-fleet G3) — including every pair matched while it ran an
+    // older build.
+    if status.capabilities.as_ref().is_some_and(|capabilities| {
+        capabilities
+            .iter()
+            .any(|capability| capability == crate::sync::workflow::GOODS_ROUTES_CAPABILITY)
+    }) {
+        super::sync::issue_waiting_in_transit_releases_tx(&mut tx, origin_id).await?;
+    }
     for incident in &status.incidents {
         let payload = serde_json::to_value(incident)?;
         let kind = payload["kind"].as_str().unwrap_or("UNKNOWN").to_owned();

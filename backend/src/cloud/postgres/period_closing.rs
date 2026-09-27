@@ -3,11 +3,15 @@
 //!
 //! Closing a month only locks it. Moving a period's profit into retained
 //! earnings is this document: for a date range that starts the day after the
-//! last voucher ended, every profit-and-loss account's balance at every site is
-//! reversed to zero and the difference lands on the role `retained_earnings`
-//! (3003) at the same site. Each site's lines balance on their own, so the
-//! balancer adds nothing. Run it once a year and it is what the client's 7Soft
-//! does; run it per month or quarter and it is what current ERPNext allows.
+//! last voucher ended, every profit-and-loss account's balance in every unit's
+//! books is reversed to zero and the difference lands on the role
+//! `retained_earnings` (3003) in the same unit's books. Each unit's lines
+//! balance on their own, so the balancer adds nothing. Run it once a year and
+//! it is what the client's 7Soft does (C001's Laba Ditahan is C001's); run it
+//! per month or quarter and it is what current ERPNext allows.
+//!
+//! Per unit, not per site (0605): head office closes one set of books however
+//! many premises it keeps.
 
 use chrono::{DateTime, Duration, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
@@ -38,7 +42,7 @@ pub struct PeriodClosingVoucher {
     /// Absent when the range had no profit or loss to move.
     pub entry_id: Option<Uuid>,
     pub reversal_entry_id: Option<Uuid>,
-    /// What moved into retained earnings over every site: a profit is
+    /// What moved into retained earnings over every unit: a profit is
     /// positive, a loss negative.
     pub profit_minor: i64,
     pub remarks: Option<String>,
@@ -124,11 +128,11 @@ pub async fn post_period_closing(
         }
     }
 
-    // Every profit-and-loss balance over the range, per site, account and
+    // Every profit-and-loss balance over the range, per unit, account and
     // category, leaving out what earlier vouchers (and their cancellations)
     // already moved.
     let balances = sqlx::query(
-        "SELECT l.site_id, l.account_code, l.category_code,
+        "SELECT l.unit_id, l.account_code, l.category_code,
                 SUM(l.debit_minor - l.credit_minor)::bigint AS balance
            FROM journal_line l
            JOIN journal_entry e ON e.entry_id = l.entry_id
@@ -136,9 +140,9 @@ pub async fn post_period_closing(
           WHERE a.root_type IN ('INCOME', 'EXPENSE')
             AND e.posting_date BETWEEN $1 AND $2
             AND NOT journal_entry_closes_books(e.source_kind, e.reversal_of)
-          GROUP BY l.site_id, l.account_code, l.category_code
+          GROUP BY l.unit_id, l.account_code, l.category_code
          HAVING SUM(l.debit_minor - l.credit_minor) <> 0
-          ORDER BY l.site_id, l.account_code, l.category_code",
+          ORDER BY l.unit_id, l.account_code, l.category_code",
     )
     .bind(start)
     .bind(end)
@@ -147,32 +151,32 @@ pub async fn post_period_closing(
 
     let voucher_id = Uuid::new_v4();
     let mut lines = Vec::new();
-    let mut per_site: Vec<(String, i64)> = Vec::new();
+    let mut per_unit: Vec<(String, i64)> = Vec::new();
     for row in &balances {
-        let site: String = row.try_get("site_id")?;
+        let unit: String = row.try_get("unit_id")?;
         let balance: i64 = row.try_get("balance")?;
         let account = LineAccount::Account {
             account_code: row.try_get("account_code")?,
             category_code: row.try_get("category_code")?,
         };
         lines.push(if balance > 0 {
-            PostingLine::credit(account, &site, balance)
+            PostingLine::credit(account, &unit, balance)
         } else {
-            PostingLine::debit(account, &site, -balance)
+            PostingLine::debit(account, &unit, -balance)
         });
-        match per_site.iter_mut().find(|(id, _)| *id == site) {
+        match per_unit.iter_mut().find(|(id, _)| *id == unit) {
             Some((_, net)) => *net += balance,
-            None => per_site.push((site, balance)),
+            None => per_unit.push((unit, balance)),
         }
     }
-    // A site's P&L nets to a debit when it lost money: retained earnings takes
+    // A unit's P&L nets to a debit when it lost money: retained earnings takes
     // the debit. A credit net is a profit, credited to retained earnings.
     let mut profit = 0i64;
-    for (site, net) in &per_site {
+    for (unit, net) in &per_unit {
         profit -= net;
         match net.signum() {
-            1 => lines.push(PostingLine::debit("retained_earnings", site, *net)),
-            -1 => lines.push(PostingLine::credit("retained_earnings", site, -net)),
+            1 => lines.push(PostingLine::debit("retained_earnings", unit, *net)),
+            -1 => lines.push(PostingLine::credit("retained_earnings", unit, -net)),
             _ => {}
         }
     }

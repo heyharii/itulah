@@ -39,11 +39,11 @@ use uuid::Uuid;
 
 #[derive(Debug, Deserialize)]
 pub struct CategoryQuery {
-    /// Which location the resolved account is read for. A category means the
-    /// same thing everywhere and lands on a different leaf at each of the
+    /// Which unit's books the resolved account is read for. A category means
+    /// the same thing everywhere and lands on a different leaf in each of the
     /// client's fourteen, so this decides what `account_code` comes back as —
-    /// never which categories exist.
-    pub site_id: Option<String>,
+    /// never which categories exist. Head office's when absent.
+    pub unit_id: Option<String>,
     /// `OUTFLOW` or `INFLOW`. Returns the categories that can explain money
     /// going that way, which always includes the ones that go both.
     pub direction: Option<String>,
@@ -63,7 +63,7 @@ pub async fn transaction_categories(
     Ok(Json(
         infrastructure::transaction_category_list(
             &state.db,
-            query.site_id.as_deref(),
+            query.unit_id.as_deref(),
             query.direction.as_deref(),
             query.family.as_deref(),
             query.domain.as_deref(),
@@ -84,7 +84,7 @@ pub async fn unmapped_transaction_categories(
     Query(query): Query<CategoryQuery>,
 ) -> Result<Json<Vec<TransactionCategoryRow>>, AppError> {
     Ok(Json(
-        infrastructure::transaction_category_unmapped(&state.db, query.site_id.as_deref()).await?,
+        infrastructure::transaction_category_unmapped(&state.db, query.unit_id.as_deref()).await?,
     ))
 }
 
@@ -94,7 +94,7 @@ pub async fn transaction_category(
     Query(query): Query<CategoryQuery>,
 ) -> Result<Json<TransactionCategoryRow>, AppError> {
     Ok(Json(
-        infrastructure::transaction_category_read(&state.db, &code, query.site_id.as_deref())
+        infrastructure::transaction_category_read(&state.db, &code, query.unit_id.as_deref())
             .await?,
     ))
 }

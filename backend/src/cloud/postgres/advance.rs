@@ -10,6 +10,10 @@
 //! The outstanding balance is arithmetic over the settlements, never a column,
 //! so it cannot drift from what posted. Ageing is derived from `paid_at` for
 //! the same reason.
+//!
+//! An advance is asked for at a site and booked to the unit that owns it
+//! (`sites::unit_of_site`, 0605): every leg of all three entries sits in that
+//! unit's books.
 
 use chrono::{NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
@@ -144,7 +148,9 @@ pub struct SettleAdvanceRequest {
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct AdvanceReconciliationRow {
-    pub site_id: String,
+    /// Whose books: the control account is reconciled per unit (0605), each
+    /// advance counted in the unit that owns the site it was asked for at.
+    pub unit_id: String,
     pub account_code: String,
     pub account_name: String,
     pub gl_minor: i64,
@@ -465,6 +471,7 @@ pub async fn advance_pay(
     let amount: i64 = row.try_get("amount_minor")?;
     let qualifier: String = row.try_get("advance_qualifier")?;
     let number: String = row.try_get("advance_number")?;
+    let unit = super::sites::unit_of_site(pool, &site_id).await?;
 
     let mut tx = pool.begin().await?;
     let intent = PostingIntent {
@@ -475,8 +482,8 @@ pub async fn advance_pay(
         currency: row.try_get::<String, _>("currency")?.trim().to_string(),
         memo: Some(format!("{number} — uang muka dibayarkan")),
         lines: vec![
-            PostingLine::debit(ADVANCE_MEANING, &site_id, amount).with_qualifier(&qualifier),
-            PostingLine::credit(&request.cash_key, &site_id, amount)
+            PostingLine::debit(ADVANCE_MEANING, &unit, amount).with_qualifier(&qualifier),
+            PostingLine::credit(&request.cash_key, &unit, amount)
                 .with_qualifier(&request.cash_qualifier),
         ],
     };
@@ -524,7 +531,7 @@ pub async fn advance_settle(
         )));
     }
 
-    let site_id = document.advance.site_id.clone();
+    let unit = super::sites::unit_of_site(pool, &document.advance.site_id).await?;
     let qualifier = document.advance.advance_qualifier.clone();
     let number = document.advance.advance_number.clone();
     let currency = document.advance.currency.clone();
@@ -561,8 +568,8 @@ pub async fn advance_settle(
                         account_code: code.clone(),
                         category_code: category.map(str::to_string),
                     },
-                    site_id: site_id.clone(),
-                    counter_site_id: None,
+                    unit_id: unit.clone(),
+                    counter_unit_id: None,
                     debit_minor: request.amount_minor,
                     credit_minor: 0,
                     party_type: None,
@@ -586,7 +593,7 @@ pub async fn advance_settle(
                 AppError::Validation("say which drawer or bank the change went back into".into())
             })?;
             (
-                PostingLine::debit(&key, &site_id, request.amount_minor)
+                PostingLine::debit(&key, &unit, request.amount_minor)
                     .with_qualifier(&request.cash_qualifier),
                 None,
                 None,
@@ -611,7 +618,7 @@ pub async fn advance_settle(
         memo: Some(format!("{number} — {}", request.kind.to_lowercase())),
         lines: vec![
             debit_line,
-            PostingLine::credit(ADVANCE_MEANING, &site_id, request.amount_minor)
+            PostingLine::credit(ADVANCE_MEANING, &unit, request.amount_minor)
                 .with_qualifier(&qualifier),
         ],
     };
@@ -688,21 +695,24 @@ pub async fn advance_cancel(
 }
 
 /// The control account, with the ageing a Finance reader asks for first.
+///
+/// Per unit, because the books are: an advance keeps the site it was asked for
+/// at, and is counted in the unit that owns that site.
 pub async fn advance_reconciliation(
     pool: &PgPool,
 ) -> Result<Vec<AdvanceReconciliationRow>, AppError> {
     let rows = sqlx::query(
         "WITH mapped AS (
-             SELECT DISTINCT m.site_id, m.account_code
+             SELECT DISTINCT m.unit_id, m.account_code
                FROM account_resolution m WHERE m.role = 'advance'
          ), gl AS (
-             SELECT l.site_id, l.account_code,
+             SELECT l.unit_id, l.account_code,
                     SUM(l.debit_minor - l.credit_minor)::bigint AS gl_minor
                FROM journal_line l
-               JOIN mapped ON mapped.site_id = l.site_id AND mapped.account_code = l.account_code
-              GROUP BY l.site_id, l.account_code
+               JOIN mapped ON mapped.unit_id = l.unit_id AND mapped.account_code = l.account_code
+              GROUP BY l.unit_id, l.account_code
          ), sub AS (
-             SELECT a.site_id,
+             SELECT s.unit_id,
                     COALESCE(m.account_code, '?') AS account_code,
                     SUM(a.amount_minor - COALESCE(t.settled, 0))::bigint AS subledger_minor,
                     COUNT(*)::bigint AS open_advances,
@@ -710,17 +720,18 @@ pub async fn advance_reconciliation(
                              THEN a.amount_minor - COALESCE(t.settled, 0) ELSE 0 END)::bigint
                         AS over_thirty_days_minor
                FROM advance a
+               JOIN site s ON s.id = a.site_id
                LEFT JOIN (
                     SELECT advance_id, SUM(amount_minor) AS settled
                       FROM advance_settlement GROUP BY advance_id
                ) t ON t.advance_id = a.advance_id
                LEFT JOIN account_resolution m
-                 ON m.role = 'advance' AND m.site_id = a.site_id
+                 ON m.role = 'advance' AND m.unit_id = s.unit_id
                 AND m.source_type = 'COMPANY' AND m.source_id = a.advance_qualifier
               WHERE a.status IN ('PAID', 'PARTIALLY_SETTLED')
-              GROUP BY a.site_id, COALESCE(m.account_code, '?')
+              GROUP BY s.unit_id, COALESCE(m.account_code, '?')
          )
-         SELECT COALESCE(gl.site_id, sub.site_id) AS site_id,
+         SELECT COALESCE(gl.unit_id, sub.unit_id) AS unit_id,
                 COALESCE(gl.account_code, sub.account_code) AS account_code,
                 COALESCE(la.name, '—') AS account_name,
                 COALESCE(gl.gl_minor, 0)::bigint AS gl_minor,
@@ -729,7 +740,7 @@ pub async fn advance_reconciliation(
                 COALESCE(sub.over_thirty_days_minor, 0)::bigint AS over_thirty_days_minor
            FROM gl
            FULL OUTER JOIN sub
-             ON sub.site_id = gl.site_id AND sub.account_code = gl.account_code
+             ON sub.unit_id = gl.unit_id AND sub.account_code = gl.account_code
            LEFT JOIN ledger_account la
              ON la.account_code = COALESCE(gl.account_code, sub.account_code)
           ORDER BY 1, 2",
@@ -742,7 +753,7 @@ pub async fn advance_reconciliation(
             let gl: i64 = row.try_get("gl_minor")?;
             let sub: i64 = row.try_get("subledger_minor")?;
             Ok(AdvanceReconciliationRow {
-                site_id: row.try_get("site_id")?,
+                unit_id: row.try_get("unit_id")?,
                 account_code: row.try_get("account_code")?,
                 account_name: row.try_get("account_name")?,
                 gl_minor: gl,

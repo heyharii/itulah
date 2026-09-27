@@ -84,9 +84,9 @@ impl DepreciationMethod {
 /// operating-equipment rows that it charges every single month.
 ///
 /// The accounts themselves are still never named here. Each variant names
-/// three MEANINGS, and `account_resolution` turns a meaning plus a site plus a
+/// three MEANINGS, and `account_resolution` turns a meaning plus a unit plus a
 /// qualifier into the client's account — exactly as every other posting rule
-/// resolves one.
+/// resolves one. The unit is the one that owns the asset's site.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]

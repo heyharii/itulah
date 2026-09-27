@@ -17,16 +17,16 @@ source_type: string,
  */
 source_id: string, 
 /**
- * `ALL`, `SITE_KIND` or `SITE`.
+ * `ALL`, `UNIT_KIND` or `UNIT`.
  */
 scope_type: string, 
 /**
- * Empty for `ALL`, `HO`/`STORE` for `SITE_KIND`, a site id for `SITE`.
+ * Empty for `ALL`, `HO`/`STORE`/`ONLINE` for `UNIT_KIND`, a unit id for `UNIT`.
  */
 scope_key: string, account_code: string, account_name: string, account_type: string | null, category_code: string | null, 
 /**
- * How many sites this link actually decides: the sites in its scope that
+ * How many units this link actually decides: the units in its scope that
  * no more specific link overrides. A link that decides nothing is one a
  * person can remove without changing a single posting.
  */
-decides_sites: number, set_by: string, set_at: string, note: string | null, };
+decides_units: number, set_by: string, set_at: string, note: string | null, };

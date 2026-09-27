@@ -4,9 +4,10 @@
 //! A posting rule names a ROLE (`cash`, `trade_payable`, `payroll_expense`) and
 //! where the decision is kept (today always the company's own defaults, with
 //! the old qualifier as `source_id`). Which ACCOUNT answers is a link, and a
-//! link holds for a scope: every site, one kind of site (HO or STORE), or one
-//! site. The most specific link wins, so a fifteenth shop inherits every link
-//! that holds for all shops and nobody writes a row for it.
+//! link holds for a scope: every unit's books, one kind of unit (HO or STORE),
+//! or one unit (0606 — it said "site" while the books were kept per site). The
+//! most specific link wins, so a fifteenth store inherits every link that holds
+//! for all stores and nobody writes a row for it.
 //!
 //! Everything a person can do to that decision is here: read the links, set
 //! one, remove one, see who changed what, and ask whether the books are ready
@@ -33,18 +34,18 @@ pub struct AccountLink {
     /// asset class, an affiliate family. Empty when the role needs no
     /// narrowing.
     pub source_id: String,
-    /// `ALL`, `SITE_KIND` or `SITE`.
+    /// `ALL`, `UNIT_KIND` or `UNIT`.
     pub scope_type: String,
-    /// Empty for `ALL`, `HO`/`STORE` for `SITE_KIND`, a site id for `SITE`.
+    /// Empty for `ALL`, `HO`/`STORE`/`ONLINE` for `UNIT_KIND`, a unit id for `UNIT`.
     pub scope_key: String,
     pub account_code: String,
     pub account_name: String,
     pub account_type: Option<String>,
     pub category_code: Option<String>,
-    /// How many sites this link actually decides: the sites in its scope that
+    /// How many units this link actually decides: the units in its scope that
     /// no more specific link overrides. A link that decides nothing is one a
     /// person can remove without changing a single posting.
-    pub decides_sites: i64,
+    pub decides_units: i64,
     pub set_by: String,
     pub set_at: DateTime<Utc>,
     pub note: Option<String>,
@@ -63,9 +64,9 @@ pub struct SetAccountLinkRequest {
     pub source_type: String,
     #[serde(default)]
     pub source_id: String,
-    /// `ALL`, `SITE_KIND` or `SITE`.
+    /// `ALL`, `UNIT_KIND` or `UNIT`.
     pub scope_type: String,
-    /// `HO`/`STORE` for `SITE_KIND`, a site id for `SITE`, empty for `ALL`.
+    /// `HO`/`STORE`/`ONLINE` for `UNIT_KIND`, a unit id for `UNIT`, empty for `ALL`.
     #[serde(default)]
     pub scope_key: String,
     pub account_code: String,
@@ -88,7 +89,7 @@ pub struct AccountLinkScope {
 }
 
 /// The links, with the two lists they are read against: the roles the
-/// posting rules use (with their labels) and the sites books are kept for.
+/// posting rules use (with their labels) and the units books are kept for.
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct AccountLinkPage {
@@ -96,7 +97,7 @@ pub struct AccountLinkPage {
     pub total: i64,
     pub roles: Vec<SemanticKeyDoc>,
     pub locations: Vec<BookLocation>,
-    /// (role, source, site) combinations that resolve nowhere — the number the
+    /// (role, source, unit) combinations that resolve nowhere — the number the
     /// readiness screen breaks down. Never narrowed by the search.
     pub gaps: i64,
 }
@@ -119,14 +120,14 @@ pub struct AccountLinkChange {
     pub note: Option<String>,
 }
 
-/// One cell of the readiness matrix: what a role, from a source, lands on at
-/// a site — or that it lands nowhere.
+/// One cell of the readiness matrix: what a role, from a source, lands on in
+/// a unit's books — or that it lands nowhere.
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct ReadinessCell {
-    pub site_id: String,
+    pub unit_id: String,
     pub account_code: Option<String>,
-    /// Which scope decided it: `ALL`, `SITE_KIND` or `SITE`. Absent on a gap.
+    /// Which scope decided it: `ALL`, `UNIT_KIND` or `UNIT`. Absent on a gap.
     pub scope_type: Option<String>,
 }
 
@@ -141,8 +142,8 @@ pub struct ReadinessRow {
     pub gaps: i64,
 }
 
-/// "If this happened now at this site, would it post?" — for every role the
-/// posting rules use and every source a link names.
+/// "If this happened now in this unit's books, would it post?" — for every
+/// role the posting rules use and every source a link names.
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct PostingReadiness {
@@ -156,7 +157,7 @@ const LINK_ROWS: &str = "
            l.account_code, a.name AS account_name, a.account_type, l.category_code,
            l.set_by, l.set_at, l.note,
            (SELECT COUNT(*) FROM account_resolution r WHERE r.link_id = l.link_id)::bigint
-               AS decides_sites
+               AS decides_units
       FROM account_link l
       JOIN ledger_account a ON a.account_code = l.account_code";
 
@@ -172,7 +173,7 @@ fn to_link(row: &sqlx::postgres::PgRow) -> Result<AccountLink, AppError> {
         account_name: row.try_get("account_name")?,
         account_type: row.try_get("account_type")?,
         category_code: row.try_get("category_code")?,
-        decides_sites: row.try_get("decides_sites")?,
+        decides_units: row.try_get("decides_units")?,
         set_by: row.try_get("set_by")?,
         set_at: row.try_get("set_at")?,
         note: row.try_get("note")?,
@@ -204,7 +205,7 @@ pub async fn account_link_page(
                  OR l.account_code ILIKE $1 OR a.name ILIKE $1)
             AND ($2::text[] IS NULL OR l.role = ANY($2))
           ORDER BY l.role, l.source_type, l.source_id,
-                   CASE l.scope_type WHEN 'ALL' THEN 0 WHEN 'SITE_KIND' THEN 1 ELSE 2 END,
+                   CASE l.scope_type WHEN 'ALL' THEN 0 WHEN 'UNIT_KIND' THEN 1 ELSE 2 END,
                    l.scope_key"
     );
     let rows = sqlx::query(&sql)
@@ -275,16 +276,16 @@ fn scope_columns(request: &SetAccountLinkRequest) -> Result<(&'static str, Optio
     let key = request.scope_key.trim();
     match request.scope_type.trim().to_ascii_uppercase().as_str() {
         "ALL" => Ok(("ALL", None, None)),
-        "SITE_KIND" => match key.to_ascii_uppercase().as_str() {
-            kind @ ("HO" | "STORE") => Ok(("SITE_KIND", Some(kind.to_string()), None)),
+        "UNIT_KIND" => match key.to_ascii_uppercase().as_str() {
+            kind @ ("HO" | "STORE" | "ONLINE") => Ok(("UNIT_KIND", Some(kind.to_string()), None)),
             _ => Err(AppError::Validation(
-                "a link for one kind of site names the kind: HO or STORE".into(),
+                "a link for one kind of unit names the kind: HO, STORE or ONLINE".into(),
             )),
         },
-        "SITE" if !key.is_empty() => Ok(("SITE", None, Some(key.to_string()))),
-        "SITE" => Err(AppError::Validation("a link for one site names the site".into())),
+        "UNIT" if !key.is_empty() => Ok(("UNIT", None, Some(key.to_string()))),
+        "UNIT" => Err(AppError::Validation("a link for one unit names the unit".into())),
         other => Err(AppError::Validation(format!(
-            "scope {other:?} is not one of ALL, SITE_KIND or SITE"
+            "scope {other:?} is not one of ALL, UNIT_KIND or UNIT"
         ))),
     }
 }
@@ -313,13 +314,13 @@ pub async fn set_account_link(
         .map(str::trim)
         .filter(|value| !value.is_empty());
     assert_category_for_account(pool, code, category, Intent::Map).await?;
-    let (scope_type, site_kind, site_id) = scope_columns(request)?;
+    let (scope_type, unit_kind, unit_id) = scope_columns(request)?;
     let source_type = request.source_type.trim().to_ascii_uppercase();
     assert_source_exists(pool, &source_type, request.source_id.trim()).await?;
 
     let link_id: i64 = sqlx::query_scalar(
         "INSERT INTO account_link
-            (role, source_type, source_id, scope_type, scope_site_kind, scope_site_id,
+            (role, source_type, source_id, scope_type, scope_unit_kind, scope_unit_id,
              account_code, category_code, set_by, note)
          VALUES ($1, $10, $2, $3, $4, $5, $6, $7, $8, $9)
          ON CONFLICT (role, source_type, source_id, scope_type, scope_key)
@@ -333,8 +334,8 @@ pub async fn set_account_link(
     .bind(&role)
     .bind(request.source_id.trim())
     .bind(scope_type)
-    .bind(site_kind)
-    .bind(site_id)
+    .bind(unit_kind)
+    .bind(unit_id)
     .bind(code)
     .bind(category)
     .bind(actor)
@@ -356,9 +357,9 @@ pub async fn account_link(pool: &PgPool, link_id: i64) -> Result<AccountLink, Ap
 
 /// Remove a link.
 ///
-/// Refused when it would leave a site with nothing to post to — that is a
+/// Refused when it would leave a unit with nothing to post to — that is a
 /// posting that works today and refuses tomorrow, and the person removing an
-/// "unused" link deserves to hear which sites it was quietly deciding. `force`
+/// "unused" link deserves to hear which units it was quietly deciding. `force`
 /// removes it anyway, for the day somebody means exactly that.
 pub async fn remove_account_link(
     pool: &PgPool,
@@ -379,8 +380,8 @@ pub async fn remove_account_link(
     let source_id: String = link.try_get("source_id")?;
 
     let before: Vec<String> = sqlx::query_scalar(
-        "SELECT site_id FROM account_resolution
-          WHERE role = $1 AND source_type = $2 AND source_id = $3 ORDER BY site_id",
+        "SELECT unit_id FROM account_resolution
+          WHERE role = $1 AND source_type = $2 AND source_id = $3 ORDER BY unit_id",
     )
     .bind(&role)
     .bind(&source_type)
@@ -396,19 +397,19 @@ pub async fn remove_account_link(
         .execute(&mut *tx)
         .await?;
     let after: Vec<String> = sqlx::query_scalar(
-        "SELECT site_id FROM account_resolution
-          WHERE role = $1 AND source_type = $2 AND source_id = $3 ORDER BY site_id",
+        "SELECT unit_id FROM account_resolution
+          WHERE role = $1 AND source_type = $2 AND source_id = $3 ORDER BY unit_id",
     )
     .bind(&role)
     .bind(&source_type)
     .bind(&source_id)
     .fetch_all(&mut *tx)
     .await?;
-    let orphaned: Vec<&String> = before.iter().filter(|site| !after.contains(site)).collect();
+    let orphaned: Vec<&String> = before.iter().filter(|unit| !after.contains(unit)).collect();
     if !orphaned.is_empty() && !force {
         return Err(AppError::Conflict(format!(
-            "removing this link leaves {role}{} with no account at {}; link those sites first, \
-             or remove it anyway",
+            "removing this link leaves {role}{} with no account in the books of {}; link those \
+             units first, or remove it anyway",
             if source_id.is_empty() { String::new() } else { format!(" ({source_id})") },
             orphaned.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
         )));
@@ -475,11 +476,11 @@ pub async fn account_link_history_before(
 }
 
 /// For every role the posting rules name and every source a link names, what
-/// each site resolves to.
+/// each unit resolves to.
 ///
 /// A (role, source) is expected wherever it resolves anywhere: a bank linked at
-/// twelve shops and not the thirteenth is a gap at the thirteenth. A role the
-/// rules need that no link names at all is a gap at every site.
+/// twelve stores and not the thirteenth is a gap at the thirteenth. A role the
+/// rules need that no link names at all is a gap in every unit.
 pub async fn posting_readiness(pool: &PgPool) -> Result<PostingReadiness, AppError> {
     let locations = book_locations(pool).await?;
     let docs = required_semantic_keys();
@@ -492,7 +493,7 @@ pub async fn posting_readiness(pool: &PgPool) -> Result<PostingReadiness, AppErr
               WHERE NOT EXISTS (SELECT 1 FROM account_link l WHERE l.role = k)
              UNION
              -- Every live master record has to land somewhere, linked or not:
-             -- a category or component nobody linked is a gap at every site.
+             -- a category or component nobody linked is a gap in every unit.
              SELECT 'expense', 'EXPENSE_CATEGORY', code FROM expense_category WHERE is_active
              UNION
              SELECT CASE kind WHEN 'EARNING' THEN 'payroll_expense' ELSE 'payroll_deduction' END,
@@ -509,13 +510,13 @@ pub async fn posting_readiness(pool: &PgPool) -> Result<PostingReadiness, AppErr
               CROSS JOIN LATERAL payment_method_roles(p.tender_type, p.settlement_mode) m (role)
               WHERE p.is_active
          )
-         SELECT w.role, w.source_type, w.source_id, s.id AS site_id, r.account_code, r.scope_type
+         SELECT w.role, w.source_type, w.source_id, u.id AS unit_id, r.account_code, r.scope_type
            FROM wanted w
-          CROSS JOIN site s
+          CROSS JOIN unit u
            LEFT JOIN account_resolution r
                   ON r.role = w.role AND r.source_type = w.source_type
-                 AND r.source_id = w.source_id AND r.site_id = s.id
-          ORDER BY w.role, w.source_type, w.source_id, (s.kind <> 'HO'), s.id",
+                 AND r.source_id = w.source_id AND r.unit_id = u.id
+          ORDER BY w.role, w.source_type, w.source_id, (u.kind <> 'HO'), u.code",
     )
     .bind(&required)
     .fetch_all(pool)
@@ -527,7 +528,7 @@ pub async fn posting_readiness(pool: &PgPool) -> Result<PostingReadiness, AppErr
         let source_type: String = row.try_get("source_type")?;
         let source_id: String = row.try_get("source_id")?;
         let cell = ReadinessCell {
-            site_id: row.try_get("site_id")?,
+            unit_id: row.try_get("unit_id")?,
             account_code: row.try_get("account_code")?,
             scope_type: row.try_get("scope_type")?,
         };

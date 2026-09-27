@@ -1,5 +1,6 @@
 use super::{
-    ExternalPlace, InventoryState, MovementGroupId, OperationalPool, Place, SubjectId, SystemPlace,
+    ExternalPlace, InventoryState, MovementGroupId, OperationalPool, Place, PoolRole, SubjectId,
+    SystemPlace,
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -18,7 +19,11 @@ pub enum SubjectType {
 pub enum MovementCause {
     Opening,
     NormalMove,
-    ReturnToDc,
+    /// A shop's goods back to a warehouse (owner, 2026-09-27). Written
+    /// `RETURN_TO_WAREHOUSE`; `RETURN_TO_DC`, its spelling before 0611, still
+    /// reads — on the wire, in a request and in the ledger.
+    #[serde(alias = "RETURN_TO_DC")]
+    ReturnToWarehouse,
     Sale,
     CustomerReturn,
     SupplierReturn,
@@ -35,7 +40,7 @@ impl MovementCause {
         match self {
             Self::Opening => "OPENING",
             Self::NormalMove => "NORMAL_MOVE",
-            Self::ReturnToDc => "RETURN_TO_DC",
+            Self::ReturnToWarehouse => "RETURN_TO_WAREHOUSE",
             Self::Sale => "SALE",
             Self::CustomerReturn => "CUSTOMER_RETURN",
             Self::SupplierReturn => "SUPPLIER_RETURN",
@@ -61,7 +66,7 @@ impl FromStr for MovementCause {
         match value {
             "OPENING" => Ok(Self::Opening),
             "NORMAL_MOVE" => Ok(Self::NormalMove),
-            "RETURN_TO_DC" => Ok(Self::ReturnToDc),
+            "RETURN_TO_WAREHOUSE" | "RETURN_TO_DC" => Ok(Self::ReturnToWarehouse),
             "SALE" => Ok(Self::Sale),
             "CUSTOMER_RETURN" => Ok(Self::CustomerReturn),
             "SUPPLIER_RETURN" => Ok(Self::SupplierReturn),
@@ -222,28 +227,36 @@ pub fn validate_transition(cause: MovementCause, line: &MovementLine) -> Result<
                     place: ExternalPlace::Customer
                 }
             ) && matches!(
-                line.to,
+                &line.to,
                 Place::Operational {
-                    pool: OperationalPool::StoreFloor(_) | OperationalPool::StoreReject(_),
+                    pool,
                     state: InventoryState::Normal,
-                }
+                } if matches!(pool.role(), PoolRole::Floor | PoolRole::Reject)
             )
         }
-        MovementCause::ReturnToDc => matches!(
-            (&line.from, &line.to),
+        // A shop's goods at rest, straight to a warehouse's stockroom or the
+        // shop's return pool there: the centre holds both ledgers of a site
+        // no node owns, so it books the journey as one movement. Which site
+        // is a warehouse is data, checked where the allotment was raised.
+        MovementCause::ReturnToWarehouse => match (&line.from, &line.to) {
             (
                 Place::Operational {
-                    pool: OperationalPool::StoreWarehouse(_)
-                        | OperationalPool::StoreFloor(_)
-                        | OperationalPool::StoreReject(_),
+                    pool: from,
                     state: InventoryState::Normal,
                 },
                 Place::Operational {
-                    pool: OperationalPool::DcWarehouse,
+                    pool: to,
                     state: InventoryState::Normal,
                 },
-            )
-        ),
+            ) => {
+                matches!(
+                    from.role(),
+                    PoolRole::Stockroom | PoolRole::Floor | PoolRole::Reject
+                ) && to.role().is_arrival()
+                    && from.site_id() != to.site_id()
+            }
+            _ => false,
+        },
         MovementCause::SupplierReturn => {
             on_hand(&line.from)
                 && matches!(
@@ -278,25 +291,65 @@ pub fn validate_transition(cause: MovementCause, line: &MovementLine) -> Result<
     Ok(())
 }
 
+/// Which pool may follow which, by ROLE (postgres `0610`).
+///
+/// The centre's own ledger holds every site no node owns, so unlike an edge
+/// node it may book an arrival across sites: out of the in-transit stage at
+/// the origin into the destination's stockroom or return pool. Everything else
+/// stays at its site. What a site is — a warehouse or a shop — is never asked:
+/// a rule that holds only where a pool exists needs no more.
 fn normal_pool_transition(from: &OperationalPool, to: &OperationalPool) -> bool {
-    use OperationalPool::*;
-    match (from, to) {
-        (DcPendingUnidentified, DcPendingUntagged) | (DcPendingUntagged, DcWarehouse) => true,
+    use PoolRole::*;
+    let same_site = from.site_id() == to.site_id();
+    match (from.role(), to.role()) {
+        // Arrival. A legacy leaf names its destination and must be believed;
+        // the stage at the origin names none, and the allotment line the
+        // movement references says where it was going.
+        (InTransit, Stockroom | Return) if !same_site => from
+            .outbound_destination()
+            .is_none_or(|destination| destination == to.site_id()),
+        // A shop's reject to its own return pool at the Gudang, as 0002
+        // wired it: the legacy return pool names the shop it belongs to.
+        (Reject, Return) if !same_site => {
+            matches!(to, OperationalPool::DcRejectStore { store_id, .. } if store_id == from.site_id())
+        }
+        _ if !same_site => false,
+        (Receiving, Receiving) => matches!(
+            (from, to),
+            (
+                OperationalPool::DcPendingUnidentified { .. },
+                OperationalPool::DcPendingUntagged { .. }
+            )
+        ),
+        (Receiving, Stockroom) => matches!(from, OperationalPool::DcPendingUntagged { .. }),
         // Picking is a real move and commits to nothing; packing is where a
-        // carton, and therefore a store, is chosen.
-        (DcWarehouse, DcOutboundPicking)
-        | (DcOutboundPicking, DcWarehouse)
-        | (DcOutboundPicking, DcOutboundPacked(_))
-        | (DcWarehouse, DcOutboundPicked(_)) => true,
-        (DcOutboundPicked(from_store), DcOutboundPacked(to_store))
-        | (DcOutboundPacked(from_store), DcOutboundShipment(to_store))
-        | (DcOutboundShipment(from_store), DcOutboundInTransit(to_store)) => from_store == to_store,
-        (DcOutboundInTransit(from_store), StoreWarehouse(to_store)) => from_store == to_store,
-        (StoreWarehouse(a), StoreFloor(b)) | (StoreFloor(a), StoreWarehouse(b)) => a == b,
-        (StoreWarehouse(a), StoreReject(b)) | (StoreFloor(a), StoreReject(b)) => a == b,
-        (StoreReject(origin), DcRejectStore(target_origin)) => origin == target_origin,
-        (DcRejectStore(_), DcRejectDc) => true,
+        // carton, and therefore a destination, is chosen. The legacy
+        // per-store pick leaves take no new writes, but what stands in them
+        // may still be packed.
+        (Stockroom | Floor | Reject | Return, Picking) | (Picking, Stockroom) => {
+            !from.is_legacy_leaf() && !to.is_legacy_leaf()
+        }
+        (Picking, Packed) if from.is_legacy_leaf() => same_destination(from, to),
+        (_, Packed) => from.is_fulfillment_source_for(to.site_id()),
+        // The centre never had a LOADED stage of its own; a shipment could
+        // leave straight for in-transit, and still may.
+        (Packed, Shipment) | (Shipment, Loaded) | (Loaded, InTransit) | (Shipment, InTransit) => {
+            same_destination(from, to)
+        }
+        (Stockroom, Floor) | (Floor, Stockroom) | (Stockroom, Reject) | (Floor, Reject) => true,
+        // Inspection of a return: good goods to the racks, damaged to reject.
+        (Return, Stockroom) | (Return, Reject) => true,
         _ => false,
+    }
+}
+
+/// A koli keeps its destination from stage to stage; nothing goes back into
+/// a legacy leaf once it has left one.
+fn same_destination(from: &OperationalPool, to: &OperationalPool) -> bool {
+    match (from.outbound_destination(), to.outbound_destination()) {
+        (Some(from), Some(to)) => from == to,
+        (_, None) => true,
+        (None, Some(_)) => false,
     }
 }
 
@@ -326,10 +379,12 @@ mod tests {
                 "dc.pending.untagged:on_hand",
             ),
             ("dc.pending.untagged:on_hand", "dc.warehouse:on_hand"),
-            (
-                "dc.warehouse:on_hand",
-                "dc.outbound.picked.store-07:on_hand",
-            ),
+            ("dc.warehouse:on_hand", "dc.outbound.picking:on_hand"),
+            ("dc.outbound.picking:on_hand", "dc.outbound.packed:on_hand"),
+            ("dc.outbound.packed:on_hand", "dc.outbound.shipment:on_hand"),
+            ("dc.outbound.shipment:on_hand", "dc.outbound.loaded:on_hand"),
+            ("dc.outbound.loaded:on_hand", "dc.outbound.in-transit:on_hand"),
+            ("dc.outbound.in-transit:on_hand", "store-07.warehouse:on_hand"),
             (
                 "dc.outbound.picked.store-07:on_hand",
                 "dc.outbound.packed.store-07:on_hand",

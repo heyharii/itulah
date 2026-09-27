@@ -8,7 +8,11 @@ export type BankStatementSourceRow = { source_id: string, label: string, enabled
  * The client's own name for the account, so a rule reads as a sentence
  * rather than as a code somebody has to look up.
  */
-account_name: string, site_id: string, from_pattern: string, subject_pattern: string, filename_pattern: string, format: string, settings: Record<string, unknown>, priority: number, 
+account_name: string, 
+/**
+ * Whose books the account is kept in (0605).
+ */
+unit_id: string, from_pattern: string, subject_pattern: string, filename_pattern: string, format: string, settings: Record<string, unknown>, priority: number, 
 /**
  * Whether the stored mapping is one the readers can actually use. A rule
  * with a broken mapping is worse than a missing one: it takes the file

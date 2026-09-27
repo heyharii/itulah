@@ -3,7 +3,7 @@
 /**
  * One open item, as at whatever date it was asked for.
  */
-export type PaymentLedgerEntry = { entry_id: string, account_key: string, qualifier: string, site_id: string, side: string, party_type: string, party_id: string, party_name: string | null, voucher_kind: string, voucher_id: string, against_voucher_kind: string | null, against_voucher_id: string | null, journal_entry_id: string, 
+export type PaymentLedgerEntry = { entry_id: string, account_key: string, qualifier: string, unit_id: string, side: string, party_type: string, party_id: string, party_name: string | null, voucher_kind: string, voucher_id: string, against_voucher_kind: string | null, against_voucher_id: string | null, journal_entry_id: string, 
 /**
  * The entry number, so a list can name the journal without a second fetch.
  */

@@ -5,7 +5,7 @@ import type { MoneyFacets } from "./MoneyFacets";
 /**
  * Where the money is, and whether the bank agrees.
  */
-export type MoneyOverview = { as_of: string, site_id: string | null, rows: Array<MoneyAccountRow>, 
+export type MoneyOverview = { as_of: string, unit_id: string | null, rows: Array<MoneyAccountRow>, 
 /**
  * Opaque. Pass it back as `cursor` for the next page; absent means this
  * was the last one.

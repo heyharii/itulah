@@ -22,10 +22,11 @@ use crate::cloud::AppError;
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct CompanyBankAccount {
     pub account_id: Uuid,
-    /// The ledger account this describes, and the place it is kept for.
+    /// The ledger account this describes, and the unit whose books it is kept
+    /// in (0605): head office's, or a store's own account.
     pub ledger_account_code: String,
     pub ledger_account_name: String,
-    pub site_id: String,
+    pub unit_id: String,
     /// The institution's code, authoritative since 0269.
     pub bank_code: String,
     pub bank_name: String,
@@ -36,7 +37,7 @@ pub struct CompanyBankAccount {
     pub kind: String,
     /// `ACTIVE`, `DORMANT` (exists, unused) or `CLOSED` (terminated).
     pub status: String,
-    /// The account this place pays out of unless somebody says otherwise.
+    /// The account this unit pays out of unless somebody says otherwise.
     pub is_primary: bool,
     pub note: Option<String>,
     pub retired_at: Option<DateTime<Utc>>,
@@ -48,7 +49,8 @@ pub struct CompanyBankAccount {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct DescribeBankAccountRequest {
     pub ledger_account_code: String,
-    pub site_id: String,
+    /// Whose books the account is kept in.
+    pub unit_id: String,
     /// The institution's own code — `BCA`, `MANDIRI` — which is the way to name
     /// it now that 0269 made institutions rows.
     #[serde(default)]
@@ -67,8 +69,8 @@ pub struct DescribeBankAccountRequest {
     pub branch: Option<String>,
     /// `GIRO` or `SAVINGS`.
     pub kind: String,
-    /// Absent means "decide for me": the first live account at a place becomes
-    /// its primary, because a place with one account and no primary is a
+    /// Absent means "decide for me": the first live account of a unit becomes
+    /// its primary, because a unit with one account and no primary is a
     /// question with one answer.
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional, type = "boolean | null"))]
@@ -158,7 +160,7 @@ fn row_to_account(row: &sqlx::postgres::PgRow) -> Result<CompanyBankAccount, App
         account_id: row.try_get("account_id")?,
         ledger_account_code: row.try_get("ledger_account_code")?,
         ledger_account_name: row.try_get("ledger_account_name")?,
-        site_id: row.try_get("site_id")?,
+        unit_id: row.try_get("unit_id")?,
         bank_code: row.try_get("bank_code")?,
         bank_name: row.try_get("bank_name")?,
         account_no: row.try_get("account_no")?,
@@ -178,7 +180,7 @@ fn row_to_account(row: &sqlx::postgres::PgRow) -> Result<CompanyBankAccount, App
 // merged table holds our accounts AND our parties', and only the former is
 // ours to list.
 const SELECT: &str = "SELECT c.account_id, c.ledger_account_code, a.name AS ledger_account_name,
-                             c.site_id, b.code AS bank_code, b.name AS bank_name,
+                             c.unit_id, b.code AS bank_code, b.name AS bank_name,
                              c.account_no, c.account_holder, c.branch,
                              c.kind, c.status, c.is_primary, c.note, c.retired_at,
                              c.updated_by, c.updated_at
@@ -190,18 +192,19 @@ const SELECT: &str = "SELECT c.account_id, c.ledger_account_code, a.name AS ledg
                         JOIN bank b ON b.bank_id = c.bank_id
                         WHERE c.is_company_account";
 
-/// Every account we have described. Retired ones come too, marked: they are
-/// still what a statement from last March was filed against.
+/// Every account we have described, one unit's when a unit is named. Retired
+/// ones come too, marked: they are still what a statement from last March was
+/// filed against.
 pub async fn list_accounts(
     pool: &PgPool,
-    site_id: Option<&str>,
+    unit_id: Option<&str>,
 ) -> Result<Vec<CompanyBankAccount>, AppError> {
     let rows = sqlx::query(&format!(
         "{SELECT}
-          AND ($1::text IS NULL OR c.site_id = $1)
+          AND ($1::text IS NULL OR c.unit_id = $1)
           ORDER BY c.retired_at NULLS FIRST, b.name, c.account_no"
     ))
-    .bind(site_id)
+    .bind(unit_id)
     .fetch_all(pool)
     .await?;
     rows.iter().map(row_to_account).collect()
@@ -243,7 +246,7 @@ pub async fn describe_account(
 
     let mut tx = pool.begin().await?;
 
-    // First live account at a place is that place's primary unless told
+    // First live account of a unit is that unit's primary unless told
     // otherwise. Asked inside the transaction so two people describing the
     // first two accounts at once cannot both be told they are the first.
     //
@@ -255,10 +258,10 @@ pub async fn describe_account(
         None => {
             let existing: i64 = sqlx::query(
                 "SELECT COUNT(*)::bigint AS n FROM bank_account
-                  WHERE is_company_account AND site_id = $1 AND retired_at IS NULL
+                  WHERE is_company_account AND unit_id = $1 AND retired_at IS NULL
                     AND NOT (bank_id = $2 AND account_no_digits = $3)",
             )
-            .bind(&request.site_id)
+            .bind(&request.unit_id)
             .bind(bank_id)
             .bind(&account_digits)
             .fetch_one(&mut *tx)
@@ -268,16 +271,16 @@ pub async fn describe_account(
         }
     };
 
-    // Only one primary per place can be live (0223's partial unique index), so
+    // Only one primary per unit can be live (0223's partial unique index), so
     // naming a new one stands the old one down rather than being refused. The
     // refusal would be correct and useless: somebody who says "this is the one
     // we pay from now" has already decided about the other.
     if primary {
         sqlx::query(
             "UPDATE bank_account SET is_primary = false, updated_by = $2, updated_at = now()
-              WHERE is_company_account AND site_id = $1 AND is_primary AND retired_at IS NULL",
+              WHERE is_company_account AND unit_id = $1 AND is_primary AND retired_at IS NULL",
         )
-        .bind(&request.site_id)
+        .bind(&request.unit_id)
         .bind(actor)
         .execute(&mut *tx)
         .await?;
@@ -285,7 +288,7 @@ pub async fn describe_account(
 
     let row = sqlx::query(
         "INSERT INTO bank_account
-           (account_id, bank_id, is_company_account, ledger_account_code, site_id,
+           (account_id, bank_id, is_company_account, ledger_account_code, unit_id,
             account_no, account_no_digits, account_holder, branch, kind, status,
             is_primary, note, created_by, updated_by)
          VALUES ($1,$2,true,$3,$4,$5,$6,$7,$8,$9,'ACTIVE',$10,$11,$12,$12)
@@ -296,7 +299,7 @@ pub async fn describe_account(
          -- what 0269 unlocked.
          ON CONFLICT (bank_id, account_no_digits) WHERE account_no_digits IS NOT NULL DO UPDATE
             SET ledger_account_code = EXCLUDED.ledger_account_code,
-                site_id = EXCLUDED.site_id,
+                unit_id = EXCLUDED.unit_id,
                 account_no = EXCLUDED.account_no,
                 account_holder = EXCLUDED.account_holder,
                 branch = EXCLUDED.branch,
@@ -315,7 +318,7 @@ pub async fn describe_account(
     .bind(Uuid::new_v4())
     .bind(bank_id)
     .bind(&request.ledger_account_code)
-    .bind(&request.site_id)
+    .bind(&request.unit_id)
     .bind(&account_no)
     .bind(&account_digits)
     .bind(holder)
@@ -387,7 +390,8 @@ pub struct BankingSetupGap {
     pub semantic_key: String,
     /// The institution's code as the map spells it, which is `bank.code`.
     pub qualifier: String,
-    pub site_id: String,
+    /// The unit whose books the meaning resolves in.
+    pub unit_id: String,
     pub account_code: String,
     pub account_name: String,
     /// What is missing, in a sentence.
@@ -429,38 +433,39 @@ pub struct BankInstitution {
 /// A fresh installation with nothing mapped yet is complete by that reading, and
 /// correctly so — there is nothing it has claimed and not delivered.
 ///
-/// Company-dimension accounts mapped at a shop are not listed. `1011002001` posts
-/// at head office and nowhere else (0122), so a mapping of it at store-04 is a
-/// mapping nothing can use, and demanding an account for it would be demanding
-/// thirteen bank accounts no shop has.
+/// Company-dimension accounts resolved for a store unit are not listed.
+/// `1011002001` posts in head office's books and nowhere else (0122), so a
+/// resolution of it for store-04 is one nothing can use, and demanding an
+/// account for it would be demanding thirteen bank accounts no store has.
+/// `head_office_unit` is head office's books (`sites::head_office_unit_id`).
 pub async fn banking_readiness(
     pool: &PgPool,
-    head_office: &str,
+    head_office_unit: &str,
 ) -> Result<Vec<BankingSetupGap>, AppError> {
     let rows = sqlx::query(
-        "SELECT m.role AS semantic_key, m.source_id AS qualifier, m.site_id, m.account_code,
+        "SELECT m.role AS semantic_key, m.source_id AS qualifier, m.unit_id, m.account_code,
                 a.name AS account_name,
                 (SELECT COUNT(*)::bigint FROM bank_account c
                   WHERE c.is_company_account
                     AND c.ledger_account_code = m.account_code
-                    AND c.site_id = m.site_id) AS described,
+                    AND c.unit_id = m.unit_id) AS described,
                 b.code AS expected_bank
            FROM account_resolution m
            JOIN ledger_account a ON a.account_code = m.account_code
            LEFT JOIN bank b ON b.code = m.source_id
           WHERE m.role IN ('bank_giro', 'bank_savings', 'time_deposit')
             AND m.source_type = 'COMPANY'
-            AND (a.dimension IS DISTINCT FROM 'company' OR m.site_id = $1)
+            AND (a.dimension IS DISTINCT FROM 'company' OR m.unit_id = $1)
             AND NOT EXISTS (
                 SELECT 1 FROM bank_account c
                  WHERE c.is_company_account
                    AND c.ledger_account_code = m.account_code
-                   AND c.site_id = m.site_id
+                   AND c.unit_id = m.unit_id
                    AND c.status = 'ACTIVE'
             )
-          ORDER BY m.site_id, m.role, m.source_id",
+          ORDER BY m.unit_id, m.role, m.source_id",
     )
-    .bind(head_office)
+    .bind(head_office_unit)
     .fetch_all(pool)
     .await?;
 
@@ -471,7 +476,7 @@ pub async fn banking_readiness(
             Ok(BankingSetupGap {
                 semantic_key: row.try_get("semantic_key")?,
                 qualifier: row.try_get("qualifier")?,
-                site_id: row.try_get("site_id")?,
+                unit_id: row.try_get("unit_id")?,
                 account_code: row.try_get("account_code")?,
                 account_name: row.try_get("account_name")?,
                 // The difference between "nobody has described one" and "the one
@@ -520,7 +525,7 @@ pub async fn bank_institutions(pool: &PgPool) -> Result<Vec<BankInstitution>, Ap
                SELECT SUM(l.debit_minor - l.credit_minor)::bigint AS balance
                  FROM bank_account c
                  JOIN journal_line l
-                   ON l.account_code = c.ledger_account_code AND l.site_id = c.site_id
+                   ON l.account_code = c.ledger_account_code AND l.unit_id = c.unit_id
                 WHERE c.is_company_account
                   AND c.bank_id = b.bank_id AND c.retired_at IS NULL
            ) held ON true

@@ -5,7 +5,11 @@ import type { TrialBalanceRow } from "./TrialBalanceRow";
 /**
  * The trial balance, and the proof that it is one.
  */
-export type TrialBalance = { as_of: string, site_id: string | null, rows: Array<TrialBalanceRow>, 
+export type TrialBalance = { as_of: string, 
+/**
+ * One unit's books, or the company's when absent.
+ */
+unit_id: string | null, rows: Array<TrialBalanceRow>, 
 /**
  * **Over the whole ledger at `as_of`, never over the page and never
  * narrowed by the search.** The thing this screen exists to prove is

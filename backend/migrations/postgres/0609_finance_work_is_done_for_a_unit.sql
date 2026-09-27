@@ -1,0 +1,157 @@
+-- 0609: the work Finance does against a book is done for a unit.
+--
+-- The last of the step that moves the books from sites to units (0605-0608).
+-- These are not documents a shop writes; they are Finance's own work lists
+-- and instruments, each of which exists to act on one unit's books:
+--
+--   * `tender_reconciliation` — Finance proving a store's takings for a day
+--     against what the acquirer paid. The money is the store's (the unit's);
+--     the sales it reads stay at the shop where they were rung up, and are
+--     gathered by `unit_of_site`, each dated by its own shop's clock. A store
+--     with one shop — every store today — reconciles exactly what it did.
+--     The route that opens one (`/finance/store/{unit}/tender-recon/…`) names
+--     the unit.
+--   * `correction_document` — a reclass, adjustment or write-off a second
+--     person signs (0129). `site_id` is the book it corrects and
+--     `target_site_id` the book a reclass moves to; both are units.
+--   * Not `defer_schedule`: 0306 made it and 0309 dropped it again. A
+--     prepayment's spread is `prepaid_schedule`, which keeps its site and
+--     posts to that site's unit.
+--   * `bank_rule` and `bank_rule_proposal` — how a line on a statement is
+--     read (0116). A statement is of a unit's bank account since 0605, so the
+--     meaning a rule proposes resolves in that unit. The rule's default book
+--     was the literal `'dc'`; it is head office's unit, asked by its kind.
+--   * `payment_batch` — head office paying many parties from one bank
+--     account (0153): the account is a unit's, so the batch is.
+--   * `finance_journal_draft.lines` and `journal_template.lines` — lines
+--     Finance saved to post later, kept as the poster reads them; each
+--     line's `site_id` becomes `unit_id` the way the journal's did.
+--
+-- What stays at a site is said in 0608's header, and why.
+
+CREATE OR REPLACE FUNCTION pg_temp.move_column_to_unit(p_table regclass, p_from text, p_to text)
+RETURNS void LANGUAGE plpgsql AS $$
+DECLARE
+    col  smallint;
+    con  record;
+    idx  record;
+BEGIN
+    SELECT attnum INTO col
+      FROM pg_attribute
+     WHERE attrelid = p_table AND attname = p_from AND NOT attisdropped;
+    IF col IS NULL THEN
+        RAISE EXCEPTION '%.% was expected and is not there', p_table, p_from;
+    END IF;
+    FOR con IN
+        SELECT conname
+          FROM pg_constraint
+         WHERE conrelid = p_table AND contype = 'f'
+           AND confrelid = 'site'::regclass AND conkey = ARRAY[col]
+    LOOP
+        EXECUTE format('ALTER TABLE %s DROP CONSTRAINT %I', p_table, con.conname);
+    END LOOP;
+    EXECUTE format('ALTER TABLE %s RENAME COLUMN %I TO %I', p_table, p_from, p_to);
+    EXECUTE format('ALTER TABLE %s DISABLE TRIGGER USER', p_table);
+    EXECUTE format(
+        'UPDATE %s AS x SET %I = s.unit_id FROM site s '
+        'WHERE s.id = x.%I AND s.unit_id IS DISTINCT FROM x.%I',
+        p_table, p_to, p_to, p_to);
+    EXECUTE format('ALTER TABLE %s ENABLE TRIGGER USER', p_table);
+    EXECUTE format('ALTER TABLE %s ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES unit (id)',
+                   p_table, left(p_table::text || '_' || p_to || '_fkey', 63), p_to);
+    FOR idx IN
+        SELECT i.relname AS name
+          FROM pg_index x
+          JOIN pg_class i ON i.oid = x.indexrelid
+         WHERE x.indrelid = p_table
+           AND col = ANY (x.indkey::smallint[])
+           AND i.relname LIKE '%site%'
+    LOOP
+        EXECUTE format('ALTER INDEX %I RENAME TO %I', idx.name, replace(idx.name, 'site', 'unit'));
+    END LOOP;
+END
+$$;
+
+-- A store with two shops would have had two reconciliations of one kind on
+-- one day; as one unit they would be one. Refused rather than merged.
+DO $$
+DECLARE
+    doubled text;
+BEGIN
+    SELECT string_agg(format('%s %s %s', s.unit_id, r.business_date, r.tender_kind), '; ')
+      INTO doubled
+      FROM tender_reconciliation r
+      JOIN site s ON s.id = r.site_id
+     GROUP BY s.unit_id, r.business_date, r.tender_kind, COALESCE(r.terminal_id, '')
+    HAVING count(*) > 1;
+    IF doubled IS NOT NULL THEN
+        RAISE EXCEPTION
+            '0609: two shops of one unit reconciled the same tender on the same day: %; merge them by hand first',
+            doubled;
+    END IF;
+END
+$$;
+
+SELECT pg_temp.move_column_to_unit('tender_reconciliation', 'site_id', 'unit_id');
+SELECT pg_temp.move_column_to_unit('correction_document', 'site_id', 'unit_id');
+SELECT pg_temp.move_column_to_unit('correction_document', 'target_site_id', 'target_unit_id');
+SELECT pg_temp.move_column_to_unit('bank_rule', 'site_id', 'unit_id');
+SELECT pg_temp.move_column_to_unit('bank_rule_proposal', 'site_id', 'unit_id');
+SELECT pg_temp.move_column_to_unit('payment_batch', 'site_id', 'unit_id');
+
+-- A rule that names no book reads head office's statements, found by kind.
+ALTER TABLE bank_rule ALTER COLUMN unit_id SET DEFAULT head_office_unit_id();
+
+-- ---------------------------------------------------------------------------
+-- Lines Finance saved but has not posted say which unit, too
+-- ---------------------------------------------------------------------------
+--
+-- A journal draft (0319) and a journal template (0473) keep their lines as the
+-- poster reads them — `PostingLine` as JSON — and the poster's line now names
+-- `unit_id` and `counter_unit_id` (0605). A saved line that still said
+-- `site_id: "dc"` would no longer be readable at all. Each is re-spelled the
+-- way the journal was: through the site's unit, and left as it was when it
+-- names no site this database holds.
+
+CREATE OR REPLACE FUNCTION pg_temp.lines_name_units(lines jsonb) RETURNS jsonb
+LANGUAGE sql STABLE AS $$
+    SELECT COALESCE(jsonb_agg(
+               CASE WHEN jsonb_typeof(t.line) <> 'object' THEN t.line
+                    ELSE (t.line - 'site_id' - 'counter_site_id')
+                         || CASE WHEN t.line ? 'site_id'
+                                 THEN jsonb_build_object('unit_id',
+                                          COALESCE(unit_of_site(t.line ->> 'site_id'),
+                                                   t.line ->> 'site_id'))
+                                 ELSE '{}'::jsonb END
+                         || CASE WHEN t.line ? 'counter_site_id'
+                                 THEN jsonb_build_object('counter_unit_id',
+                                          COALESCE(unit_of_site(t.line ->> 'counter_site_id'),
+                                                   t.line ->> 'counter_site_id'))
+                                 ELSE '{}'::jsonb END
+               END
+               ORDER BY t.n), '[]'::jsonb)
+      FROM jsonb_array_elements(lines) WITH ORDINALITY AS t (line, n)
+$$;
+
+ALTER TABLE finance_journal_draft DISABLE TRIGGER USER;
+UPDATE finance_journal_draft
+   SET lines = pg_temp.lines_name_units(lines)
+ WHERE jsonb_path_exists(lines, '$[*] ? (exists(@.site_id) || exists(@.counter_site_id))');
+ALTER TABLE finance_journal_draft ENABLE TRIGGER USER;
+
+ALTER TABLE journal_template DISABLE TRIGGER USER;
+UPDATE journal_template
+   SET lines = pg_temp.lines_name_units(lines)
+ WHERE jsonb_path_exists(lines, '$[*] ? (exists(@.site_id) || exists(@.counter_site_id))');
+ALTER TABLE journal_template ENABLE TRIGGER USER;
+
+COMMENT ON COLUMN tender_reconciliation.unit_id IS
+    'Whose takings are being proved (0609). The sales are read from every shop of the unit, each dated by its own site''s clock.';
+COMMENT ON COLUMN correction_document.unit_id IS
+    'The book the correction is in (0609).';
+COMMENT ON COLUMN correction_document.target_unit_id IS
+    'On a reclass, the book the balance moves to (0609). The poster adds the affiliate legs.';
+COMMENT ON COLUMN bank_rule.unit_id IS
+    'The book whose statements the rule reads (0609). Head office''s by default, found by its kind.';
+COMMENT ON COLUMN payment_batch.unit_id IS
+    'The book whose bank account pays the batch (0609).';

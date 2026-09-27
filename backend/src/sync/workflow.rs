@@ -3,9 +3,13 @@
 //! Activation carries immutable planning identities, Pick allocates quantities
 //! by FIFO without pretending an EPC is known, and Pack is the first stage that
 //! binds scanned EPCs to Allotment lines. Package facts may span Allotments but
-//! always have one destination Store.
+//! always have ONE destination site — of any kind since the owner's ruling of
+//! 2026-09-27: a shop for an allotment or a transfer, the Gudang for a shop's
+//! return. Facts written when the destination could only be a shop read the
+//! same way; the field keeps its wire name.
 
 use crate::edge::{OperationalPool, SiteId};
+use crate::pool_role::OutboundStage;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -146,6 +150,29 @@ impl FulfillmentStage {
     }
 }
 
+/// The stage as a pool at its origin is spelled (`crate::pool_role`).
+impl From<FulfillmentStage> for OutboundStage {
+    fn from(stage: FulfillmentStage) -> Self {
+        match stage {
+            FulfillmentStage::Packed => Self::Packed,
+            FulfillmentStage::Shipment => Self::Shipment,
+            FulfillmentStage::Loaded => Self::Loaded,
+            FulfillmentStage::InTransit => Self::InTransit,
+        }
+    }
+}
+
+impl From<OutboundStage> for FulfillmentStage {
+    fn from(stage: OutboundStage) -> Self {
+        match stage {
+            OutboundStage::Packed => Self::Packed,
+            OutboundStage::Shipment => Self::Shipment,
+            OutboundStage::Loaded => Self::Loaded,
+            OutboundStage::InTransit => Self::InTransit,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct PackageUnitAllocation {
@@ -155,8 +182,9 @@ pub struct PackageUnitAllocation {
     pub epc: String,
 }
 
-/// A package belongs to one Store but may fulfill many Allotments. `units` is
-/// the complete immutable package membership at every stage, sorted by EPC.
+/// A package belongs to one destination site — a shop, or the Gudang a return
+/// goes back to — but may fulfill many Allotments. `units` is the complete
+/// immutable package membership at every stage, sorted by EPC.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct FulfillmentProgressPayload {
     pub schema_version: u32,
@@ -166,6 +194,9 @@ pub struct FulfillmentProgressPayload {
     #[serde(alias = "package_id")]
     pub koli_id: Uuid,
     pub source_site_id: String,
+    /// The destination SITE, of any kind. Named for the wire it has always
+    /// travelled on; `destination_site_id` is read as the same field.
+    #[serde(alias = "destination_site_id")]
     pub destination_store_id: String,
     pub stage: FulfillmentStage,
     pub shipment_reference: Option<String>,
@@ -358,9 +389,13 @@ impl AllotmentActivationPayload {
         version(self.schema_version)?;
         non_nil(self.allotment_id, "allotment_id")?;
         required(&self.allotment_number, "allotment_number")?;
+        // The words nodes in the field read. Head office writes TO_SITE and
+        // RETURN_TO_WAREHOUSE into its own tables (postgres `0611`) and sends
+        // their old spellings, which every build understands; the new ones
+        // are accepted too, for a head office that one day stops translating.
         if !matches!(
             self.allotment_type.as_str(),
-            "TO_STORE" | "RETURN_TO_DC" | "RETURN_TO_SUPPLIER"
+            "TO_STORE" | "RETURN_TO_DC" | "RETURN_TO_SUPPLIER" | "TO_SITE" | "RETURN_TO_WAREHOUSE"
         ) {
             return Err("unknown allotment_type".into());
         }
@@ -378,17 +413,17 @@ impl AllotmentActivationPayload {
             non_nil(line.allotment_line_id, "allotment_line_id")?;
             non_nil(line.sku_id, "sku_id")?;
             required(&line.source_pool_id, "source_pool_id")?;
-            if self.allotment_type == "TO_STORE" {
-                let source_pool = OperationalPool::from_str(&line.source_pool_id)
-                    .map_err(|error| error.to_string())?;
-                if source_pool.id() != line.source_pool_id
-                    || !source_pool.is_dc_fulfillment_source_for(&source_site)
-                {
-                    return Err(
-                        "TO_STORE source_pool_id must be a canonical non-fulfillment DC source"
-                            .into(),
-                    );
-                }
+            // Every route packs from goods at rest at the source site; the
+            // pool's role says whether they are, never the site's spelling.
+            let source_pool = OperationalPool::from_str(&line.source_pool_id)
+                .map_err(|error| error.to_string())?;
+            if source_pool.id() != line.source_pool_id
+                || !source_pool.is_fulfillment_source_for(&source_site)
+            {
+                return Err(
+                    "source_pool_id must be a canonical pool of goods at rest at source_site_id"
+                        .into(),
+                );
             }
             validate_destination(&line.destination_type, &line.destination_id)?;
             canonical_upper(&line.sku_code, "sku_code")?;
@@ -820,6 +855,14 @@ pub const INVENTORY_STORE_INBOUND_ANNOUNCE_V1: &str = "inventory.store_inbound.a
 /// understands [`INVENTORY_STORE_INBOUND_ANNOUNCE_V1`].
 pub const STORE_INBOUND_CAPABILITY: &str = "store.inbound";
 
+/// What a node's heartbeat carries (`NodeStatus::capabilities`) once its build
+/// takes the goods-route commands of the owner's 2026-09-27 routes: an
+/// allotment activation at a shop (its return or its transfer), an inbound
+/// announcement at a warehouse (a shop's return), and the in-transit release.
+/// Head office sends none of them to a node whose heartbeat does not say so:
+/// an unknown command blocks a node's whole stream.
+pub const GOODS_ROUTES_CAPABILITY: &str = "inventory.goods_routes.v1";
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct StoreInboundAnnounceUnit {
     pub epc: String,
@@ -831,11 +874,20 @@ pub struct StoreInboundAnnounceUnit {
 pub struct StoreInboundAnnouncePayload {
     pub koli_id: Uuid,
     pub source_site_id: String,
+    /// The destination site — a shop, or the Gudang a return goes back to —
+    /// in the receiving node's own spelling. Named for the wire.
     pub destination_store_id: String,
     pub shipment_reference: Option<String>,
     /// The koli's `IN_TRANSIT` fact's `occurred_at` — when it left the yard.
     pub departed_at: DateTime<Utc>,
     pub units: Vec<StoreInboundAnnounceUnit>,
+    /// Where the delivery lands, when it is not the receiver's stockroom: a
+    /// store's own return pool at the Gudang (postgres `0610`), in the
+    /// receiving node's spelling. Absent on every announcement to a shop and
+    /// from a centre older than the goods routes; a shop that has never heard
+    /// of it ignores it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub destination_pool_id: Option<String>,
 }
 
 impl StoreInboundAnnouncePayload {
@@ -856,6 +908,7 @@ impl StoreInboundAnnouncePayload {
                     allotment_line_id: unit.allotment_line_id,
                 })
                 .collect(),
+            destination_pool_id: None,
         }
     }
 

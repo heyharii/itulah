@@ -326,20 +326,49 @@ _Avoid_: transfer, handover
 
 **Stage**:
 A step type whose meaning — its movements, its journal meaning, the proof it
-requires, its fixed rules — lives in code: pick, pack, close koli, load, depart,
-receive, inspect, ready for pickup, handover, approval; and the receiving stages
-arrival, blind count, verification, tagging, putaway.
+requires, its fixed rules — lives in code: pick, pack, close koli (KOLI),
+ship (into a **Surat Jalan**), load (onto a **Dispatch**), depart, receive,
+inspect, ready for pickup, handover, approval; and the receiving stages
+arrival, blind count, verification, tagging, putaway. Pack, close koli, ship
+and load can be taken back one step (unpack, unship, unload) while nothing has
+departed.
 _Avoid_: status
+
+**Surat Jalan** (SJ):
+One shipment for one destination: the koli going to it, and the paper that
+destination signs against. Numbered `SJ-…` by the sending node.
+_Avoid_: delivery note, manifest (as the document's name), shipment (in the UI)
+
+**Dispatch** (DSP):
+One vehicle run. It may carry several surat jalan to several destinations;
+loading puts koli on it, and departing is the dispatch leaving. When loading
+is skipped, departing opens the dispatch.
+_Avoid_: trip, dispatched (for goods still on the yard: they are loaded)
+
+**Source Document**:
+What a flow runs, and never creates: an allotment for every outbound route —
+to a store, between stores, back to the Gudang, back to a supplier — and a
+purchase order or delivery for goods from a supplier. A plan is not a stage.
+The template's starter roles are who may raise the source for its route.
+_Avoid_: trigger, parent (for the allotment of a flow)
 
 **Flow Template**:
 Data: an ordered set of stages for one route (origin kind → destination), with
-its parameters — who may start it, who performs each stage, the proof required,
-deadlines, which stages may be skipped, the destination pool. Whatever the
-template, the invariants hold: a flow to our own site ends in Receive; to an
-outside party, in Handover with proof; crossing units posts inter-unit
+its parameters — who may start it (raise its source document), who performs
+each stage, the proof required, deadlines, which stages may be skipped, the
+destination pool. Saved in versions; a running flow keeps its version.
+Whatever the template, the invariants hold: a flow to our own site ends in
+Receive; to an outside party, in Handover with proof; goods between our own
+sites travel under a surat jalan; crossing units posts inter-unit
 automatically; supplier returns leave only from an HO site (stores never deal
 with suppliers); a template names meanings, never accounts (finance rule I9).
 _Avoid_: workflow (for the template), process
+
+**Flow Document**:
+One run of one template version between two ends, born from its source
+document: an ordered list of typed actions, each applied once, one stage per
+transaction. A parked stage is resumed by its key, the document and the stage.
+_Avoid_: job, task, ticket
 
 ## The money
 

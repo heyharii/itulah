@@ -132,9 +132,10 @@ pub struct AccountDetail {
     pub balance: AccountBalance,
 }
 
+/// `unit` narrows the balance to one unit's books (0605).
 #[derive(Debug, Deserialize)]
 pub struct BalanceQuery {
-    pub site: Option<String>,
+    pub unit: Option<String>,
     pub as_of: Option<NaiveDate>,
 }
 
@@ -145,7 +146,7 @@ pub async fn account_detail(
 ) -> Result<Json<AccountDetail>, AppError> {
     let (account, path) = infrastructure::account_with_path(&state.db, &code).await?;
     let balance =
-        infrastructure::account_balance(&state.db, &code, query.site.as_deref(), query.as_of)
+        infrastructure::account_balance(&state.db, &code, query.unit.as_deref(), query.as_of)
             .await?;
     Ok(Json(AccountDetail {
         account,
@@ -171,9 +172,9 @@ pub async fn account_detail(
 ///
 /// # Query parameters
 ///
-/// `site`, `from` and `to` define the WINDOW — `site` narrows the opening
-/// balance too, because "cash at Cikupa" is a different ledger and not a
-/// filtered view of a wider one. `q` searches the entry number, the memo and
+/// `unit`, `from` and `to` define the WINDOW — `unit` narrows the opening
+/// balance too, because "cash in Cikupa's books" is a different ledger and not
+/// a filtered view of a wider one. Books are a unit's since 0605. `q` searches the entry number, the memo and
 /// the source document's id; `kind` filters by what caused the entry and
 /// repeats. Both narrow the ROWS alone. `sort` is one of `amount`, `entry`,
 /// `reconciliation`, with `dir=desc`; anything else is the window's own
@@ -185,7 +186,7 @@ pub async fn account_ledger(
 ) -> Result<Json<GeneralLedger>, AppError> {
     refuse_unknown_parameters(
         &params,
-        &[&PAGING[..], &["site", "from", "to", "kind", "category"]].concat(),
+        &[&PAGING[..], &["unit", "from", "to", "kind", "category"]].concat(),
     )?;
     let to = match single_value(&params, "to") {
         Some(raw) => raw
@@ -210,7 +211,7 @@ pub async fn account_ledger(
             &state.db,
             &code,
             infrastructure::GeneralLedgerScope {
-                site_id: single_value(&params, "site"),
+                unit_id: single_value(&params, "unit"),
                 from,
                 to,
                 needle: single_value(&params, "q"),
@@ -231,7 +232,7 @@ pub async fn account_ledger(
 ///
 /// # The proof does not move when somebody types
 ///
-/// `as_of` and `site` define the LEDGER being proved. `q` and `class` narrow
+/// `as_of` and `unit` define the LEDGER being proved. `q` and `class` narrow
 /// only the rows: `total_debit_minor`, `total_credit_minor`, `balanced` and
 /// `ledger_rows` are computed over everything, in SQL, before either is
 /// applied. A trial balance narrowed to one class still says whether the books
@@ -247,7 +248,7 @@ pub async fn account_ledger(
 ///
 /// # Query parameters
 ///
-/// `as_of` and `site` define the ledger. `q` searches the account code and the
+/// `as_of` and `unit` define the ledger. `q` searches the account code and the
 /// client's own name for it; `class` filters and repeats. `sort` is one of
 /// `name`, `debit`, `credit`, `net`, with `dir=desc`; anything else is the
 /// chart's own order. `cursor` and `limit` page — 500 by default, because this
@@ -259,7 +260,7 @@ pub async fn trial_balance(
 ) -> Result<Json<TrialBalance>, AppError> {
     refuse_unknown_parameters(
         &params,
-        &[&PAGING[..], &["as_of", "site", "class"]].concat(),
+        &[&PAGING[..], &["as_of", "unit", "class"]].concat(),
     )?;
     let as_of = match single_value(&params, "as_of") {
         Some(raw) => Some(
@@ -273,7 +274,7 @@ pub async fn trial_balance(
             &state.db,
             infrastructure::TrialBalanceScope {
                 as_of,
-                site_id: single_value(&params, "site"),
+                unit_id: single_value(&params, "unit"),
                 needle: single_value(&params, "q"),
                 classes: facet_values(&params, "class"),
                 sort: single_value(&params, "sort"),
@@ -290,7 +291,7 @@ pub async fn trial_balance(
 // The account map
 // ---------------------------------------------------------------------------
 
-/// The account links, whole, with the roles and sites they are read against.
+/// The account links, whole, with the roles and units they are read against.
 ///
 /// `q` searches the role, the source, the account code and the account's
 /// name; `role` filters, repeatable. Not paged: a few hundred links a person
@@ -322,7 +323,7 @@ pub async fn set_account_link(
     ))
 }
 
-/// Remove a link. Refused when it would leave a site with nothing to post to,
+/// Remove a link. Refused when it would leave a unit with nothing to post to,
 /// unless `force=true`.
 pub async fn remove_account_link(
     State(state): State<AppState>,
@@ -367,7 +368,7 @@ fn history_before(params: &[(String, String)]) -> Result<Option<i64>, AppError> 
         .transpose()
 }
 
-/// For every role and source, what each site resolves to — or that it
+/// For every role and source, what each unit resolves to — or that it
 /// resolves nowhere.
 pub async fn posting_readiness(
     State(state): State<AppState>,
@@ -882,22 +883,21 @@ pub async fn close_period(
 /// # Query parameters
 ///
 /// `from` and `to` bound the window, both inclusive. `q` searches. `kind` and
-/// `site` filter and each repeats: `kind` is a `source_kind`, and `site` asks
-/// whether ANY line of the entry touched that location — an entry has no
-/// location of its own, and a payment can settle two shops' bills at once.
+/// `unit` filter and each repeats: `kind` is a `source_kind`, and `unit` asks
+/// whether ANY line of the entry is in that unit's books (0605) — an entry has
+/// no unit of its own, and a payment can settle two stores' bills at once.
 /// `sort` is one of `date`, `number`, `total`, `kind`, with `dir=desc`;
 /// anything else is the house order, newest first. `cursor` and `limit` page.
 ///
-/// The four parameters this endpoint has always taken — `from`, `to`, `kind`,
-/// `site` — mean exactly what they meant, and a caller sending one of each is
-/// unaffected by the widening.
+/// `from`, `to` and `kind` mean exactly what they always meant; `unit` is what
+/// `site` was until the books moved to units.
 pub async fn journal(
     State(state): State<AppState>,
     Query(params): Query<Vec<(String, String)>>,
 ) -> Result<Json<JournalPage>, AppError> {
     refuse_unknown_parameters(
         &params,
-        &[&PAGING[..], &["from", "to", "kind", "site"]].concat(),
+        &[&PAGING[..], &["from", "to", "kind", "unit"]].concat(),
     )?;
     let date = |key: &str| -> Result<Option<NaiveDate>, AppError> {
         match single_value(&params, key) {
@@ -915,7 +915,7 @@ pub async fn journal(
                 to: date("to")?,
                 needle: single_value(&params, "q"),
                 kinds: facet_values(&params, "kind"),
-                sites: facet_values(&params, "site"),
+                units: facet_values(&params, "unit"),
                 sort: single_value(&params, "sort"),
                 desc: single_value(&params, "dir").as_deref() == Some("desc"),
                 cursor: single_value(&params, "cursor"),
@@ -1141,7 +1141,8 @@ pub struct StatementQuery {
     pub kind: Option<String>,
     pub from: Option<NaiveDate>,
     pub to: Option<NaiveDate>,
-    pub site: Option<String>,
+    /// One unit's books (0605), or the company's when absent.
+    pub unit: Option<String>,
 }
 
 /// A statement of the books: the position, the result, or where the money went.
@@ -1168,7 +1169,7 @@ pub async fn statement(
             .flatten()
     });
     Ok(Json(
-        infrastructure::statement(&state.db, &kind, from, to, query.site.as_deref()).await?,
+        infrastructure::statement(&state.db, &kind, from, to, query.unit.as_deref()).await?,
     ))
 }
 
@@ -1402,7 +1403,9 @@ pub struct AgingQuery {
     /// after it is not yet a debt, and a payment made after it has not yet
     /// happened.
     pub as_of: Option<NaiveDate>,
-    pub site: Option<String>,
+    /// One unit's books (0605). Bills are picked by the unit owning the site
+    /// they were received at.
+    pub unit: Option<String>,
 }
 
 /// What is owed, to whom, and how late.
@@ -1418,7 +1421,7 @@ pub async fn payables_aging(
 ) -> Result<Json<PayablesAging>, AppError> {
     let as_of = query.as_of.unwrap_or_else(|| Utc::now().date_naive());
     Ok(Json(
-        infrastructure::payables_aging(&state.db, as_of, query.site.as_deref()).await?,
+        infrastructure::payables_aging(&state.db, as_of, query.unit.as_deref()).await?,
     ))
 }
 
@@ -1434,8 +1437,8 @@ pub async fn payables_aging(
 /// # Query parameters
 ///
 /// `q` searches the payment number, the bank reference and the names of the
-/// suppliers it was allocated to. `status`, `site` and `supplier` filter, each
-/// repeatable. `sort` is one of `date`, `total`,
+/// suppliers it was allocated to. `status`, `unit` (whose bank the payment
+/// left, 0605) and `supplier` filter, each repeatable. `sort` is one of `date`, `total`,
 /// `number`, with `dir=desc`; anything else is the house order, most recent
 /// first. `from` and `to` bound the payment date, both inclusive. `cursor` and
 /// `limit` page.
@@ -1464,7 +1467,7 @@ pub async fn payments(
             infrastructure::PaymentScope {
                 needle: single_value(&params, "q"),
                 statuses: facet_values(&params, "status"),
-                sites: facet_values(&params, "site"),
+                units: facet_values(&params, "unit"),
                 suppliers: facet_values(&params, "supplier"),
                 sort: single_value(&params, "sort"),
                 desc: single_value(&params, "dir").as_deref() == Some("desc"),
@@ -1732,20 +1735,20 @@ pub async fn preview_depreciation(
 
 /// Where the money is, and whether the bank agrees.
 ///
-/// One row per mapped money account per location, so the screen is a list of
+/// One row per mapped money account per unit, so the screen is a list of
 /// accounts rather than a list of statements. `GET /bank-statements` stays as
 /// the drill-in: this answers "what do we hold and does it reconcile", and that
 /// one answers "which upload said so".
 ///
-/// Driven off `account_map`, so a meaning nobody has mapped produces no row.
-/// That is the honest answer and it is visible: the Account Map screen is where
-/// it gets fixed.
+/// Driven off the account links, so a meaning nobody has linked produces no
+/// row. That is the honest answer and it is visible: the Account Links screen
+/// is where it gets fixed.
 pub async fn money(
     State(state): State<AppState>,
     Query(params): Query<Vec<(String, String)>>,
 ) -> Result<Json<MoneyOverview>, AppError> {
     // `Query<Vec<(String, String)>>` rather than a struct, for one reason:
-    // `pot` and `site` repeat. `?pot=CASH&pot=BANK` is how a facet filter with
+    // `pot` and `unit` repeat. `?pot=CASH&pot=BANK` is how a facet filter with
     // two boxes ticked spells itself, and a struct's deserializer keeps the
     // last value and drops the rest — silently, so the screen shows one
     // filter's worth of rows and blames the server.
@@ -1770,9 +1773,8 @@ pub async fn money(
                 as_of,
                 needle: single_value(&params, "q"),
                 pots: facet_values(&params, "pot"),
-                // `site` stays the name it has always been, and now takes more
-                // than one. An old caller sending exactly one is unaffected.
-                sites: facet_values(&params, "site"),
+                // `unit`, and repeatable: the books are a unit's since 0605.
+                units: facet_values(&params, "unit"),
                 flags: facet_values(&params, "flag"),
                 sort: single_value(&params, "sort"),
                 // `dir=desc` and nothing else. Absent, empty and anything
@@ -1801,7 +1803,7 @@ pub async fn money(
 /// # Query parameters
 ///
 /// `q` searches the account code, the client's name for it and whoever
-/// uploaded the file. `site`, `account` and `state` filter, each repeatable;
+/// uploaded the file. `unit`, `account` and `state` filter, each repeatable;
 /// `state` is `RECONCILED`, `PARTIAL` or `UNTOUCHED`, derived on read from the
 /// lines and their matches rather than stored. `sort` is one of `imported`,
 /// `account`, `unmatched`, with `dir=desc`; anything else is the house order,
@@ -1812,14 +1814,14 @@ pub async fn bank_statements(
 ) -> Result<Json<BankStatementPage>, AppError> {
     refuse_unknown_parameters(
         &params,
-        &[&PAGING[..], &["site", "account", "state"]].concat(),
+        &[&PAGING[..], &["unit", "account", "state"]].concat(),
     )?;
     Ok(Json(
         infrastructure::bank_statement_page(
             &state.db,
             infrastructure::BankStatementScope {
                 needle: single_value(&params, "q"),
-                sites: facet_values(&params, "site"),
+                units: facet_values(&params, "unit"),
                 accounts: facet_values(&params, "account"),
                 states: facet_values(&params, "state"),
                 sort: single_value(&params, "sort"),
@@ -1960,14 +1962,15 @@ pub async fn ignore_party_proposal(
 // Our own bank accounts
 // ---------------------------------------------------------------------------
 
-/// What our accounts are, not where their postings land. `site` narrows it.
+/// What our accounts are, not where their postings land. `unit` narrows it to
+/// the accounts kept in one unit's books (0605).
 pub async fn company_bank_accounts(
     State(state): State<AppState>,
     Query(params): Query<Vec<(String, String)>>,
 ) -> Result<Json<Vec<CompanyBankAccount>>, AppError> {
-    refuse_unknown_parameters(&params, &["site"])?;
+    refuse_unknown_parameters(&params, &["unit"])?;
     Ok(Json(
-        infrastructure::list_accounts(&state.db, single_value(&params, "site").as_deref()).await?,
+        infrastructure::list_accounts(&state.db, single_value(&params, "unit").as_deref()).await?,
     ))
 }
 
@@ -1980,8 +1983,9 @@ pub async fn company_bank_accounts(
 pub async fn banking_readiness(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<BankingSetupGap>>, AppError> {
-    // Head office by its kind, from the one lookup that says how (0603).
-    let head_office = infrastructure::sites::head_office_site_id(&state.db).await?;
+    // Head office's books by the unit's kind, from the one lookup that says
+    // how (0605).
+    let head_office = infrastructure::sites::head_office_unit_id(&state.db).await?;
     Ok(Json(infrastructure::banking_readiness(&state.db, &head_office).await?))
 }
 
@@ -2232,7 +2236,7 @@ pub async fn settle_payment_instruction(
 /// # Query parameters
 ///
 /// `q` searches the deposit number, the slip reference and who carried it.
-/// `status` and `site` filter, each repeatable. `sort` is one of `banked`,
+/// `status` and `unit` filter, each repeatable. `sort` is one of `banked`,
 /// `amount`, with `dir=desc`; anything else is the house order, most recently
 /// banked first. `cursor` and `limit` page.
 ///
@@ -2243,14 +2247,14 @@ pub async fn deposits(
     State(state): State<AppState>,
     Query(params): Query<Vec<(String, String)>>,
 ) -> Result<Json<DepositPage>, AppError> {
-    refuse_unknown_parameters(&params, &[&PAGING[..], &["status", "site"]].concat())?;
+    refuse_unknown_parameters(&params, &[&PAGING[..], &["status", "unit"]].concat())?;
     Ok(Json(
         infrastructure::deposit_page(
             &state.db,
             infrastructure::DepositScope {
                 needle: single_value(&params, "q"),
                 statuses: facet_values(&params, "status"),
-                sites: facet_values(&params, "site"),
+                units: facet_values(&params, "unit"),
                 sort: single_value(&params, "sort"),
                 desc: single_value(&params, "dir").as_deref() == Some("desc"),
                 cursor: single_value(&params, "cursor"),
@@ -2416,9 +2420,10 @@ pub async fn period_checklist(
 }
 
 /// Head office charging a unit a management fee (owner decision, 25 Sep).
+/// `unit_id` is the charged unit's id (0605) — never a site's.
 #[derive(Debug, Deserialize)]
 pub struct ManagementFeeRequest {
-    pub unit_site_id: String,
+    pub unit_id: String,
     pub amount_minor: i64,
     pub effective_date: NaiveDate,
     pub memo: Option<String>,
@@ -2431,7 +2436,7 @@ pub async fn post_management_fee(
 ) -> Result<Json<Value>, AppError> {
     let fee = infrastructure::management_fee_post(
         &state.db,
-        &request.unit_site_id,
+        &request.unit_id,
         request.amount_minor,
         request.effective_date,
         request.memo.as_deref(),
@@ -2525,7 +2530,8 @@ pub struct CorrectionQuery {
     /// `RECLASS`, `ADJUSTMENT` or `WRITE_OFF`.
     pub kind: Option<String>,
     pub status: Option<String>,
-    pub site: Option<String>,
+    /// The books the correction is in (0609).
+    pub unit: Option<String>,
     pub limit: Option<i64>,
 }
 
@@ -2538,7 +2544,7 @@ pub async fn corrections(
             &state.db,
             query.kind.as_deref(),
             query.status.as_deref(),
-            query.site.as_deref(),
+            query.unit.as_deref(),
             query.limit.unwrap_or(200).clamp(1, 500),
         )
         .await?,

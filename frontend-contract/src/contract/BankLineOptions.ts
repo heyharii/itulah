@@ -15,7 +15,11 @@ export type BankLineOptions = { line_id: string, value_date: string, description
  * True when the bank debited us: money leaving. Every direction decision
  * downstream reads this and nothing re-derives it.
  */
-outgoing: boolean, statement_account_code: string, site_id: string, 
+outgoing: boolean, statement_account_code: string, 
+/**
+ * Whose books the statement's account is kept in (0605).
+ */
+unit_id: string, 
 /**
  * Set when this line is already agreed with an entry, or already became a
  * document. All three blocks come back empty then: there is nothing left

@@ -130,6 +130,12 @@ pub struct NodeStatus {
     /// the stored snapshot keeps that difference too.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub device_list: Option<Vec<crate::sync::device::DeviceReport>>,
+    /// The command families this build takes (`sync::workflow`), so head
+    /// office sends a node only what it understands. `None` from a node that
+    /// predates the list, which head office reads as "the families every
+    /// build has always taken, and nothing newer".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -552,6 +558,7 @@ mod tests {
             till: TillFacts::default(),
             incidents: vec![],
             device_list: None,
+            capabilities: None,
         }
     }
 
