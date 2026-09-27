@@ -480,6 +480,15 @@ export type Shift = {
 export const activeShift = () =>
   edge<Shift | null>("GET", "/api/v1/store/shifts/active")
 
+/// The open session of one named till — the name it opened the shift under.
+/// Asked before approving a replacement for it: the node refuses one while
+/// the old till's drawer is still open.
+export const activeShiftOf = (terminalId: string) =>
+  edge<(Shift & { readonly opened_by?: string }) | null>(
+    "GET",
+    `/api/v1/store/shifts/active?terminal_id=${encodeURIComponent(terminalId)}`,
+  )
+
 /// `POST /api/v1/store/shifts` — `OpenShiftRequest { terminal_id,
 /// opening_float_minor, actor_id, idempotency_key }`.
 export const openShift = (body: {

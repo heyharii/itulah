@@ -23,7 +23,10 @@
 //!
 //! The till is labelled "Kasir N", the lowest number no live till at this node
 //! is using, unless the approver names it or it replaces a till — then it takes
-//! the old one's name, and the old one is revoked and kept.
+//! the old one's name, and the old one is revoked and kept. Not while the old
+//! till's drawer is open: a shift is kept by the till's name, and a replacement
+//! let in then would take the old shift's money as its own
+//! ([`refuse_while_shift_open`]).
 //!
 //! # Printers are recorded once
 //!
@@ -38,7 +41,7 @@
 //! the cloud's registry is fed from. Head office's suspend and revoke arrive as
 //! a `device.status.set.v1` command ([`apply_status_command`]).
 
-use chrono::{DateTime, Duration, SecondsFormat, Utc};
+use chrono::{DateTime, Duration, FixedOffset, SecondsFormat, Utc};
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -564,6 +567,7 @@ pub fn approve_join(
                     "{old_label} is already revoked; approve without replacing it"
                 )));
             }
+            refuse_while_shift_open(&tx, old_id, &old_label)?;
             let reason = format!("replaced by the till that joined with code {shown_code}");
             tx.execute(
                 "UPDATE edge_terminal
@@ -674,6 +678,58 @@ pub fn approve_join(
         approved_via: via.to_string(),
         replaced_terminal_id: replaced_id,
     })
+}
+
+/// A replacement is not let in while the till it replaces has a shift open.
+///
+/// The new till takes the old one's name, and a cash shift is kept by the
+/// name a till gives when it opens one (`cash_shift.terminal_id`, the label
+/// since joining; the node's id for a till paired before that). Let in while
+/// the old drawer is still open, the new till would find that shift as its
+/// own and sell into a float somebody else counted. So the old shift is
+/// closed first — at the old till, or from the Shift screen of another till
+/// when the old one cannot be used — and then the replacement is approved.
+///
+/// Said in Indonesian, unlike this module's other refusals: it is read at the
+/// counter, on the till approving the replacement, in the till's language —
+/// the way a punch station's refusals are (`edge/attendance.rs`).
+fn refuse_while_shift_open(
+    connection: &Connection,
+    old_id: &str,
+    old_label: &str,
+) -> Result<(), EdgeError> {
+    let open: Option<(String, String)> = connection
+        .query_row(
+            "SELECT opened_by, opened_at FROM cash_shift
+              WHERE status='OPEN' AND terminal_id IN (?1, ?2)
+              ORDER BY opened_at LIMIT 1",
+            params![old_label, old_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(db)?;
+    let Some((opened_by, opened_at)) = open else {
+        return Ok(());
+    };
+    // On the shop's clock, as its receipts are.
+    let since = DateTime::parse_from_rfc3339(&opened_at)
+        .ok()
+        .and_then(|at| {
+            let minutes = crate::edge::site_profile::utc_offset_minutes(connection);
+            let offset = FixedOffset::east_opt(minutes * 60)?;
+            Some(
+                at.with_timezone(&offset)
+                    .format("%d/%m/%Y %H:%M")
+                    .to_string(),
+            )
+        })
+        .unwrap_or(opened_at);
+    Err(EdgeError::Conflict(format!(
+        "{old_label} masih punya shift kas yang terbuka sejak {since} (dibuka oleh \
+         {opened_by}). Tutup dulu shift itu — di {old_label}, atau dari menu Shift di \
+         kasir lain bila {old_label} sudah tidak bisa dipakai — karena uang di lacinya \
+         milik shift itu. Setelah itu setujui kasir ini sebagai pengganti {old_label}."
+    )))
 }
 
 /// Say no to a waiting till. It is told `REJECTED` on its next look and

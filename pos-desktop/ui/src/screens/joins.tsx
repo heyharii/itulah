@@ -24,6 +24,10 @@
 /// the replacement for Kasir 2" revokes the old Kasir 2, keeps its row, and
 /// gives the new till its name — so the receipts and the cash shifts carry on
 /// under the name the shop already uses.
+///
+/// Not while Kasir 2 still has a shift open. The shift is kept by that name, so
+/// the new till would take over a drawer somebody else counted; the node
+/// refuses, and this screen says so before anybody presses a finger.
 
 import { useCallback, useEffect, useRef, useState } from "react"
 
@@ -195,6 +199,32 @@ export function WaitingTillsScreen({ onBack }: { onBack: () => void }) {
 
 type Till = { readonly id: string; readonly label: string; readonly status: string }
 
+/// An open shift on the till being replaced, as the approval sheet warns of it.
+type OpenShift = { readonly openedAt: string | null; readonly openedBy: string | null }
+
+/// Whether a till still has its drawer open, by either name a shift can carry:
+/// the label a joined till opens shifts under, or the node's id for a till
+/// paired before joining existed. `null` when neither has one, or when the
+/// node would not say — the node checks again when the approval is sent.
+async function openShiftOf(till: Till): Promise<OpenShift | null> {
+  for (const name of [till.label, till.id]) {
+    const reply = await api.activeShiftOf(name)
+    const shift = reply.ok ? reply.body : null
+    if (shift !== null && shift !== undefined && (shift.shift_id ?? "") !== "") {
+      return { openedAt: shift.opened_at ?? null, openedBy: shift.opened_by ?? null }
+    }
+  }
+  return null
+}
+
+function whenOpened(openedAt: string | null): string {
+  if (openedAt === null) return ""
+  const at = new Date(openedAt)
+  return Number.isNaN(at.getTime())
+    ? openedAt
+    : at.toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" })
+}
+
 function ApproveSheet({
   join,
   onClose,
@@ -219,6 +249,23 @@ function ApproveSheet({
   const [, redraw] = useState(0)
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
+  /// The shift still open on the till chosen for replacing, if any.
+  const [openShift, setOpenShift] = useState<OpenShift | null>(null)
+
+  const replaced = (tills ?? []).find((till) => till.id === replaces) ?? null
+
+  useEffect(() => {
+    setOpenShift(null)
+    if (joinAs !== "replace" || replaced === null) return
+    let alive = true
+    void (async () => {
+      const open = await openShiftOf(replaced)
+      if (alive) setOpenShift(open)
+    })()
+    return () => {
+      alive = false
+    }
+  }, [joinAs, replaced])
 
   useEffect(() => {
     let alive = true
@@ -297,8 +344,13 @@ function ApproveSheet({
   }
 
   const quick = how === "quick" && stepUp !== null && stepUp !== "NONE"
+  const blocked = joinAs === "replace" && openShift !== null
   const ready =
-    compared && !busy && stepUp !== null && (joinAs === "new" || replaces !== "")
+    compared &&
+    !busy &&
+    !blocked &&
+    stepUp !== null &&
+    (joinAs === "new" || replaces !== "")
 
   return (
     <Sheet
@@ -399,6 +451,17 @@ function ApproveSheet({
             ))}
           </select>
         </label>
+      )}
+
+      {blocked && replaced !== null && (
+        <div className="notice warn">
+          <strong>{replaced.label}</strong> masih punya shift kas yang terbuka
+          {openShift?.openedAt ? ` sejak ${whenOpened(openShift.openedAt)}` : ""}
+          {openShift?.openedBy ? ` (dibuka oleh ${openShift.openedBy})` : ""}.
+          Kasir pengganti memakai nama yang sama, jadi shift itu harus ditutup
+          dulu — di {replaced.label}, atau dari menu Shift di kasir ini bila{" "}
+          {replaced.label} sudah tidak bisa dipakai. Setelah itu setujui lagi.
+        </div>
       )}
 
       {stepUp === null && <p className="muted">Memuat…</p>}
