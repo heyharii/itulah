@@ -706,3 +706,29 @@ Not yet: real Windows and real UPS hardware. Since built:
 A new store from the hub now belongs to the onboarding and unit/site lanes: a
 unit plus sites from a template. That lane pairs the store server with this
 lane's enrolment codes.
+
+## 9e. Remote actions per store — status (2026-09-28)
+
+Owner's decision: head office controls every store remotely from one
+**Actions** menu on the store's page; each action is recorded, followed until
+it finishes, and shows its result. Built (written, not yet run end to end):
+
+- **API**: `GET /api/v1/stores/{unit}/actions` (the menu, each entry with
+  `enabled` / `reason_disabled`, `danger`, `confirm_sentence`);
+  `POST /api/v1/stores/{unit}/actions/{key}` with `{device_id?, note?,
+  confirm?}` and an `Idempotency-Key` → 202 `{action_id}` (Admin, OWNER or IT
+  job only; `confirm: true` for restart, resend, revoke);
+  `GET /api/v1/stores/{unit}/actions/history?limit=`.
+- **Keys**: `restart_server`, `resend_initial_data`, `back_up_now`,
+  `diagnose`, `sync_now`, `test_print`, `suspend_device`,
+  `reactivate_device`, `revoke_device`; `update_server` is listed, never
+  enabled (the updater needs a signed build the menu cannot carry).
+- **Record** `store_action` (0643): QUEUED → SENT (node fetched) → RUNNING
+  (acked) → DONE / FAILED (the node's report), or EXPIRED after
+  `fleet_setting.action_expiry_minutes` (30).
+- **Node** (`edge/ops.rs`, sqlite 0067 `edge_node_action`): every operation
+  carries its `action_id`; new `node.sync_now` and the `node.resnapshot`
+  marker; results ride the heartbeat (`action_results`), which is woken early.
+  Only nodes advertising `node.actions.v1` are offered the server operations.
+- **Fleet**: a server restarting at head office's request is grey
+  MAINTENANCE while it is gone, not red.
