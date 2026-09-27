@@ -59,15 +59,18 @@ export function PeripheralsScreen({ onBack }: { onBack: () => void }) {
   const [note, setNote] = useState<{ bad: boolean; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
 
-  // Seeded once from what the shell holds, so what is on screen is what is in
-  // force — and not reseeded under somebody's hands when the config refreshes.
-  useEffect(() => {
-    if (config === null || form !== null) return
-    const held = peripheralsOf(config)
+  /// Put on screen what the shell holds. Once at first, and again after a
+  /// save — never under somebody's hands when the config merely refreshes.
+  const seed = (held: Peripherals) => {
     setForm(held)
     setReaderChoice(
       held.desk_reader === null ? "" : held.desk_reader === R3 ? R3 : OTHER,
     )
+  }
+
+  useEffect(() => {
+    if (config === null || form !== null) return
+    seed(peripheralsOf(config))
   }, [config, form])
 
   // The printers the node has recorded. Listing them needs somebody signed in
@@ -170,7 +173,7 @@ export function PeripheralsScreen({ onBack }: { onBack: () => void }) {
       return
     }
     adoptConfig(saved.value.config)
-    setForm(peripheralsOf(saved.value.config))
+    seed(peripheralsOf(saved.value.config))
     setNote(
       saved.value.reported
         ? { bad: false, text: "Tersimpan di kasir ini dan sudah dilaporkan ke node." }
@@ -192,8 +195,8 @@ export function PeripheralsScreen({ onBack }: { onBack: () => void }) {
       setNote({ bad: true, text: sent.problem })
       return
     }
+    // Only the badge below changes: what is being edited stays as it is.
     adoptConfig(sent.value.config)
-    setForm(peripheralsOf(sent.value.config))
     setNote(
       sent.value.reported
         ? { bad: false, text: "Sudah dilaporkan ke node." }
