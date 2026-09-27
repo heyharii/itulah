@@ -41,7 +41,8 @@ pub struct BankStatementRow {
     pub statement_id: Uuid,
     pub account_code: String,
     pub account_name: String,
-    pub site_id: String,
+    /// Whose books the account is kept in (0605).
+    pub unit_id: String,
     pub period_start: NaiveDate,
     pub period_end: NaiveDate,
     pub opening_minor: i64,
@@ -129,7 +130,9 @@ pub struct ImportStatementLine {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct ImportStatementRequest {
     pub account_code: String,
-    pub site_id: String,
+    /// Whose books the account is kept in: a statement is of one unit's bank
+    /// account (0605).
+    pub unit_id: String,
     /// Which of our real accounts this is a statement of.
     ///
     /// Absent means "work it out", which the import can do whenever the ledger
@@ -232,13 +235,13 @@ pub async fn import_statement(
     // than as a supersede.
     let superseded: Option<Uuid> = sqlx::query_scalar(
         "SELECT statement_id FROM bank_statement
-          WHERE account_code = $1 AND site_id = $2
+          WHERE account_code = $1 AND unit_id = $2
             AND period_start = $3 AND period_end = $4
             AND superseded_by IS NULL
           FOR UPDATE",
     )
     .bind(account)
-    .bind(&request.site_id)
+    .bind(&request.unit_id)
     .bind(request.period_start)
     .bind(request.period_end)
     .fetch_optional(&mut *tx)
@@ -260,13 +263,13 @@ pub async fn import_statement(
 
     sqlx::query(
         "INSERT INTO bank_statement
-           (statement_id, account_code, site_id, period_start, period_end,
+           (statement_id, account_code, unit_id, period_start, period_end,
             opening_minor, closing_minor, source_name, imported_by, bank_account_id)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
     )
     .bind(statement_id)
     .bind(account)
-    .bind(&request.site_id)
+    .bind(&request.unit_id)
     .bind(request.period_start)
     .bind(request.period_end)
     .bind(request.opening_minor)
@@ -350,8 +353,9 @@ pub struct BankStatementScope {
     /// Free text, tried against the account's code, the client's name for it
     /// and the person who uploaded the file.
     pub needle: Option<String>,
-    /// Locations to keep. Empty means every location.
-    pub sites: Vec<String>,
+    /// Units to keep — whose books the statement's account is in. Empty means
+    /// every unit.
+    pub units: Vec<String>,
     /// Account codes to keep — which bank, spelled as the client spells it.
     pub accounts: Vec<String>,
     /// `RECONCILED`, `PARTIAL`, `UNTOUCHED` — how far through agreeing this
@@ -375,7 +379,7 @@ pub struct BankStatementScope {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct BankStatementFacet {
     pub value: String,
-    /// The client's own name for an account, the site's name for a location;
+    /// The client's own name for an account, the unit's name for a unit;
     /// absent for a state, whose words belong to the screen.
     pub label: Option<String>,
     pub count: i64,
@@ -385,7 +389,7 @@ pub struct BankStatementFacet {
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct BankStatementFacets {
-    pub sites: Vec<BankStatementFacet>,
+    pub units: Vec<BankStatementFacet>,
     pub accounts: Vec<BankStatementFacet>,
     pub states: Vec<BankStatementFacet>,
 }
@@ -439,7 +443,7 @@ impl StatementCursor {
 /// to disagree — the filter narrows by it, the facet counts it and the total
 /// sums it.
 const STATEMENT_ROWS: &str = "
-    SELECT s.statement_id, s.account_code, a.name AS account_name, s.site_id,
+    SELECT s.statement_id, s.account_code, a.name AS account_name, s.unit_id,
            s.period_start, s.period_end, s.opening_minor, s.closing_minor,
            s.imported_by, s.imported_at, s.superseded_by,
            counts.line_count, counts.matched_count,
@@ -481,7 +485,7 @@ fn to_statement(row: &sqlx::postgres::PgRow) -> Result<BankStatementRow, AppErro
         statement_id: row.try_get("statement_id")?,
         account_code: row.try_get("account_code")?,
         account_name: row.try_get("account_name")?,
-        site_id: row.try_get("site_id")?,
+        unit_id: row.try_get("unit_id")?,
         period_start: row.try_get("period_start")?,
         period_end: row.try_get("period_end")?,
         opening_minor: row.try_get("opening_minor")?,
@@ -506,7 +510,7 @@ pub async fn bank_statement_page(
         .map(str::trim)
         .filter(|text| !text.is_empty())
         .map(|text| format!("%{text}%"));
-    let sites = (!scope.sites.is_empty()).then(|| scope.sites.clone());
+    let units = (!scope.units.is_empty()).then(|| scope.units.clone());
     let accounts = (!scope.accounts.is_empty()).then(|| scope.accounts.clone());
     let states = (!scope.states.is_empty()).then(|| scope.states.clone());
 
@@ -553,7 +557,7 @@ pub async fn bank_statement_page(
         "WITH searched AS NOT MATERIALIZED ({STATEMENT_ROWS}),
               kept AS NOT MATERIALIZED (
              SELECT * FROM searched
-              WHERE ($2::text[] IS NULL OR site_id = ANY($2))
+              WHERE ($2::text[] IS NULL OR unit_id = ANY($2))
                 AND ($3::text[] IS NULL OR account_code = ANY($3))
                 AND ($4::text[] IS NULL OR state = ANY($4))
          )
@@ -565,7 +569,7 @@ pub async fn bank_statement_page(
     );
     let rows = sqlx::query(&sql)
         .bind(&needle)
-        .bind(&sites)
+        .bind(&units)
         .bind(&accounts)
         .bind(&states)
         .bind(cursor.as_ref().map(|c| c.statement_id))
@@ -611,14 +615,14 @@ async fn statement_facets(
     let sql = format!(
         "WITH searched AS ({STATEMENT_ROWS}), kept AS (
              SELECT * FROM searched
-              WHERE ($2::text[] IS NULL OR site_id = ANY($2))
+              WHERE ($2::text[] IS NULL OR unit_id = ANY($2))
                 AND ($3::text[] IS NULL OR account_code = ANY($3))
                 AND ($4::text[] IS NULL OR state = ANY($4))
          )
-         SELECT 'site' AS kind, s.site_id AS value,
-                (SELECT p.name FROM site p WHERE p.id = s.site_id) AS label,
+         SELECT 'unit' AS kind, s.unit_id AS value,
+                (SELECT u.name FROM unit u WHERE u.id = s.unit_id) AS label,
                 COUNT(*)::bigint AS n, 0::bigint AS unmatched
-           FROM searched s GROUP BY s.site_id
+           FROM searched s GROUP BY s.unit_id
           UNION ALL
          SELECT 'account', s.account_code, MIN(s.account_name),
                 COUNT(*)::bigint, 0::bigint
@@ -636,12 +640,12 @@ async fn statement_facets(
                 COALESCE(SUM(unmatched) FILTER (WHERE superseded_by IS NULL), 0)::bigint
            FROM kept"
     );
-    let sites = (!scope.sites.is_empty()).then(|| scope.sites.clone());
+    let units = (!scope.units.is_empty()).then(|| scope.units.clone());
     let accounts = (!scope.accounts.is_empty()).then(|| scope.accounts.clone());
     let states = (!scope.states.is_empty()).then(|| scope.states.clone());
     let rows = sqlx::query(&sql)
         .bind(needle)
-        .bind(&sites)
+        .bind(&units)
         .bind(&accounts)
         .bind(&states)
         .fetch_all(pool)
@@ -650,7 +654,7 @@ async fn statement_facets(
     let mut total = 0i64;
     let mut unmatched = 0i64;
     let mut facets = BankStatementFacets {
-        sites: Vec::new(),
+        units: Vec::new(),
         accounts: Vec::new(),
         states: Vec::new(),
     };
@@ -665,7 +669,7 @@ async fn statement_facets(
             count: n,
         };
         match kind.as_str() {
-            "site" => facets.sites.push(facet),
+            "unit" => facets.units.push(facet),
             "account" => facets.accounts.push(facet),
             "state" => facets.states.push(facet),
             _ => {
@@ -674,7 +678,7 @@ async fn statement_facets(
             }
         }
     }
-    for list in [&mut facets.sites, &mut facets.accounts, &mut facets.states] {
+    for list in [&mut facets.units, &mut facets.accounts, &mut facets.states] {
         list.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.value.cmp(&b.value)));
     }
     Ok((total, unmatched, facets))
@@ -1070,7 +1074,7 @@ async fn remaining_on(
 
 /// Which real account a statement is of.
 ///
-/// `bank_statement` carried (`account_code`, `site_id`) and nothing else until
+/// `bank_statement` carried (`account_code`, its book) and nothing else until
 /// 0271, which worked only while one ledger binding meant one account. The
 /// statement source (0142) can name the account outright; an upload by hand
 /// usually cannot, and does not have to while there is only one candidate.
@@ -1087,11 +1091,11 @@ async fn resolve_statement_account(
           -- join. 0308 merged the two halves; the flag is what tells them
           -- apart.
           WHERE c.is_company_account
-            AND c.ledger_account_code = $1 AND c.site_id = $2
+            AND c.ledger_account_code = $1 AND c.unit_id = $2
           ORDER BY c.is_primary DESC, c.account_no_digits",
     )
     .bind(account)
-    .bind(&request.site_id)
+    .bind(&request.unit_id)
     .fetch_all(&mut **tx)
     .await?;
 
@@ -1105,8 +1109,8 @@ async fn resolve_statement_account(
             return Ok(named);
         }
         return Err(AppError::Validation(format!(
-            "the account this statement names is not one of {account}'s at {}",
-            request.site_id
+            "the account this statement names is not one of {account}'s in the books of {}",
+            request.unit_id
         )));
     }
 
@@ -1121,14 +1125,15 @@ async fn resolve_statement_account(
 
     match live.as_slice() {
         [] => Err(AppError::Validation(format!(
-            "there is no bank account of ours registered on {account} at {}, so there is nothing \
-             this statement can be a statement of. Describe the account first, under Bank Accounts.",
-            request.site_id
+            "there is no bank account of ours registered on {account} in the books of {}, so there \
+             is nothing this statement can be a statement of. Describe the account first, under \
+             Bank Accounts.",
+            request.unit_id
         ))),
         [only] => Ok(only.try_get("account_id")?),
         many => Err(AppError::Validation(format!(
-            "{account} at {} has {} accounts, so the import has to say which one this statement is of: {}.",
-            request.site_id,
+            "{account} in the books of {} has {} accounts, so the import has to say which one this statement is of: {}.",
+            request.unit_id,
             many.len(),
             many.iter()
                 .filter_map(|row| row.try_get::<String, _>("label").ok())
@@ -1413,7 +1418,7 @@ pub struct BookBankLineRequest {
 /// nobody mapped — which is a real gap, because such an account has no payment,
 /// no sale and no rule that could ever have put a candidate on it to match.
 ///
-/// Two mappings pointing at one account at one location is ambiguous and is
+/// Two mappings pointing at one account in one unit's books is ambiguous and is
 /// refused rather than guessed. It is a genuine mistake on the Account Links —
 /// the same account cannot be both the BCA giro and the Mandiri one — and
 /// picking either would post correctly today and wrongly the day one of them
@@ -1424,7 +1429,7 @@ pub struct BookBankLineRequest {
 /// That last paragraph stopped being true when fourteen accounts landed on
 /// `1102 Bank`. The same natural account IS the BCA giro and the Mandiri one
 /// now, and the BTN savings besides, so looking `1102` up by itself finds three
-/// meanings at every site and refuses every booking — not because anything is
+/// meanings in every unit and refuses every booking — not because anything is
 /// ambiguous, but because the question was asked without the part of it that
 /// answers.
 ///
@@ -1439,12 +1444,12 @@ pub struct BookBankLineRequest {
 pub(super) async fn statement_meaning(
     executor: impl sqlx::PgExecutor<'_>,
     account_code: &str,
-    site_id: &str,
+    unit_id: &str,
     bank_account_id: Option<Uuid>,
 ) -> Result<(String, String), AppError> {
     let rows = sqlx::query(
         "SELECT m.role AS semantic_key, m.source_id AS qualifier FROM account_resolution m
-          WHERE m.account_code = $1 AND m.site_id = $2 AND m.role = ANY($3)
+          WHERE m.account_code = $1 AND m.unit_id = $2 AND m.role = ANY($3)
             AND m.source_type = 'COMPANY'
             AND ($4::uuid IS NULL OR EXISTS (
                     SELECT 1 FROM bank_account c
@@ -1459,7 +1464,7 @@ pub(super) async fn statement_meaning(
           ORDER BY m.role, m.source_id",
     )
     .bind(account_code)
-    .bind(site_id)
+    .bind(unit_id)
     .bind(&STATEMENT_MEANINGS[..])
     .bind(bank_account_id)
     .fetch_all(executor)
@@ -1467,7 +1472,7 @@ pub(super) async fn statement_meaning(
 
     match rows.len() {
         0 => Err(AppError::Validation(format!(
-            "no money account is mapped to {account_code} at {site_id} for the account this \
+            "no money account is mapped to {account_code} in the books of {unit_id} for the account this \
              statement is of; point one of {} at it on the Account Links screen — under this \
              bank's own code — before booking anything against this statement",
             STATEMENT_MEANINGS.join(", ")
@@ -1477,7 +1482,7 @@ pub(super) async fn statement_meaning(
             rows[0].try_get("qualifier")?,
         )),
         _ => Err(AppError::Validation(format!(
-            "{account_code} at {site_id} is mapped by more than one meaning for one bank account; \
+            "{account_code} in the books of {unit_id} is mapped by more than one meaning for one bank account; \
              a giro and a savings account cannot be the same account at the same bank, so fix the \
              links on the Account Links screen before booking against it"
         ))),
@@ -1505,7 +1510,8 @@ pub(super) enum OtherSide {
     Meaning {
         semantic_key: String,
         qualifier: String,
-        site_id: String,
+        /// The books the meaning resolves in: the statement's unit.
+        unit_id: String,
     },
     Account {
         account_code: String,
@@ -1549,7 +1555,7 @@ pub(super) async fn bank_line_to_document(
 
     let line = sqlx::query(
         "SELECT l.value_date, l.description, l.debit_minor, l.credit_minor,
-                l.account_code, s.site_id, s.bank_account_id,
+                l.account_code, s.unit_id, s.bank_account_id,
                 EXISTS (SELECT 1 FROM bank_line_match m WHERE m.line_id = l.line_id) AS matched
            FROM bank_statement_line l
            JOIN bank_statement s USING (statement_id)
@@ -1577,7 +1583,8 @@ pub(super) async fn bank_line_to_document(
     claim_bank_line(tx, line_id, "CASH_DOCUMENT", actor).await?;
 
     let bank_account: String = line.try_get("account_code")?;
-    let site_id: String = line.try_get("site_id")?;
+    // Whose books the statement's account is kept in; both legs land there.
+    let unit_id: String = line.try_get("unit_id")?;
     // Which of our real accounts the statement is of. The one fact that tells
     // `1102`'s fourteen apart, and it has been on the statement since 0271.
     let bank_account_id: Option<Uuid> = line.try_get("bank_account_id")?;
@@ -1587,19 +1594,19 @@ pub(super) async fn bank_line_to_document(
     let credit: i64 = line.try_get("credit_minor")?;
 
     let (key, qualifier) =
-        statement_meaning(&mut **tx, &bank_account, &site_id, bank_account_id).await?;
+        statement_meaning(&mut **tx, &bank_account, &unit_id, bank_account_id).await?;
     // The bank leg's category comes from the map, like every other leg built
     // from a meaning. `1102 Bank` declares no family — which account of ours it
     // is, is `bank_account_id` — so this is `None` today; it is read rather
     // than assumed so that the day a money account does declare one, the slip
     // and the entry already agree.
-    let money_category = resolve_account(&mut **tx, &key, &site_id, &qualifier)
+    let money_category = resolve_account(&mut **tx, &key, &unit_id, &qualifier)
         .await?
         .category_code;
     let money = side_from_meaning(
         &key,
         &qualifier,
-        &site_id,
+        &unit_id,
         bank_account.clone(),
         money_category,
     );
@@ -1623,19 +1630,19 @@ pub(super) async fn bank_line_to_document(
             assert_postable(&mut **tx, code, Intent::Post).await?;
             assert_category_for_account(&mut **tx, code, category_code.as_deref(), Intent::Post)
                 .await?;
-            side_from_account(code, &site_id, category_code.clone())
+            side_from_account(code, &unit_id, category_code.clone())
         }
         OtherSide::Meaning {
             semantic_key,
             qualifier,
-            site_id: other_site,
+            unit_id: other_unit,
         } => {
-            let resolved = resolve_account(&mut **tx, semantic_key, other_site, qualifier).await?;
+            let resolved = resolve_account(&mut **tx, semantic_key, other_unit, qualifier).await?;
             assert_postable(&mut **tx, &resolved.account_code, Intent::Post).await?;
             side_from_meaning(
                 semantic_key,
                 qualifier,
-                other_site,
+                other_unit,
                 resolved.account_code,
                 resolved.category_code,
             )
@@ -1653,7 +1660,7 @@ pub(super) async fn bank_line_to_document(
     let direction = cash_direction(from.money, to.money).ok_or_else(|| {
         AppError::Validation(format!(
             "neither side of this line holds money, which cannot be true of a bank line; \
-             {bank_account} is mapped to no money meaning at {site_id}"
+             {bank_account} is mapped to no money meaning in the books of {unit_id}"
         ))
     })?;
 
@@ -1694,11 +1701,11 @@ pub(super) async fn bank_line_to_document(
     // bank line was booked as a transfer between two of our own accounts.
     let journal_line_id: Uuid = sqlx::query(
         "SELECT line_id FROM journal_line
-          WHERE entry_id = $1 AND account_code = $2 AND site_id = $3",
+          WHERE entry_id = $1 AND account_code = $2 AND unit_id = $3",
     )
     .bind(posted.entry_id)
     .bind(&bank_account)
-    .bind(&site_id)
+    .bind(&unit_id)
     .fetch_one(&mut **tx)
     .await?
     .try_get("line_id")?;

@@ -6,7 +6,7 @@
 //! Which bank, which rack, which article of PPh, electricity rather than
 //! water — none of those are report lines, so none of them are accounts any
 //! more. Most moved onto columns the line already had (`bank_account_id`,
-//! `asset_id`, `supplier_id`, `counter_site_id`) or onto a master that is
+//! `asset_id`, `supplier_id`, `counter_unit_id`) or onto a master that is
 //! richer than a code ever was (`tax_type`, `financing_facility`,
 //! `principal`). What was left over — fifty-two kinds of expense, thirteen
 //! pay components, the cash pots, the tenders — had no home, and this is it:

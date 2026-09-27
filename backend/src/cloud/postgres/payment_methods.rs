@@ -33,8 +33,9 @@ pub struct PaymentMethod {
     pub point_value_minor: Option<i64>,
     pub is_active: bool,
     pub note: Option<String>,
-    /// The roles this method's day lines use, and how many of them resolve at
-    /// every site. A method whose roles do not all resolve cannot post a day.
+    /// The roles this method's day lines use, and which of them do not resolve
+    /// in every unit's books. A method whose roles do not all resolve cannot
+    /// post a day.
     pub roles: Vec<String>,
     pub unlinked_roles: Vec<String>,
     pub created_by: String,
@@ -75,10 +76,10 @@ const ROWS: &str = "
            p.point_value_minor, p.is_active, p.note, p.created_by, p.created_at,
            ARRAY(SELECT r FROM payment_method_roles(p.tender_type, p.settlement_mode) r) AS roles,
            ARRAY(SELECT r FROM payment_method_roles(p.tender_type, p.settlement_mode) r
-                  WHERE (SELECT COUNT(DISTINCT x.site_id) FROM account_resolution x
+                  WHERE (SELECT COUNT(DISTINCT x.unit_id) FROM account_resolution x
                           WHERE x.role = r AND x.source_type = 'COMPANY'
                             AND x.source_id = p.bank_code)
-                        < (SELECT COUNT(*) FROM site)) AS unlinked_roles
+                        < (SELECT COUNT(*) FROM unit)) AS unlinked_roles
       FROM payment_method p";
 
 fn to_method(row: &sqlx::postgres::PgRow) -> Result<PaymentMethod, AppError> {

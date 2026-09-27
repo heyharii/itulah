@@ -240,7 +240,7 @@ fn request_for(
 ) -> ImportStatementRequest {
     ImportStatementRequest {
         account_code: source.account_code.clone(),
-        site_id: source.site_id.clone(),
+        unit_id: source.unit_id.clone(),
         // What the route was configured with, which may be nothing: the import
         // then resolves it, and refuses if the ledger binding is ambiguous.
         bank_account_id: source.bank_account_id,

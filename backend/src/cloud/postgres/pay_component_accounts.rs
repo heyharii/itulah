@@ -21,9 +21,10 @@ pub struct PayComponentPosting {
     /// The role the component's link answers: `payroll_expense` for an
     /// earning, `payroll_deduction` for a deduction.
     pub role: String,
-    /// How many sites the component resolves an account at. A component that
-    /// resolves nowhere makes a payroll run that pays it refuse, by name.
-    pub linked_sites: i64,
+    /// How many units' books the component resolves an account in. A
+    /// component that resolves nowhere makes a payroll run that pays it
+    /// refuse, by name.
+    pub linked_units: i64,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -39,10 +40,10 @@ const ROWS: &str = "
     SELECT c.code, c.label, c.kind, c.employer_borne, c.paid_from_accrual,
            c.retired_at IS NOT NULL AS retired,
            CASE c.kind WHEN 'EARNING' THEN 'payroll_expense' ELSE 'payroll_deduction' END AS role,
-           (SELECT COUNT(DISTINCT r.site_id) FROM account_resolution r
+           (SELECT COUNT(DISTINCT r.unit_id) FROM account_resolution r
              WHERE r.source_type = 'PAY_COMPONENT' AND r.source_id = c.code
                AND r.role = CASE c.kind WHEN 'EARNING' THEN 'payroll_expense'
-                                        ELSE 'payroll_deduction' END)::bigint AS linked_sites
+                                        ELSE 'payroll_deduction' END)::bigint AS linked_units
       FROM pay_component c";
 
 fn to_row(row: &sqlx::postgres::PgRow) -> Result<PayComponentPosting, AppError> {
@@ -54,7 +55,7 @@ fn to_row(row: &sqlx::postgres::PgRow) -> Result<PayComponentPosting, AppError> 
         paid_from_accrual: row.try_get("paid_from_accrual")?,
         retired: row.try_get("retired")?,
         role: row.try_get("role")?,
-        linked_sites: row.try_get("linked_sites")?,
+        linked_units: row.try_get("linked_units")?,
     })
 }
 

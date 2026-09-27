@@ -912,21 +912,24 @@ pub(super) async fn asset_cost_accounts(
 /// pressed Run. Asked here, the same fault reads as the map row it is, names
 /// the meaning, and appears in the rehearsal and on the setup screen before a
 /// month is ever charged.
+///
+/// `unit_id` is the books the charge lands in: an asset stands at a site, and
+/// its value is booked to the unit that owns the site (`unit_of_site`).
 async fn asset_leg(
     executor: impl sqlx::PgExecutor<'_>,
     semantic_key: &str,
-    site_id: &str,
+    unit_id: &str,
     qualifier: &str,
     expected: Option<&str>,
 ) -> Result<Resolved, AppError> {
-    let resolved = resolve_account(executor, semantic_key, site_id, qualifier).await?;
+    let resolved = resolve_account(executor, semantic_key, unit_id, qualifier).await?;
     // On the client's 267 leaves the account itself says which charge it is
     // (7007 is building depreciation, 1113 is CIP), so a row with no category
     // is the normal answer and needs no telling apart. The category test
     // still guards a row that DOES carry one and carries the wrong one.
     if resolved.category_code.is_some() && resolved.category_code.as_deref() != expected {
         return Err(AppError::Validation(format!(
-            "the map points {semantic_key} ({qualifier}) at {} at {site_id} {}, and this charge \
+            "the map points {semantic_key} ({qualifier}) at {} in the books of {unit_id} {}, and this charge \
              is {}. One account carries several of these now, and the category is the only thing \
              that tells them apart — fix the link on the Account Links screen.",
             resolved.account_code,
@@ -954,18 +957,18 @@ async fn asset_leg(
 pub(super) async fn charge_legs(
     pool: &PgPool,
     kind: ChargeKind,
-    site_id: &str,
+    unit_id: &str,
     class_code: &str,
 ) -> Result<(), AppError> {
     asset_leg(
         pool,
         kind.expense_key(),
-        site_id,
+        unit_id,
         class_code,
         Some(kind.expense_category()),
     )
     .await?;
-    asset_leg(pool, kind.contra_key(), site_id, class_code, None).await?;
+    asset_leg(pool, kind.contra_key(), unit_id, class_code, None).await?;
     Ok(())
 }
 
@@ -1308,9 +1311,10 @@ pub async fn assess_asset(
     // Where it is filed now, and what its last assessment said. Both are
     // needed before anything is written: a re-filing is only legitimate out of
     // work in progress, and the answer to "is this asset in progress" is the
-    // latest assessment rather than a column.
+    // latest assessment rather than a column. The asset stands at a site; its
+    // cost is in the books of the unit that owns the site.
     let standing = sqlx::query(
-        "SELECT a.category_code, a.site_id,
+        "SELECT a.category_code, unit_of_site(a.site_id) AS unit_id,
                 (SELECT x.decision FROM asset_capitalization x
                   WHERE x.asset_id = a.asset_id
                   ORDER BY x.sequence DESC LIMIT 1) AS decision
@@ -1322,7 +1326,7 @@ pub async fn assess_asset(
     .ok_or_else(|| AppError::NotFound("asset".into()))?;
     let was: Option<String> = standing.try_get("decision")?;
     let filed_under: String = standing.try_get("category_code")?;
-    let site: String = standing.try_get("site_id")?;
+    let unit: String = standing.try_get("unit_id")?;
 
     // Finished work has to say what it became. Capitalising something filed
     // under Contract In Progress and leaving it there would put a building's
@@ -1472,7 +1476,7 @@ pub async fn assess_asset(
         let progress = asset_leg(
             &mut *tx,
             "work_in_progress",
-            &site,
+            &unit,
             &filed_under,
             Some(ASSET_IN_PROGRESS),
         )
@@ -1480,7 +1484,7 @@ pub async fn assess_asset(
         let finished = asset_leg(
             &mut *tx,
             kind.cost_key(),
-            &site,
+            &unit,
             &code,
             kind.cost_category(),
         )
@@ -1493,19 +1497,19 @@ pub async fn assess_asset(
         // crediting it here would take the client's own account negative and
         // call the difference finished work.
         //
-        // Narrowed to the STAGE and not just to the account. Summing `1601` at
-        // the site would count every capitalised asset at that shop as work in
+        // Narrowed to the STAGE and not just to the account. Summing `1601` in
+        // the unit's books would count every capitalised asset there as work in
         // progress, so one finished building would let any number of contracts
         // be capitalised out of an account that holds nothing for them — which
         // is the guard defeating itself.
         let held: i64 = sqlx::query(
             "SELECT COALESCE(SUM(l.debit_minor - l.credit_minor), 0)::bigint AS held
                FROM journal_line l
-              WHERE l.account_code = $1 AND l.site_id = $2
+              WHERE l.account_code = $1 AND l.unit_id = $2
                 AND l.category_code IS NOT DISTINCT FROM $3",
         )
         .bind(&progress_account)
-        .bind(&site)
+        .bind(&unit)
         .bind(progress.category_code.as_deref())
         .fetch_one(&mut *tx)
         .await?
@@ -1545,8 +1549,8 @@ pub async fn assess_asset(
                 filed_under
             )),
             lines: vec![
-                PostingLine::debit(kind.cost_key(), &site, cost).with_qualifier(&code),
-                PostingLine::credit("work_in_progress", &site, cost).with_qualifier(&filed_under),
+                PostingLine::debit(kind.cost_key(), &unit, cost).with_qualifier(&code),
+                PostingLine::credit("work_in_progress", &unit, cost).with_qualifier(&filed_under),
             ],
         };
         post(&mut tx, &intent, None, actor).await?;
@@ -1775,7 +1779,9 @@ async fn charge_month(
             }
             Outcome::Post(amount) => {
                 let category: String = row.try_get("category_code")?;
-                let site: String = row.try_get("site_id")?;
+                // The asset stands at a site; the charge lands in the books of
+                // the unit that owns it.
+                let unit: String = row.try_get("unit_id")?;
                 // The class is the qualifier. `MACHINERY` resolves through the
                 // map to `7101` with its expense meaning and `1609` with its
                 // contra one, so the run names no account itself. It is also
@@ -1830,9 +1836,9 @@ async fn charge_month(
                     currency: "IDR".into(),
                     memo: Some(format!("{} {period} — {asset_number} {name}", kind.label())),
                     lines: vec![
-                        PostingLine::debit(kind.expense_key(), &site, amount)
+                        PostingLine::debit(kind.expense_key(), &unit, amount)
                             .with_qualifier(&category),
-                        PostingLine::credit(kind.contra_key(), &site, amount)
+                        PostingLine::credit(kind.contra_key(), &unit, amount)
                             .with_qualifier(&category),
                     ],
                 };
@@ -1840,7 +1846,7 @@ async fn charge_month(
                     // A rehearsal. Both legs are resolved so the report can
                     // name the asset that has nowhere to charge — the run
                     // itself cannot, because the first such asset ends it.
-                    let refusal = charge_legs(pool, kind, &site, &category)
+                    let refusal = charge_legs(pool, kind, &unit, &category)
                         .await
                         .err()
                         .map(|error| error.to_string());
@@ -1866,7 +1872,7 @@ async fn charge_month(
                 // miscategorised row on its own; asked here, the refusal names
                 // the map entry and the asset instead of a line number inside
                 // an entry nobody has seen.
-                charge_legs(pool, kind, &site, &category).await?;
+                charge_legs(pool, kind, &unit, &category).await?;
 
                 let mut tx = pool.begin().await?;
                 // The month is the step. `source_id` is the asset and the asset
@@ -1925,7 +1931,8 @@ async fn charge_month(
 /// of refusals.
 pub async fn unmapped_categories(pool: &PgPool) -> Result<Vec<String>, AppError> {
     let rows = sqlx::query(
-        "SELECT DISTINCT a.category_code, a.site_id, k.charge_kind FROM fixed_asset a
+        "SELECT DISTINCT a.category_code, unit_of_site(a.site_id) AS unit_id, k.charge_kind
+           FROM fixed_asset a
            JOIN LATERAL (
                SELECT * FROM asset_capitalization x
                 WHERE x.asset_id = a.asset_id ORDER BY x.sequence DESC LIMIT 1
@@ -1937,7 +1944,9 @@ pub async fn unmapped_categories(pool: &PgPool) -> Result<Vec<String>, AppError>
     let mut missing = Vec::new();
     for row in &rows {
         let category: String = row.try_get("category_code")?;
-        let site: String = row.try_get("site_id")?;
+        // Asked in the books the charge would land in: the unit that owns the
+        // asset's site.
+        let unit: String = row.try_get("unit_id")?;
         // An operating-equipment category needs `replacement_*` mapped and an
         // intangible needs `amortisation_*`; reporting the depreciation pair
         // as missing for either would send somebody to map an account that
@@ -1955,8 +1964,8 @@ pub async fn unmapped_categories(pool: &PgPool) -> Result<Vec<String>, AppError>
             (kind.expense_key(), Some(kind.expense_category())),
             (kind.contra_key(), None),
         ] {
-            if let Err(error) = asset_leg(pool, key, &site, &category, expected).await {
-                missing.push(format!("{key} for {category} at {site}: {error}"));
+            if let Err(error) = asset_leg(pool, key, &unit, &category, expected).await {
+                missing.push(format!("{key} for {category} in the books of {unit}: {error}"));
             }
         }
     }
@@ -2197,7 +2206,9 @@ pub async fn dispose_asset(
     // than unwrapping: a panic in a posting path is never the right answer.
     let cost = existing.capitalized_cost_minor.unwrap_or_default();
     let accumulated = existing.accumulated_minor;
-    let site = existing.site_id.clone();
+    // The asset stands at a site; its cost, its contra and whatever it fetched
+    // are all in the books of the unit that owns the site.
+    let unit = super::sites::unit_of_site(pool, &existing.site_id).await?;
     let category = existing.category_code.clone();
     // Where the cost sits and what its contra is called both follow the charge
     // kind: an intangible's cost is not in the fixed-asset account, and
@@ -2210,16 +2221,16 @@ pub async fn dispose_asset(
         .unwrap_or(ChargeKind::Depreciation);
 
     let mut lines =
-        vec![PostingLine::credit(kind.cost_key(), &site, cost).with_qualifier(&category)];
+        vec![PostingLine::credit(kind.cost_key(), &unit, cost).with_qualifier(&category)];
     if accumulated > 0 {
         lines.push(
-            PostingLine::debit(kind.contra_key(), &site, accumulated).with_qualifier(&category),
+            PostingLine::debit(kind.contra_key(), &unit, accumulated).with_qualifier(&category),
         );
     }
     if request.proceeds_minor > 0 {
         if let Some(key) = proceeds_key.as_deref() {
             lines.push(
-                PostingLine::debit(key, &site, request.proceeds_minor)
+                PostingLine::debit(key, &unit, request.proceeds_minor)
                     .with_qualifier(request.proceeds_account_qualifier.trim())
                     .for_asset(asset_id),
             );
@@ -2234,10 +2245,10 @@ pub async fn dispose_asset(
     let result = cost - accumulated - request.proceeds_minor;
     match result.cmp(&0) {
         std::cmp::Ordering::Greater => {
-            lines.push(PostingLine::debit("asset_disposal_loss", &site, result).for_asset(asset_id))
+            lines.push(PostingLine::debit("asset_disposal_loss", &unit, result).for_asset(asset_id))
         }
         std::cmp::Ordering::Less => lines
-            .push(PostingLine::credit("asset_disposal_result", &site, -result).for_asset(asset_id)),
+            .push(PostingLine::credit("asset_disposal_result", &unit, -result).for_asset(asset_id)),
         std::cmp::Ordering::Equal => {}
     }
 
@@ -2293,18 +2304,24 @@ pub async fn dispose_asset(
 /// # The entry
 ///
 /// ```text
-///   Cr  fixed_asset               cost         at the location it left
-///   Dr  fixed_asset               cost         at the one it arrived at
-///   Dr  accumulated_depreciation  accumulated  at the location it left
-///   Cr  accumulated_depreciation  accumulated  at the one it arrived at
+///   Cr  fixed_asset               cost         in the unit it left
+///   Dr  fixed_asset               cost         in the one it arrived in
+///   Dr  accumulated_depreciation  accumulated  in the unit it left
+///   Cr  accumulated_depreciation  accumulated  in the one it arrived in
 /// ```
 ///
 /// Both halves, not just the cost. The client keeps a profit and loss per
-/// location and their account codes carry the location, so moving the cost
-/// alone would leave the old shop carrying accumulated depreciation against an
-/// asset it no longer has and the new one carrying a cost with nothing charged
+/// unit and their account codes carry the unit, so moving the cost alone
+/// would leave the old unit carrying accumulated depreciation against an asset
+/// it no longer has and the new one carrying a cost with nothing charged
 /// against it — two balance sheets wrong by the same amount in opposite
 /// directions, and a trial balance that still balances.
+///
+/// The legs are in the books of the unit that owns each site. A move between
+/// two units is an inter-unit entry, and the poster adds the affiliate legs
+/// that balance each unit (through head office, I8). A move between two sites
+/// of ONE unit changes no books at all — the same account, the same unit,
+/// debited and credited — so no entry is written for it.
 ///
 /// An asset Finance decided to EXPENSE has no cost in the books, so there is
 /// nothing to move and no entry is written. The move is still recorded:
@@ -2351,6 +2368,8 @@ pub async fn transfer_asset(
     let cost = existing.capitalized_cost_minor.unwrap_or_default();
     let accumulated = existing.accumulated_minor;
     let from_site = existing.site_id.clone();
+    let from_unit = super::sites::unit_of_site(pool, &from_site).await?;
+    let to_unit = super::sites::unit_of_site(pool, to_site).await?;
     let category = existing.category_code.clone();
     let kind = existing
         .charge_kind
@@ -2359,18 +2378,18 @@ pub async fn transfer_asset(
         .unwrap_or(ChargeKind::Depreciation);
 
     let mut tx = pool.begin().await?;
-    let entry_id = if capitalised && cost > 0 {
+    let entry_id = if capitalised && cost > 0 && from_unit != to_unit {
         let mut lines = vec![
-            PostingLine::credit(kind.cost_key(), &from_site, cost).with_qualifier(&category),
-            PostingLine::debit(kind.cost_key(), to_site, cost).with_qualifier(&category),
+            PostingLine::credit(kind.cost_key(), &from_unit, cost).with_qualifier(&category),
+            PostingLine::debit(kind.cost_key(), &to_unit, cost).with_qualifier(&category),
         ];
         if accumulated > 0 {
             lines.push(
-                PostingLine::debit(kind.contra_key(), &from_site, accumulated)
+                PostingLine::debit(kind.contra_key(), &from_unit, accumulated)
                     .with_qualifier(&category),
             );
             lines.push(
-                PostingLine::credit(kind.contra_key(), to_site, accumulated)
+                PostingLine::credit(kind.contra_key(), &to_unit, accumulated)
                     .with_qualifier(&category),
             );
         }
@@ -2945,6 +2964,7 @@ pub struct AssetDepreciationStatus {
 /// about what "an asset this month concerns" means.
 const DUE_CANDIDATES: &str =
     "SELECT a.asset_id, a.asset_number, a.name, a.site_id, a.category_code,
+                unit_of_site(a.site_id) AS unit_id,
                 k.capitalized_cost_minor, k.salvage_value_minor, k.useful_life_months,
                 k.method, k.charge_kind, k.in_service_on, k.opening_through,
                 (COALESCE(k.opening_accumulated_minor, 0)
