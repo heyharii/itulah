@@ -1,13 +1,14 @@
 import { useQuery } from "@tanstack/react-query"
 
 import { node } from "@/lib/api"
+import type { IssuedInvitation } from "@/lib/queries/invitations"
 import type {
   NewStore,
-  OpenStoresAnswer,
   SaveSetupCompanyRequest,
   SetupBooks,
   SetupCompany,
   SetupStatus,
+  SetupStore,
   StartBooksRequest,
   StoredFile,
 } from "@itulah/contract"
@@ -20,6 +21,26 @@ export type {
   SetupStore,
   SetupTask,
 } from "@itulah/contract"
+
+/// A store to open, with its manager — the owner's decision of 2026-09-27
+/// that every store gets one the moment it opens. `NewStore` is generated
+/// from the Rust request (`@itulah/contract`) and does not carry `manager`
+/// yet, so this widens it locally rather than editing the generated file; a
+/// later contract regeneration that adds the field there makes this an alias
+/// rather than a fix.
+export type NewStoreWithManager = NewStore & { manager: { name: string } }
+
+/// One store `POST /api/v1/setup/stores` answers with, plus the invitation it
+/// raised for that store's manager — `null` only for a store opened before
+/// the manager became required, never for one opened through this app now
+/// that the server refuses to create one without.
+export type CreatedStore = SetupStore & {
+  manager_invitation: IssuedInvitation | null
+}
+
+export interface OpenStoresAnswerWithManagers {
+  readonly created: readonly CreatedStore[]
+}
 
 /// Setup — the first minutes of a company that has nothing yet.
 ///
@@ -96,14 +117,13 @@ export function saveCompany(
 
 /// One store or thirty, in one transaction: per store a unit, a shop site,
 /// its floor, back-room and reject pools, its return pool at the warehouse,
-/// and a pairing code for its node. No accounts — the chart is per company
-/// and a store is a dimension on the journal, so the store inherits every
-/// account link scoped to all stores.
+/// a pairing code for its node, and now an invitation for its manager — the
+/// server refuses the whole batch (422) if any store in it has none.
 export function openStores(
-  stores: readonly NewStore[],
+  stores: readonly NewStoreWithManager[],
   idempotencyKey: string
-): Promise<OpenStoresAnswer> {
-  return node.post<OpenStoresAnswer>(
+): Promise<OpenStoresAnswerWithManagers> {
+  return node.post<OpenStoresAnswerWithManagers>(
     "/api/v1/setup/stores",
     { stores },
     { headers: { "Idempotency-Key": idempotencyKey } }

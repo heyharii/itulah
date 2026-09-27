@@ -13,16 +13,19 @@ import {
   startBooks,
   uploadChart,
   legalFormOf,
+  type CreatedStore,
   type LegalForm,
   type SetupStatus,
 } from "@/lib/queries/setup"
 import { cn } from "@/lib/utils"
 import { BusinessMap, type MapStore } from "@/screens/setup/business-map"
 import { LegalFormPills } from "@/screens/setup/legal-form-pills"
+import { ManagerLinks } from "@/screens/setup/manager-links"
 import { companyName, nextCodes } from "@/screens/setup/names"
 import {
   StoreList,
   draftStore,
+  storesReady,
   storesToOpen,
   type DraftStore,
 } from "@/screens/setup/store-list"
@@ -91,6 +94,11 @@ export function Onboarding({
   /// One key per batch of stores: a double press, or a retry after a timeout
   /// that did land, opens the stores once.
   const [storesKey, setStoresKey] = useState(() => crypto.randomUUID())
+  /// The managers just invited by opening stores in this session — shown on
+  /// the "ready" screen. Not persisted: a link is shown once, and a company
+  /// that closes the wizard and reopens it later has already had its chance
+  /// to copy these.
+  const [managerLinks, setManagerLinks] = useState<readonly CreatedStore[]>([])
 
   const refresh = () =>
     client.invalidateQueries({ queryKey: setupKeys.status() })
@@ -120,6 +128,7 @@ export function Onboarding({
         old ? { ...old, stores: [...old.stores, ...answer.created] } : old
       )
       void refresh()
+      setManagerLinks((prev) => [...prev, ...answer.created])
       setDrafts([draftStore()])
       setStoresKey(crypto.randomUUID())
       setStep(3)
@@ -314,6 +323,7 @@ export function Onboarding({
                     <Button
                       variant="primary"
                       className="h-11 px-5"
+                      disabled={!storesReady(drafts)}
                       pending={saveStep2.isPending}
                       onClick={() => saveStep2.mutate()}
                     >
@@ -435,6 +445,11 @@ export function Onboarding({
                   />
                   <Made label="Open period" value={monthLabel} />
                 </dl>
+                {managerLinks.length > 0 && (
+                  <div className="mt-5">
+                    <ManagerLinks stores={managerLinks} />
+                  </div>
+                )}
                 <Footer>
                   <Button
                     variant="primary"

@@ -2,26 +2,51 @@ import { Check, Plus, X } from "lucide-react"
 import { useEffect, useRef } from "react"
 
 import { Button } from "@/components/ui/button"
-import type { NewStore, SetupStore } from "@/lib/queries/setup"
+import type { NewStoreWithManager, SetupStore } from "@/lib/queries/setup"
 import { nextCodes, timezoneOf } from "@/screens/setup/names"
 
 /// A store not yet opened: a row in the list somebody is typing into.
+///
+/// `manager` is required — the owner's decision, 2026-09-27: every store gets
+/// a manager the moment it is opened, invited by the same link the rest of
+/// the team is. A row with no manager is not sent; see `storesReady`.
 export interface DraftStore {
   readonly key: string
   readonly name: string
   readonly city: string
+  readonly manager: string
 }
 
-export function draftStore(name = "", city = ""): DraftStore {
-  return { key: crypto.randomUUID(), name, city }
+export function draftStore(name = "", city = "", manager = ""): DraftStore {
+  return { key: crypto.randomUUID(), name, city, manager }
 }
 
 /// The rows that will actually be sent — a row with no name is a row
 /// somebody pressed Enter into and has not typed in yet.
-export function storesToOpen(rows: readonly DraftStore[]): NewStore[] {
+export function storesToOpen(
+  rows: readonly DraftStore[]
+): NewStoreWithManager[] {
   return rows
     .filter((row) => row.name.trim() !== "")
-    .map((row) => ({ name: row.name.trim(), city: row.city.trim() }))
+    .map((row) => ({
+      name: row.name.trim(),
+      city: row.city.trim(),
+      manager: { name: row.manager.trim() },
+    }))
+}
+
+/// Whether every row worth sending has a manager. The button that opens the
+/// stores stays disabled until this is true — the server refuses a store
+/// with no manager (422), and a form that let the request go anyway would
+/// only be relaying that refusal a beat later.
+export function storesReady(rows: readonly DraftStore[]): boolean {
+  const named = rows.filter((row) => row.name.trim() !== "")
+  return named.length > 0 && named.every((row) => row.manager.trim() !== "")
+}
+
+/// A row worth sending that has no manager yet — what marks the field red.
+function missingManager(row: DraftStore): boolean {
+  return row.name.trim() !== "" && row.manager.trim() === ""
 }
 
 /// Stores, as a list of lines rather than a form per store.
@@ -125,6 +150,7 @@ export function StoreList({
             <span className="w-10 shrink-0 font-mono text-id text-mute">
               {store.timezone}
             </span>
+            <span className="w-36 shrink-0 border-l border-hairline pl-3" />
             <Check
               className="size-4 shrink-0 text-ok"
               aria-label="Already open"
@@ -160,6 +186,7 @@ export function StoreList({
                   event.key === "Backspace" &&
                   row.name === "" &&
                   row.city === "" &&
+                  row.manager === "" &&
                   rows.length > 1
                 ) {
                   event.preventDefault()
@@ -194,6 +221,20 @@ export function StoreList({
             <span className="w-10 shrink-0 font-mono text-id text-mute">
               {row.city.trim() === "" ? "" : timezoneOf(row.city)}
             </span>
+            <input
+              value={row.manager}
+              aria-label={`Manager ${codes[index]}`}
+              aria-invalid={missingManager(row) ? true : undefined}
+              placeholder="Manager"
+              onChange={(event) => set(index, { manager: event.target.value })}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault()
+                  insert(index + 1)
+                }
+              }}
+              className="h-10 w-36 shrink-0 border-l border-hairline bg-transparent pl-3 text-cell text-text outline-none placeholder:text-faint aria-[invalid=true]:bg-bad-bg/50 aria-[invalid=true]:placeholder:text-bad-fg"
+            />
             <Button
               variant="quiet"
               size="icon"
@@ -219,7 +260,7 @@ export function StoreList({
         <kbd className="rounded-[0.3125rem] border border-b-2 border-hairline-2 bg-canvas px-1.5 font-mono text-id text-body">
           Enter
         </kbd>
-        new row · paste from Excel (name, city) ·
+        new row · paste from Excel (name, city, manager) ·
         <label className="cursor-pointer text-body underline decoration-hairline-strong underline-offset-[3px] hover:text-ink">
           import CSV
           <input
@@ -238,9 +279,11 @@ export function StoreList({
   )
 }
 
-/// Lines of "name, city" — from a spreadsheet's clipboard (tab between the
-/// cells) or a CSV (comma). A first line that reads like a heading is not a
-/// store called "Nama".
+/// Lines of "name, city, manager" — from a spreadsheet's clipboard (tab
+/// between the cells) or a CSV (comma). A first line that reads like a
+/// heading is not a store called "Nama". The third cell is new: a pasted
+/// list from before the manager was required lands with that column blank,
+/// same as a typed row does, and the red field says so.
 function parseLines(text: string): DraftStore[] {
   const lines = text
     .split(/\r?\n/)
@@ -252,5 +295,7 @@ function parseLines(text: string): DraftStore[] {
     lines.length > 0 && /^(nama|name|toko)$/i.test(lines[0][0])
       ? lines.slice(1)
       : lines
-  return body.map(([name, city = ""]) => draftStore(name, city))
+  return body.map(([name, city = "", manager = ""]) =>
+    draftStore(name, city, manager)
+  )
 }
