@@ -196,6 +196,12 @@ impl StatusSource {
                 "SELECT count(*) FROM edge_rfid_device WHERE active = 1 AND last_seen_at >= ?1",
                 Some(&recently),
             ),
+            // `expires_at` is written in the same fixed-width RFC 3339 as the
+            // bound time (`edge::devices::stamp`), so this compares times.
+            terminals_waiting: count(
+                "SELECT count(*) FROM edge_device_join WHERE outcome IS NULL AND expires_at > ?1",
+                Some(&Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, true)),
+            ),
         }
     }
 

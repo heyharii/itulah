@@ -255,6 +255,8 @@ cloud	GET	/api/v1/sales/{id}/receipt	Cashier	-
 cloud	GET	/api/v1/setup	Admin	-
 cloud	GET	/api/v1/shop-sales/{id}	Cashier	-
 cloud	GET	/api/v1/sourcing-basket	Supervisor	-
+cloud	GET	/api/v1/stores	Cashier	-
+cloud	GET	/api/v1/stores/{unit}	Cashier	-
 cloud	GET	/api/v1/supplier-items	Supervisor	-
 cloud	GET	/api/v1/supplier-items/{id}	Supervisor	-
 cloud	GET	/api/v1/suppliers	Supervisor	-
@@ -557,6 +559,8 @@ cloud	POST	/api/v1/setup/stores	Admin	-
 cloud	POST	/api/v1/sourcing-basket	Supervisor	-
 cloud	POST	/api/v1/sourcing-basket/clear	Supervisor	-
 cloud	POST	/api/v1/sourcing-basket/{supplier_item_id}/remove	Supervisor	supplier_item
+cloud	POST	/api/v1/stores/{unit}/open	Admin	-
+cloud	POST	/api/v1/stores/{unit}/server/install	Admin	-
 cloud	POST	/api/v1/supplier-items/{id}/activate	Supervisor	supplier_item
 cloud	POST	/api/v1/supplier-items/{id}/deactivate	Supervisor	supplier_item
 cloud	POST	/api/v1/suppliers	Supervisor	supplier

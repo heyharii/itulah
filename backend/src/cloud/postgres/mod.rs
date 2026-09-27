@@ -187,6 +187,9 @@ mod statement_intake;
 mod statements;
 mod stock_ledger;
 mod store_money;
+/// Opening a store: its readiness checks, head office's decision, and
+/// installing its server from the store's page. See the module.
+mod stores;
 mod supplier_banks;
 mod supplier_contacts;
 mod suppliers;
@@ -338,6 +341,7 @@ pub use statement_intake::*;
 pub use statements::*;
 pub use stock_ledger::*;
 pub use store_money::*;
+pub use stores::*;
 pub use supplier_banks::*;
 pub use supplier_contacts::*;
 pub use suppliers::*;
