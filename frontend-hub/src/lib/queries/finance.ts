@@ -141,15 +141,16 @@ export const financeKeys = {
     ["finance", "accounts", "children", parent, inactive] as const,
   accountSearch: (needle: string, inactive: boolean) =>
     ["finance", "accounts", "search", needle, inactive] as const,
-  /// `site` is part of the key because `accountDetail` takes it and the
-  /// balance it fetches is a DIFFERENT balance for each one — "cash at
-  /// Cikupa" is not a filtered view of "cash". Without it two units collided
-  /// on one entry and the second to ask was served the first one's figure.
+  /// `unit` is part of the key because `accountDetail` takes it and the
+  /// balance it fetches is a DIFFERENT balance for each one — "cash in
+  /// Cikupa's books" is not a filtered view of "cash". Without it two units
+  /// collided on one entry and the second to ask was served the first one's
+  /// figure.
   ///
   /// Optional with a null default, so every existing caller keys exactly as
   /// it did.
-  account: (code: string, asOf: string | null, site: string | null = null) =>
-    ["finance", "accounts", "detail", code, asOf, site] as const,
+  account: (code: string, asOf: string | null, unit: string | null = null) =>
+    ["finance", "accounts", "detail", code, asOf, unit] as const,
   /// Every argument that changes the ANSWER, and not only the ones that
   /// change the window.
   ///
@@ -161,7 +162,7 @@ export const financeKeys = {
   /// was invisible: the headline figures agreed while the rows did not.
   ledger: (
     code: string,
-    site: string | null,
+    unit: string | null,
     from: string | null,
     to: string | null,
     narrowing: {
@@ -174,7 +175,7 @@ export const financeKeys = {
       "finance",
       "ledger",
       code,
-      site,
+      unit,
       from,
       to,
       narrowing.q ?? null,
@@ -182,16 +183,16 @@ export const financeKeys = {
       narrowing.limit ?? null,
     ] as const,
 
-  trialBalance: (asOf: string | null, site: string | null) =>
-    ["finance", "trial-balance", asOf, site] as const,
+  trialBalance: (asOf: string | null, unit: string | null) =>
+    ["finance", "trial-balance", asOf, unit] as const,
   balances: (family: string, asOf: string | null) =>
     ["finance", "balances", family, asOf] as const,
   statement: (
     kind: string,
     from: string | null,
     to: string | null,
-    site: string | null
-  ) => ["finance", "statement", kind, from, to, site] as const,
+    unit: string | null
+  ) => ["finance", "statement", kind, from, to, unit] as const,
 
   /// The categories a journal line may carry, and the families they belong
   /// to. One key per family plus one for the lot, because the picker asks for
@@ -208,7 +209,7 @@ export const financeKeys = {
 
   /// Everything read off the account links lives under one prefix, so a
   /// link saved or removed invalidates the list, the readiness matrix, the
-  /// history and every site's resolved accounts with one call:
+  /// history and every unit's resolved accounts with one call:
   /// `invalidateQueries({ queryKey: financeKeys.accountLinksAll })`.
   accountLinksAll: ["finance", "account-links"] as const,
   accountLinks: (q: string | null, role: string | null) =>
@@ -216,8 +217,8 @@ export const financeKeys = {
   accountLinkHistory: (role: string | null) =>
     ["finance", "account-links", "history", role] as const,
   postingReadiness: () => ["finance", "account-links", "readiness"] as const,
-  siteAccounts: (site: string | null) =>
-    ["finance", "account-links", "site", site] as const,
+  unitAccounts: (unit: string | null) =>
+    ["finance", "account-links", "unit", unit] as const,
   /// The chart's own change log. Under `accounts` so the same invalidation
   /// that refreshes the tree after a change refreshes the history too.
   chartChanges: (account: string | null) =>
@@ -233,14 +234,15 @@ export const financeKeys = {
     from: string | null,
     to: string | null,
     kind: string | null,
-    site: string | null
-  ) => ["finance", "journal", from, to, kind, site] as const,
+    unit: string | null
+  ) => ["finance", "journal", from, to, kind, unit] as const,
   entry: (id: string) => ["finance", "journal", "entry", id] as const,
 
   /// The bill register. `site` is part of the key for the same reason
-  /// `payments` already keys on one: `GET /finance/bills` has always taken it
-  /// and narrows on the server, so a unit-filtered list is a different answer
-  /// and not a slice of a wider one held here.
+  /// `payments` keys on its unit: `GET /finance/bills` has always taken it and
+  /// narrows on the server, so a site-filtered list is a different answer and
+  /// not a slice of a wider one held here. A bill stays at the site it was
+  /// received at; its books are the unit owning that site.
   ///
   /// `draftFrom` is the GA inbox's own filter: `?draft_from=GA` answers the
   /// drafts Operations filed and Finance is to inspect, which are a different
@@ -266,18 +268,18 @@ export const financeKeys = {
   /// What is owed, to whom, and how late — the server's own ageing rather than
   /// a bucketing of the bill list. Keyed on both arguments because both wind
   /// the report back: a bill invoiced after the reporting date is not yet a
-  /// debt, and one location's payables is not another's.
-  payablesAging: (asOf: string | null, site: string | null) =>
-    ["finance", "payables-aging", asOf, site] as const,
+  /// debt, and one unit's payables is not another's.
+  payablesAging: (asOf: string | null, unit: string | null) =>
+    ["finance", "payables-aging", asOf, unit] as const,
 
   /// The payment register. Three filters, all of them the server's, so a
   /// narrowed list is a narrowed request and never a slice of a wider answer
   /// held in the browser.
   payments: (
     status: string | null,
-    site: string | null,
+    unit: string | null,
     supplier: string | null
-  ) => ["finance", "payments", status, site, supplier] as const,
+  ) => ["finance", "payments", status, unit, supplier] as const,
   payment: (id: string) => ["finance", "payments", "detail", id] as const,
 
   assets: (unassessed: boolean, site: string | null) =>
@@ -292,25 +294,25 @@ export const financeKeys = {
   /// No arguments: it is a whole-company exception report, not a filtered list.
   acquisitionGap: () => ["finance", "assets", "unbacked"] as const,
 
-  /// Where the money sits, as at a date, at one location or all of them.
-  money: (asOf: string | null, site: string | null) =>
-    ["finance", "money", asOf, site] as const,
+  /// Where the money sits, as at a date, in one unit's books or all of them.
+  money: (asOf: string | null, unit: string | null) =>
+    ["finance", "money", asOf, unit] as const,
   /// What the bank has told us, for one unit or for all of them.
   ///
-  /// `listBankStatements` takes `site` and narrows on the server, so the unit
-  /// belongs in the key: without it a screen showing Store 03's statements and
-  /// one showing the chain's were writing to the same entry, and whichever
-  /// asked second read the other's rows.
-  bankStatements: (site: string | null = null) =>
-    ["finance", "bank-statements", site] as const,
+  /// `listBankStatements` takes `unit` and narrows on the server, so the unit
+  /// belongs in the key: without it a screen showing C003's statements and one
+  /// showing the chain's were writing to the same entry, and whichever asked
+  /// second read the other's rows.
+  bankStatements: (unit: string | null = null) =>
+    ["finance", "bank-statements", unit] as const,
   bankLines: (statementId: string) =>
     ["finance", "bank-statements", statementId, "lines"] as const,
   /// Counts of one drawer, or of all of them.
   /// Institutions gathered from every account that names one.
   bankInstitutions: () => ["finance", "banks"] as const,
   /// What our own accounts are, as opposed to where they post.
-  companyBankAccounts: (site: string | null) =>
-    ["finance", "bank-accounts", site] as const,
+  companyBankAccounts: (unit: string | null) =>
+    ["finance", "bank-accounts", unit] as const,
   cashCounts: (account: string | null, site: string | null) =>
     ["finance", "cash-counts", account, site] as const,
   bankSuggestions: (statementId: string, exact = true) =>
@@ -325,9 +327,10 @@ export const financeKeys = {
   paymentInstruction: (id: string) =>
     ["finance", "payment-instructions", "detail", id] as const,
 
-  /// Deposits, narrowed on the server the same way.
-  deposits: (status: string | null, site: string | null) =>
-    ["finance", "deposits", status, site] as const,
+  /// Deposits, narrowed on the server by status and by the unit whose money
+  /// it is.
+  deposits: (status: string | null, unit: string | null) =>
+    ["finance", "deposits", status, unit] as const,
   deposit: (id: string) => ["finance", "deposits", "detail", id] as const,
 
   /// Finance's master data — the settings a person changes from a screen
@@ -344,8 +347,8 @@ export const financeKeys = {
     dimension: string,
     from: string,
     to: string,
-    site: string | null
-  ) => ["finance", "dimension-results", dimension, from, to, site] as const,
+    unit: string | null
+  ) => ["finance", "dimension-results", dimension, from, to, unit] as const,
   sourceRules: () => ["finance", "policies", "source-rules"] as const,
   headOfficeAccounts: () =>
     ["finance", "policies", "head-office-accounts"] as const,
@@ -517,10 +520,11 @@ export function listAssetClasses(
 // Chart of accounts, continued
 // ---------------------------------------------------------------------------
 
-/// One account, the headings above it, and what it is worth.
+/// One account, the headings above it, and what it is worth — in one unit's
+/// books when `unit` names one, the company's when it does not.
 export function accountDetail(
   code: string,
-  options: { site?: string; as_of?: string } = {},
+  options: { unit?: string; as_of?: string } = {},
   signal?: AbortSignal
 ): Promise<AccountDetail> {
   return node.get<AccountDetail>(
@@ -532,12 +536,13 @@ export function accountDetail(
 /// One account's own movements, with the balance it opened on.
 ///
 /// Asking for a heading works and is the point: matching is by code prefix, so
-/// `1011001` is cash across every location. With no window the server answers
-/// the current month, which is the unit a ledger is read in.
+/// `1011001` is cash across every unit's books. With no window the server
+/// answers the current month, which is the span a ledger is read in. `unit`
+/// narrows the opening balance too: one unit's cash is a ledger of its own.
 export function accountLedger(
   code: string,
   options: {
-    site?: string
+    unit?: string
     from?: string
     to?: string
     /// Narrows the ROWS only. `opening_minor`, `closing_minor` and the window
@@ -564,7 +569,8 @@ export function accountLedger(
 export function trialBalance(
   options: {
     as_of?: string
-    site?: string
+    /// One unit's books; the company's when absent.
+    unit?: string
     /// Narrows the ROWS only. `total_debit_minor`, `total_credit_minor` and
     /// `balanced` stay figures about the whole ledger — see `TrialBalance`.
     q?: string
@@ -586,8 +592,8 @@ export function trialBalance(
 // Account links
 // ---------------------------------------------------------------------------
 
-/// Every link, whole, with the roles the posting rules name and the sites the
-/// books are kept for.
+/// Every link, whole, with the roles the posting rules name and the units the
+/// books are kept for (`locations`).
 ///
 /// Not paged, on the server's word: a few hundred links a person reads top to
 /// bottom to find the exception. `gaps` is counted over everything and never
@@ -614,7 +620,7 @@ export function setAccountLink(
   })
 }
 
-/// Remove a link. Answers 409 naming the sites that would be left with no
+/// Remove a link. Answers 409 naming the units that would be left with no
 /// account; `force` removes it anyway.
 export function removeAccountLink(
   linkId: number,
@@ -639,8 +645,8 @@ export function accountLinkHistory(
   )
 }
 
-/// "If this happened now at this site, would it post?" — every role and
-/// source, against every site.
+/// "If this happened now in this unit's books, would it post?" — every role
+/// and source, against every unit.
 export function postingReadiness(
   signal?: AbortSignal
 ): Promise<PostingReadiness> {
@@ -649,41 +655,42 @@ export function postingReadiness(
   })
 }
 
-/// What one role, from one source, lands on at a site — the answer the old
-/// per-site map used to hold as rows.
-export interface SiteAccount {
+/// What one role, from one source, lands on in a unit's books — the answer
+/// the old per-site map used to hold as rows.
+export interface UnitAccount {
   readonly role: string
   /// `COMPANY`, or the master the decision belongs to.
   readonly source_type: string
   readonly source_id: string
   readonly account_code: string
   readonly account_name: string
-  /// Which scope decided it: `ALL`, `SITE_KIND` or `SITE`.
+  /// Which scope decided it: `ALL`, `UNIT_KIND` or `UNIT`.
   readonly scope_type: string | null
 }
 
-/// Every (role, source) that resolves at `site`, or — with no site — the first
-/// site each one resolves at.
+/// Every (role, source) that resolves in `unit`'s books, or — with no unit —
+/// the first unit each one resolves in. A caller holding a site asks for the
+/// unit that owns it: the books are a unit's, never a premises'.
 ///
 /// Composed from the readiness matrix (which account wins where) and the link
 /// list (what that account is called), because the server resolves and the
 /// browser must not: the most-specific-wins rule lives in
 /// `account_resolution`, and a copy of it here would be a second opinion.
-export async function siteAccounts(
-  site: string | null,
+export async function unitAccounts(
+  unit: string | null,
   signal?: AbortSignal
-): Promise<SiteAccount[]> {
+): Promise<UnitAccount[]> {
   const [readiness, links] = await Promise.all([
     postingReadiness(signal),
     accountLinks({}, signal),
   ])
   const names = new Map<string, string>()
   for (const link of links.rows) names.set(link.account_code, link.account_name)
-  const out: SiteAccount[] = []
+  const out: UnitAccount[] = []
   for (const row of readiness.rows) {
     const cell = row.cells.find(
       (one) =>
-        one.account_code !== null && (site === null || one.site_id === site)
+        one.account_code !== null && (unit === null || one.unit_id === unit)
     )
     if (cell === undefined || cell.account_code === null) continue
     out.push({
@@ -752,7 +759,7 @@ export function saveExpenseCategory(
   )
 }
 
-/// Every pay component, with how it posts and how many sites it reaches.
+/// Every pay component, with how it posts and how many units it reaches.
 export function listPayComponentPostings(
   signal?: AbortSignal
 ): Promise<PayComponentPosting[]> {
@@ -867,7 +874,7 @@ export function saveDimensionValue(
 /// The profit and loss cut by one dimension: a row per value, and one with no
 /// value for the lines that carry none, so the rows add up to the whole.
 export function dimensionResults(
-  params: { dimension: string; from: string; to: string; site?: string | null },
+  params: { dimension: string; from: string; to: string; unit?: string | null },
   signal?: AbortSignal
 ): Promise<DimensionResult[]> {
   return node.get<DimensionResult[]>(
@@ -1170,7 +1177,8 @@ export function closePeriod(
 // The journal
 // ---------------------------------------------------------------------------
 
-/// The register, narrowed by window, by what caused the entry, and by where.
+/// The register, narrowed by window, by what caused the entry, and by whose
+/// books a line of it is in.
 ///
 /// `kind` is one of the source kinds the schema's own CHECK allows —
 /// `MANUAL`, `SUPPLIER_INVOICE`, `PAYMENT`, `DEPRECIATION`, `REVERSAL` and the
@@ -1181,7 +1189,9 @@ export function listJournal(
     from?: string
     to?: string
     kind?: string
-    site?: string
+    /// Entries with ANY line in this unit's books: an entry has no unit of
+    /// its own, and a payment can settle two stores' bills at once.
+    unit?: string
     limit?: number
     /// Free text over the entry number, the memo and the source document's
     /// own id. The SERVER searches; a browser filtering the page it holds can
@@ -1218,7 +1228,8 @@ export interface ManualJournalLine {
     readonly account_code: string
     readonly category_code?: string | null
   }
-  readonly site_id: string
+  /// Whose books the line is in: a unit id, never a site's.
+  readonly unit_id: string
   readonly debit_minor: number
   readonly credit_minor: number
   readonly memo?: string | null
@@ -1284,7 +1295,8 @@ export interface ManualLine {
     /// cost was until the category is chosen too.
     readonly category_code?: string | null
   }
-  readonly site_id: string
+  /// Whose books the line is in: a unit id, never a site's.
+  readonly unit_id: string
   readonly debit_minor: number
   readonly credit_minor: number
   readonly supplier_id?: string | null
@@ -1350,7 +1362,7 @@ export function reverseEntry(
 // Positions and statements
 // ---------------------------------------------------------------------------
 
-/// What one account family holds, at each location.
+/// What one account family holds, in each unit's books.
 ///
 /// `family` is any code in the chart and the tree lives in the codes, so the
 /// caller picks the altitude: `1011001` is cash on hand, `10110` the whole of
@@ -1389,7 +1401,7 @@ export type StatementKind = "BALANCE_SHEET" | "PROFIT_LOSS" | "CASH_FLOW"
 /// rather than hiding.
 export function statement(
   kind: StatementKind,
-  options: { from?: string; to?: string; site?: string } = {},
+  options: { from?: string; to?: string; unit?: string } = {},
   signal?: AbortSignal
 ): Promise<Statement> {
   return node.get<Statement>(
@@ -1612,7 +1624,12 @@ export function unbilledPage(
 /// asking "as at the end of last month" has to un-count money that left the
 /// bank since, which only a query over both sides can do.
 export function payablesAging(
-  options: { as_of?: string; site?: string } = {},
+  options: {
+    as_of?: string
+    /// One unit's books. A bill counts in the unit owning the site it was
+    /// received at.
+    unit?: string
+  } = {},
   signal?: AbortSignal
 ): Promise<PayablesAging> {
   return node.get<PayablesAging>(
@@ -1636,7 +1653,8 @@ export function payablesAging(
 export function listPayments(
   options: {
     status?: string
-    site?: string
+    /// The unit whose bank the payment left.
+    unit?: string
     supplier?: string
     limit?: number
     /// Free text over the payment number, the bank reference and the names
@@ -1675,8 +1693,8 @@ export function payment(
 /// of them can be keyed on a day the other cannot.
 ///
 /// `account_key` + `account_qualifier` and never an account code: which
-/// account `bank_giro` at store 07 *is* belongs to `account_map`, and storing
-/// the code on the payment would be a second copy of the map that stops
+/// account `bank_giro` in C007's books *is* belongs to the account links, and
+/// storing the code on the payment would be a second copy of them that stops
 /// agreeing with it.
 ///
 /// The idempotency key is the caller's and is held across retries, exactly as
@@ -1878,8 +1896,8 @@ export function acquisitionGap(signal?: AbortSignal): Promise<AcquisitionGap> {
 /// Not reversible from any screen. The refusals are the server's and are worth
 /// reading verbatim — it declines an asset that is not capitalised, one already
 /// gone, one the depreciation run still owes a charge for the month it left in,
-/// and any disposal at all while `asset_disposal_result` has no account at that
-/// location.
+/// and any disposal at all while `asset_disposal_result` has no account in the
+/// books of the unit owning the asset's site.
 export function disposeAsset(
   assetId: string,
   request: DisposeAssetRequest,
@@ -1894,11 +1912,12 @@ export function disposeAsset(
 
 /// Move an asset, and move its cost and accumulated depreciation with it.
 ///
-/// Both halves, because the client keeps a profit and loss per location: moving
-/// the cost alone leaves two locations wrong by the same amount in opposite
-/// directions, which a trial balance cannot see. A move to where the asset
-/// already is is refused by the database — the entry would debit and credit the
-/// same account at the same location, which balances perfectly and is a lie.
+/// Both halves, because the client keeps a profit and loss per unit: moving the
+/// cost alone leaves two units wrong by the same amount in opposite directions,
+/// which a trial balance cannot see. The legs are in the books of the unit
+/// owning each site, so a move between two sites of ONE unit changes no books
+/// and writes no entry — the move itself is still recorded. A move to where
+/// the asset already is is refused.
 export function transferAsset(
   assetId: string,
   request: TransferAssetRequest,
@@ -1938,8 +1957,8 @@ export function runDepreciation(
 /// Every place money sits, what the books say it holds, and what the bank last
 /// said.
 ///
-/// One row per mapped money account per location — so it is the account map
-/// read through the ledger, and a meaning nobody has mapped is simply not a
+/// One row per mapped money account per unit — so it is the account links
+/// read through the ledger, and a meaning nobody has linked is simply not a
 /// place money can sit yet. `per_books_minor` comes back in the account's own
 /// sign and deliberately unflipped: `giro_outstanding` is a liability and is
 /// negative, which is what it is.
@@ -1948,7 +1967,7 @@ export function runDepreciation(
 /// imported. "We agree" and "there is nothing to agree with" are different
 /// answers and must not render the same.
 export function moneyOverview(
-  options: { as_of?: string; site?: string } = {},
+  options: { as_of?: string; unit?: string } = {},
   signal?: AbortSignal
 ): Promise<MoneyOverview> {
   return node.get<MoneyOverview>(`/api/v1/finance/money${search(options)}`, {
@@ -1960,7 +1979,7 @@ export function listBankStatements(
   signal?: AbortSignal,
   options: {
     q?: string
-    site?: string
+    unit?: string
     account?: string
     state?: string
     sort?: string
@@ -2081,11 +2100,12 @@ export function listBankInstitutions(
   return node.get<BankInstitution[]>("/api/v1/finance/banks", { signal })
 }
 
-/// What our accounts are — number, holder, branch, which one a place pays out
-/// of. Separate from the account map, which says where their postings land.
+/// What our accounts are — number, holder, branch, which one a unit pays out
+/// of. Separate from the account links, which say where their postings land.
+/// `unit` narrows to the accounts kept in one unit's books.
 export function listCompanyBankAccounts(
   signal?: AbortSignal,
-  options: { site?: string } = {}
+  options: { unit?: string } = {}
 ): Promise<CompanyBankAccount[]> {
   return node.get<CompanyBankAccount[]>(
     `/api/v1/finance/bank-accounts${search(options)}`,
@@ -2373,7 +2393,7 @@ export function settlePaymentInstruction(
 /// it is what the unit has in the air, not what the visible rows add up to, so
 /// filtering to LANDED leaves it unchanged.
 export function listDeposits(
-  options: { status?: string; site?: string; sort?: string } = {},
+  options: { status?: string; unit?: string; sort?: string } = {},
   signal?: AbortSignal
 ): Promise<DepositPage> {
   return node.get<DepositPage>(`/api/v1/finance/deposits${search(options)}`, {
