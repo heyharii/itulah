@@ -437,6 +437,17 @@ fn the_wire_types_are_written_for_the_browser() {
         RegistryDevice,
         TestPrintRequested,
     );
+    // A store's Actions menu: what may be done to its server and devices,
+    // asking for one, and where each got to (remote actions, 0643).
+    for_contract!(
+        &config,
+        StoreActionMenu,
+        StoreActionOption,
+        StoreActionRequest,
+        StoreActionAccepted,
+        StoreActionHistory,
+        StoreActionEntry,
+    );
     // Where the words go on a bank's own giro leaf.
     inventory_backend::cloud::postgres::GiroPrintTemplate::export_all(&config)
         .unwrap_or_else(|e| panic!("GiroPrintTemplate: {e}"));
