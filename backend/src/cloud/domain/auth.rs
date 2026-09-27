@@ -224,7 +224,22 @@ pub fn required_role(method: &str, path: &str) -> Role {
     if path.starts_with("/api/v1/hire-proposals") && method.eq_ignore_ascii_case("GET") {
         return Role::Supervisor;
     }
+    // Flow templates (0615): which stages a movement of goods runs and who
+    // does each. Reading one is everybody's — the blanket GET rule below; a
+    // picker is asked to follow it — but writing one is head office's
+    // administrator's, because a template decides who may send goods where.
+    if path.starts_with("/api/v1/flow-templates") && !method.eq_ignore_ascii_case("GET") {
+        return Role::Admin;
+    }
     if method.eq_ignore_ascii_case("GET") {
+        return Role::Cashier;
+    }
+    // Flow documents (0616-0617). Who may start one or act on a stage is the
+    // template's to say — its starter and performer roles, checked against
+    // the caller's rung by `domain::flow` — so the path lets every signed-in
+    // operator through rather than answering Supervisor for a receipt that a
+    // store's staff are the ones to confirm.
+    if path == "/api/v1/flows" || path.starts_with("/api/v1/flows/") {
         return Role::Cashier;
     }
     if path.starts_with("/api/v1/auth/") {
