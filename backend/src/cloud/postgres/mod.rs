@@ -58,6 +58,11 @@ mod enrolment;
 /// statement that settles a leaver's books. See `domain::exit`.
 mod exit;
 mod files;
+/// Flow templates and the documents that run them (0615-0619), and the
+/// stage handlers that connect a stage to the code that already does its
+/// work. Read as `postgres::flows::…`, not glob-exported.
+pub mod flow_stages;
+pub mod flows;
 mod giro;
 mod giro_print;
 /// The confidential queue and its catalogue, as rows. See `domain::grievance`.
