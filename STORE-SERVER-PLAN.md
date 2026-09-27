@@ -498,6 +498,42 @@ have not run on Windows or Linux yet — this machine is a Mac. The CI workflow
 is where they first run; the Windows job installs, checks the service and the
 setup page, and uninstalls.
 
+## 9d. Devices — status (2026-09-27)
+
+Written, **not compiled or tested** (see the step-5 hand-off):
+
+- `sync/device.rs` — the shared vocabulary: kinds, ACTIVE/SUSPENDED/REVOKED
+  (REVOKED terminal), the till-join wire, `DeviceReport`, the
+  `device.status.set.v1` command, `NodeIdentity`, `_itulah-store._tcp`.
+- **A till joins by a code and a supervisor's yes** (sqlite `0051`,
+  `edge/devices.rs`): the till mints its key and sends its SHA-256 to the open
+  `POST /api/v1/devices/join`; it shows the six-character code and the
+  six-digit number (the node enrolment's own function) and polls
+  `/devices/join/status` with an HMAC proof. A supervisor approves from
+  `GET /devices/joins` with a finger/PIN grant from a till already joined, or
+  with a supervisor session for the shop's first till, or as Admin. Label
+  "Kasir N" (lowest free); a replacement revokes the old till and takes its
+  label. The old `POST /auth/terminals` pairing stays.
+- `edge_terminal` gains status, join, machine and peripherals (sqlite `0052`);
+  `active` moves with the status, so a suspended or revoked till is refused at
+  `verify_terminal`. History in the append-only `edge_device_event`.
+- **Printers are recorded** (sqlite `0053`) and chosen by `printer_id` on the
+  label, koli, receipt, repoint and test routes; host and port still work.
+- **One user, one device at a node** (sqlite `0054`): a password or SSO
+  sign-in revokes the person's other sessions there as `SIGNED_IN_ELSEWHERE`.
+  A finger at a till does not.
+- **Head office's register** (postgres `0475`, `cloud/postgres/devices.rs`):
+  `device` + append-only `device_status_event`, fed by the heartbeat's optional
+  `device_list`; suspend/reactivate/revoke of a till or printer from the hub is
+  a request plus a signed command, confirmed by the next heartbeat. Hub:
+  *System → Devices*.
+- `GET /api/v1/node/identity` — who a node is, open, nothing secret.
+
+Not yet: the mDNS advertisement and the till's discovery of it (a till still
+takes a typed node URL); the join and approval screens in `pos-desktop` and the
+shop app (the API is there); attendance terminals and EDCs reported into the
+register; cross node↔cloud session revocation (an open owner decision).
+
 ## 10. Open questions
 
 1. Is the store server a **dedicated mini-PC** or does the cashier PC double as
