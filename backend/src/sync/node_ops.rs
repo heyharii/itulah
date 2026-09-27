@@ -11,8 +11,30 @@
 //!
 //! Re-sending the initial data needs no instruction to the node: head office
 //! simply issues the data again (`/sync/origins/{id}/bootstrap`).
+//!
+//! # Remote actions per store (28 Sep 2026)
+//!
+//! A store page's *Actions* menu (`cloud/postgres/store_actions.rs`) records
+//! each action and follows it until it finishes. A node that can be followed
+//! says so with [`NODE_ACTIONS_CAPABILITY`] in its heartbeat; only such a node
+//! is sent an operation that carries an `action_id`, the two newer
+//! instructions below, or anything else a build before it would refuse —
+//! `NodeOpPayload` denies unknown fields, and a refused command blocks the
+//! node's whole stream.
+//!
+//! - `node.sync_now`    — push the outbox and pull commands now, and say how
+//!   the queue stood before and after;
+//! - `node.resnapshot`  — the marker after re-sent initial data: applied in
+//!   order behind it, so applying it means the node has rebuilt everything
+//!   head office just sent.
+//!
+//! What came of each is written on the node (`edge_node_action`, sqlite
+//! 0067) and carried up in the heartbeat as [`ActionReport`]s — the same
+//! channel a test page's outcome already takes.
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 pub const NODE_RESTART: &str = "node.restart";
 pub const NODE_BACKUP: &str = "node.backup";
@@ -20,8 +42,57 @@ pub const NODE_DIAGNOSE: &str = "node.diagnose";
 /// Install a signed build (`edge/update.rs`).
 pub const NODE_UPDATE: &str = "node.update";
 
+/// Push the outbox and pull commands now (remote actions, 28 Sep 2026).
+pub const NODE_SYNC_NOW: &str = "node.sync_now";
+/// The marker behind re-sent initial data (remote actions, 28 Sep 2026).
+pub const NODE_RESNAPSHOT: &str = "node.resnapshot";
+
+/// What a node's heartbeat carries once its build takes the two instructions
+/// above, an `action_id` on every node operation, and reports what came of
+/// each (`NodeStatus::action_results`).
+pub const NODE_ACTIONS_CAPABILITY: &str = "node.actions.v1";
+
+/// The four operations every build since 0475 takes. The fleet page's own
+/// `ask` endpoint is held to these: it does not look at capabilities.
 pub fn is_node_op(command_type: &str) -> bool {
     matches!(command_type, NODE_RESTART | NODE_BACKUP | NODE_DIAGNOSE | NODE_UPDATE)
+}
+
+/// The instructions only a node advertising [`NODE_ACTIONS_CAPABILITY`] takes.
+pub fn is_action_op(command_type: &str) -> bool {
+    matches!(command_type, NODE_SYNC_NOW | NODE_RESNAPSHOT)
+}
+
+/// An action as the node last saw it, carried in every heartbeat until it is
+/// a couple of hours old (`edge/ops.rs`). Head office files it by
+/// `action_id`, so a repeat changes nothing.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ActionReport {
+    pub action_id: Uuid,
+    /// The command type that carried it: `node.restart`, `node.backup`, ...
+    pub kind: String,
+    /// `QUEUED`, `RUNNING`, `DONE` or `FAILED`.
+    pub state: String,
+    pub received_at: DateTime<Utc>,
+    #[serde(default)]
+    pub started_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub finished_at: Option<DateTime<Utc>>,
+    /// One sentence a person reads: "Backup taken: 41.2 MB in 3 s."
+    #[serde(default)]
+    pub sentence: Option<String>,
+    /// The numbers behind the sentence, kind by kind.
+    #[serde(default)]
+    pub detail: serde_json::Value,
+}
+
+pub const ACTION_QUEUED: &str = "QUEUED";
+pub const ACTION_RUNNING: &str = "RUNNING";
+pub const ACTION_DONE: &str = "DONE";
+pub const ACTION_FAILED: &str = "FAILED";
+
+pub fn is_action_state(state: &str) -> bool {
+    matches!(state, ACTION_QUEUED | ACTION_RUNNING | ACTION_DONE | ACTION_FAILED)
 }
 
 /// `node.update`: which build, where it is, and the proof it is ours.
@@ -94,6 +165,8 @@ pub fn in_window((from, to): (u32, u32), minute: u32) -> bool {
 pub fn validate(command_type: &str, payload: &serde_json::Value) -> Result<(), String> {
     if command_type == NODE_UPDATE {
         parse_update(payload).map(|_| ())
+    } else if is_action_op(command_type) {
+        parse_action(payload).map(|_| ())
     } else {
         parse(payload).map(|_| ())
     }
@@ -107,6 +180,31 @@ pub struct NodeOpPayload {
     /// Restart even with drawers open. Ignored by the other two.
     #[serde(default)]
     pub force: bool,
+    /// The store action this carries out (`store_action`, 0643), so the node
+    /// can say what came of it. Sent only to a node advertising
+    /// [`NODE_ACTIONS_CAPABILITY`]: an older build refuses the field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action_id: Option<Uuid>,
+}
+
+/// `node.sync_now` and `node.resnapshot`: always followed.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ActionPayload {
+    pub action_id: Uuid,
+    pub reason: String,
+}
+
+pub fn parse_action(payload: &serde_json::Value) -> Result<ActionPayload, String> {
+    let parsed: ActionPayload = serde_json::from_value(payload.clone())
+        .map_err(|error| format!("node action payload: {error}"))?;
+    if parsed.reason.trim().is_empty() {
+        return Err("a node operation needs a reason".into());
+    }
+    if parsed.reason.chars().count() > 300 {
+        return Err("a node operation's reason is at most 300 characters".into());
+    }
+    Ok(parsed)
 }
 
 pub fn parse(payload: &serde_json::Value) -> Result<NodeOpPayload, String> {
@@ -159,5 +257,14 @@ mod tests {
         assert!(parse(&json!({ "reason": "  " })).is_err());
         assert!(parse(&json!({ "reason": "x".repeat(301) })).is_err());
         assert!(parse(&json!({ "reason": "ok", "extra": 1 })).is_err());
+    }
+
+    #[test]
+    fn an_action_is_followed_by_its_id() {
+        let id = Uuid::new_v4();
+        assert!(parse(&json!({ "reason": "lambat", "action_id": id })).is_ok());
+        assert!(validate(NODE_SYNC_NOW, &json!({ "reason": "now", "action_id": id })).is_ok());
+        assert!(validate(NODE_RESNAPSHOT, &json!({ "reason": "now" })).is_err());
+        assert!(!is_node_op(NODE_SYNC_NOW) && is_action_op(NODE_RESNAPSHOT));
     }
 }
