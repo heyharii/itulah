@@ -9,6 +9,7 @@ import { EmptyState } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { storeDetail, storesKeys } from "@/lib/queries/stores"
 import { queryState } from "@/lib/query-state"
+import { ActivityTab } from "@/screens/stores/actions"
 import { DevicesTab } from "@/screens/stores/devices-tab"
 import {
   PaymentsTab,
@@ -24,6 +25,7 @@ const TABS = [
   { value: "overview", label: "Overview" },
   { value: "server", label: "Server" },
   { value: "devices", label: "Devices" },
+  { value: "activity", label: "Activity" },
   { value: "team", label: "Team" },
   { value: "payments", label: "Payments" },
   { value: "stock", label: "Stock" },
@@ -99,10 +101,15 @@ export function StoreDetail() {
               )}
               {tab === "devices" &&
                 (siteId ? (
-                  <DevicesTab siteId={siteId} tills={data.store.tills} />
+                  <DevicesTab
+                    unit={unit}
+                    siteId={siteId}
+                    tills={data.store.tills}
+                  />
                 ) : (
                   <NoSiteYet />
                 ))}
+              {tab === "activity" && <ActivityTab unit={unit} />}
               {tab === "team" && <TeamTab store={data.store} />}
               {tab === "payments" &&
                 (siteId ? <PaymentsTab siteId={siteId} /> : <NoSiteYet />)}
