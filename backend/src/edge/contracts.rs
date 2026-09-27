@@ -1017,6 +1017,53 @@ pub trait EdgeInventory: Send + Sync {
             "announced deliveries are only available on Store Edge".into(),
         ))
     }
+    /// The goods flows touching this site, as head office last described them
+    /// (`super::flows`). `open`: only those still running.
+    fn flow_notices(&self, _open: bool) -> Result<super::flows::FlowNoticeList, EdgeError> {
+        Err(EdgeError::Forbidden(
+            "goods-flow notices are kept by the SQLite edge".into(),
+        ))
+    }
+    /// A store's returns received here with units still waiting to be inspected.
+    fn return_inspections(&self) -> Result<super::flows::ReturnInspectionList, EdgeError> {
+        Err(EdgeError::Forbidden(
+            "return inspection is kept by the SQLite edge".into(),
+        ))
+    }
+    /// One received return and its units still waiting to be inspected.
+    fn return_inspection(
+        &self,
+        _delivery_id: &str,
+    ) -> Result<super::flows::ReturnInspectionDetail, EdgeError> {
+        Err(EdgeError::Forbidden(
+            "return inspection is kept by the SQLite edge".into(),
+        ))
+    }
+    /// Inspect a received return: good goods to the racks, damaged to reject.
+    fn inspect_return(
+        &self,
+        _delivery_id: &str,
+        _request: super::flows::InspectReturnRequest,
+    ) -> Result<super::flows::InspectReturnResult, EdgeError> {
+        Err(EdgeError::Forbidden(
+            "return inspection is kept by the SQLite edge".into(),
+        ))
+    }
+    /// Tagged jobs whose goods are not yet recorded as put away.
+    fn putaway_work(&self) -> Result<super::flows::PutawayWork, EdgeError> {
+        Err(EdgeError::Forbidden(
+            "putaway is kept by the SQLite edge".into(),
+        ))
+    }
+    /// Record a tagged job's goods as put away.
+    fn put_away(
+        &self,
+        _request: super::flows::PutawayRequest,
+    ) -> Result<super::flows::PutawayResult, EdgeError> {
+        Err(EdgeError::Forbidden(
+            "putaway is kept by the SQLite edge".into(),
+        ))
+    }
     fn move_stock(&self, request: MoveRequest) -> Result<CommandResult, EdgeError>;
     /// Write down a checkout BEFORE asking anybody for money.
     ///

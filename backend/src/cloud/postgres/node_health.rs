@@ -149,6 +149,16 @@ pub async fn record_heartbeat(
     }) {
         super::sync::issue_waiting_in_transit_releases_tx(&mut tx, origin_id).await?;
     }
+    // A node that takes the flow commands hears what the flows touching its
+    // site did while it could not (`flow_stages`), a bounded instalment at a
+    // time.
+    if status.capabilities.as_ref().is_some_and(|capabilities| {
+        capabilities
+            .iter()
+            .any(|capability| capability == crate::sync::flow::FLOWS_CAPABILITY)
+    }) {
+        super::flow_stages::relay_waiting_flow_events_tx(&mut tx, origin_id, now).await?;
+    }
     for incident in &status.incidents {
         let payload = serde_json::to_value(incident)?;
         let kind = payload["kind"].as_str().unwrap_or("UNKNOWN").to_owned();

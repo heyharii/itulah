@@ -63,7 +63,7 @@ pub struct Actor {
 
 #[derive(Debug, Error, Eq, PartialEq)]
 pub enum FlowError {
-    #[error("jenis aksi `{0}` tidak dikenal")]
+    #[error("action type `{0}` is not known")]
     UnknownAction(String),
     /// The action is not for the stage now due.
     #[error("{0}")]
@@ -248,9 +248,10 @@ pub fn single_stage(actions: &[FlowActionInput]) -> Result<usize, FlowError> {
     let stages: BTreeSet<usize> = actions.iter().map(|action| action.stage_index).collect();
     match (stages.len(), stages.iter().next()) {
         (1, Some(stage)) => Ok(*stage),
-        (0, _) => Err(FlowError::Invalid("tidak ada aksi untuk dikonfirmasi".into())),
+        (0, _) => Err(FlowError::Invalid("there are no actions to confirm".into())),
         _ => Err(FlowError::Invalid(
-            "satu konfirmasi untuk satu tahap: kirim aksi tahap berikutnya sesudah yang ini tersimpan".into(),
+            "one confirm is for one stage: send the next stage's actions once this one is saved"
+                .into(),
         )),
     }
 }
@@ -263,7 +264,7 @@ fn details<T: DeserializeOwned>(input: &FlowActionInput) -> Result<T, FlowError>
         other => other.clone(),
     };
     serde_json::from_value(value)
-        .map_err(|error| FlowError::Invalid(format!("rincian {}: {error}", input.action_type)))
+        .map_err(|error| FlowError::Invalid(format!("details of {}: {error}", input.action_type)))
 }
 
 /// The stage the action names, which has to be the one now due, on a
@@ -271,17 +272,17 @@ fn details<T: DeserializeOwned>(input: &FlowActionInput) -> Result<T, FlowError>
 fn due<'a>(state: &'a FlowState, input: &FlowActionInput) -> Result<&'a StageRuntime, FlowError> {
     if state.status.is_terminal() {
         return Err(FlowError::Refused(format!(
-            "dokumen ini sudah {}; tidak ada tahap yang bisa dikerjakan",
+            "this document is already {}; there is no stage left to work on",
             state.status.code()
         )));
     }
     let Some(cursor) = state.cursor() else {
-        return Err(FlowError::Refused("semua tahap sudah selesai".into()));
+        return Err(FlowError::Refused("every stage is already done".into()));
     };
     if input.stage_index != cursor {
         let due = &state.stages[cursor];
         return Err(FlowError::NotDue(format!(
-            "tahap yang sedang berjalan adalah #{} {}, bukan #{}",
+            "the stage now due is #{} {}, not #{}",
             cursor + 1,
             due.kind().spec().label,
             input.stage_index + 1
@@ -290,7 +291,7 @@ fn due<'a>(state: &'a FlowState, input: &FlowActionInput) -> Result<&'a StageRun
     let stage = &state.stages[cursor];
     if state.status == FlowStatus::Requested && stage.kind() != StageKind::Approval {
         return Err(FlowError::Refused(
-            "dokumen menunggu persetujuan; belum ada barang yang boleh bergerak".into(),
+            "the document is waiting for approval; no goods may move yet".into(),
         ));
     }
     Ok(stage)
@@ -298,12 +299,14 @@ fn due<'a>(state: &'a FlowState, input: &FlowActionInput) -> Result<&'a StageRun
 
 fn may_perform(stage: &StageRuntime, actor: &Actor) -> Result<(), FlowError> {
     if actor.id.trim().is_empty() {
-        return Err(FlowError::Forbidden("aksi tanpa pelaku tidak dicatat".into()));
+        return Err(FlowError::Forbidden(
+            "an action without somebody doing it is not recorded".into(),
+        ));
     }
     let performer = stage.stage.performer;
     if !performer.holds(actor.rung) {
         return Err(FlowError::Forbidden(format!(
-            "{} dikerjakan oleh {}; {} tidak memegang peran itu",
+            "{} is done by {}; {} does not hold that role",
             stage.kind().spec().label,
             performer.label(),
             actor.id
@@ -317,7 +320,7 @@ fn expect_kind(stage: &StageRuntime, kinds: &[StageKind], action: &str) -> Resul
         return Ok(());
     }
     Err(FlowError::Refused(format!(
-        "{action} bukan aksi untuk tahap {}",
+        "{action} is not an action for the stage {}",
         stage.kind().spec().label
     )))
 }
@@ -326,14 +329,14 @@ fn check_proof_kinds(stage: &StageRuntime, proof: &[ProofRecord]) -> Result<(), 
     for record in proof {
         if !stage.kind().spec().allowed_proof.contains(&record.kind) {
             return Err(FlowError::Refused(format!(
-                "{} tidak memakai bukti {}",
+                "{} does not take {} as proof",
                 stage.kind().spec().label,
                 record.kind.label()
             )));
         }
         if record.reference.trim().is_empty() {
             return Err(FlowError::Invalid(format!(
-                "bukti {} tanpa rujukan: sebut sesi scan, berkas, atau nomor nota",
+                "{} proof without a reference: name the scan session, the file or the note number",
                 record.kind.label()
             )));
         }
@@ -361,7 +364,7 @@ fn proof_complete(stage: &StageRuntime, arriving: &[ProofRecord]) -> Result<(), 
         Ok(())
     } else {
         Err(FlowError::Refused(format!(
-            "{} belum lengkap buktinya: {}",
+            "{} is missing proof: {}",
             stage.kind().spec().label,
             missing.join(", ")
         )))
@@ -460,7 +463,7 @@ fn reason_of(details: &ReasonDetails, what: &str) -> Result<String, FlowError> {
         .map(str::trim)
         .filter(|reason| !reason.is_empty())
         .map(str::to_owned)
-        .ok_or_else(|| FlowError::Invalid(format!("{what} butuh alasan")))
+        .ok_or_else(|| FlowError::Invalid(format!("{what} needs a reason")))
 }
 
 // --- FLOW_ACTION_RECORD_COUNT ---------------------------------------------------------
@@ -480,28 +483,28 @@ impl RecordCount {
         let mut counts = BTreeMap::new();
         for line in &parsed.lines {
             if line.quantity < 0 || line.reject < 0 {
-                return Err(FlowError::Invalid("kuantitas tidak boleh negatif".into()));
+                return Err(FlowError::Invalid("a quantity cannot be negative".into()));
             }
             if line.reject > line.quantity {
                 return Err(FlowError::Invalid(
-                    "reject adalah bagian dari yang diperiksa, tidak bisa melebihinya".into(),
+                    "reject is part of what was inspected and cannot exceed it".into(),
                 ));
             }
             if line.reject > 0 && stage.kind() != StageKind::Inspect {
                 return Err(FlowError::Invalid(
-                    "reject dicatat saat Periksa, atau sebagai rusak saat Terima".into(),
+                    "reject is recorded at Inspect, or as damaged at Receive".into(),
                 ));
             }
             if let Some(upstream) = &upstream {
                 let Some(ceiling) = upstream.get(&line.sku_id) else {
                     return Err(FlowError::Refused(format!(
-                        "SKU {} tidak ada di tahap sebelumnya; barang yang tidak diteruskan tidak bisa dihitung di sini",
+                        "SKU {} is not in the stage before; goods that were not handed on cannot be counted here",
                         line.sku_id
                     )));
                 };
                 if line.quantity > *ceiling {
                     return Err(FlowError::Refused(format!(
-                        "{} mencatat {} untuk SKU {}, lebih dari {} yang diteruskan tahap sebelumnya",
+                        "{} records {} of SKU {}, more than the {} the stage before handed on",
                         stage.kind().spec().label,
                         line.quantity,
                         line.sku_id,
@@ -521,7 +524,7 @@ impl RecordCount {
                 .is_some()
             {
                 return Err(FlowError::Invalid(format!(
-                    "SKU {} disebut dua kali; satu baris per SKU",
+                    "SKU {} is named twice; one line per SKU",
                     line.sku_id
                 )));
             }
@@ -545,13 +548,13 @@ impl ActionType for RecordCount {
         may_perform(stage, actor)?;
         if stage.kind().spec().count == CountRule::None {
             return Err(FlowError::Refused(format!(
-                "{} tidak mencatat kuantitas",
+                "{} records no quantities",
                 stage.kind().spec().label
             )));
         }
         if matches!(stage.kind(), StageKind::Receive) {
             return Err(FlowError::Refused(
-                "Terima dicatat sekali lewat Konfirmasi terima, bukan hitungan terpisah".into(),
+                "Receive is recorded once, by Confirm receive, not by a separate count".into(),
             ));
         }
         let (_, proof) = Self::parsed(state, input)?;
@@ -595,13 +598,13 @@ impl ActionType for ParkStage {
         let _: ReasonDetails = details(input)?;
         if stage.kind().spec().parks.is_none() {
             return Err(FlowError::Refused(format!(
-                "{} tidak menunggu apa pun; selesaikan langsung",
+                "{} waits for nothing; complete it directly",
                 stage.kind().spec().label
             )));
         }
         if stage.status == StageStatus::Parked {
             return Err(FlowError::Refused(format!(
-                "{} sudah menunggu; lanjutkan dengan kuncinya",
+                "{} is already waiting; resume it by its key",
                 stage.kind().spec().label
             )));
         }
@@ -619,7 +622,7 @@ impl ActionType for ParkStage {
             .kind()
             .spec()
             .parks
-            .ok_or_else(|| FlowError::Refused("tahap ini tidak menunggu".into()))?;
+            .ok_or_else(|| FlowError::Refused("this stage does not wait".into()))?;
         stage.status = StageStatus::Parked;
         stage.park_reason = Some(reason);
         Ok(vec![Effect::StageParked {
@@ -654,17 +657,17 @@ impl ActionType for CompleteStage {
         match kind {
             StageKind::Receive => {
                 return Err(FlowError::Refused(
-                    "Terima diselesaikan dengan Konfirmasi terima: satu kali, tanpa penolakan".into(),
+                    "Receive is completed by Confirm receive: once, with no refusal".into(),
                 ))
             }
             StageKind::HandoverWithProof => {
                 return Err(FlowError::Refused(
-                    "Serah terima diselesaikan dengan aksi Serah terima beserta buktinya".into(),
+                    "Handover is completed by the Handover action, with its proof".into(),
                 ))
             }
             StageKind::Approval => {
                 return Err(FlowError::Refused(
-                    "Persetujuan diselesaikan dengan keputusan: setuju atau tolak".into(),
+                    "Approval is completed by a decision: approve or decline".into(),
                 ))
             }
             _ => {}
@@ -673,7 +676,7 @@ impl ActionType for CompleteStage {
         check_proof_kinds(stage, &parsed.proof)?;
         if kind.spec().count == CountRule::MustCount && !stage.counted {
             return Err(FlowError::Refused(format!(
-                "{label} belum mencatat hitungannya"
+                "{label} has not recorded its count"
             )));
         }
         proof_complete(stage, &parsed.proof)?;
@@ -686,7 +689,7 @@ impl ActionType for CompleteStage {
                 .unwrap_or_default();
             if number.is_empty() {
                 return Err(FlowError::Refused(
-                    "Kedatangan dicatat dengan nomor delivery".into(),
+                    "An arrival is recorded under a delivery number".into(),
                 ));
             }
         }
@@ -696,7 +699,7 @@ impl ActionType for CompleteStage {
                 .and_then(|blind| blind.done_by.as_deref());
             if checker == Some(actor.id.as_str()) {
                 return Err(FlowError::Forbidden(
-                    "verifier tidak boleh orang yang sama dengan checker".into(),
+                    "the verifier cannot be the same person as the checker".into(),
                 ));
             }
         }
@@ -863,7 +866,7 @@ impl ActionType for CompleteStage {
             | StageKind::Tagging => {}
             StageKind::Receive | StageKind::HandoverWithProof | StageKind::Approval => {
                 return Err(FlowError::Refused(
-                    "tahap ini punya aksinya sendiri".into(),
+                    "this stage has an action of its own".into(),
                 ))
             }
         }
@@ -892,17 +895,15 @@ impl ActionType for SkipStage {
         may_perform(stage, actor)?;
         let label = stage.kind().spec().label;
         if !stage.kind().spec().may_skip {
-            return Err(FlowError::Refused(format!(
-                "{label} tidak pernah boleh dilewati"
-            )));
+            return Err(FlowError::Refused(format!("{label} can never be skipped")));
         }
         if !stage.stage.skippable {
             return Err(FlowError::Refused(format!(
-                "template ini tidak mengizinkan {label} dilewati"
+                "this template does not allow {label} to be skipped"
             )));
         }
         let parsed: ReasonDetails = details(input)?;
-        reason_of(&parsed, "melewati tahap").map(|_| ())
+        reason_of(&parsed, "Skipping a stage").map(|_| ())
     }
 
     fn apply(
@@ -912,7 +913,7 @@ impl ActionType for SkipStage {
         actor: &Actor,
     ) -> Result<Vec<Effect>, FlowError> {
         let parsed: ReasonDetails = details(input)?;
-        let reason = reason_of(&parsed, "melewati tahap")?;
+        let reason = reason_of(&parsed, "Skipping a stage")?;
         let stage = &mut state.stages[input.stage_index];
         stage.status = StageStatus::Skipped;
         stage.done_by = Some(actor.id.clone());
@@ -953,10 +954,10 @@ impl DecideApproval {
             "APPROVE" => Ok((ApprovalDecision::Approved, reason)),
             "DECLINE" => match reason {
                 Some(reason) => Ok((ApprovalDecision::Declined, Some(reason))),
-                None => Err(FlowError::Invalid("menolak butuh alasan".into())),
+                None => Err(FlowError::Invalid("declining needs a reason".into())),
             },
             other => Err(FlowError::Invalid(format!(
-                "keputusan `{other}` tidak dikenal: APPROVE atau DECLINE"
+                "decision `{other}` is not known: APPROVE or DECLINE"
             ))),
         }
     }
@@ -974,11 +975,11 @@ impl ActionType for DecideApproval {
         actor: &Actor,
     ) -> Result<(), FlowError> {
         let stage = due(state, input)?;
-        expect_kind(stage, &[StageKind::Approval], "Keputusan persetujuan")?;
+        expect_kind(stage, &[StageKind::Approval], "An approval decision")?;
         may_perform(stage, actor)?;
         if actor.id == state.header.initiator {
             return Err(FlowError::Forbidden(
-                "penyetuju bukan orang yang mengajukan".into(),
+                "the approver cannot be the person who asked".into(),
             ));
         }
         Self::decision(input).map(|_| ())
@@ -1067,13 +1068,13 @@ impl ConfirmReceive {
         for line in &parsed.lines {
             if !upstream.contains_key(&line.sku_id) {
                 return Err(FlowError::Refused(format!(
-                    "SKU {} tidak dikirim di alur ini. SKU lain atau EPC tak dikenal bukan penerimaan baris ini; itu temuan Inventory",
+                    "SKU {} was not sent in this flow. Another SKU or an unknown EPC is not a receipt of this line; it is an Inventory finding",
                     line.sku_id
                 )));
             }
             if given.insert(line.sku_id, line).is_some() {
                 return Err(FlowError::Invalid(format!(
-                    "SKU {} disebut dua kali; satu baris per SKU",
+                    "SKU {} is named twice; one line per SKU",
                     line.sku_id
                 )));
             }
@@ -1089,21 +1090,21 @@ impl ConfirmReceive {
                 None => (*departed, 0, 0),
             };
             if handed_over < 0 || received < 0 || damaged < 0 {
-                return Err(FlowError::Invalid("kuantitas tidak boleh negatif".into()));
+                return Err(FlowError::Invalid("a quantity cannot be negative".into()));
             }
             if handed_over > *departed {
                 return Err(FlowError::Refused(format!(
-                    "SKU {sku}: diserahkan {handed_over}, padahal yang berangkat {departed}"
+                    "SKU {sku}: {handed_over} handed over, but {departed} departed"
                 )));
             }
             if received > handed_over {
                 return Err(FlowError::Refused(format!(
-                    "SKU {sku}: diterima {received} melebihi yang diserahkan {handed_over}. Kelebihan fisik adalah temuan Inventory, bukan penerimaan"
+                    "SKU {sku}: {received} received is more than the {handed_over} handed over. A physical excess is an Inventory finding, not a receipt"
                 )));
             }
             if damaged > received {
                 return Err(FlowError::Invalid(format!(
-                    "SKU {sku}: rusak {damaged} adalah bagian dari yang diterima {received}"
+                    "SKU {sku}: {damaged} damaged is part of the {received} received"
                 )));
             }
             counts.insert(
@@ -1133,12 +1134,12 @@ impl ActionType for ConfirmReceive {
         if let Some(receive) = state.stages.get(input.stage_index) {
             if receive.kind() == StageKind::Receive && receive.status == StageStatus::Done {
                 return Err(FlowError::Refused(
-                    "Terima sudah dikonfirmasi. Konfirmasi kedua ditolak, tidak ditambahkan".into(),
+                    "Receive is already confirmed. A second confirm is refused, not added".into(),
                 ));
             }
         }
         let stage = due(state, input)?;
-        expect_kind(stage, &[StageKind::Receive], "Konfirmasi terima")?;
+        expect_kind(stage, &[StageKind::Receive], "Confirm receive")?;
         may_perform(stage, actor)?;
         let (_, proof) = Self::counts(state, input)?;
         check_proof_kinds(stage, &proof)?;
@@ -1159,10 +1160,14 @@ impl ActionType for ConfirmReceive {
             .iter()
             .map(|(sku, count)| (*sku, count.quantity - count.reject))
             .collect();
-        let damaged: BTreeMap<Uuid, i64> =
-            counts.iter().map(|(sku, count)| (*sku, count.reject)).collect();
-        let missing: BTreeMap<Uuid, i64> =
-            counts.iter().map(|(sku, count)| (*sku, count.missing)).collect();
+        let damaged: BTreeMap<Uuid, i64> = counts
+            .iter()
+            .map(|(sku, count)| (*sku, count.reject))
+            .collect();
+        let missing: BTreeMap<Uuid, i64> = counts
+            .iter()
+            .map(|(sku, count)| (*sku, count.missing))
+            .collect();
         let received: BTreeMap<Uuid, i64> = quantities(&counts);
         let handed_over: BTreeMap<Uuid, i64> = counts
             .iter()
@@ -1260,19 +1265,19 @@ impl Handover {
                 for line in lines {
                     let Some(ceiling) = upstream.get(&line.sku_id) else {
                         return Err(FlowError::Refused(format!(
-                            "SKU {} tidak berangkat di alur ini",
+                            "SKU {} did not depart in this flow",
                             line.sku_id
                         )));
                     };
                     if line.quantity < 0 || line.quantity > *ceiling {
                         return Err(FlowError::Refused(format!(
-                            "SKU {}: diserahkan {} dari {} yang berangkat",
+                            "SKU {}: {} handed over of the {} that departed",
                             line.sku_id, line.quantity, ceiling
                         )));
                     }
                     if counts.insert(line.sku_id, line.quantity).is_some() {
                         return Err(FlowError::Invalid(format!(
-                            "SKU {} disebut dua kali",
+                            "SKU {} is named twice",
                             line.sku_id
                         )));
                     }
@@ -1296,21 +1301,24 @@ impl ActionType for Handover {
         actor: &Actor,
     ) -> Result<(), FlowError> {
         let stage = due(state, input)?;
-        expect_kind(stage, &[StageKind::HandoverWithProof], "Serah terima")?;
+        expect_kind(stage, &[StageKind::HandoverWithProof], "Handover")?;
         may_perform(stage, actor)?;
         let (_, proof) = Self::counts(state, input)?;
         check_proof_kinds(stage, &proof)?;
-        let has = |kind: ProofKind| proof.iter().any(|record| record.kind == kind) || stage.has_proof(kind);
+        let has = |kind: ProofKind| {
+            proof.iter().any(|record| record.kind == kind) || stage.has_proof(kind)
+        };
         if !has(ProofKind::Signature) && !has(ProofKind::SignedReturnNote) {
             return Err(FlowError::Refused(
-                "barang lepas dari tangan kita hanya dengan bukti: tanda tangan atau nota retur".into(),
+                "goods leave our hands only against proof: a signature or a signed return note"
+                    .into(),
             ));
         }
         if state.header.destination_party == Some(PartyKind::Supplier)
             && !has(ProofKind::SignedReturnNote)
         {
             return Err(FlowError::Refused(
-                "serah terima ke supplier wajib nota retur bertanda tangan".into(),
+                "a handover to a supplier requires the supplier's signed return note".into(),
             ));
         }
         proof_complete(stage, &proof)
@@ -1388,18 +1396,18 @@ impl ActionType for RequestRecount {
         actor: &Actor,
     ) -> Result<(), FlowError> {
         let stage = due(state, input)?;
-        expect_kind(stage, &[StageKind::Verification], "Minta hitung ulang")?;
+        expect_kind(stage, &[StageKind::Verification], "Request a recount")?;
         may_perform(stage, actor)?;
         let checker = state
             .stage_of(StageKind::BlindCount)
             .and_then(|blind| blind.done_by.as_deref());
         if checker == Some(actor.id.as_str()) {
             return Err(FlowError::Forbidden(
-                "verifier tidak boleh orang yang sama dengan checker".into(),
+                "the verifier cannot be the same person as the checker".into(),
             ));
         }
         let parsed: ReasonDetails = details(input)?;
-        reason_of(&parsed, "meminta hitung ulang").map(|_| ())
+        reason_of(&parsed, "Asking for a recount").map(|_| ())
     }
 
     fn apply(
@@ -1409,13 +1417,13 @@ impl ActionType for RequestRecount {
         _actor: &Actor,
     ) -> Result<Vec<Effect>, FlowError> {
         let parsed: ReasonDetails = details(input)?;
-        let reason = reason_of(&parsed, "meminta hitung ulang")?;
+        let reason = reason_of(&parsed, "Asking for a recount")?;
         let Some(blind) = state
             .stages
             .iter()
             .position(|stage| stage.kind() == StageKind::BlindCount)
         else {
-            return Err(FlowError::Refused("alur ini tidak punya hitung buta".into()));
+            return Err(FlowError::Refused("this flow has no blind count".into()));
         };
         let stage = &mut state.stages[blind];
         stage.status = StageStatus::Pending;
@@ -1452,27 +1460,27 @@ impl ActionType for CancelFlow {
     ) -> Result<(), FlowError> {
         if state.status.is_terminal() {
             return Err(FlowError::Refused(format!(
-                "dokumen ini sudah {}",
+                "this document is already {}",
                 state.status.code()
             )));
         }
         if state.cursor() != Some(input.stage_index) {
             return Err(FlowError::NotDue(
-                "pembatalan dicatat pada tahap yang sedang berjalan".into(),
+                "a cancellation is recorded on the stage now due".into(),
             ));
         }
         if state.goods_have_moved() {
             return Err(FlowError::Refused(
-                "barang sudah bergerak; dokumen tidak bisa dibatalkan, hanya diselesaikan".into(),
+                "goods have moved; the document cannot be cancelled, only finished".into(),
             ));
         }
         if actor.id != state.header.initiator && actor.rung < Role::Admin {
             return Err(FlowError::Forbidden(
-                "hanya pengaju atau admin HO yang boleh membatalkan".into(),
+                "only the person who asked or a head-office Admin may cancel".into(),
             ));
         }
         let parsed: ReasonDetails = details(input)?;
-        reason_of(&parsed, "membatalkan").map(|_| ())
+        reason_of(&parsed, "Cancelling").map(|_| ())
     }
 
     fn apply(
@@ -1482,7 +1490,7 @@ impl ActionType for CancelFlow {
         _actor: &Actor,
     ) -> Result<Vec<Effect>, FlowError> {
         let parsed: ReasonDetails = details(input)?;
-        let reason = reason_of(&parsed, "membatalkan")?;
+        let reason = reason_of(&parsed, "Cancelling")?;
         let before = state.status;
         state.status = FlowStatus::Canceled;
         Ok(vec![Effect::Status {
@@ -1515,28 +1523,28 @@ impl ActionType for ReverseStage {
     ) -> Result<(), FlowError> {
         if state.status.is_terminal() {
             return Err(FlowError::Refused(format!(
-                "dokumen ini sudah {}",
+                "this document is already {}",
                 state.status.code()
             )));
         }
         let Some(stage) = state.stages.get(input.stage_index) else {
             return Err(FlowError::Invalid(format!(
-                "tahap #{} tidak ada",
+                "stage #{} does not exist",
                 input.stage_index + 1
             )));
         };
         let label = stage.kind().spec().label;
         if !stage.kind().is_reversible() {
             return Err(FlowError::Refused(format!(
-                "{label} tidak bisa dibalik; yang bisa hanya kemas, tutup koli, surat jalan, dan muat"
+                "{label} cannot be reversed; only pack, close koli, ship and load can"
             )));
         }
         if stage.status != StageStatus::Done {
-            return Err(FlowError::Refused(format!("{label} belum selesai")));
+            return Err(FlowError::Refused(format!("{label} is not done")));
         }
         if state.goods_have_left() {
             return Err(FlowError::Refused(
-                "barang sudah berangkat; yang di jalan diterima, tidak dibalik".into(),
+                "goods have departed; what is on the road is received, not reversed".into(),
             ));
         }
         if state.stages[input.stage_index + 1..]
@@ -1544,12 +1552,12 @@ impl ActionType for ReverseStage {
             .any(|later| later.status == StageStatus::Done)
         {
             return Err(FlowError::Refused(format!(
-                "balik dulu tahap sesudah {label}: hanya langkah terakhir yang bisa dibalik"
+                "reverse the stage after {label} first: only the last step can be reversed"
             )));
         }
         may_perform(stage, actor)?;
         let parsed: ReasonDetails = details(input)?;
-        reason_of(&parsed, "membalik tahap").map(|_| ())
+        reason_of(&parsed, "Reversing a stage").map(|_| ())
     }
 
     fn apply(
@@ -1559,7 +1567,7 @@ impl ActionType for ReverseStage {
         _actor: &Actor,
     ) -> Result<Vec<Effect>, FlowError> {
         let parsed: ReasonDetails = details(input)?;
-        let reason = reason_of(&parsed, "membalik tahap")?;
+        let reason = reason_of(&parsed, "Reversing a stage")?;
         let index = input.stage_index;
         let shipped = state
             .stage_of(StageKind::Ship)

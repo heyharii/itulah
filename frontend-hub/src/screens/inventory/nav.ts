@@ -91,10 +91,11 @@ export const inventoryNav: AppModule = {
         // Flow templates (0615-0619): the order of stages each route of goods
         // runs, who raises its plan and who does each stage. Sought by name —
         // an Admin setting up a new route goes looking for it — so it is a
-        // sub-item. The label is the owner's.
+        // sub-item. The owner's "Alur barang", in English with the rest of
+        // the hub (27 Sep).
         {
           path: "/inventory/flows",
-          label: "Alur barang",
+          label: "Goods flows",
           icon: Workflow,
         },
         {

@@ -1848,57 +1848,20 @@ pub async fn stock_transfer_post_pending(pool: &PgPool, actor: &str) -> Result<i
                 continue;
             }
             let mut tx = pool.begin().await?;
+            // One writer of a line's transfer postings at a time: a goods
+            // flow books the same lines (`flow_stages`), so what is booked is
+            // read again under the lock rather than trusted from the list above.
+            lock_transfer_line(&mut tx, line_id).await?;
+            let already = transfer_booked(&mut tx, line_id, stage).await?;
+            let delta = done - already;
+            if delta <= 0 {
+                continue;
+            }
             let supply = article_is_supply(&mut tx, article_id).await?;
-            let (stock, transit, transit_q) = if supply {
-                ("bag_inventory", "goods_in_transit", "BAG")
-            } else {
-                ("inventory", "goods_in_transit", "MERCHANDISE")
-            };
-            let unit: i64 = sqlx::query_scalar::<_, Option<i64>>(
-                "SELECT (SUM(remaining_value_minor) / NULLIF(SUM(remaining_quantity), 0))::bigint
-                   FROM cost_layer_remaining WHERE article_id = $1 AND remaining_quantity > 0",
-            )
-            .bind(article_id)
-            .fetch_one(&mut *tx)
-            .await?
-            .unwrap_or(last_known_unit_cost(&mut tx, article_id).await?);
+            let unit = transfer_unit_cost(&mut tx, article_id).await?;
             let value = unit.saturating_mul(delta);
-            let affiliate = |key: &str, unit: &str, counter: &str, debit: bool| {
-                if debit {
-                    PostingLine::debit(key, unit, value)
-                } else {
-                    PostingLine::credit(key, unit, value)
-                }
-                .with_qualifier("BARANG")
-                .with_counter_unit(counter)
-            };
-            // Goods in transit (1031) is a balance between two units, so each
-            // leg names the unit on the other side of the journey — the poster
-            // refuses a line on it that names only its own unit.
-            let in_transit = |unit: &str, counter: &str, debit: bool| {
-                if debit {
-                    PostingLine::debit(transit, unit, value)
-                } else {
-                    PostingLine::credit(transit, unit, value)
-                }
-                .with_qualifier(transit_q)
-                .with_counter_unit(counter)
-            };
             let entry = if value > 0 {
-                let lines = match stage {
-                    "DISPATCH" => vec![
-                        in_transit(&source, &destination, true),
-                        PostingLine::credit(stock, &source, value),
-                        in_transit(&destination, &source, true),
-                        affiliate("affiliate_payable", &destination, &source, false),
-                    ],
-                    _ => vec![
-                        affiliate("affiliate_receivable", &source, &destination, true),
-                        in_transit(&source, &destination, false),
-                        PostingLine::debit(stock, &destination, value),
-                        in_transit(&destination, &source, false),
-                    ],
-                };
+                let lines = sjd_transfer_lines(stage, &source, &destination, value, supply);
                 Some(
                     post(
                         &mut tx,
@@ -1939,6 +1902,118 @@ pub async fn stock_transfer_post_pending(pool: &PgPool, actor: &str) -> Result<i
         }
     }
     Ok(booked)
+}
+
+/// Serialise the writers of one allotment line's transfer postings — the
+/// allotment sweep and a goods flow's posting (`flow_stages`) — for the rest
+/// of the transaction, so the two never book one move twice.
+pub async fn lock_transfer_line(
+    tx: &mut Transaction<'_, Postgres>,
+    allotment_line_id: Uuid,
+) -> Result<(), AppError> {
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+        .bind(format!("stock_transfer_posting:{allotment_line_id}"))
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
+/// How much of an allotment line is booked for one stage (`DISPATCH`,
+/// `RECEIPT`), by whichever writer booked it.
+pub async fn transfer_booked(
+    tx: &mut Transaction<'_, Postgres>,
+    allotment_line_id: Uuid,
+    stage: &str,
+) -> Result<i64, AppError> {
+    Ok(sqlx::query_scalar::<_, i64>(
+        "SELECT COALESCE(sum(quantity), 0)::bigint FROM stock_transfer_posting
+          WHERE allotment_line_id = $1 AND stage = $2",
+    )
+    .bind(allotment_line_id)
+    .bind(stage)
+    .fetch_one(&mut **tx)
+    .await?)
+}
+
+/// What one piece of an article is worth moving between units: its provenance
+/// cost, as the average of its remaining layers, or the last receipt's cost when
+/// none remain (client accountant, 25 Sep).
+pub async fn transfer_unit_cost(
+    tx: &mut Transaction<'_, Postgres>,
+    article_id: Uuid,
+) -> Result<i64, AppError> {
+    let average = sqlx::query_scalar::<_, Option<i64>>(
+        "SELECT (SUM(remaining_value_minor) / NULLIF(SUM(remaining_quantity), 0))::bigint
+           FROM cost_layer_remaining WHERE article_id = $1 AND remaining_quantity > 0",
+    )
+    .bind(article_id)
+    .fetch_one(&mut **tx)
+    .await?;
+    match average {
+        Some(unit) => Ok(unit),
+        None => last_known_unit_cost(tx, article_id).await,
+    }
+}
+
+/// The SJD rule's lines for goods moving between two units' sites (client
+/// accountant, 25 Sep), in meanings (I9):
+///
+/// * `DISPATCH`: the sender Dr goods in transit / Cr stock; the receiver Dr
+///   goods in transit / Cr the affiliate account (BARANG);
+/// * `RECEIPT`: the sender Dr the affiliate account / Cr goods in transit; the
+///   receiver Dr stock / Cr goods in transit.
+///
+/// Each unit's lines balance on their own. The affiliate meanings resolve to
+/// the hutang account at a store and the piutang account at head office (I7),
+/// so the same lines book goods going out to a shop and a shop's goods coming
+/// back. Goods in transit is a balance between two units, so each of its legs
+/// names the unit on the other side of the journey — the poster refuses one
+/// that names only its own. Shared by the allotment sweep below and by a flow's
+/// postings (`flow_stages`), so the two cannot book one move two ways.
+pub fn sjd_transfer_lines(
+    stage: &str,
+    source: &str,
+    destination: &str,
+    value: i64,
+    supply: bool,
+) -> Vec<PostingLine> {
+    let (stock, transit_qualifier) = if supply {
+        ("bag_inventory", "BAG")
+    } else {
+        ("inventory", "MERCHANDISE")
+    };
+    let affiliate = |key: &str, unit: &str, counter: &str, debit: bool| {
+        if debit {
+            PostingLine::debit(key, unit, value)
+        } else {
+            PostingLine::credit(key, unit, value)
+        }
+        .with_qualifier("BARANG")
+        .with_counter_unit(counter)
+    };
+    let in_transit = |unit: &str, counter: &str, debit: bool| {
+        if debit {
+            PostingLine::debit("goods_in_transit", unit, value)
+        } else {
+            PostingLine::credit("goods_in_transit", unit, value)
+        }
+        .with_qualifier(transit_qualifier)
+        .with_counter_unit(counter)
+    };
+    match stage {
+        "DISPATCH" => vec![
+            in_transit(source, destination, true),
+            PostingLine::credit(stock, source, value),
+            in_transit(destination, source, true),
+            affiliate("affiliate_payable", destination, source, false),
+        ],
+        _ => vec![
+            affiliate("affiliate_receivable", source, destination, true),
+            in_transit(source, destination, false),
+            PostingLine::debit(stock, destination, value),
+            in_transit(destination, source, false),
+        ],
+    }
 }
 
 /// Whether an article is a customer supply (shopping bags), held on 1030.

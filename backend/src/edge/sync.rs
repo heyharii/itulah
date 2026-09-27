@@ -2890,6 +2890,14 @@ fn apply_command_effect(tx: &Transaction<'_>, command: &PushedCommand) -> Result
                 .map_err(err)?;
             apply_in_transit_release(tx, command.command_id, &payload)
         }
+        // What a goods flow touching this site did — kept for this node's
+        // screens, never acted on (`edge::flows`). Only ever sent to a node
+        // whose heartbeat carries the flows capability.
+        crate::sync::flow::INVENTORY_FLOW_EVENTS_V1 => {
+            let payload = crate::sync::flow::parse_flow_events(&command.payload).map_err(err)?;
+            crate::edge::flows::apply_flow_events(tx, command.command_id, &payload)
+                .map_err(|error| err(error.to_string()))
+        }
         // Head office suspended, reactivated or revoked a till or a printer.
         // Only ever sent to a node whose heartbeat carries a device list, so
         // an older build never receives it — see `sync/device.rs`.
