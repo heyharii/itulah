@@ -639,6 +639,12 @@ pub async fn login(
             role: user.role.into(),
             // Cloud has one identity store, so there is nothing to name.
             source: None,
+            // What `me` answers, so the hub needs no second call to draw
+            // its menu (`cloud_me`).
+            role_code: Some(user.job.code.clone()),
+            role_name: Some(user.job.name.clone()),
+            sections: Some(user.job.sections_held()),
+            read_only: Some(user.job.read_only),
         },
     })
     .into_response();

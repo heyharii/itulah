@@ -2924,6 +2924,10 @@ async fn login(
             // Which identity store this session came from: an Edge-local
             // break-glass account, or a Cloud projection.
             source: Some(issued.principal.source),
+            role_code: None,
+            role_name: None,
+            sections: None,
+            read_only: None,
         },
     })
     .into_response();
@@ -2957,6 +2961,10 @@ async fn edge_sso_exchange(
             display_name: issued.principal.display_name,
             role: issued.principal.role.into(),
             source: Some(issued.principal.source),
+            role_code: None,
+            role_name: None,
+            sections: None,
+            read_only: None,
         },
     })
     .into_response();
