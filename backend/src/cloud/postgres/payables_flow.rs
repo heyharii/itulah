@@ -76,14 +76,14 @@ const BILL_VOUCHER: &str = "SUPPLIER_INVOICE";
 /// settles.
 fn against_bill<'a>(
     account_key: &'a str,
-    site_id: &'a str,
+    unit_id: &'a str,
     supplier_id: &'a str,
     bill: &'a str,
 ) -> PaymentLedgerClaim<'a> {
     PaymentLedgerClaim {
         account_key,
         qualifier: "",
-        site_id,
+        unit_id,
         party_type: PaymentLedgerPartyType::Supplier,
         party_id: supplier_id,
         voucher_kind: Some(BILL_VOUCHER),
@@ -118,12 +118,15 @@ pub(super) const fn payable_key(kind_is_expense: bool) -> &'static str {
 /// — an ordinary thing here. Such a bill is opened as due on the day it entered
 /// the books: the closest true sentence the constraint allows, and it ages from
 /// that day rather than from a date the ledger never knew it was open on.
+///
+/// `unit_id` is the books the payable was credited in: head office's, since a
+/// supplier is head office's counterparty alone (I4).
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn payable_opened(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     account_key: &str,
     voucher_kind: &str,
-    site_id: &str,
+    unit_id: &str,
     supplier_id: &str,
     supplier_name: Option<&str>,
     voucher_id: Uuid,
@@ -144,7 +147,7 @@ pub(super) async fn payable_opened(
         &PaymentLedgerItem {
             account_key: account_key.to_string(),
             qualifier: String::new(),
-            site_id: site_id.to_string(),
+            unit_id: unit_id.to_string(),
             party_type: PaymentLedgerPartyType::Supplier,
             party_id: supplier_id.to_string(),
             party_name: supplier_name.map(str::to_string),
@@ -180,7 +183,7 @@ pub(super) async fn payable_opened(
 pub(super) async fn payable_settled(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     account_key: &str,
-    site_id: &str,
+    unit_id: &str,
     supplier_id: &str,
     bill_id: Uuid,
     against_voucher_kind: &str,
@@ -193,7 +196,7 @@ pub(super) async fn payable_settled(
     let bill = bill_id.to_string();
     ple_settle_claim(
         tx,
-        &against_bill(account_key, site_id, supplier_id, &bill),
+        &against_bill(account_key, unit_id, supplier_id, &bill),
         against_voucher_kind,
         &against_voucher_id.to_string(),
         journal_entry_id,
@@ -493,8 +496,8 @@ async fn receipt_due_date(
 
 /// Value a delivery's accepted lines into the ledger.
 ///
-///     Dr inventory        at the receiving location
-///     Cr trade_payable at head office, carrying the supplier
+///     Dr inventory        in the books of the unit owning the receiving site
+///     Cr trade_payable in head office's books, carrying the supplier
 ///
 /// The supplier is a dimension on the LINE rather than a qualifier on the
 /// account, exactly as `trade_payable` does it. A qualifier would mean a row in
@@ -638,7 +641,8 @@ async fn receipt_post_tranche(
         (Uuid::new_v4(), format!("TRANCHE_{}", tranches + 1))
     };
 
-    let head_office = super::sites::head_office_site_id(&mut *tx).await?;
+    let head_office = super::sites::head_office_unit_id(&mut *tx).await?;
+    let receiving_unit = super::sites::unit_of_site(&mut *tx, &site_id).await?;
     let intent = PostingIntent {
         posting_date: date,
         source_kind: "GOODS_RECEIPT".into(),
@@ -646,13 +650,14 @@ async fn receipt_post_tranche(
         rule_version: "goods_receipt/2".into(),
         currency: "IDR".into(),
         memo: Some(format!("{number} {supplier_id}")),
-        // The goods land where they were delivered; the supplier payable is
-        // head office's and only head office's (owner rule, 25 Sep). A delivery
-        // straight to a shop therefore posts inventory at the shop and the
-        // payable at dc, and the poster's balancer adds the affiliate legs:
-        // shop Dr inventory / Cr 2029 Atas Barang, head office Dr 1058 / Cr 2002.
+        // The goods land where they were delivered and are booked to the unit
+        // that owns that site; the supplier payable is head office's and only
+        // head office's (owner rule, 25 Sep; I4). A delivery straight to a shop
+        // therefore posts inventory in the store's books and the payable in
+        // head office's, and the poster's balancer adds the affiliate legs:
+        // store Dr inventory / Cr 2029 Atas Barang, head office Dr 1058 / Cr 2002.
         lines: vec![
-            PostingLine::debit("inventory", &site_id, value),
+            PostingLine::debit("inventory", &receiving_unit, value),
             PostingLine::credit("trade_payable", &head_office, value).for_supplier(&supplier_id),
         ],
     };
@@ -1312,7 +1317,7 @@ pub async fn bill_match(
 pub async fn merchandise_debit_lines(
     pool: &PgPool,
     invoice_id: Uuid,
-    site_id: &str,
+    unit_id: &str,
     supplier_id: &str,
     subtotal_minor: i64,
     price_variance_minor: i64,
@@ -1338,7 +1343,7 @@ pub async fn merchandise_debit_lines(
     if receipts == 0 {
         return Ok(vec![PostingLine::debit(
             "inventory",
-            site_id,
+            unit_id,
             subtotal_minor,
         )]);
     }
@@ -1359,8 +1364,11 @@ pub async fn merchandise_debit_lines(
         )));
     }
 
-    let trade_payable_code = super::ledger::resolve_account_code(pool, "trade_payable", site_id, "").await?;
-    let head_office = super::sites::head_office_site_id(pool).await?;
+    // The payable is head office's alone (I4), so it is resolved in head
+    // office's books whatever unit the goods were booked to.
+    let head_office = super::sites::head_office_unit_id(pool).await?;
+    let trade_payable_code =
+        super::ledger::resolve_account_code(pool, "trade_payable", &head_office, "").await?;
     let receipt_rows = sqlx::query(
         "SELECT p.journal_entry_id, p.value_minor,
                 (SELECT jl.account_code
@@ -1392,9 +1400,9 @@ pub async fn merchandise_debit_lines(
         })?;
         let value: i64 = receipt.try_get("value_minor")?;
         let line = if account_code == trade_payable_code {
-            // The receipt credited the payable at dc (owner rule, 25 Sep), so
-            // the invoice clears it there. The goods may be at a shop; the debt
-            // never was.
+            // The receipt credited the payable in head office's books (owner
+            // rule, 25 Sep; I4), so the invoice clears it there. The goods may
+            // be at a shop; the debt never was.
             PostingLine::debit("trade_payable", &head_office, value).for_supplier(supplier_id)
         } else {
             // Clear historical receipts using the exact account code their
@@ -1404,7 +1412,7 @@ pub async fn merchandise_debit_lines(
                     account_code,
                     category_code: None,
                 },
-                site_id,
+                unit_id,
                 value,
             )
             .for_supplier(supplier_id)
@@ -1429,7 +1437,7 @@ pub async fn merchandise_debit_lines(
 /// journal of its own: this bill already credits the payable for the invoice,
 /// so the correction contributes only the two halves of the split — inventory
 /// for what is still on hand, cost of sales for what has gone — and the Atas
-/// Barang legs that keep a shop's books balanced against head office.
+/// Barang legs that keep a store's books balanced against head office's.
 pub(super) async fn append_price_correction(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     lines: &mut Vec<PostingLine>,
@@ -1459,9 +1467,20 @@ pub(super) async fn append_price_correction(
         .sum();
     let mut allocated = 0i64;
     let last = rows.len() - 1;
+    // A layer sits at the site the goods are in; its correction is booked to
+    // the unit that owns that site, asked once per site.
+    let mut unit_of: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     for (index, row) in rows.iter().enumerate() {
         let layer_id: Uuid = row.try_get("layer_id")?;
         let site: String = row.try_get("site_id")?;
+        let unit = match unit_of.get(&site) {
+            Some(unit) => unit.clone(),
+            None => {
+                let unit = super::sites::unit_of_site(&mut **tx, &site).await?;
+                unit_of.insert(site.clone(), unit.clone());
+                unit
+            }
+        };
         let opening: i64 = row.try_get("opening_cost_minor")?;
         let share = if index == last {
             // The remainder, so independent roundings still sum to the variance.
@@ -1489,16 +1508,16 @@ pub(super) async fn append_price_correction(
         .await?;
         if outcome.inventory_minor != 0 {
             lines.push(if outcome.inventory_minor > 0 {
-                PostingLine::debit("inventory", &site, outcome.inventory_minor)
+                PostingLine::debit("inventory", &unit, outcome.inventory_minor)
             } else {
-                PostingLine::credit("inventory", &site, -outcome.inventory_minor)
+                PostingLine::credit("inventory", &unit, -outcome.inventory_minor)
             });
         }
         if outcome.cogs_minor != 0 {
             lines.push(if outcome.cogs_minor > 0 {
-                PostingLine::debit("cogs", &site, outcome.cogs_minor)
+                PostingLine::debit("cogs", &unit, outcome.cogs_minor)
             } else {
-                PostingLine::credit("cogs", &site, -outcome.cogs_minor)
+                PostingLine::credit("cogs", &unit, -outcome.cogs_minor)
             });
         }
         lines.extend(outcome.affiliate_lines);
@@ -1518,7 +1537,7 @@ pub(super) async fn append_price_correction(
 pub(super) async fn invoice_payable_replaces_receipts(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     invoice_id: Uuid,
-    site_id: &str,
+    unit_id: &str,
     supplier_id: &str,
     supplier_name: Option<&str>,
     amount_minor: i64,
@@ -1548,7 +1567,7 @@ pub(super) async fn invoice_payable_replaces_receipts(
             &PaymentLedgerClaim {
                 account_key: "trade_payable",
                 qualifier: "",
-                site_id,
+                unit_id,
                 party_type: PaymentLedgerPartyType::Supplier,
                 party_id: supplier_id,
                 voucher_kind: Some("GOODS_RECEIPT"),
@@ -1567,7 +1586,7 @@ pub(super) async fn invoice_payable_replaces_receipts(
         tx,
         "trade_payable",
         BILL_VOUCHER,
-        site_id,
+        unit_id,
         supplier_id,
         supplier_name,
         invoice_id,
@@ -1854,6 +1873,10 @@ pub async fn credit_note_create(
 ///     Dr trade_payable / non_merchandise_payable   the note's total
 ///     Cr inventory, or the account the note names  the goods or the cost
 ///     Cr vat_in                                    the tax that comes back
+///
+/// The payable is debited in head office's books, where the bill credited it
+/// (I4); the goods, the cost and the tax go back in the books of the unit that
+/// owns the note's site, and the poster adds the affiliate legs between them.
 pub async fn credit_note_post(
     pool: &PgPool,
     credit_note_id: Uuid,
@@ -1874,6 +1897,8 @@ pub async fn credit_note_post(
         .await?
         .try_get("kind")?;
     let expense = kind == "EXPENSE";
+    let head_office = super::sites::head_office_unit_id(pool).await?;
+    let note_unit = super::sites::unit_of_site(pool, &note.site_id).await?;
 
     let mut lines = vec![PostingLine::debit(
         if expense {
@@ -1881,7 +1906,7 @@ pub async fn credit_note_post(
         } else {
             "trade_payable"
         },
-        &note.site_id,
+        &head_office,
         note.total_minor,
     )
     .for_supplier(&note.supplier_id)];
@@ -1893,8 +1918,8 @@ pub async fn credit_note_post(
                     account_code: code.to_string(),
                     category_code: note.credit_category_code.clone(),
                 },
-                site_id: note.site_id.clone(),
-                counter_site_id: None,
+                unit_id: note_unit.clone(),
+                counter_unit_id: None,
                 debit_minor: 0,
                 credit_minor: note.subtotal_minor,
                 party_type: None,
@@ -1903,11 +1928,11 @@ pub async fn credit_note_post(
                 bank_account_id: None,
                 memo: None,
             },
-            None => PostingLine::credit("inventory", &note.site_id, note.subtotal_minor),
+            None => PostingLine::credit("inventory", &note_unit, note.subtotal_minor),
         });
     }
     if note.tax_minor > 0 {
-        lines.push(PostingLine::credit("vat_in", &note.site_id, note.tax_minor));
+        lines.push(PostingLine::credit("vat_in", &note_unit, note.tax_minor));
     }
 
     let intent = PostingIntent {
@@ -1941,7 +1966,7 @@ pub async fn credit_note_post(
     payable_settled(
         &mut tx,
         payable_key(expense),
-        &note.site_id,
+        &head_office,
         &note.supplier_id,
         note.invoice_id,
         "CREDIT_NOTE",
@@ -1986,7 +2011,11 @@ pub async fn credit_note_refund(
         )));
     }
     let qualifier = request.account_qualifier.trim();
-    super::ledger::resolve_account_code(pool, &key, &note.site_id, qualifier).await?;
+    // The money comes back into the books of the unit that owns the note's
+    // site; the payable it re-opens is head office's (I4).
+    let note_unit = super::sites::unit_of_site(pool, &note.site_id).await?;
+    let head_office = super::sites::head_office_unit_id(pool).await?;
+    super::ledger::resolve_account_code(pool, &key, &note_unit, qualifier).await?;
 
     let kind: String = sqlx::query("SELECT kind FROM supplier_invoice WHERE invoice_id = $1")
         .bind(note.invoice_id)
@@ -2002,14 +2031,14 @@ pub async fn credit_note_refund(
         currency: note.currency.clone(),
         memo: Some(format!("{} refunded", note.credit_number)),
         lines: vec![
-            PostingLine::debit(&key, &note.site_id, note.total_minor).with_qualifier(qualifier),
+            PostingLine::debit(&key, &note_unit, note.total_minor).with_qualifier(qualifier),
             PostingLine::credit(
                 if kind == "EXPENSE" {
                     "non_merchandise_payable"
                 } else {
                     "trade_payable"
                 },
-                &note.site_id,
+                &head_office,
                 note.total_minor,
             )
             .for_supplier(&note.supplier_id),
@@ -2063,7 +2092,8 @@ pub struct SupplierAdvance {
     pub advance_id: Uuid,
     pub advance_number: String,
     pub supplier_id: String,
-    pub site_id: String,
+    /// Whose books the money left (0606): the unit whose bank paid it.
+    pub unit_id: String,
     pub purchase_order_id: Uuid,
     pub po_number: String,
     pub advance_date: NaiveDate,
@@ -2089,7 +2119,8 @@ pub struct SupplierAdvance {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct SupplierAdvanceRequest {
     pub purchase_order_id: Uuid,
-    pub site_id: String,
+    /// Whose books the money leaves: a unit id (0606).
+    pub unit_id: String,
     pub advance_date: NaiveDate,
     pub amount_minor: i64,
     /// One of `bank_giro`, `bank_savings`, `cash`, `petty_cash`.
@@ -2114,7 +2145,7 @@ pub struct SupplierAdvanceApplyRequest {
     pub posting_date: Option<NaiveDate>,
 }
 
-const ADVANCE_COLUMNS: &str = "a.advance_id, a.advance_number, a.supplier_id, a.site_id,
+const ADVANCE_COLUMNS: &str = "a.advance_id, a.advance_number, a.supplier_id, a.unit_id,
      a.purchase_order_id, o.po_number, a.advance_date, a.currency, a.amount_minor,
      a.account_key, a.account_qualifier, a.status, a.journal_entry_id, a.reference, a.note,
      a.recorded_by, a.recorded_at, a.posted_by,
@@ -2130,7 +2161,7 @@ fn to_advance(row: &sqlx::postgres::PgRow) -> Result<SupplierAdvance, AppError> 
         advance_id: row.try_get("advance_id")?,
         advance_number: row.try_get("advance_number")?,
         supplier_id: row.try_get("supplier_id")?,
-        site_id: row.try_get("site_id")?,
+        unit_id: row.try_get("unit_id")?,
         purchase_order_id: row.try_get("purchase_order_id")?,
         po_number: row.try_get("po_number")?,
         advance_date: row.try_get("advance_date")?,
@@ -2220,11 +2251,17 @@ pub async fn supplier_advance_issue(
             .ok_or_else(|| AppError::NotFound("purchase order".into()))?
             .try_get("supplier_id")?;
 
+    let unit_id = request.unit_id.trim();
+    if !super::sites::unit_exists(pool, unit_id).await? {
+        return Err(AppError::Validation(format!(
+            "'{unit_id}' is not a unit; an advance leaves the bank of head office or a store"
+        )));
+    }
     let qualifier = request.account_qualifier.trim();
     // Checked here as well as by the composite foreign key, for the reason
     // `record_payment` gives: a foreign-key violation reaches a person as
-    // "database operation failed" and names neither the key nor the location.
-    super::ledger::resolve_account_code(pool, &key, &request.site_id, qualifier).await?;
+    // "database operation failed" and names neither the key nor the unit.
+    super::ledger::resolve_account_code(pool, &key, unit_id, qualifier).await?;
 
     let advance_id = Uuid::new_v4();
     let number: i64 = sqlx::query("SELECT nextval('supplier_advance_number_seq') AS n")
@@ -2233,14 +2270,14 @@ pub async fn supplier_advance_issue(
         .try_get("n")?;
     sqlx::query(
         "INSERT INTO supplier_advance
-           (advance_id, advance_number, supplier_id, site_id, purchase_order_id, advance_date,
+           (advance_id, advance_number, supplier_id, unit_id, purchase_order_id, advance_date,
             currency, amount_minor, account_key, account_qualifier, reference, note, recorded_by)
          VALUES ($1,$2,$3,$4,$5,$6,'IDR',$7,$8,$9,$10,$11,$12)",
     )
     .bind(advance_id)
     .bind(format!("AV-{number:08}"))
     .bind(&supplier_id)
-    .bind(&request.site_id)
+    .bind(unit_id)
     .bind(request.purchase_order_id)
     .bind(request.advance_date)
     .bind(request.amount_minor)
@@ -2282,9 +2319,9 @@ pub async fn supplier_advance_post(
             advance.advance_number, advance.supplier_id, advance.po_number
         )),
         lines: vec![
-            PostingLine::debit(ADVANCE, &advance.site_id, advance.amount_minor)
+            PostingLine::debit(ADVANCE, &advance.unit_id, advance.amount_minor)
                 .for_supplier(&advance.supplier_id),
-            PostingLine::credit(&advance.account_key, &advance.site_id, advance.amount_minor)
+            PostingLine::credit(&advance.account_key, &advance.unit_id, advance.amount_minor)
                 .with_qualifier(&advance.account_qualifier),
         ],
     };
@@ -2335,6 +2372,9 @@ pub async fn supplier_advance_apply(
     let invoice_number: String = bill.try_get("invoice_number")?;
     let kind: String = bill.try_get("kind")?;
     let invoice_date: NaiveDate = bill.try_get("invoice_date")?;
+    // The payable is cleared in head office's books, where the bill credited
+    // it (I4); the advance is released from the books it was paid out of.
+    let head_office = super::sites::head_office_unit_id(pool).await?;
 
     let intent = PostingIntent {
         posting_date: request.posting_date.unwrap_or(invoice_date),
@@ -2353,11 +2393,11 @@ pub async fn supplier_advance_apply(
                 } else {
                     "trade_payable"
                 },
-                &advance.site_id,
+                &head_office,
                 request.amount_minor,
             )
             .for_supplier(&advance.supplier_id),
-            PostingLine::credit(ADVANCE, &advance.site_id, request.amount_minor)
+            PostingLine::credit(ADVANCE, &advance.unit_id, request.amount_minor)
                 .for_supplier(&advance.supplier_id),
         ],
     };
@@ -2377,8 +2417,9 @@ pub async fn supplier_advance_apply(
     )
     .await?;
     // The trigger in 0133 decides whether this fits — the advance, the bill,
-    // the supplier, the location and the currency all have to agree, and the
-    // refusal it raises names which of them did not.
+    // the supplier, the unit (0606: the advance's, and the one owning the
+    // bill's site) and the currency all have to agree, and the refusal it
+    // raises names which of them did not.
     sqlx::query(
         "INSERT INTO supplier_advance_application
            (advance_id, invoice_id, amount_minor, journal_entry_id, applied_by)
@@ -2399,7 +2440,7 @@ pub async fn supplier_advance_apply(
     payable_settled(
         &mut tx,
         payable_key(kind == "EXPENSE"),
-        &advance.site_id,
+        &head_office,
         &advance.supplier_id,
         request.invoice_id,
         "SUPPLIER_ADVANCE",
@@ -2614,7 +2655,8 @@ pub async fn payment_deductions(
 }
 
 /// The credit side of a payment: what left the bank, what the tax office is
-/// owed, and what the bank charged for the transfer.
+/// owed, and what the bank charged for the transfer — all in the books of the
+/// unit whose bank paid (`unit_id`).
 ///
 /// The one place `payments::post_payment` reaches into this module. The DEBIT
 /// side is that function's own — one line per allocation, against the payable
@@ -2631,7 +2673,7 @@ pub async fn payment_deductions(
 pub async fn payment_money_lines(
     pool: &PgPool,
     payment_id: Uuid,
-    site_id: &str,
+    unit_id: &str,
     account_key: &str,
     account_qualifier: &str,
     total_minor: i64,
@@ -2641,12 +2683,12 @@ pub async fn payment_money_lines(
     if deductions.bank_charge_minor > 0 {
         lines.push(PostingLine::debit(
             BANK_CHARGE,
-            site_id,
+            unit_id,
             deductions.bank_charge_minor,
         ));
     }
     lines.push(
-        PostingLine::credit(account_key, site_id, deductions.leaving_the_bank_minor)
+        PostingLine::credit(account_key, unit_id, deductions.leaving_the_bank_minor)
             .with_qualifier(account_qualifier),
     );
     if deductions.withholding_minor > 0 {
@@ -2657,7 +2699,7 @@ pub async fn payment_money_lines(
             )
         })?;
         lines.push(
-            PostingLine::credit("withholding_payable", site_id, deductions.withholding_minor)
+            PostingLine::credit("withholding_payable", unit_id, deductions.withholding_minor)
                 .from_source("TAX_TEMPLATE", &key),
         );
     }

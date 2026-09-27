@@ -81,7 +81,9 @@ pub struct PaymentContext {
     pub allocates: bool,
     /// What the screen is called after: the bill's number, the supplier's name.
     pub source_label: String,
-    pub site_id: Option<String>,
+    /// Whose books the payment would leave, when the source says (0606): the
+    /// unit owning the bill's site, the batch's unit.
+    pub unit_id: Option<String>,
     pub party: Option<PaymentContextParty>,
     pub obligations: Vec<PaymentObligation>,
     /// The accounts this party's money may go to. Empty is a real answer and
@@ -267,6 +269,7 @@ async fn bill_context(pool: &PgPool, kind: &str, id: &str) -> Result<PaymentCont
     let supplier_name: Option<String> = row.try_get("supplier_name")?;
     let invoice_number: String = row.try_get("invoice_number")?;
     let site_id: String = row.try_get("site_id")?;
+    let unit_id = super::sites::unit_of_site(pool, &site_id).await?;
 
     let obligations = open_bills(pool, None, Some(invoice_id)).await?;
     let on_instrument = kind == "GIRO";
@@ -302,7 +305,7 @@ async fn bill_context(pool: &PgPool, kind: &str, id: &str) -> Result<PaymentCont
         allocates: pattern.allocates(),
         pattern,
         source_label: invoice_number,
-        site_id: Some(site_id),
+        unit_id: Some(unit_id),
         party: Some(PaymentContextParty {
             party_type: "SUPPLIER".into(),
             party_name: supplier_name.unwrap_or_else(|| supplier_id.clone()),
@@ -331,7 +334,10 @@ async fn supplier_context(pool: &PgPool, supplier_id: &str) -> Result<PaymentCon
     }
     let default_amount_minor = obligations.iter().map(|o| o.outstanding_minor).sum();
     let due_date = obligations.iter().filter_map(|o| o.due_date).min();
-    let site_id = obligations.first().map(|o| o.site_id.clone());
+    let unit_id = match obligations.first() {
+        Some(first) => Some(super::sites::unit_of_site(pool, &first.site_id).await?),
+        None => None,
+    };
     Ok(PaymentContext {
         source_kind: "SUPPLIER".into(),
         source_id: supplier_id.to_string(),
@@ -339,7 +345,7 @@ async fn supplier_context(pool: &PgPool, supplier_id: &str) -> Result<PaymentCon
         allocates: pattern.allocates(),
         pattern,
         source_label: name.clone(),
-        site_id,
+        unit_id,
         party: Some(PaymentContextParty {
             party_type: "SUPPLIER".into(),
             party_id: supplier_id.to_string(),
@@ -359,7 +365,7 @@ async fn batch_context(pool: &PgPool, id: &str) -> Result<PaymentContext, AppErr
     let batch_id = Uuid::parse_str(id)
         .map_err(|_| AppError::Validation(format!("'{id}' is not a batch's id")))?;
     let row = sqlx::query(
-        "SELECT b.memo, b.site_id, b.method, b.total_minor, b.doc_date, b.status,
+        "SELECT b.memo, b.unit_id, b.method, b.total_minor, b.doc_date, b.status,
                 (SELECT COUNT(DISTINCT (i.party_type, i.party_id)) FROM payment_batch_item i
                   WHERE i.batch_id = b.batch_id)::int AS recipients,
                 (SELECT COUNT(*) FROM payment_batch_item i
@@ -389,7 +395,7 @@ async fn batch_context(pool: &PgPool, id: &str) -> Result<PaymentContext, AppErr
         allocates: pattern.allocates(),
         pattern,
         source_label: row.try_get("memo")?,
-        site_id: Some(row.try_get("site_id")?),
+        unit_id: Some(row.try_get("unit_id")?),
         party: None,
         obligations: Vec::new(),
         recipients: Vec::new(),
@@ -458,7 +464,7 @@ async fn payroll_context(pool: &PgPool, id: &str) -> Result<PaymentContext, AppE
         allocates: pattern.allocates(),
         pattern,
         source_label: format!("payroll run {id}"),
-        site_id: None,
+        unit_id: None,
         party: None,
         obligations: Vec::new(),
         recipients: Vec::new(),
@@ -497,7 +503,7 @@ async fn fund_context(pool: &PgPool, id: &str) -> Result<PaymentContext, AppErro
         allocates: pattern.allocates(),
         pattern,
         source_label: format!("float for {id}"),
-        site_id: None,
+        unit_id: None,
         party: None,
         obligations: Vec::new(),
         recipients,
@@ -514,6 +520,9 @@ async fn fund_context(pool: &PgPool, id: &str) -> Result<PaymentContext, AppErro
 }
 
 /// Between two accounts the company holds. Nobody is paid.
+///
+/// `id` is the unit whose books the two accounts are in (0605: a bank account
+/// is a unit's).
 fn transfer_context(id: &str) -> Result<PaymentContext, AppError> {
     let shape = PaymentSourceShape {
         between_own_accounts: true,
@@ -526,8 +535,8 @@ fn transfer_context(id: &str) -> Result<PaymentContext, AppError> {
         primitive: pattern.primitive().into(),
         allocates: pattern.allocates(),
         pattern,
-        source_label: format!("transfer at {id}"),
-        site_id: Some(id.to_string()),
+        source_label: format!("transfer in the books of {id}"),
+        unit_id: Some(id.to_string()),
         party: None,
         // Empty, and that is the assertion rather than an absence of data: a
         // transfer has no obligations and no recipients because nobody is owed
@@ -563,7 +572,7 @@ async fn settlement_context(pool: &PgPool, id: &str) -> Result<PaymentContext, A
         allocates: pattern.allocates(),
         pattern,
         source_label: format!("settlement {id}"),
-        site_id: None,
+        unit_id: None,
         party: None,
         obligations: Vec::new(),
         recipients,

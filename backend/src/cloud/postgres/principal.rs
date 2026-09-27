@@ -239,26 +239,30 @@ pub async fn principal_movement(
 
     let amount = request.amount_minor;
     let site = request.site_id.as_str();
-    let cash = PostingLine::credit(&request.cash_key, site, amount)
+    // The movement is recorded at a site and booked to the unit that owns it
+    // (0605) — head office's, for the Gudang.
+    let unit = super::sites::unit_of_site(pool, site).await?;
+    let book = unit.as_str();
+    let cash = PostingLine::credit(&request.cash_key, book, amount)
         .with_qualifier(&request.cash_qualifier);
     let cash_in =
-        PostingLine::debit(&request.cash_key, site, amount).with_qualifier(&request.cash_qualifier);
+        PostingLine::debit(&request.cash_key, book, amount).with_qualifier(&request.cash_qualifier);
 
     let lines = match request.kind.as_str() {
         // Capital arriving: the company holds more money and owes its owners
         // more of itself.
-        "CONTRIBUTION" => vec![cash_in, PostingLine::credit(CAPITAL_MEANING, site, amount)],
+        "CONTRIBUTION" => vec![cash_in, PostingLine::credit(CAPITAL_MEANING, book, amount)],
         // Money taken out against equity. `Prive` and not an expense: a drawing
         // is not a cost of trading.
-        "DRAWING" => vec![PostingLine::debit(DRAWING_MEANING, site, amount), cash],
+        "DRAWING" => vec![PostingLine::debit(DRAWING_MEANING, book, amount), cash],
         // A loan FROM an owner. The company owes it back, so it is a liability
         // and not equity — which is why it is a different meaning entirely.
         "LOAN_IN" => vec![
             cash_in,
-            PostingLine::credit(LOAN_MEANING, site, amount).with_qualifier(PRINCIPAL_QUALIFIER),
+            PostingLine::credit(LOAN_MEANING, book, amount).with_qualifier(PRINCIPAL_QUALIFIER),
         ],
         "LOAN_REPAY" => vec![
-            PostingLine::debit(LOAN_MEANING, site, amount).with_qualifier(PRINCIPAL_QUALIFIER),
+            PostingLine::debit(LOAN_MEANING, book, amount).with_qualifier(PRINCIPAL_QUALIFIER),
             cash,
         ],
         other => {

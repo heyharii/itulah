@@ -146,7 +146,9 @@ pub struct PaymentLedgerItem {
     pub account_key: String,
     /// Which bank, which scheme. Empty when the meaning needs no narrowing.
     pub qualifier: String,
-    pub site_id: String,
+    /// The books the balance sits in (0608): the unit whose journal line the
+    /// rule posted, since that is the key it is reconciled against.
+    pub unit_id: String,
     pub party_type: PaymentLedgerPartyType,
     pub party_id: String,
     /// For reading. A list that had to join four party tables to print a name
@@ -182,7 +184,7 @@ pub struct PaymentLedgerEntry {
     pub entry_id: Uuid,
     pub account_key: String,
     pub qualifier: String,
-    pub site_id: String,
+    pub unit_id: String,
     pub side: String,
     pub party_type: String,
     pub party_id: String,
@@ -253,7 +255,7 @@ pub struct PaymentLedgerDelinked {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct PaymentLedgerOutstanding {
     pub account_key: String,
-    pub site_id: Option<String>,
+    pub unit_id: Option<String>,
     pub qualifier: Option<String>,
     pub as_of: NaiveDate,
     pub open_items: i64,
@@ -265,7 +267,7 @@ pub struct PaymentLedgerOutstanding {
 pub struct PaymentLedgerFilter {
     pub account_key: Option<String>,
     pub qualifier: Option<String>,
-    pub site_id: Option<String>,
+    pub unit_id: Option<String>,
     pub party_type: Option<PaymentLedgerPartyType>,
     pub party_id: Option<String>,
     pub voucher_kind: Option<String>,
@@ -288,7 +290,7 @@ pub struct PaymentLedgerFilter {
 pub struct PaymentLedgerAgingRow {
     pub account_key: String,
     pub qualifier: String,
-    pub site_id: String,
+    pub unit_id: String,
     pub side: String,
     pub party_type: Option<String>,
     pub party_id: Option<String>,
@@ -305,7 +307,7 @@ pub struct PaymentLedgerAgingRow {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct PaymentLedgerAging {
     pub as_of: NaiveDate,
-    pub site_id: Option<String>,
+    pub unit_id: Option<String>,
     /// Per control account triple. Heaviest first: an ageing report is read to
     /// decide what to chase next.
     pub accounts: Vec<PaymentLedgerAgingRow>,
@@ -360,7 +362,7 @@ pub struct PaymentLedgerSettlementRow {
 pub struct PaymentLedgerIntegrityRow {
     pub account_key: String,
     pub qualifier: String,
-    pub site_id: String,
+    pub unit_id: String,
     pub side: String,
     /// `None` when nothing is mapped for this triple, which is a finding in
     /// itself: the balance has no line in the books to be compared with.
@@ -379,7 +381,7 @@ pub struct PaymentLedgerIntegrityRow {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct PaymentLedgerIntegrity {
     pub as_of: NaiveDate,
-    pub site_id: Option<String>,
+    pub unit_id: Option<String>,
     pub rows: Vec<PaymentLedgerIntegrityRow>,
     /// Sent rather than left for the browser to work out, for the same reason
     /// `TrialBalance.balanced` is: a sub-ledger that does not agree with the
@@ -393,7 +395,7 @@ pub struct PaymentLedgerIntegrity {
 // Opening
 // ---------------------------------------------------------------------------
 
-const AS_OF_COLUMNS: &str = "i.entry_id, i.account_key, i.qualifier, i.site_id, i.side,
+const AS_OF_COLUMNS: &str = "i.entry_id, i.account_key, i.qualifier, i.unit_id, i.side,
      i.party_type, i.party_id, i.party_name, i.voucher_kind, i.voucher_id,
      i.against_voucher_kind, i.against_voucher_id, i.journal_entry_id,
      i.currency, i.amount_minor, i.settled_minor, i.outstanding_minor,
@@ -405,7 +407,7 @@ fn to_entry(row: &sqlx::postgres::PgRow) -> Result<PaymentLedgerEntry, AppError>
         entry_id: row.try_get("entry_id")?,
         account_key: row.try_get("account_key")?,
         qualifier: row.try_get("qualifier")?,
-        site_id: row.try_get("site_id")?,
+        unit_id: row.try_get("unit_id")?,
         side: row.try_get("side")?,
         party_type: row.try_get("party_type")?,
         party_id: row.try_get("party_id")?,
@@ -488,7 +490,7 @@ pub async fn ple_open(
     let entry_id = Uuid::new_v4();
     let inserted = sqlx::query(
         "INSERT INTO payment_ledger_entry
-           (entry_id, account_key, qualifier, site_id, party_type, party_id, party_name,
+           (entry_id, account_key, qualifier, unit_id, party_type, party_id, party_name,
             voucher_kind, voucher_id, journal_entry_id, side, amount_minor, currency,
             due_date, posting_date, created_by)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
@@ -499,7 +501,7 @@ pub async fn ple_open(
     .bind(entry_id)
     .bind(&account_key)
     .bind(item.qualifier.trim())
-    .bind(&item.site_id)
+    .bind(&item.unit_id)
     .bind(item.party_type.as_str())
     .bind(party_id)
     .bind(item.party_name.as_deref())
@@ -802,7 +804,7 @@ pub struct PaymentLedgerClaim<'a> {
     /// and it has to match, not be ignored, or a settlement meant for BCA would
     /// find MANDIRI's items sitting on the same account.
     pub qualifier: &'a str,
-    pub site_id: &'a str,
+    pub unit_id: &'a str,
     pub party_type: PaymentLedgerPartyType,
     pub party_id: &'a str,
     /// The document that raised the items, when the settling one names it —
@@ -819,12 +821,12 @@ impl PaymentLedgerClaim<'_> {
     fn describe(&self) -> String {
         match (self.voucher_kind, self.voucher_id) {
             (Some(kind), Some(voucher)) => format!(
-                "{kind} {voucher} on '{}' at {} for {}",
-                self.account_key, self.site_id, self.party_id
+                "{kind} {voucher} on '{}' in the books of {} for {}",
+                self.account_key, self.unit_id, self.party_id
             ),
             _ => format!(
-                "'{}' at {} for {}",
-                self.account_key, self.site_id, self.party_id
+                "'{}' in the books of {} for {}",
+                self.account_key, self.unit_id, self.party_id
             ),
         }
     }
@@ -866,7 +868,7 @@ pub async fn ple_find_open(
         ));
     }
     let rows = sqlx::query(
-        "SELECT e.entry_id, e.account_key, e.qualifier, e.site_id, e.side,
+        "SELECT e.entry_id, e.account_key, e.qualifier, e.unit_id, e.side,
                 e.party_type, e.party_id, e.party_name, e.voucher_kind, e.voucher_id,
                 e.against_voucher_kind, e.against_voucher_id, e.journal_entry_id,
                 NULL::text AS entry_number,
@@ -877,7 +879,7 @@ pub async fn ple_find_open(
            FROM payment_ledger_entry e
           WHERE e.account_key = $1
             AND e.qualifier = $2
-            AND e.site_id = $3
+            AND e.unit_id = $3
             AND e.party_type = $4
             AND e.party_id = $5
             AND ($6::text IS NULL OR e.voucher_kind = $6)
@@ -889,7 +891,7 @@ pub async fn ple_find_open(
     )
     .bind(&account_key)
     .bind(claim.qualifier.trim())
-    .bind(claim.site_id)
+    .bind(claim.unit_id)
     .bind(claim.party_type.as_str())
     .bind(party_id)
     .bind(claim.voucher_kind.map(str::trim))
@@ -1139,7 +1141,7 @@ fn today() -> NaiveDate {
 pub async fn ple_outstanding(
     pool: &PgPool,
     account_key: &str,
-    site_id: Option<&str>,
+    unit_id: Option<&str>,
     qualifier: Option<&str>,
     as_of: Option<NaiveDate>,
 ) -> Result<PaymentLedgerOutstanding, AppError> {
@@ -1150,18 +1152,18 @@ pub async fn ple_outstanding(
                 COALESCE(SUM(i.outstanding_minor), 0)::bigint AS outstanding
            FROM payment_ledger_as_of($1) i
           WHERE i.account_key = $2
-            AND ($3::text IS NULL OR i.site_id = $3)
+            AND ($3::text IS NULL OR i.unit_id = $3)
             AND ($4::text IS NULL OR i.qualifier = $4)",
     )
     .bind(when)
     .bind(&key)
-    .bind(site_id)
+    .bind(unit_id)
     .bind(qualifier)
     .fetch_one(pool)
     .await?;
     Ok(PaymentLedgerOutstanding {
         account_key: key,
-        site_id: site_id.map(str::to_string),
+        unit_id: unit_id.map(str::to_string),
         qualifier: qualifier.map(str::to_string),
         as_of: when,
         open_items: row.try_get("open_items")?,
@@ -1183,7 +1185,7 @@ pub async fn ple_open_items(
            FROM payment_ledger_as_of($1) i
           WHERE ($2::text IS NULL OR i.account_key = $2)
             AND ($3::text IS NULL OR i.qualifier = $3)
-            AND ($4::text IS NULL OR i.site_id = $4)
+            AND ($4::text IS NULL OR i.unit_id = $4)
             AND ($5::text IS NULL OR i.party_type = $5)
             AND ($6::text IS NULL OR i.party_id = $6)
             AND ($7::text IS NULL OR i.voucher_kind = $7)
@@ -1202,7 +1204,7 @@ pub async fn ple_open_items(
                 .map(|key| key.trim().to_ascii_lowercase()),
         )
         .bind(filter.qualifier.as_deref())
-        .bind(filter.site_id.as_deref())
+        .bind(filter.unit_id.as_deref())
         .bind(filter.party_type.map(PaymentLedgerPartyType::as_str))
         .bind(filter.party_id.as_deref())
         .bind(filter.voucher_kind.as_deref())
@@ -1261,7 +1263,7 @@ pub async fn payment_ledger_aging(
         let key: Key = (
             item.account_key.clone(),
             item.qualifier.clone(),
-            item.site_id.clone(),
+            item.unit_id.clone(),
             item.side.clone(),
         );
         let age = i64::from(item.age_days);
@@ -1283,7 +1285,7 @@ pub async fn payment_ledger_aging(
         PaymentLedgerAgingRow {
             account_key: key.0.clone(),
             qualifier: key.1.clone(),
-            site_id: key.2.clone(),
+            unit_id: key.2.clone(),
             side: key.3.clone(),
             party_type: party.map(|(kind, _, _)| kind.to_string()),
             party_id: party.map(|(_, id, _)| id.to_string()),
@@ -1311,7 +1313,7 @@ pub async fn payment_ledger_aging(
 
     Ok(PaymentLedgerAging {
         as_of: when,
-        site_id: filter.site_id.clone(),
+        unit_id: filter.unit_id.clone(),
         accounts: account_rows,
         parties: party_rows,
         total: buckets_of(&total),
@@ -1420,12 +1422,12 @@ pub async fn payment_ledger_settlements(
 pub async fn payment_ledger_integrity(
     pool: &PgPool,
     as_of: Option<NaiveDate>,
-    site_id: Option<&str>,
+    unit_id: Option<&str>,
 ) -> Result<PaymentLedgerIntegrity, AppError> {
     let when = as_of.unwrap_or_else(today);
     let rows = sqlx::query("SELECT * FROM payment_ledger_integrity($1, $2)")
         .bind(when)
-        .bind(site_id)
+        .bind(unit_id)
         .fetch_all(pool)
         .await?;
     let rows: Vec<PaymentLedgerIntegrityRow> = rows
@@ -1434,7 +1436,7 @@ pub async fn payment_ledger_integrity(
             Ok(PaymentLedgerIntegrityRow {
                 account_key: row.try_get("account_key")?,
                 qualifier: row.try_get("qualifier")?,
-                site_id: row.try_get("site_id")?,
+                unit_id: row.try_get("unit_id")?,
                 side: row.try_get("side")?,
                 account_code: row.try_get("account_code")?,
                 account_name: row.try_get("account_name")?,
@@ -1452,7 +1454,7 @@ pub async fn payment_ledger_integrity(
         .unwrap_or(0);
     Ok(PaymentLedgerIntegrity {
         as_of: when,
-        site_id: site_id.map(str::to_string),
+        unit_id: unit_id.map(str::to_string),
         agrees: largest == 0,
         largest_difference_minor: largest,
         rows,

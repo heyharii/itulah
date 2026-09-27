@@ -1712,8 +1712,8 @@ pub async fn post_bill(
     // Debits are subtotal + tax; credits are (subtotal + tax - discount) +
     // discount. The same total, arrived at from both sides.
     //
-    // EXPENSE — Dr each line's own account, at that line's location + Dr input
-    // VAT / Cr non-merchandise payable.
+    // EXPENSE — Dr each line's own account, in the books of the unit owning
+    // that line's location + Dr input VAT / Cr non-merchandise payable.
     //
     // The line's account is named directly rather than through `account_resolution`,
     // and that is not the rule breaking 0050's "nothing in Rust names a client
@@ -1721,13 +1721,13 @@ pub async fn post_bill(
     // chosen by the person who read the paper, exactly as it does on a manual
     // journal entry. `LineAccount::Account` is the same door that entry uses.
     //
-    // A cost line lands where the cost belongs and the payable lands at the
-    // bill's own location, so an expense bill spanning four shops posts four
-    // costs and one payable. That does not balance per location on its own, and
-    // it does not have to: 0121 relaxed 0098's "a line sits where its bill
-    // does", and `poster::post` adds the affiliate legs that leave each shop
-    // and head office at zero — which is the only way this can be read against
-    // the client's own per-location trial balance.
+    // A cost line lands in the books of the unit that owns the site the cost
+    // belongs to and the payable lands in head office's, so an expense bill
+    // spanning four shops posts four costs and one payable. That does not
+    // balance per unit on its own, and it does not have to: 0121 relaxed 0098's
+    // "a line sits where its bill does", and `poster::post` adds the affiliate
+    // legs that leave each store and head office at zero — which is the only
+    // way this can be read against the client's own per-unit trial balance.
     //
     // Two exceptions to "debit whatever the person wrote down", and both are
     // the register speaking rather than the document:
@@ -1747,6 +1747,19 @@ pub async fn post_bill(
     } else {
         std::collections::HashMap::new()
     };
+    // The bill and its lines are keyed at sites; their value is booked to the
+    // unit that owns each one. Resolved once per distinct site, before the
+    // lines are built.
+    let bill_unit = super::sites::unit_of_site(&mut *tx, &existing.site_id).await?;
+    let mut unit_of: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    if expense {
+        for line in existing.lines.as_deref().unwrap_or(&[]) {
+            if !unit_of.contains_key(&line.site_id) {
+                let unit = super::sites::unit_of_site(&mut *tx, &line.site_id).await?;
+                unit_of.insert(line.site_id.clone(), unit);
+            }
+        }
+    }
 
     let mut lines: Vec<PostingLine> = if expense {
         existing
@@ -1755,9 +1768,10 @@ pub async fn post_bill(
             .unwrap_or(&[])
             .iter()
             .map(|line| {
+                let unit = &unit_of[&line.site_id];
                 let mut posting = match (line.draws_reserve, line.asset_class_code.as_deref()) {
                     (true, Some(class)) => {
-                        PostingLine::debit("replacement_reserve", &line.site_id, line.amount_minor)
+                        PostingLine::debit("replacement_reserve", unit, line.amount_minor)
                             .with_qualifier(class)
                     }
                     _ => PostingLine {
@@ -1770,11 +1784,11 @@ pub async fn post_bill(
                             // place both times.
                             category_code: line.category_code.clone(),
                         },
-                        site_id: line.site_id.clone(),
-                        // Nothing to say: where a cost line sits somewhere else
-                        // the balancer works the counterparty out and adds the
-                        // affiliate legs itself.
-                        counter_site_id: None,
+                        unit_id: unit.clone(),
+                        // Nothing to say: where a cost line sits in another
+                        // unit's books the balancer works the counterparty out
+                        // and adds the affiliate legs itself.
+                        counter_unit_id: None,
                         debit_minor: line.amount_minor,
                         credit_minor: 0,
                         party_type: None,
@@ -1797,7 +1811,7 @@ pub async fn post_bill(
         super::payables_flow::merchandise_debit_lines(
             pool,
             invoice_id,
-            &existing.site_id,
+            &bill_unit,
             &existing.supplier_id,
             existing.subtotal_minor,
             existing.price_variance_minor,
@@ -1831,12 +1845,13 @@ pub async fn post_bill(
             existing.invoice_number, existing.tax_minor
         )));
     }
-    // The supplier is head office's counterparty, never a shop's (owner rule,
-    // 25 Sep). The cost lines keep the site they were keyed at; the payable
-    // lands at dc and the poster's balancer closes the shop's side through the
-    // affiliate accounts, so a shop's electricity bill reads
-    // shop Dr 6045 / Cr 2028, head office Dr 1057 / Cr 2004.
-    let head_office = super::sites::head_office_site_id(&mut *tx).await?;
+    // The supplier is head office's counterparty, never a store's (owner rule,
+    // 25 Sep; I4). The cost lines are booked to the unit owning the site they
+    // were keyed at; the payable lands in head office's books and the poster's
+    // balancer closes the store's side through the affiliate accounts, so a
+    // shop's electricity bill reads store Dr 6045 / Cr 2028, head office
+    // Dr 1057 / Cr 2004.
+    let head_office = super::sites::head_office_unit_id(&mut *tx).await?;
     lines.push(
         PostingLine::credit(
             if expense {
@@ -1852,7 +1867,7 @@ pub async fn post_bill(
     if existing.discount_minor > 0 {
         lines.push(PostingLine::credit(
             "purchase_discount",
-            &existing.site_id,
+            &bill_unit,
             existing.discount_minor,
         ));
     }
@@ -1896,13 +1911,14 @@ pub async fn post_bill(
     .await?;
     // A posted bill is a debt to a named supplier, due on a named date. In the
     // same transaction as the entry that raised it: a payable item without its
-    // journal entry is a figure nobody can trace.
+    // journal entry is a figure nobody can trace. Filed in head office's books,
+    // which is where the entry above credited the payable (I4).
     if expense {
         super::payables_flow::payable_opened(
             &mut tx,
             super::payables_flow::payable_key(true),
             "SUPPLIER_INVOICE",
-            &existing.site_id,
+            &head_office,
             &existing.supplier_id,
             existing.supplier_name.as_deref(),
             invoice_id,
@@ -1917,7 +1933,7 @@ pub async fn post_bill(
         super::payables_flow::invoice_payable_replaces_receipts(
             &mut tx,
             invoice_id,
-            &existing.site_id,
+            &head_office,
             &existing.supplier_id,
             existing.supplier_name.as_deref(),
             existing.total_minor,
@@ -2054,7 +2070,9 @@ pub struct PayablesAgingRow {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct PayablesAging {
     pub as_of: NaiveDate,
-    pub site_id: Option<String>,
+    /// Whose books were asked about, when one unit was (0605): its bills are
+    /// the ones received at its sites.
+    pub unit_id: Option<String>,
     /// Heaviest first: an ageing report is read to decide who to pay next.
     pub suppliers: Vec<PayablesAgingRow>,
     pub total: AgingBuckets,
@@ -2101,7 +2119,7 @@ pub struct PayablesAging {
 pub async fn payables_aging(
     pool: &PgPool,
     as_of: NaiveDate,
-    site_id: Option<&str>,
+    unit_id: Option<&str>,
 ) -> Result<PayablesAging, AppError> {
     let rows = sqlx::query(
         "WITH open_bill AS (
@@ -2151,11 +2169,11 @@ pub async fn payables_aging(
                 -- Held bills are excluded from the buckets and counted on
                 -- their own, below — see `PayablesAging::on_hold_count`.
                 AND NOT i.on_hold
-                AND ($2::text IS NULL OR i.site_id = $2)
+                AND ($2::text IS NULL OR unit_of_site(i.site_id) = $2)
          ), open_receipt AS (
              -- Before its invoice arrives, the receipt itself is the open
              -- supplier debt. The Payment Ledger carries its receipt date and
-             -- the same supplier/location dimensions as the eventual bill.
+             -- the same supplier/unit dimensions as the eventual bill.
              -- The name from the supplier register when the item does not carry
              -- one: receipts valued before 0390 were filed without it, and a
              -- supplier code in the ageing is a row nobody recognises.
@@ -2171,7 +2189,7 @@ pub async fn payables_aging(
                 AND i.side = 'PAYABLE'
                 AND i.voucher_kind = 'GOODS_RECEIPT'
                 AND i.outstanding_minor > 0
-                AND ($2::text IS NULL OR i.site_id = $2)
+                AND ($2::text IS NULL OR i.unit_id = $2)
          ), open_item AS (
              SELECT supplier_id, supplier_name, age_days, outstanding_minor
                FROM open_bill
@@ -2195,7 +2213,7 @@ pub async fn payables_aging(
           ORDER BY SUM(outstanding_minor) DESC, supplier_id",
     )
     .bind(as_of)
-    .bind(site_id)
+    .bind(unit_id)
     .fetch_all(pool)
     .await?;
 
@@ -2242,10 +2260,10 @@ pub async fn payables_aging(
           WHERE i.status = 'POSTED'
             AND i.on_hold
             AND i.invoice_date <= $1
-            AND ($2::text IS NULL OR i.site_id = $2)",
+            AND ($2::text IS NULL OR unit_of_site(i.site_id) = $2)",
     )
     .bind(as_of)
-    .bind(site_id)
+    .bind(unit_id)
     .fetch_one(pool)
     .await?;
 
@@ -2260,16 +2278,16 @@ pub async fn payables_aging(
                 SELECT m.account_code FROM account_resolution m
                  WHERE m.role IN ('trade_payable', 'non_merchandise_payable'))
             AND e.posting_date <= $1
-            AND ($2::text IS NULL OR l.site_id = $2)",
+            AND ($2::text IS NULL OR l.unit_id = $2)",
     )
     .bind(as_of)
-    .bind(site_id)
+    .bind(unit_id)
     .fetch_one(pool)
     .await?;
 
     Ok(PayablesAging {
         as_of,
-        site_id: site_id.map(str::to_string),
+        unit_id: unit_id.map(str::to_string),
         suppliers,
         total,
         on_hold_count: held.try_get("n")?,
