@@ -29,6 +29,15 @@ pub fn random_token() -> String {
     hex::encode(bytes)
 }
 
+/// 32 random bytes, base64url without padding: a token that travels inside a
+/// URL, like a join link (`/join/{token}`). Store only its `sha256_hex`.
+pub fn random_url_token() -> String {
+    use base64::Engine as _;
+    let mut bytes = [0u8; 32];
+    OsRng.fill_bytes(&mut bytes);
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+}
+
 /// A short numeric code a person will read aloud and another will type.
 ///
 /// Uniform over every value of the requested width, leading zeros included: a

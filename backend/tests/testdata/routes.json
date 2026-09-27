@@ -200,6 +200,8 @@ cloud	GET	/api/v1/inventory/reconciliations	Cashier	-
 cloud	GET	/api/v1/inventory/time-machine/divergence	Cashier	-
 cloud	GET	/api/v1/inventory/time-machine/state	Cashier	-
 cloud	GET	/api/v1/inventory/time-machine/sync-divergence	Cashier	-
+cloud	GET	/api/v1/invitations	Admin	-
+cloud	GET	/api/v1/invitations/accept/{token}	Cashier	-
 cloud	GET	/api/v1/leave-policy	Cashier	-
 cloud	GET	/api/v1/leave-requests/pending	Cashier	-
 cloud	GET	/api/v1/leave-types	Cashier	-
@@ -503,6 +505,10 @@ cloud	POST	/api/v1/inventory/observations	Supervisor	-
 cloud	POST	/api/v1/inventory/replay	Admin	-
 cloud	POST	/api/v1/inventory/repost	Admin	-
 cloud	POST	/api/v1/inventory/time-machine/what-if	Supervisor	-
+cloud	POST	/api/v1/invitations	Admin	-
+cloud	POST	/api/v1/invitations/accept/{token}	Cashier	-
+cloud	POST	/api/v1/invitations/{id}/renew	Admin	-
+cloud	POST	/api/v1/invitations/{id}/revoke	Admin	-
 cloud	POST	/api/v1/leave-policy	Supervisor	-
 cloud	POST	/api/v1/leave-types	Supervisor	-
 cloud	POST	/api/v1/letters	Supervisor	letter

@@ -35,6 +35,7 @@ const ALLOWED: &[(&str, &str)] = &[
     // device-key skew — plan §1.1 keeps these on wall-clock time forever.
     ("src/cloud/postgres/users.rs", "security: sessions and lockouts"),
     ("src/cloud/postgres/auth_policy.rs", "security: edge auth policy expiry"),
+    ("src/cloud/postgres/invitations.rs", "security: a join link's 72-hour expiry and acceptance stamps"),
     ("src/cloud/postgres/control.rs", "audit stamps on test-control writes"),
     ("src/edge/auth.rs", "security: edge sessions, pin, lockout"),
     ("src/edge/fingerprint.rs", "security: enrolment template stamps"),

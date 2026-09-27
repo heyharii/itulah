@@ -64,6 +64,7 @@ pub mod holiday;
 /// See `http::hr_scheduler` for why it is head office's.
 pub mod hr_scheduler;
 pub mod integrity;
+pub mod invitations;
 pub mod interunit;
 pub mod leave;
 pub mod letters;
@@ -633,11 +634,28 @@ pub fn router(state: AppState) -> Router {
         "/api/v1/auth/edge-policies/{origin_id}/publish",
         post(auth::publish_edge_policy),
     )
-    // Job roles (0633).
+    // Job roles (0633) and inviting people by a link (0634). The two
+    // `accept` routes are public: the token is the credential.
     .route("/api/v1/roles", get(roles::list))
     .route(
         "/api/v1/roles/{code}",
         put(roles::put).delete(roles::delete),
+    )
+    .route(
+        "/api/v1/invitations",
+        get(invitations::list).post(invitations::invite),
+    )
+    .route(
+        "/api/v1/invitations/{id}/revoke",
+        post(invitations::revoke),
+    )
+    .route(
+        "/api/v1/invitations/{id}/renew",
+        post(invitations::renew),
+    )
+    .route(
+        "/api/v1/invitations/accept/{token}",
+        get(invitations::preview).post(invitations::accept),
     )
     .route("/api/v1/sync/status", get(sync_status))
     .route("/api/v1/sync/ingest", post(sync_ingest))
