@@ -4,6 +4,25 @@
 //! is delivered to exactly one Edge through the existing signed command lane,
 //! which gives ordering, retry, acknowledgement, and anti-replay without a
 //! second synchronization protocol.
+//!
+//! # The password a server checks
+//!
+//! A store server signs a person in offline with the same password as the
+//! hub: the server holds the cloud password hash (owner's decision, 28 Sep
+//! 2026). A store must sign people in with the line to head office down, so
+//! an exchange with the cloud at sign-in cannot work there, and nobody types
+//! a per-server password. So for every grant derived from the job role and
+//! posting (`source = 'ROLE'`, 0635) the policy carries the login's own
+//! argon2id verifier, `app_user.password_hash`, read at publication time: a
+//! password changed at the hub reaches the servers with the next publication
+//! ([`tell_derived_servers`]).
+//!
+//! This replaces the older rule that the edge never receives the cloud
+//! password. What bounds it: a server is sent verifiers only for the people
+//! whose role and posting put them there; argon2id makes each guess
+//! expensive; the lockout counts at the server as it does at the centre; and
+//! suspending the login closes every server at once. A grant made by hand
+//! (`source = 'MANUAL'`) still carries its own separate credential.
 
 use crate::{
     cloud::{

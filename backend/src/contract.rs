@@ -274,12 +274,15 @@ pub struct SetUserRoleRequest {
     pub role: Option<Role>,
 }
 
-/// Giving somebody access to one Edge, changing their role there, or rotating
-/// the password they use there.
+/// Giving somebody access to one Edge by hand, changing their role there, or
+/// rotating the password they use there.
 ///
-/// `edge_password` is separate from their Cloud password on purpose: the same
-/// person signs in at head office with one credential and at a till with
-/// another, and the Edge never receives the Cloud one.
+/// A grant made here (`source = 'MANUAL'`) carries its own `edge_password`,
+/// separate from the person's hub password. Most people need no such grant:
+/// who signs in at a server follows from their job role and posting (0635),
+/// and a server holds the hash of their hub password for those people, so
+/// they sign in there offline with the same password as the hub (owner's
+/// decision, 28 Sep 2026; `postgres/auth_policy.rs` says why).
 ///
 /// It is optional at a DC, where the hub signs people in with their Cloud
 /// session (`docs/cloud-dc-single-sign-on.md`): without one, the assignment
@@ -338,9 +341,10 @@ pub struct ProvisionAccountRequest {
 pub struct ProvisionEdgeAccess {
     pub origin_id: String,
     pub role: Role,
-    /// The password used at the till. Separate from the Cloud password on purpose:
-    /// the Edge never receives the Cloud one. Optional at a DC, which signs
-    /// people in with their Cloud session — see `UpsertEdgeAssignmentRequest`.
+    /// The password for this hand-made grant, separate from the hub password.
+    /// A grant derived from the job role needs none: the server checks the
+    /// person's hub password (see `UpsertEdgeAssignmentRequest`). Optional at a
+    /// DC, which signs people in with their Cloud session.
     #[serde(default)]
     pub edge_password: Option<String>,
     pub offline_ttl_seconds: Option<i32>,

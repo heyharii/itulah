@@ -55,8 +55,10 @@ fn normalize_username(username: &str) -> Result<String, AppError> {
     security::normalize_username(username).map_err(AppError::Validation)
 }
 
-/// Hash an Edge-only PIN/password before placing its verifier in a signed
-/// policy projection.  It is deliberately distinct from the Cloud password.
+/// Hash the password of a hand-made Edge grant (`source = 'MANUAL'`) before
+/// placing its verifier in a signed policy projection. A grant derived from
+/// the job role (0635) has none: its server is sent the login's own hub
+/// password hash instead (`auth_policy.rs`, "The password a server checks").
 pub fn hash_edge_credential(password: &str) -> Result<String, AppError> {
     security::hash_password(password, MIN_PASSWORD_LENGTH).map_err(AppError::Validation)
 }
