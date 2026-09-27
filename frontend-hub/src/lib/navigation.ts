@@ -554,6 +554,7 @@ const SECTION_OF_MODULE: Readonly<Record<string, SectionCode>> = {
   library: "ga",
   system: "system",
   reports: "reports",
+  stores: "stores",
 }
 
 export function sectionOfModule(module: AppModule): SectionCode | undefined {

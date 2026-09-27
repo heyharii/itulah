@@ -114,13 +114,20 @@ export function App() {
           problem={problem ?? signedOutElsewhere()}
           onSignedIn={(signedIn) => {
             clearSignedOutElsewhere()
-            // Writing the answer rather than refetching it: the login response
-            // already carries the person the server just authenticated, and it
-            // clears the failure with it.
+            // Writing the answer rather than waiting for a refetch clears the
+            // login box without a flicker: the login response already carries
+            // the person the server just authenticated. But `SessionUser`
+            // predates job roles and carries none of `role_code`, `sections`
+            // or `read_only` the way `/auth/me`'s `CloudMe` does — so this is
+            // believed only for a moment, and invalidated right behind it,
+            // rather than forever (`useIdentity`'s `staleTime` is `Infinity`):
+            // the sidebar's section gate and `useCanWrite` need the real
+            // answer, not this narrower one.
             queryClient.setQueryData<Identity | null>(
               cacheKey.me(),
-              signedIn.user
+              signedIn.user as Identity
             )
+            void queryClient.invalidateQueries({ queryKey: cacheKey.me() })
           }}
         />
       </main>

@@ -9,8 +9,8 @@ import { moment } from "@/lib/format"
 import {
   acceptInvitation,
   previewInvitation,
-  type MeAnswer,
 } from "@/lib/queries/invitations"
+import type { CloudMe } from "@itulah/contract"
 import { ApiError } from "@itulah/contract/client"
 
 /// The public page an invited person lands on: `/join/{token}`.
@@ -28,7 +28,7 @@ export function JoinPage({
   /// The server's own `/auth/me` answer, handed straight back so the caller
   /// can write it into the query cache and drop into the app already signed
   /// in — exactly what `LoginForm.onSignedIn` does.
-  onAccepted: (me: MeAnswer) => void
+  onAccepted: (me: CloudMe) => void
 }) {
   const preview = useQuery({
     queryKey: ["invitations", "accept", token],
@@ -90,7 +90,7 @@ function SetPassword({
     readonly suggested_username: string
     readonly expires_at: string
   }
-  onAccepted: (me: MeAnswer) => void
+  onAccepted: (me: CloudMe) => void
 }) {
   const [revealed, setRevealed] = useState(false)
 

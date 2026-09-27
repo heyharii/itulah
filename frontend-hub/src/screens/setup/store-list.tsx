@@ -2,7 +2,7 @@ import { Check, Plus, X } from "lucide-react"
 import { useEffect, useRef } from "react"
 
 import { Button } from "@/components/ui/button"
-import type { NewStoreWithManager, SetupStore } from "@/lib/queries/setup"
+import type { NewStore, SetupStore } from "@/lib/queries/setup"
 import { nextCodes, timezoneOf } from "@/screens/setup/names"
 
 /// A store not yet opened: a row in the list somebody is typing into.
@@ -23,9 +23,7 @@ export function draftStore(name = "", city = "", manager = ""): DraftStore {
 
 /// The rows that will actually be sent — a row with no name is a row
 /// somebody pressed Enter into and has not typed in yet.
-export function storesToOpen(
-  rows: readonly DraftStore[]
-): NewStoreWithManager[] {
+export function storesToOpen(rows: readonly DraftStore[]): NewStore[] {
   return rows
     .filter((row) => row.name.trim() !== "")
     .map((row) => ({

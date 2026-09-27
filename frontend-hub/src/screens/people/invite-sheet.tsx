@@ -14,7 +14,7 @@ import {
   roleHint,
   useRoles,
   type IssuedInvitation,
-  type RoleItem,
+  type JobRole,
 } from "@/lib/queries/invitations"
 import { setupKeys } from "@/lib/queries/setup"
 import { useCanWrite } from "@/lib/session"
@@ -180,7 +180,7 @@ function Composer({
 }: {
   rows: readonly DraftPerson[]
   onChange: (rows: DraftPerson[]) => void
-  roles: readonly RoleItem[]
+  roles: readonly JobRole[]
   units: readonly UnitView[]
 }) {
   const inputs = useRef(new Map<string, HTMLInputElement>())
@@ -285,14 +285,14 @@ function Composer({
           {roleHint(
             roles.find((role) => role.code === row.roleCode) ?? {
               code: row.roleCode,
-              description: null,
+              description: "",
             }
           ) && (
             <p className="text-[0.875rem] text-mute">
               {roleHint(
                 roles.find((role) => role.code === row.roleCode) ?? {
                   code: row.roleCode,
-                  description: null,
+                  description: "",
                 }
               )}
             </p>

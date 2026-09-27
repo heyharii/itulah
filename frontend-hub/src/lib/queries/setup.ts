@@ -1,46 +1,35 @@
 import { useQuery } from "@tanstack/react-query"
 
 import { node } from "@/lib/api"
-import type { IssuedInvitation } from "@/lib/queries/invitations"
 import type {
   NewStore,
+  OpenStoresAnswer,
   SaveSetupCompanyRequest,
   SetupBooks,
   SetupCompany,
   SetupStatus,
-  SetupStore,
   StartBooksRequest,
   StoredFile,
 } from "@itulah/contract"
 
 export type {
   NewStore,
+  NewStoreManager,
+  OpenStoresAnswer,
   SetupBooks,
   SetupCompany,
   SetupStatus,
   SetupStore,
   SetupTask,
+  StoreManagerInvitation,
 } from "@itulah/contract"
 
-/// A store to open, with its manager — the owner's decision of 2026-09-27
-/// that every store gets one the moment it opens. `NewStore` is generated
-/// from the Rust request (`@itulah/contract`) and does not carry `manager`
-/// yet, so this widens it locally rather than editing the generated file; a
-/// later contract regeneration that adds the field there makes this an alias
-/// rather than a fix.
-export type NewStoreWithManager = NewStore & { manager: { name: string } }
-
-/// One store `POST /api/v1/setup/stores` answers with, plus the invitation it
-/// raised for that store's manager — `null` only for a store opened before
-/// the manager became required, never for one opened through this app now
-/// that the server refuses to create one without.
-export type CreatedStore = SetupStore & {
-  manager_invitation: IssuedInvitation | null
-}
-
-export interface OpenStoresAnswerWithManagers {
-  readonly created: readonly CreatedStore[]
-}
+/// `SetupStore`, with its manager's join link — the owner's decision of
+/// 2026-09-27 that every store gets a manager the moment it opens. Kept as
+/// an alias rather than a fresh type: `SetupStore.manager_invitation` is
+/// already there in the generated contract; this name is only what the
+/// screens that show it call it.
+export type CreatedStore = OpenStoresAnswer["created"][number]
 
 /// Setup — the first minutes of a company that has nothing yet.
 ///
@@ -118,12 +107,13 @@ export function saveCompany(
 /// One store or thirty, in one transaction: per store a unit, a shop site,
 /// its floor, back-room and reject pools, its return pool at the warehouse,
 /// a pairing code for its node, and now an invitation for its manager — the
-/// server refuses the whole batch (422) if any store in it has none.
+/// server refuses the whole batch (422, naming the stores) if any store in
+/// it has none.
 export function openStores(
-  stores: readonly NewStoreWithManager[],
+  stores: readonly NewStore[],
   idempotencyKey: string
-): Promise<OpenStoresAnswerWithManagers> {
-  return node.post<OpenStoresAnswerWithManagers>(
+): Promise<OpenStoresAnswer> {
+  return node.post<OpenStoresAnswer>(
     "/api/v1/setup/stores",
     { stores },
     { headers: { "Idempotency-Key": idempotencyKey } }

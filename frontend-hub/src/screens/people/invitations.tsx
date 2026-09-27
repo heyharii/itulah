@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { useMemo, useState } from "react"
+import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
@@ -18,7 +18,6 @@ import {
   renewInvitation,
   revokeInvitation,
   useInvitations,
-  useRoles,
   type InvitationRow,
   type InvitationStatus,
 } from "@/lib/queries/invitations"
@@ -48,7 +47,17 @@ const STATUS_TONE: Readonly<Record<InvitationStatus, "warn" | "ok" | "neutral" |
   REVOKED: "bad",
 }
 
-function statusLabel(status: InvitationStatus): string {
+/// `InvitationRow.status` arrives as a bare `string` off the wire; both of
+/// these fall back to the raw value for anything this app's own four-way
+/// union does not (yet) name, rather than throwing on an index it does not
+/// recognise.
+function statusTone(status: string): "warn" | "ok" | "neutral" | "bad" {
+  return (STATUS_TONE as Readonly<Record<string, "warn" | "ok" | "neutral" | "bad">>)[
+    status
+  ] ?? "neutral"
+}
+
+function statusLabel(status: string): string {
   return TABS.find((tab) => tab.value === status)?.label ?? status
 }
 
@@ -58,25 +67,11 @@ export function Invitations() {
   const canWrite = useCanWrite()
   const invite = useSheet("invite")
   const client = useQueryClient()
-  const roles = useRoles()
   const units = useUnits()
   const [renewing, setRenewing] = useState<InvitationRow | null>(null)
 
-  const invitations = useInvitations(status)
-  const rows = useMemo(
-    () =>
-      (invitations.data ?? []).filter(
-        (row) => unitId === "" || row.unit_id === unitId
-      ),
-    [invitations.data, unitId]
-  )
-
-  const roleName = (code: string) =>
-    roles.data?.find((role) => role.code === code)?.name ?? code
-  const unitName = (id: string) => {
-    const unit = units.data?.find((one) => one.id === id)
-    return unit ? unitLabel(unit) : id
-  }
+  const invitations = useInvitations(status, unitId || undefined)
+  const rows = invitations.data ?? []
 
   const revoke = useMutation({
     mutationFn: (id: string) => revokeInvitation(id),
@@ -146,21 +141,24 @@ export function Invitations() {
                   <b className="truncate text-cell font-medium text-ink">
                     {row.name}
                   </b>
-                  <Pill tone={STATUS_TONE[row.status]}>
+                  <Pill tone={statusTone(row.status)}>
                     {statusLabel(row.status)}
                   </Pill>
                 </div>
                 <p className="mt-0.5 truncate text-meta text-mute">
-                  {roleName(row.role_code)} · {unitName(row.unit_id)}
+                  {row.role_name} · {row.unit_name}
+                  {row.position ? ` · ${row.position}` : ""}
                   {row.username ? ` · ${row.username}` : ""}
                 </p>
               </div>
               <span className="shrink-0 text-meta text-mute">
                 {row.status === "ACCEPTED" && row.accepted_at
                   ? `Accepted ${day(row.accepted_at)}`
-                  : row.status === "PENDING"
-                    ? `Expires ${day(row.expires_at)}`
-                    : `Sent ${day(row.created_at)}`}
+                  : row.status === "REVOKED" && row.revoked_at
+                    ? `Revoked ${day(row.revoked_at)}${row.revoked_by ? ` by ${row.revoked_by}` : ""}`
+                    : row.status === "PENDING"
+                      ? `Expires ${day(row.expires_at)}`
+                      : `Sent ${day(row.created_at)}`}
               </span>
               {canWrite && row.status === "PENDING" && (
                 <div className="flex shrink-0 gap-1.5">

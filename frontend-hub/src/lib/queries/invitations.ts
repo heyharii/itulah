@@ -1,22 +1,44 @@
 import { useQuery } from "@tanstack/react-query"
 
 import { node } from "@/lib/api"
-import type { Identity } from "@itulah/contract/client"
+import type {
+  AcceptInvitationRequest,
+  CloudMe,
+  InvitationList,
+  InvitationPreview,
+  InvitationRow,
+  InvitePerson,
+  IssuedInvitation,
+  IssuedInvitationList,
+  JobRole,
+  JobRoleList,
+  JobRolePatch,
+} from "@itulah/contract"
 
 /// Inviting somebody by link, the roles they can be invited into, and the
 /// sections a role can see.
 ///
-/// The backend for this is being built alongside this file, so nothing here
-/// is generated — every shape is written by hand, against the API as it was
-/// specified, and kept in this one module rather than scattered per screen.
-/// When the server's own contract catches up (`@itulah/contract`), these can
-/// be traded for the generated types; nothing that reads them here should
-/// have to change, since the fields are named the same.
+/// The wire shapes are generated (`@itulah/contract`, from `backend`'s 0633
+/// and 0634 migrations); what lives here is the frontend's own vocabulary on
+/// top of them — the section codes as the sidebar spells them, this app's
+/// fallback description for a seeded role, and the functions that call the
+/// endpoints. Re-exported so a screen imports one module for both.
+
+export type {
+  InvitationRow,
+  InvitationPreview,
+  InvitePerson,
+  IssuedInvitation,
+  JobRole,
+}
 
 // ── sections ─────────────────────────────────────────────────────────────
 
 /// The sidebar's own department codes (`lib/navigation.ts`'s section map),
-/// and now the server's too: a role carries the sections its holder may see.
+/// which is also the server's vocabulary for `JobRole.sections` — the same
+/// strings, checked against this list rather than trusted as a bare
+/// `string[]` so a typo on either end shows up as "not held" rather than as
+/// a silent match.
 export type SectionCode =
   | "finance"
   | "merchandise"
@@ -61,7 +83,11 @@ export const SECTION_LABEL: Readonly<Record<SectionCode, string>> = {
   reports: "Reports",
 }
 
-function sectionsOf(value: unknown): SectionCode[] {
+/// `JobRole.sections` / `CloudMe.sections`, narrowed to the codes this app
+/// recognises. A section the server lists that this build does not know yet
+/// is dropped rather than crashing the checkbox grid — it simply cannot be
+/// ticked here until this list catches up.
+export function sectionsOf(value: readonly string[] | undefined): SectionCode[] {
   if (!Array.isArray(value)) return []
   return value.filter((one): one is SectionCode =>
     (SECTIONS as readonly string[]).includes(one)
@@ -113,49 +139,14 @@ export const ROLE_HINT: Readonly<Record<SeededRoleCode, string>> = {
   IT: "Devices, store servers, and who may sign in.",
 }
 
-export interface RoleItem {
-  readonly code: string
-  readonly name: string
-  /// Where the role stands on the ladder — a small integer, not shown as
-  /// anything but the number itself: this app does not know the server's
-  /// ordering well enough to name the rungs.
-  readonly rung: number
-  readonly sections: readonly SectionCode[]
-  readonly description: string | null
-  /// Seeded by the server rather than raised by an admin. A builtin role can
-  /// be edited but not deleted — there is no delete route for any role today.
-  readonly builtin: boolean
-}
-
-function roleItemOf(raw: unknown): RoleItem {
-  const r = (raw ?? {}) as Record<string, unknown>
-  return {
-    code: String(r.code ?? ""),
-    name: String(r.name ?? r.code ?? ""),
-    rung: typeof r.rung === "number" ? r.rung : 0,
-    sections: sectionsOf(r.sections),
-    description: typeof r.description === "string" ? r.description : null,
-    builtin: r.builtin === true,
-  }
-}
-
-export interface UpdateRoleRequest {
-  name?: string
-  rung?: number
-  sections?: readonly SectionCode[]
-  description?: string
-}
-
 export const roleKeys = {
   all: ["roles"] as const,
   list: () => ["roles", "list"] as const,
 }
 
-export async function listRoles(signal?: AbortSignal): Promise<RoleItem[]> {
-  const answer = await node.get<{ items: unknown[] }>("/api/v1/roles", {
-    signal,
-  })
-  return (answer.items ?? []).map(roleItemOf)
+export async function listRoles(signal?: AbortSignal): Promise<JobRole[]> {
+  const answer = await node.get<JobRoleList>("/api/v1/roles", { signal })
+  return answer.items
 }
 
 export function useRoles() {
@@ -168,15 +159,17 @@ export function useRoles() {
   })
 }
 
-export async function updateRole(
+export function updateRole(
   code: string,
-  patch: UpdateRoleRequest
-): Promise<RoleItem> {
-  const answer = await node.put<unknown>(
-    `/api/v1/roles/${encodeURIComponent(code)}`,
-    patch
-  )
-  return roleItemOf(answer)
+  patch: JobRolePatch
+): Promise<JobRole> {
+  return node.put<JobRole>(`/api/v1/roles/${encodeURIComponent(code)}`, patch)
+}
+
+/// Only a role nobody holds and nobody seeded — the server refuses
+/// otherwise (409), naming which of the two it is.
+export async function deleteRole(code: string): Promise<void> {
+  await node.delete(`/api/v1/roles/${encodeURIComponent(code)}`)
 }
 
 /// A role's one-line description: the server's own when it wrote one, else
@@ -185,11 +178,9 @@ export async function updateRole(
 /// permissions is worse than none.
 export function roleHint(role: {
   readonly code: string
-  readonly description: string | null
+  readonly description: string
 }): string | null {
-  if (role.description !== null && role.description.trim() !== "") {
-    return role.description
-  }
+  if (role.description.trim() !== "") return role.description
   return (ROLE_HINT as Readonly<Record<string, string>>)[role.code] ?? null
 }
 
@@ -197,84 +188,49 @@ export function roleHint(role: {
 
 export type InvitationStatus = "PENDING" | "ACCEPTED" | "EXPIRED" | "REVOKED"
 
-export interface InvitationDraft {
-  readonly name: string
-  readonly role_code: string
-  readonly unit_id: string
-  readonly position?: string
-}
-
-export interface IssuedInvitation {
-  readonly invitation_id: string
-  readonly employee_id: string
-  readonly name: string
-  readonly role_code: string
-  readonly unit_id: string
-  /// Shown once, by this response alone — nothing later reads it back. See
-  /// `screens/people/invite-sheet.tsx`.
-  readonly link: string
-  readonly expires_at: string
-}
-
-export interface CreateInvitationsResponse {
-  readonly items: readonly IssuedInvitation[]
-}
-
 export function createInvitations(
-  people: readonly InvitationDraft[]
-): Promise<CreateInvitationsResponse> {
-  return node.post<CreateInvitationsResponse>("/api/v1/invitations", {
-    people,
-  })
-}
-
-export interface InvitationRow {
-  readonly invitation_id: string
-  readonly name: string
-  readonly role_code: string
-  readonly unit_id: string
-  readonly status: InvitationStatus
-  readonly created_by: string
-  readonly created_at: string
-  readonly expires_at: string
-  readonly accepted_at: string | null
-  readonly username: string | null
+  people: readonly InvitePerson[]
+): Promise<IssuedInvitationList> {
+  return node.post<IssuedInvitationList>("/api/v1/invitations", { people })
 }
 
 export const invitationKeys = {
   all: ["invitations"] as const,
-  list: (status?: InvitationStatus) =>
-    ["invitations", "list", status ?? "ALL"] as const,
+  list: (status?: InvitationStatus, unitId?: string) =>
+    ["invitations", "list", status ?? "ALL", unitId ?? "ALL"] as const,
 }
 
 export function listInvitations(
-  status?: InvitationStatus,
+  scope: { status?: InvitationStatus; unitId?: string },
   signal?: AbortSignal
 ): Promise<InvitationRow[]> {
-  const qs = status ? `?status=${encodeURIComponent(status)}` : ""
+  const params = new URLSearchParams()
+  if (scope.status) params.set("status", scope.status)
+  if (scope.unitId) params.set("unit_id", scope.unitId)
+  const qs = params.toString()
   return node
-    .get<{ items: InvitationRow[] }>(`/api/v1/invitations${qs}`, { signal })
+    .get<InvitationList>(`/api/v1/invitations${qs ? `?${qs}` : ""}`, {
+      signal,
+    })
     .then((answer) => answer.items)
 }
 
-export function useInvitations(status?: InvitationStatus) {
+export function useInvitations(status?: InvitationStatus, unitId?: string) {
   return useQuery({
-    queryKey: invitationKeys.list(status),
-    queryFn: ({ signal }) => listInvitations(status, signal),
+    queryKey: invitationKeys.list(status, unitId),
+    queryFn: ({ signal }) => listInvitations({ status, unitId }, signal),
   })
 }
 
-export async function revokeInvitation(id: string): Promise<void> {
-  await node.post(`/api/v1/invitations/${encodeURIComponent(id)}/revoke`, {})
+export function revokeInvitation(id: string): Promise<InvitationRow> {
+  return node.post<InvitationRow>(
+    `/api/v1/invitations/${encodeURIComponent(id)}/revoke`,
+    {}
+  )
 }
 
-export interface RenewedInvitation {
-  readonly link: string
-  readonly expires_at: string
-}
-
-export function renewInvitation(id: string): Promise<RenewedInvitation> {
-  return node.post<RenewedInvitation>(
+export function renewInvitation(id: string): Promise<IssuedInvitation> {
+  return node.post<IssuedInvitation>(
     `/api/v1/invitations/${encodeURIComponent(id)}/renew`,
     {}
   )
@@ -282,18 +238,12 @@ export function renewInvitation(id: string): Promise<RenewedInvitation> {
 
 // ── accepting an invitation (public, no session) ────────────────────────
 
-export interface InvitationPreview {
-  readonly name: string
-  readonly role_name: string
-  readonly unit_name: string
-  readonly company_name: string
-  readonly suggested_username: string
-  readonly expires_at: string
-}
-
 /// An ordinary GET — no bearer, no cookie the server would recognise, and
 /// none of that is a problem: this route answers anybody holding the token,
-/// by design, the way the link itself does.
+/// by design, the way the link itself does. An unknown token is a 404, a
+/// used/expired/withdrawn one a 409, and too many unknown tokens from one
+/// place a 429 — all three are shown as the server wrote them, never
+/// replaced with a code of this app's own.
 export function previewInvitation(
   token: string,
   signal?: AbortSignal
@@ -304,27 +254,16 @@ export function previewInvitation(
   )
 }
 
-/// The fields `/auth/me` answers beyond the rung `Identity` already carries —
-/// see `lib/session.tsx`. Optional here because this file is written ahead of
-/// the server change that adds them: a caller still signed in against an
-/// older node reads `null`/`[]` rather than crashing.
-export interface JobFields {
-  readonly role_code: string
-  readonly role_name: string
-  readonly sections: readonly SectionCode[]
-}
-
-export type MeAnswer = Identity & Partial<JobFields>
-
 /// Sets the person's username and password, and signs them in — an ordinary
 /// `POST`, exactly like `Auth.login`, and for the same reason: there is no
 /// session yet for a CSRF token to belong to, so this travels the same way
-/// the login request does.
+/// the login request does. The answer is `CloudMe`, with the session's
+/// cookies attached, exactly as `/auth/login` answers.
 export function acceptInvitation(
   token: string,
-  body: { username: string; password: string }
-): Promise<MeAnswer> {
-  return node.post<MeAnswer>(
+  body: AcceptInvitationRequest
+): Promise<CloudMe> {
+  return node.post<CloudMe>(
     `/api/v1/invitations/accept/${encodeURIComponent(token)}`,
     body
   )

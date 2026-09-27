@@ -47,6 +47,9 @@ export interface JobIdentity {
   readonly role_code: string
   readonly role_name: string
   readonly sections: readonly SectionCode[]
+  /// GET only: the auditor's. The authoritative signal for `useCanWrite` —
+  /// a role's own flag, not this app guessing from its code.
+  readonly read_only: boolean
 }
 
 /// The job role on an already-fetched identity, or nothing for a node that
@@ -59,15 +62,15 @@ export function jobRoleOf(identity: Identity | null | undefined): {
   return { code: wide?.role_code ?? null, name: wide?.role_name ?? null }
 }
 
-/// Whoever is not an auditor may write; an auditor reads every book and
-/// changes none of them. `true` while the signed-in identity has not
-/// answered yet, or does not carry a job role at all — a control must not
-/// blink into existence disabled and then enable itself once the second
-/// request lands, and a node that predates roles never means to lock every
-/// button in the app.
+/// Whoever's role is not read-only may write. `true` while the signed-in
+/// identity has not answered yet, or does not carry a job role at all — a
+/// control must not blink into existence disabled and then enable itself
+/// once the second request lands, and a node that predates roles never
+/// means to lock every button in the app.
 export function useCanWrite(): boolean {
   const identity = useIdentity()
-  return jobRoleOf(identity.data).code !== "AUDITOR"
+  const wide = identity.data as (Identity & Partial<JobIdentity>) | null
+  return wide?.read_only !== true
 }
 
 /// The sections the signed-in role holds, and whether it is one of the two
