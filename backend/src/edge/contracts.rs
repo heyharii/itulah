@@ -54,9 +54,8 @@ impl NodeContext {
     ) -> Result<Self, EdgeError> {
         // No check that the site id "looks like" the role: an id is a label
         // (owner, 2026-09-27), and what the site is comes from head office
-        // (`edge::site_profile`). The pool grammar still spells a warehouse's
-        // pools `dc…` (see `domain::inventory::place`); that is the pools'
-        // rule, not the site id's, and changes with the flow templates.
+        // (`edge::site_profile`). A pool's role is its role path, not its
+        // site half (`domain::inventory::place`, `crate::pool_role`).
         let node_id = node_id.into();
         if node_id.trim().is_empty() {
             return Err(EdgeError::Configuration("node_id is required".into()));
@@ -88,6 +87,21 @@ impl NodeContext {
                 return Err(EdgeError::Forbidden(
                     "Store Edge receives directly into Store Warehouse; DC opening is not allowed"
                         .into(),
+                ));
+            }
+            // Goods from suppliers are told apart and tagged where they are
+            // received from suppliers, and a shop never deals with one. The
+            // pools would once have refused it by their spelling; the role
+            // says it now.
+            (EdgeRole::Store, MovementCause::Identification | MovementCause::Tagging) => {
+                return Err(EdgeError::Forbidden(
+                    "Store Edge does not identify or tag supplier deliveries".into(),
+                ));
+            }
+            // A shop keeps no other store's returns.
+            (EdgeRole::Store, MovementCause::ReturnToWarehouse) => {
+                return Err(EdgeError::Forbidden(
+                    "Store Edge cannot book a store's return; the warehouse it went to does".into(),
                 ));
             }
             _ => {}

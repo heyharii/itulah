@@ -1205,7 +1205,7 @@ pub fn outstanding_for_destination(
                FROM (SELECT sku_code,
                             SUM(accepted_quantity - packed_quantity - cancelled_quantity) AS wanted
                        FROM dc_allotment_work_line
-                      WHERE destination_type = 'STORE' AND destination_id = ?1
+                      WHERE destination_type <> 'SUPPLIER' AND destination_id = ?1
                         AND accepted_quantity - packed_quantity - cancelled_quantity > 0
                       GROUP BY sku_code) want
                LEFT JOIN (SELECT subject.sku_code, SUM(projection.quantity) AS available
@@ -1264,6 +1264,11 @@ pub struct DestinationDemand {
 
 /// Every shop with something outstanding, busiest first.
 ///
+/// "Shop" was the only destination until the owner's routes of 2026-09-27: a
+/// shop's node now owes its returns to the Gudang, and a transfer to another
+/// shop, from the same work table. Any site a line goes to is listed; only the
+/// supplier, which is a counterparty and not a site, is not.
+///
 /// **This is the list an edge node was missing.** Allotments are authored at
 /// the centre, so a DC has never had a roster of destinations — the packing
 /// screens asked somebody to type a store id, and offered the shops it had
@@ -1284,7 +1289,7 @@ pub fn destinations_owed(
                FROM (SELECT destination_id, sku_code,
                             SUM(accepted_quantity - packed_quantity - cancelled_quantity) AS wanted
                        FROM dc_allotment_work_line
-                      WHERE destination_type = 'STORE'
+                      WHERE destination_type <> 'SUPPLIER'
                         AND accepted_quantity - packed_quantity - cancelled_quantity > 0
                       GROUP BY destination_id, sku_code) want
                LEFT JOIN (SELECT subject.sku_code, SUM(projection.quantity) AS available

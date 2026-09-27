@@ -31,9 +31,11 @@ impl FromStr for AllotmentType {
     type Err = AllotmentError;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
+        // The node keeps the words it was built with; head office's route
+        // names from 0611 read as the same routes.
         match value {
-            "TO_STORE" => Ok(Self::ToStore),
-            "RETURN_TO_DC" => Ok(Self::ReturnToDc),
+            "TO_STORE" | "TO_SITE" => Ok(Self::ToStore),
+            "RETURN_TO_DC" | "RETURN_TO_WAREHOUSE" => Ok(Self::ReturnToDc),
             "RETURN_TO_SUPPLIER" => Ok(Self::ReturnToSupplier),
             _ => Err(AllotmentError::UnknownType(value.to_owned())),
         }

@@ -28,9 +28,12 @@ pub async fn ingest_observations(
     let site = SiteId::new(&request.site_id).map_err(|e| AppError::Validation(e.to_string()))?;
     let operational_pool = OperationalPool::from_str(&request.pool)
         .map_err(|e| AppError::Validation(e.to_string()))?;
-    let head_office = SiteId::new(super::sites::head_office_site_id(pool).await?)
-        .map_err(|e| AppError::Configuration(e.to_string()))?;
-    if operational_pool.site_id(&head_office) != site {
+    // The pool's site is its row's, not its id's first segment.
+    if super::sites::pool_site_id(pool, &operational_pool.id())
+        .await?
+        .as_deref()
+        != Some(site.as_str())
+    {
         return Err(AppError::Validation(
             "observation pool does not belong to site_id".into(),
         ));
@@ -222,8 +225,9 @@ WHERE (
     $1::text IS NULL OR o.pool_id=$1
     OR EXISTS (
         SELECT 1 FROM operational_pool scope
-        WHERE scope.id=$1 AND NOT scope.is_placement AND scope.outbound_stage IS NOT NULL
+        WHERE scope.id=$1 AND scope.destination_store_id IS NULL AND scope.outbound_stage IS NOT NULL
           AND observed_pool.is_placement AND observed_pool.outbound_stage=scope.outbound_stage
+          AND observed_pool.site_id=scope.site_id
     )
 ) AND ($2::text IS NULL OR o.epc=$2)
   AND ($3::text IS NULL OR o.epc ILIKE $3 OR sk.sku_code ILIKE $3

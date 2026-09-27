@@ -51,10 +51,9 @@ pub async fn create_count(
 ) -> Result<Value, AppError> {
     let typed_pool = OperationalPool::from_str(request.pool_id.trim())
         .map_err(|error| AppError::Validation(error.to_string()))?;
-    let head_office = crate::ids::SiteId::new(super::sites::head_office_site_id(pool).await?)
-        .map_err(|error| AppError::Configuration(error.to_string()))?;
-    if typed_pool.id() != request.pool_id
-        || typed_pool.site_id(&head_office).as_str() != request.site_id
+    // The pool's site is its row's, not its id's first segment.
+    let pool_site = super::sites::pool_site_id(pool, &typed_pool.id()).await?;
+    if typed_pool.id() != request.pool_id || pool_site.as_deref() != Some(request.site_id.as_str())
     {
         return Err(AppError::Validation(
             "count pool must be canonical and belong to site_id".into(),

@@ -19,44 +19,19 @@ impl InventoryState {
     }
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
-#[serde(
-    tag = "kind",
-    content = "store_id",
-    rename_all = "SCREAMING_SNAKE_CASE"
-)]
-pub enum OperationalPool {
-    DcPendingUnidentified,
-    DcPendingUntagged,
-    DcWarehouse,
-    /// Off the racks, in the outbound area, and committed to nobody.
-    ///
-    /// Carries no store because picking commits to none: a picker fetches a
-    /// SKU and a number, and which piece serves which shop is settled when it
-    /// goes into a carton. The edge has modelled it this way since picking
-    /// became a real movement; the centre has to agree, or the two hold
-    /// different pictures of one warehouse floor.
-    DcOutboundPicking,
-    DcOutboundPicked(SiteId),
-    DcOutboundPacked(SiteId),
-    DcOutboundShipment(SiteId),
-    DcOutboundInTransit(SiteId),
-    DcRejectDc,
-    DcRejectStore(SiteId),
-    StoreWarehouse(SiteId),
-    StoreFloor(SiteId),
-    StoreReject(SiteId),
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum GroupCode {
-    Pending,
-    Warehouse,
-    Outbound,
-    Reject,
-    StoreInventory,
-}
+/// One pool grammar for both nodes.
+///
+/// The centre used to keep its own: exactly one warehouse, spelled `dc` into
+/// the ids (`dc.warehouse`, `dc.outbound.packed.store-07`), and a shop told
+/// apart by the `store-` in front of its id. The edge parameterised the same
+/// grammar by its site, so one warehouse had two spellings and every new site
+/// was a code change (inventory-fleet G1). Since 0610 a pool's ROLE is its
+/// role path and the site half is a label, so both nodes read one grammar —
+/// the edge's — and every pool the centre already holds reads in it unchanged:
+/// `dc.warehouse` is the stockroom of site `dc`, which is what its
+/// `operational_pool` row has always said.
+pub use crate::edge::{GroupCode, OperationalPool};
+pub use crate::pool_role::{OutboundStage, PoolRole};
 
 #[derive(Debug, Error, PartialEq)]
 pub enum PlaceError {
@@ -68,139 +43,6 @@ pub enum PlaceError {
     DcIsNotStore,
     #[error("missing is only valid below an operational pool")]
     MissingRequiresOperationalPool,
-}
-
-impl OperationalPool {
-    pub fn id(&self) -> String {
-        match self {
-            Self::DcPendingUnidentified => "dc.pending.unidentified".into(),
-            Self::DcPendingUntagged => "dc.pending.untagged".into(),
-            Self::DcWarehouse => "dc.warehouse".into(),
-            Self::DcOutboundPicking => "dc.outbound.picking".to_string(),
-            Self::DcOutboundPicked(store) => format!("dc.outbound.picked.{store}"),
-            Self::DcOutboundPacked(store) => format!("dc.outbound.packed.{store}"),
-            Self::DcOutboundShipment(store) => format!("dc.outbound.shipment.{store}"),
-            Self::DcOutboundInTransit(store) => format!("dc.outbound.in-transit.{store}"),
-            Self::DcRejectDc => "dc.reject.dc".into(),
-            Self::DcRejectStore(site) => format!("dc.reject.{site}"),
-            Self::StoreWarehouse(site) => format!("{site}.warehouse"),
-            Self::StoreFloor(site) => format!("{site}.floor"),
-            Self::StoreReject(site) => format!("{site}.reject"),
-        }
-    }
-
-    /// The site the pool stands at.
-    ///
-    /// A shop's pools carry their site in their id. The warehouse's do not —
-    /// the pool grammar still spells them `dc.…`, a separate id space from
-    /// `site.id` — so they stand at head office, which the caller reads from
-    /// data (`postgres::sites::head_office_site_id`) and hands in. Nothing here
-    /// may know head office's id.
-    pub fn site_id(&self, head_office: &SiteId) -> SiteId {
-        match self {
-            Self::DcPendingUnidentified
-            | Self::DcPendingUntagged
-            | Self::DcWarehouse
-            | Self::DcOutboundPicking
-            | Self::DcOutboundPicked(_)
-            | Self::DcOutboundPacked(_)
-            | Self::DcOutboundShipment(_)
-            | Self::DcOutboundInTransit(_)
-            // The pool id says `dc`; the site it belongs to is head office,
-            // whatever that site is called. Two id spaces, not two spellings
-            // of one, so this maps between them rather than reading the first
-            // segment back out.
-            | Self::DcRejectDc
-            | Self::DcRejectStore(_) => head_office.clone(),
-            Self::StoreWarehouse(site) | Self::StoreFloor(site) | Self::StoreReject(site) => {
-                site.clone()
-            }
-        }
-    }
-
-    pub fn group(&self) -> GroupCode {
-        match self {
-            Self::DcPendingUnidentified | Self::DcPendingUntagged => GroupCode::Pending,
-            Self::DcWarehouse => GroupCode::Warehouse,
-            Self::DcOutboundPicking
-            | Self::DcOutboundPicked(_)
-            | Self::DcOutboundPacked(_)
-            | Self::DcOutboundShipment(_)
-            | Self::DcOutboundInTransit(_) => GroupCode::Outbound,
-            Self::DcRejectDc | Self::DcRejectStore(_) | Self::StoreReject(_) => GroupCode::Reject,
-            Self::StoreWarehouse(_) | Self::StoreFloor(_) => GroupCode::StoreInventory,
-        }
-    }
-
-    pub fn store_origin(&self) -> Option<&SiteId> {
-        match self {
-            Self::DcRejectStore(site) => Some(site),
-            _ => None,
-        }
-    }
-
-    pub fn outbound_destination(&self) -> Option<&SiteId> {
-        match self {
-            Self::DcOutboundPicked(store)
-            | Self::DcOutboundPacked(store)
-            | Self::DcOutboundShipment(store)
-            | Self::DcOutboundInTransit(store) => Some(store),
-            _ => None,
-        }
-    }
-}
-
-// The POOL grammar: a shop's pools and the warehouse's per-shop pools are
-// spelled with the shop's `store-…` id (`dc.reject.store-07`, `store-07.floor`).
-// That is how pool ids are written, and a later step (flow templates) gives
-// pools a role of their own; `SiteId` knows only its shape and is never asked
-// for a kind.
-fn store(value: &str) -> Result<SiteId, PlaceError> {
-    let site = SiteId::new(value).map_err(|_| PlaceError::UnknownPool(value.to_owned()))?;
-    if !site.as_str().starts_with("store-") {
-        return Err(PlaceError::DcIsNotStore);
-    }
-    Ok(site)
-}
-
-impl FromStr for OperationalPool {
-    type Err = PlaceError;
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "dc.pending.unidentified" => Ok(Self::DcPendingUnidentified),
-            "dc.pending.untagged" => Ok(Self::DcPendingUntagged),
-            "dc.warehouse" => Ok(Self::DcWarehouse),
-            "dc.outbound.picking" => Ok(Self::DcOutboundPicking),
-            _ if value.starts_with("dc.outbound.picked.store-") => Ok(Self::DcOutboundPicked(
-                store(value.trim_start_matches("dc.outbound.picked."))?,
-            )),
-            _ if value.starts_with("dc.outbound.packed.store-") => Ok(Self::DcOutboundPacked(
-                store(value.trim_start_matches("dc.outbound.packed."))?,
-            )),
-            _ if value.starts_with("dc.outbound.shipment.store-") => Ok(Self::DcOutboundShipment(
-                store(value.trim_start_matches("dc.outbound.shipment."))?,
-            )),
-            _ if value.starts_with("dc.outbound.in-transit.store-") => {
-                Ok(Self::DcOutboundInTransit(store(
-                    value.trim_start_matches("dc.outbound.in-transit."),
-                )?))
-            }
-            "dc.reject.dc" => Ok(Self::DcRejectDc),
-            _ if value.starts_with("dc.reject.store-") => Ok(Self::DcRejectStore(store(
-                value.trim_start_matches("dc.reject."),
-            )?)),
-            _ if value.starts_with("store-") && value.ends_with(".warehouse") => Ok(
-                Self::StoreWarehouse(store(value.trim_end_matches(".warehouse"))?),
-            ),
-            _ if value.starts_with("store-") && value.ends_with(".floor") => {
-                Ok(Self::StoreFloor(store(value.trim_end_matches(".floor"))?))
-            }
-            _ if value.starts_with("store-") && value.ends_with(".reject") => {
-                Ok(Self::StoreReject(store(value.trim_end_matches(".reject"))?))
-            }
-            _ => Err(PlaceError::UnknownPool(value.to_owned())),
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
@@ -266,9 +108,9 @@ impl Place {
         matches!(
             self,
             Self::Operational {
-                pool: OperationalPool::StoreFloor(_),
+                pool,
                 state: InventoryState::Normal
-            }
+            } if pool.role().is_saleable()
         )
     }
     pub fn pool(&self) -> Option<&OperationalPool> {
@@ -317,7 +159,9 @@ impl FromStr for Place {
                     _ => return Err(PlaceError::UnknownPlace(value.to_owned())),
                 };
                 Ok(Self::Operational {
-                    pool: pool.parse()?,
+                    pool: pool
+                        .parse::<OperationalPool>()
+                        .map_err(|error| PlaceError::UnknownPool(error.to_string()))?,
                     state,
                 })
             }
@@ -350,7 +194,7 @@ mod tests {
             .parse()
             .unwrap_or_else(|e| panic!("{e}"));
         assert_ne!(seven, eight);
-        assert_eq!(seven.store_origin().map(SiteId::as_str), Some("store-07"));
+        assert_eq!(seven.return_origin().map(SiteId::as_str), Some("store-07"));
     }
 
     #[test]

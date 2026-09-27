@@ -1624,11 +1624,14 @@ fn validate_allotment_application_binding(
         .node_role
         .as_deref()
         .ok_or_else(|| "inventory origin has no registered node_role".to_string())?;
-    if expected_role != "DC" || payload.source_site_id != expected_site {
-        return Err("allotment application must come from its exact registered DC site".into());
+    // The node that owns the source site, whatever its role: a shop answers
+    // for its own return or transfer (0611).
+    if payload.source_site_id != expected_site {
+        return Err("allotment application must come from its exact registered source site".into());
     }
+    let role = EdgeRole::from_str(expected_role).map_err(|error| error.to_string())?;
     let site_id = SiteId::new(expected_site).map_err(|error| error.to_string())?;
-    NodeContext::new(batch_origin_id, EdgeRole::Dc, site_id).map_err(|error| error.to_string())
+    NodeContext::new(batch_origin_id, role, site_id).map_err(|error| error.to_string())
 }
 
 fn validate_allotment_cancellation_binding(
@@ -1661,11 +1664,12 @@ fn validate_allotment_cancellation_binding(
         .node_role
         .as_deref()
         .ok_or_else(|| "inventory origin has no registered node_role".to_string())?;
-    if expected_role != "DC" || payload.source_site_id != expected_site {
-        return Err("allotment cancellation must come from its exact registered DC site".into());
+    if payload.source_site_id != expected_site {
+        return Err("allotment cancellation must come from its exact registered source site".into());
     }
+    let role = EdgeRole::from_str(expected_role).map_err(|error| error.to_string())?;
     let site_id = SiteId::new(expected_site).map_err(|error| error.to_string())?;
-    NodeContext::new(batch_origin_id, EdgeRole::Dc, site_id).map_err(|error| error.to_string())
+    NodeContext::new(batch_origin_id, role, site_id).map_err(|error| error.to_string())
 }
 
 fn validate_official_count_owner_binding(
@@ -1776,15 +1780,16 @@ fn validate_allotment_pick_binding(
         .node_role
         .as_deref()
         .ok_or_else(|| "inventory origin has no registered node_role".to_string())?;
-    if expected_role != "DC" || payload.source_site_id != expected_site {
-        return Err("allotment Pick must come from its exact registered DC site".into());
+    if payload.source_site_id != expected_site {
+        return Err("allotment Pick must come from its exact registered source site".into());
     }
+    let role = EdgeRole::from_str(expected_role).map_err(|error| error.to_string())?;
     let site_id = SiteId::new(expected_site).map_err(|error| error.to_string())?;
-    let node = NodeContext::new(batch_origin_id, EdgeRole::Dc, site_id)
-        .map_err(|error| error.to_string())?;
+    let node =
+        NodeContext::new(batch_origin_id, role, site_id).map_err(|error| error.to_string())?;
     let pool =
         OperationalPool::from_str(&payload.source_pool_id).map_err(|error| error.to_string())?;
-    if pool.id() != payload.source_pool_id || !pool.is_dc_fulfillment_source_for(&node.site_id) {
+    if pool.id() != payload.source_pool_id || !pool.is_fulfillment_source_for(&node.site_id) {
         return Err(format!(
             "allotment Pick pool {} is not a canonical non-fulfillment source for registered site {}",
             payload.source_pool_id, node.site_id
@@ -1842,19 +1847,27 @@ fn validate_fulfillment_progress_binding(
         .node_role
         .as_deref()
         .ok_or_else(|| "inventory origin has no registered node_role".to_string())?;
-    if expected_role != "DC" || payload.source_site_id != expected_site {
-        return Err("fulfillment progress must come from its exact registered DC site".into());
+    // Any site sends goods now (0611): the origin is the node that owns the
+    // source site, whatever its role, and the destination is another site of
+    // ours of any kind the centre knows.
+    if payload.source_site_id != expected_site {
+        return Err("fulfillment progress must come from its exact registered source site".into());
     }
+    let role = EdgeRole::from_str(expected_role).map_err(|error| error.to_string())?;
     let site_id = SiteId::new(expected_site).map_err(|error| error.to_string())?;
-    let node = NodeContext::new(batch_origin_id, EdgeRole::Dc, site_id)
-        .map_err(|error| error.to_string())?;
+    let node =
+        NodeContext::new(batch_origin_id, role, site_id).map_err(|error| error.to_string())?;
     let destination =
         SiteId::new(&payload.destination_store_id).map_err(|error| error.to_string())?;
-    if destination_kind.is_some_and(|kind| kind != SiteKind::Store)
-        || destination.to_string() != payload.destination_store_id
-    {
-        return Err("fulfillment destination_store_id must be a canonical Store site".into());
+    if destination.to_string() != payload.destination_store_id || destination == node.site_id {
+        return Err(
+            "fulfillment destination must be a canonical site other than its origin".into(),
+        );
     }
+    // A site the centre holds a row for is one of ours, whatever its kind; one
+    // it holds none for (a node's own spelling of the Gudang) is taken on
+    // trust, as it always was.
+    let _ = destination_kind;
     Ok(node)
 }
 
@@ -1893,35 +1906,33 @@ fn validate_transfer_binding(
     let node =
         NodeContext::new(batch_origin_id, role, site_id).map_err(|error| error.to_string())?;
 
+    // A claim belongs to the SITE it is about (0612): IN_TRANSIT to the
+    // origin, RECEIVED to the destination — a shop's return is received at the
+    // Gudang, a transfer at another shop. The kinds were read to refuse a
+    // shop as an origin and a warehouse as a destination; both are routes now.
+    let _ = (destination_kind, source_kind);
     let destination =
         SiteId::new(&payload.destination_store_id).map_err(|error| error.to_string())?;
-    if destination_kind.is_some_and(|kind| kind != SiteKind::Store) {
-        return Err("transfer destination_store_id must identify a Store".into());
-    }
     let source = payload
         .source_dc_id
         .as_deref()
         .map(SiteId::new)
         .transpose()
         .map_err(|error| error.to_string())?;
-    if source.is_some() && source_kind == Some(SiteKind::Store) {
-        return Err("transfer source_dc_id must identify a DC".into());
+    if source.as_ref() == Some(&destination) {
+        return Err("transfer claim source and destination must be different sites".into());
     }
 
     match payload.claim_kind {
         TransferClaimKind::InTransit
-            if role != EdgeRole::Dc
-                || source.as_ref() != Some(&node.site_id)
-                || payload.receipt_id.is_some() =>
+            if source.as_ref() != Some(&node.site_id) || payload.receipt_id.is_some() =>
         {
-            Err("IN_TRANSIT claim must be owned by its registered source DC".into())
+            Err("IN_TRANSIT claim must be owned by its registered source site".into())
         }
         TransferClaimKind::Received
-            if role != EdgeRole::Store
-                || destination != node.site_id
-                || payload.receipt_id.is_none() =>
+            if destination != node.site_id || payload.receipt_id.is_none() =>
         {
-            Err("RECEIVED claim must be owned by its registered destination Store".into())
+            Err("RECEIVED claim must be owned by its registered destination site".into())
         }
         _ => Ok(node),
     }
@@ -2884,10 +2895,15 @@ async fn reconcile_transfer_allotment_attribution(
         .fetch_optional(&mut **tx)
         .await?
         .ok_or_else(|| AppError::Conflict("fulfillment unit has no Allotment projection".into()))?;
+        // The line carries the centre's spelling of both sites, the claims the
+        // nodes' (G1); and since 0611 a destination is any site of ours — a
+        // shop, or the Gudang a return went back to — never the supplier.
+        let canonical_source = canonical_site_id_tx(tx, source_dc_id).await?;
+        let canonical_destination = canonical_site_id_tx(tx, destination_store_id).await?;
         if line.get::<String, _>("origin_id") != dc_origin_id.as_str()
-            || line.get::<String, _>("source_site_id") != source_dc_id
-            || line.get::<String, _>("destination_type") != "STORE"
-            || line.get::<String, _>("destination_id") != destination_store_id
+            || line.get::<String, _>("source_site_id") != canonical_source
+            || line.get::<String, _>("destination_type") == "SUPPLIER"
+            || line.get::<String, _>("destination_id") != canonical_destination
             || line.get::<String, _>("sku_code") != in_transit[0].2
             || unit.get::<String, _>("epc") != epc
             || unit.get::<String, _>("sku_code") != in_transit[0].2
@@ -2919,11 +2935,12 @@ async fn reconcile_transfer_allotment_attribution(
                 ));
             }
         } else {
+            // The origin that put it in transit is owed a release (G3, 0613).
             sqlx::query(
                 "INSERT INTO edge_transfer_allotment_attribution
                      (receipt_event_id,in_transit_event_id,koli_id,allotment_id,
-                      allotment_line_id,epc)
-                 VALUES($1,$2,$3,$4,$5,$6)",
+                      allotment_line_id,epc,release_origin_id)
+                 VALUES($1,$2,$3,$4,$5,$6,$7)",
             )
             .bind(receipt_event_id)
             .bind(in_transit_event_id)
@@ -2931,8 +2948,10 @@ async fn reconcile_transfer_allotment_attribution(
             .bind(allotment_id)
             .bind(allotment_line_id)
             .bind(epc)
+            .bind(dc_origin_id.as_str())
             .execute(&mut **tx)
             .await?;
+            issue_in_transit_release_tx(tx, receipt_event_id).await?;
         }
         touched_lines.insert(allotment_line_id);
         touched_allotments.insert(allotment_id);
@@ -3051,6 +3070,107 @@ async fn reconcile_transfer_allotment_attribution(
         .await?;
     }
     Ok(())
+}
+
+/// How many waiting releases one heartbeat issues. A node that comes back
+/// after a long silence, or one upgraded with a backlog (0613 backfilled every
+/// pair matched before it), is told in instalments rather than in one
+/// transaction the size of its history.
+const IN_TRANSIT_RELEASES_PER_HEARTBEAT: i64 = 500;
+
+/// Tell the origin of one matched pair to let go of its EPC (inventory-fleet
+/// G3). A no-op when the release was already issued, when the pair names no
+/// origin, or when that origin's build cannot take the command yet — the pair
+/// then waits, and [`issue_waiting_in_transit_releases_tx`] issues it when the
+/// node's heartbeat first says it can.
+async fn issue_in_transit_release_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    receipt_event_id: Uuid,
+) -> Result<(), AppError> {
+    let Some(row) = sqlx::query(
+        "SELECT attribution.release_origin_id,attribution.release_command_id,
+                attribution.koli_id,attribution.epc,
+                receipt.source_dc_id,receipt.destination_store_id,
+                receipt.shipment_reference,receipt.sku_code,
+                receipt.occurred_at AS received_at,
+                in_transit.movement_group_id AS in_transit_movement_group_id
+         FROM edge_transfer_allotment_attribution attribution
+         JOIN edge_transfer_claim receipt ON receipt.event_id=attribution.receipt_event_id
+         JOIN edge_transfer_claim in_transit ON in_transit.event_id=attribution.in_transit_event_id
+         WHERE attribution.receipt_event_id=$1
+         FOR UPDATE OF attribution",
+    )
+    .bind(receipt_event_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    else {
+        return Ok(());
+    };
+    if row.get::<Option<Uuid>, _>("release_command_id").is_some() {
+        return Ok(());
+    }
+    let Some(origin_id) = row.get::<Option<String>, _>("release_origin_id") else {
+        return Ok(());
+    };
+    if !origin_takes_goods_routes_tx(tx, &origin_id).await? {
+        return Ok(());
+    }
+    let Some(source_site_id) = row.get::<Option<String>, _>("source_dc_id") else {
+        return Ok(());
+    };
+    let payload = crate::sync::transfer::InTransitReleasePayload {
+        release_id: receipt_event_id,
+        source_site_id,
+        destination_site_id: row.get("destination_store_id"),
+        shipment_reference: row.get("shipment_reference"),
+        koli_id: row.get("koli_id"),
+        epc: row.get("epc"),
+        sku_code: row.get("sku_code"),
+        in_transit_movement_group_id: row.get("in_transit_movement_group_id"),
+        received_at: row.get("received_at"),
+    };
+    let command_id = issue_command_tx(
+        tx,
+        crate::sync::transfer::INVENTORY_IN_TRANSIT_RELEASE_V1,
+        &serde_json::to_value(&payload)?,
+        "system:in-transit-release",
+        None,
+        std::slice::from_ref(&origin_id),
+    )
+    .await?;
+    sqlx::query(
+        "UPDATE edge_transfer_allotment_attribution
+         SET release_command_id=$2,release_issued_at=now()
+         WHERE receipt_event_id=$1",
+    )
+    .bind(receipt_event_id)
+    .bind(command_id)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+/// Issue the releases one origin is owed and was not yet sent, oldest match
+/// first, a bounded instalment at a time. Called when the node's heartbeat
+/// says it takes the goods-route commands. Returns how many were considered.
+pub(super) async fn issue_waiting_in_transit_releases_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    origin_id: &str,
+) -> Result<usize, AppError> {
+    let waiting: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT receipt_event_id FROM edge_transfer_allotment_attribution
+         WHERE release_origin_id=$1 AND release_command_id IS NULL
+         ORDER BY matched_at,receipt_event_id
+         LIMIT $2",
+    )
+    .bind(origin_id)
+    .bind(IN_TRANSIT_RELEASES_PER_HEARTBEAT)
+    .fetch_all(&mut **tx)
+    .await?;
+    for receipt_event_id in &waiting {
+        issue_in_transit_release_tx(tx, *receipt_event_id).await?;
+    }
+    Ok(waiting.len())
 }
 
 async fn apply_transfer_claim(
@@ -3286,7 +3406,7 @@ async fn apply_allotment_application_result(
             ))
         }
     };
-    if inventory_dc_owner_tx(tx, &authored_site).await?.as_deref() != Some(origin_id) {
+    if inventory_owner_tx(tx, &authored_site).await?.as_deref() != Some(origin_id) {
         return Err(AppError::Validation(format!(
             "application result came from {origin_id}, which does not own authored source site {authored_site}"
         )));
@@ -3894,28 +4014,41 @@ async fn apply_fulfillment_progress(
 
     let destination_store = SiteId::new(&progress.destination_store_id)
         .map_err(|error| AppError::Validation(error.to_string()))?;
-    let stage_pool = |stage: FulfillmentStage| match stage {
-        FulfillmentStage::Packed => OperationalPool::DcOutboundPacked {
-            dc_id: node.site_id.clone(),
-            store_id: destination_store.clone(),
-        },
-        FulfillmentStage::Shipment => OperationalPool::DcOutboundShipment {
-            dc_id: node.site_id.clone(),
-            store_id: destination_store.clone(),
-        },
-        FulfillmentStage::Loaded => OperationalPool::DcOutboundLoaded {
-            dc_id: node.site_id.clone(),
-            store_id: destination_store.clone(),
-        },
-        FulfillmentStage::InTransit => OperationalPool::DcOutboundInTransit {
-            dc_id: node.site_id.clone(),
-            store_id: destination_store.clone(),
-        },
+    // A stage stands at its origin since 0610 and the destination is the
+    // koli's. A node on an older build still writes the per-destination leaf;
+    // both spellings of a stage are that stage, and a koli may go from a leaf
+    // on to the stage at its origin but never back.
+    let stage_place_id = |stage: FulfillmentStage| {
+        format!(
+            "{}:on_hand",
+            OperationalPool::Outbound {
+                site_id: node.site_id.clone(),
+                stage: stage.into(),
+            }
+            .id()
+        )
     };
-    let stage_place_id = |stage| format!("{}:on_hand", stage_pool(stage).id());
-    let target_place_id = stage_place_id(progress.stage);
+    let legacy_stage_place_id = |stage: FulfillmentStage| {
+        let (dc_id, store_id) = (node.site_id.clone(), destination_store.clone());
+        let pool = match stage {
+            FulfillmentStage::Packed => OperationalPool::DcOutboundPacked { dc_id, store_id },
+            FulfillmentStage::Shipment => OperationalPool::DcOutboundShipment { dc_id, store_id },
+            FulfillmentStage::Loaded => OperationalPool::DcOutboundLoaded { dc_id, store_id },
+            FulfillmentStage::InTransit => {
+                OperationalPool::DcOutboundInTransit { dc_id, store_id }
+            }
+        };
+        format!("{}:on_hand", pool.id())
+    };
+    let is_stage_place = |place_id: &str, stage: FulfillmentStage| {
+        place_id == stage_place_id(stage) || place_id == legacy_stage_place_id(stage)
+    };
     let mut touched_allotments = BTreeSet::new();
 
+    // The allotment lines carry the centre's spelling of both ends; the fact
+    // carries the nodes'. The Gudang's node spells itself its own way (G1).
+    let canonical_source = canonical_site_id_tx(tx, &progress.source_site_id).await?;
+    let canonical_destination = canonical_site_id_tx(tx, &progress.destination_store_id).await?;
     if progress.stage == FulfillmentStage::Packed {
         if sqlx::query("SELECT 1 FROM edge_koli WHERE koli_id=$1")
             .bind(progress.koli_id)
@@ -3929,7 +4062,10 @@ async fn apply_fulfillment_progress(
             )));
         }
         for (movement_line, unit) in movement_lines.iter().zip(&progress.units) {
-            if movement_line.get::<String, _>("to_place_id") != target_place_id {
+            if !is_stage_place(
+                movement_line.get::<String, _>("to_place_id").as_str(),
+                FulfillmentStage::Packed,
+            ) {
                 return Err(AppError::Validation(format!(
                     "PACKED EPC {} moved to the wrong destination pool",
                     unit.epc
@@ -3941,10 +4077,10 @@ async fn apply_fulfillment_progress(
                 Place::Operational {
                     pool,
                     state: InventoryState::Normal,
-                } if pool.is_dc_fulfillment_source_for(&node.site_id) => pool.id(),
+                } if pool.is_fulfillment_source_for(&node.site_id) => pool.id(),
                 _ => {
                     return Err(AppError::Validation(format!(
-                        "PACKED EPC {} did not leave an allowed normal source pool for its DC",
+                        "PACKED EPC {} did not leave an allowed normal source pool at its origin",
                         unit.epc
                     )));
                 }
@@ -3963,7 +4099,7 @@ async fn apply_fulfillment_progress(
                  JOIN allotment header ON header.id=line.allotment_id
                  WHERE line.origin_id=$1 AND line.source_site_id=$2
                    AND line.sku_code=$3
-                   AND line.destination_type='STORE' AND line.destination_id=$4
+                   AND line.destination_type<>'SUPPLIER' AND line.destination_id=$4
                    AND line.accepted_quantity-line.packed_quantity-line.cancelled_quantity>0
                    AND header.activation_target_origin_id=$1
                    AND header.edge_application_status='ACCEPTED'
@@ -3972,9 +4108,9 @@ async fn apply_fulfillment_progress(
                  LIMIT 1 FOR UPDATE OF line,header",
             )
             .bind(origin_id)
-            .bind(&progress.source_site_id)
+            .bind(&canonical_source)
             .bind(&unit.sku_code)
-            .bind(&progress.destination_store_id)
+            .bind(&canonical_destination)
             .fetch_optional(&mut **tx)
             .await?
             .ok_or_else(|| {
@@ -4088,7 +4224,6 @@ async fn apply_fulfillment_progress(
                 "fulfillment progress changed package membership".into(),
             ));
         }
-        let expected_from_place_id = stage_place_id(expected_previous);
         for ((stored, movement_line), unit) in persisted_units
             .iter()
             .zip(&movement_lines)
@@ -4100,8 +4235,19 @@ async fn apply_fulfillment_progress(
                 || stored.get::<Uuid, _>("allotment_line_id") != unit.allotment_line_id
                 || stored.get::<String, _>("current_stage") != expected_previous.as_str()
                 || stored.get::<i16, _>("stage_rank") != expected_previous.rank()
-                || movement_line.get::<String, _>("from_place_id") != expected_from_place_id
-                || movement_line.get::<String, _>("to_place_id") != target_place_id
+                || !is_stage_place(
+                    movement_line.get::<String, _>("from_place_id").as_str(),
+                    expected_previous,
+                )
+                || !is_stage_place(
+                    movement_line.get::<String, _>("to_place_id").as_str(),
+                    progress.stage,
+                )
+                // Never back into a legacy leaf out of the stage at the origin.
+                || (movement_line.get::<String, _>("from_place_id")
+                    == stage_place_id(expected_previous)
+                    && movement_line.get::<String, _>("to_place_id")
+                        == legacy_stage_place_id(progress.stage))
             {
                 return Err(AppError::Validation(format!(
                     "fulfillment EPC {} changed membership or skipped a custody stage",
@@ -4315,11 +4461,19 @@ pub fn store_inbound_commands_enabled() -> bool {
     })
 }
 
-/// Tell the destination shop that a koli is on its way to it.
+/// Tell the destination that a koli is on its way to it.
 ///
-/// Targets only the STORE origin bound to the destination site; a shop with
-/// no registered, inventory-enabled origin is skipped silently (it receives
-/// the old way, unannounced). Never a broadcast and never a DC.
+/// Targets only the origin that owns the destination site's ledger: a shop's
+/// node for an allotment or a transfer, the Gudang's node for a shop's return
+/// (0611). A destination no node owns is skipped silently (it receives the
+/// old way, unannounced). Never a broadcast.
+///
+/// A return lands in that store's own return pool at the Gudang, to be
+/// inspected; the announcement names it, in the node's own spelling, so the
+/// node never has to work it out. A shop's delivery names none and lands in
+/// its stockroom, as it always did. A warehouse is announced to only once
+/// its heartbeat says it takes the goods routes: an older build would ignore
+/// it at best.
 async fn announce_store_inbound_tx(
     tx: &mut Transaction<'_, Postgres>,
     progress: &FulfillmentProgressPayload,
@@ -4327,18 +4481,21 @@ async fn announce_store_inbound_tx(
     if !store_inbound_commands_enabled() {
         return Ok(());
     }
-    let origin: Option<String> = sqlx::query_scalar(
-        "SELECT origin_id FROM sync_origin_credential
-         WHERE site_id=$1 AND node_role='STORE' AND inventory_enabled
-         ORDER BY origin_id LIMIT 1",
-    )
-    .bind(&progress.destination_store_id)
-    .fetch_optional(&mut **tx)
-    .await?;
-    let Some(origin_id) = origin else {
+    let destination = canonical_site_id_tx(tx, &progress.destination_store_id).await?;
+    let Some(origin_id) = inventory_owner_tx(tx, &destination).await? else {
         return Ok(());
     };
-    let payload = StoreInboundAnnouncePayload::from_progress(progress);
+    let mut payload = StoreInboundAnnouncePayload::from_progress(progress);
+    let source = canonical_site_id_tx(tx, &progress.source_site_id).await?;
+    if let Some(return_pool) = super::sites::return_pool_for(&mut **tx, &destination, &source).await?
+    {
+        if !origin_takes_goods_routes_tx(tx, &origin_id).await? {
+            return Ok(());
+        }
+        let node_site = origin_site_id_tx(tx, &origin_id).await?;
+        payload.destination_store_id = node_site.clone();
+        payload.destination_pool_id = Some(pool_id_for_site(&return_pool, &node_site));
+    }
     issue_command_tx(
         tx,
         INVENTORY_STORE_INBOUND_ANNOUNCE_V1,
@@ -5012,6 +5169,11 @@ fn validate_issued_command(command_type: &str, payload: &Value) -> Result<(), Ap
         crate::cloud::domain::COMMAND_PAYMENT_METHODS_REPLACE => {
             crate::cloud::domain::parse_payment_method_book(payload).map_err(AppError::Validation)?;
         }
+        crate::sync::transfer::INVENTORY_IN_TRANSIT_RELEASE_V1 => {
+            // Same reason: an origin that cannot read it stops there.
+            crate::sync::transfer::parse_in_transit_release(payload)
+                .map_err(AppError::Validation)?;
+        }
         crate::cloud::domain::COMMAND_ATTENDANCE_BOOK_REPLACE => {
             // Refused at the issuing desk rather than at the unit, for the
             // reason the purchase-order arm above gives: a command the edge
@@ -5106,6 +5268,93 @@ pub(super) fn pool_id_for_site(pool_id: &str, site_id: &str) -> String {
         // parser downstream is the one that refuses it, with its own message.
         None => pool_id.to_string(),
     }
+}
+
+/// The origin entitled to write the ledger of `site_id`, whatever its role:
+/// the Gudang's node, or a shop's node for its own return or transfer (0611).
+/// Head office's site with no node of its own resolves to the one registered
+/// DC, as [`inventory_dc_owner_tx`] does; a site no node owns is `None`.
+pub(super) async fn inventory_owner_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    site_id: &str,
+) -> Result<Option<String>, AppError> {
+    let owner: Option<String> = sqlx::query_scalar(
+        "SELECT origin_id FROM sync_origin_credential
+         WHERE inventory_enabled AND site_id = $1 FOR SHARE",
+    )
+    .bind(site_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+    if owner.is_some() {
+        return Ok(owner);
+    }
+    if super::sites::site_kind(&mut **tx, site_id).await?
+        == Some(crate::ids::SiteKind::HeadOffice)
+    {
+        return sole_dc_origin_tx(tx).await;
+    }
+    Ok(None)
+}
+
+/// The centre's own id for a site, given how a node spells it.
+///
+/// A node runs under the site id it was enrolled with, and the Gudang's node
+/// calls itself `dc-01` where the centre's row is `dc` (inventory-fleet G1).
+/// Every other site is spelled the same on both sides. So: a site the centre
+/// holds a row for is itself; the site the node that owns head office's
+/// ledger runs as is head office's; anything else is returned unchanged for
+/// the reader downstream to refuse with its own message.
+pub(super) async fn canonical_site_id_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    spelled: &str,
+) -> Result<String, AppError> {
+    if sqlx::query("SELECT 1 FROM site WHERE id = $1")
+        .bind(spelled)
+        .fetch_optional(&mut **tx)
+        .await?
+        .is_some()
+    {
+        return Ok(spelled.to_string());
+    }
+    let head_office = super::sites::head_office_site_id(&mut **tx).await?;
+    if let Some(origin_id) = inventory_owner_tx(tx, &head_office).await? {
+        if origin_site_id_tx(tx, &origin_id).await? == spelled {
+            return Ok(head_office);
+        }
+    }
+    Ok(spelled.to_string())
+}
+
+/// How the node that owns a site's ledger spells that site — what has to go
+/// on the wire for it to recognise its own name. The site itself when no
+/// node owns it.
+pub(super) async fn node_site_id_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    site_id: &str,
+) -> Result<String, AppError> {
+    match inventory_owner_tx(tx, site_id).await? {
+        Some(origin_id) => origin_site_id_tx(tx, &origin_id).await,
+        None => Ok(site_id.to_string()),
+    }
+}
+
+/// Whether a node's build understands the goods-route commands — a shop's
+/// allotment activation, a return announced to a warehouse, the in-transit
+/// release — as its latest heartbeat says (`sync::workflow`). An older build
+/// that were sent one would block its whole command stream on it.
+pub(super) async fn origin_takes_goods_routes_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    origin_id: &str,
+) -> Result<bool, AppError> {
+    Ok(sqlx::query_scalar::<_, bool>(
+        "SELECT COALESCE(status->'capabilities' ? $2, false)
+           FROM node_heartbeat WHERE origin_id = $1",
+    )
+    .bind(origin_id)
+    .bind(crate::sync::workflow::GOODS_ROUTES_CAPABILITY)
+    .fetch_optional(&mut **tx)
+    .await?
+    .unwrap_or(false))
 }
 
 pub(super) async fn inventory_dc_owner_tx(

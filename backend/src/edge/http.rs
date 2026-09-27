@@ -218,6 +218,17 @@ pub fn dc_router_with_sync(
             get(dc_job_print_session),
         )
         .route("/api/v1/dc/movements", post(move_stock))
+        // A shop's return, announced by head office and counted blind on
+        // arrival into that store's return pool — the same receipt a shop
+        // makes of an allotment (`edge::inbound`). Inspection afterwards is an
+        // ordinary move out of the return pool: good goods to the racks,
+        // damaged goods to reject.
+        .route("/api/v1/dc/inbound", get(store_inbound_list))
+        .route("/api/v1/dc/inbound/{delivery_id}", get(store_inbound_detail))
+        .route(
+            "/api/v1/dc/inbound/{delivery_id}/receive",
+            post(store_inbound_receive),
+        )
         .route("/api/v1/dc/official-counts", get(dc_official_counts))
         .route(
             "/api/v1/dc/official-counts/{count_id}",
@@ -339,6 +350,58 @@ pub fn store_router_with_sync(
             post(store_inbound_receive),
         )
         .route("/api/v1/store/movements", post(move_stock))
+        // Sending goods out: a shop's return to the Gudang, or a transfer to
+        // another shop, both raised by head office (postgres `0611`). The same
+        // pick, koli, surat jalan and lorry the Gudang uses — one outbound
+        // path for every site, served by the same handlers.
+        .route("/api/v1/store/outbound/picks", post(dc_pick))
+        .route("/api/v1/store/outbound/destinations", get(dc_destinations))
+        .route(
+            "/api/v1/store/outbound/destinations/{store_id}/outstanding",
+            get(dc_outstanding),
+        )
+        .route(
+            "/api/v1/store/outbound/koli",
+            get(dc_list_koli).post(dc_pack_koli),
+        )
+        .route("/api/v1/store/outbound/packs", post(dc_pack_by_quantity))
+        .route("/api/v1/store/outbound/koli/{koli_id}", get(dc_koli_manifest))
+        .route(
+            "/api/v1/store/outbound/koli/{koli_id}/seal",
+            post(dc_seal_koli),
+        )
+        .route(
+            "/api/v1/store/outbound/koli/{koli_id}/shipment",
+            post(dc_create_fulfillment_shipment),
+        )
+        .route(
+            "/api/v1/store/outbound/koli/{koli_id}/dispatch",
+            post(dc_dispatch_koli),
+        )
+        .route(
+            "/api/v1/store/outbound/koli/{koli_id}/in-transit",
+            post(dc_mark_fulfillment_in_transit),
+        )
+        .route(
+            "/api/v1/store/outbound/shipments",
+            post(dc_create_shipment).get(dc_list_shipments),
+        )
+        .route(
+            "/api/v1/store/outbound/shipments/{shipment_id}",
+            get(dc_shipment_detail),
+        )
+        .route(
+            "/api/v1/store/outbound/dispatches",
+            post(dc_create_dispatch).get(dc_list_dispatches),
+        )
+        .route(
+            "/api/v1/store/outbound/dispatches/{dispatch_id}",
+            get(dc_dispatch_detail),
+        )
+        .route(
+            "/api/v1/store/outbound/dispatches/{dispatch_id}/depart",
+            post(dc_depart_dispatch),
+        )
         .route("/api/v1/store/sales", post(store_sale))
         // The attempt, declared before the terminal is asked for money. Four
         // routes rather than one because the till drives a card reader between
@@ -602,11 +665,16 @@ async fn health(State(state): State<EdgeState>) -> Json<Value> {
     // can tell whether it is safe to send it a command type. `store.inbound`
     // = this shop applies `inventory.store_inbound.announce.v1`.
     let capabilities = match node.role {
-        EdgeRole::Dc => json!(["inventory.pools.owned", "inventory.movements.read"]),
+        EdgeRole::Dc => json!([
+            "inventory.pools.owned",
+            "inventory.movements.read",
+            crate::sync::workflow::GOODS_ROUTES_CAPABILITY
+        ]),
         EdgeRole::Store => json!([
             "inventory.pools.owned",
             "inventory.movements.read",
-            crate::sync::workflow::STORE_INBOUND_CAPABILITY
+            crate::sync::workflow::STORE_INBOUND_CAPABILITY,
+            crate::sync::workflow::GOODS_ROUTES_CAPABILITY
         ]),
     };
     let policy = state.auth.policy_version().ok().flatten();
@@ -650,8 +718,13 @@ async fn pools(
     })))
 }
 
+/// How a pool is shown. `at_a_shop` says which room a stockroom is: the
+/// Gudang's racks group as WAREHOUSE, a shop's back room as STORE_INVENTORY.
+/// One role, one spelling, two rooms — told apart by the node's own role,
+/// never by the pool id.
 fn edge_pool_metadata(
     pool: &OperationalPool,
+    at_a_shop: bool,
 ) -> (
     &'static str,
     &'static str,
@@ -659,11 +732,13 @@ fn edge_pool_metadata(
     i32,
     Option<&'static str>,
 ) {
+    use crate::pool_role::OutboundStage;
     use OperationalPool::*;
     match pool {
         DcPendingUnidentified { .. } => ("PENDING", "UNIDENTIFIED", "Unidentified", 10, None),
         DcPendingUntagged { .. } => ("PENDING", "UNTAGGED", "Untagged", 20, None),
-        DcWarehouse { .. } => ("WAREHOUSE", "WAREHOUSE", "Warehouse", 30, None),
+        Stockroom { .. } if at_a_shop => ("STORE_INVENTORY", "WAREHOUSE", "Warehouse", 10, None),
+        Stockroom { .. } => ("WAREHOUSE", "WAREHOUSE", "Warehouse", 30, None),
         // Off the racks, not yet in a box, and not yet anyone's. It sorts
         // before the destination-scoped leaves because that is the order the
         // goods actually pass through.
@@ -679,11 +754,31 @@ fn edge_pool_metadata(
             81,
             Some("IN_TRANSIT"),
         ),
+        // The stage at its origin is the stage itself: it is what the rollup
+        // row below stands for, so its own balance is folded into that row.
+        Outbound {
+            stage: OutboundStage::Packed,
+            ..
+        } => ("OUTBOUND", "PACKED", "Packed", 50, Some("PACKED")),
+        Outbound {
+            stage: OutboundStage::Shipment,
+            ..
+        } => ("OUTBOUND", "SHIPMENT", "Shipment", 60, Some("SHIPMENT")),
+        Outbound {
+            stage: OutboundStage::Loaded,
+            ..
+        } => ("OUTBOUND", "LOADED", "Loaded", 70, Some("LOADED")),
+        Outbound {
+            stage: OutboundStage::InTransit,
+            ..
+        } => ("OUTBOUND", "IN_TRANSIT", "In Transit", 80, Some("IN_TRANSIT")),
         DcRejectDc { .. } => ("REJECT", "DC_REJECT", "DC Reject", 90, None),
-        DcRejectStore { .. } => ("REJECT", "STORE_REJECT", "Store Reject", 100, None),
-        StoreWarehouse { .. } => ("STORE_INVENTORY", "WAREHOUSE", "Warehouse", 10, None),
+        DcRejectStore { .. } | Return { .. } => {
+            ("REJECT", "STORE_REJECT", "Store Return", 100, None)
+        }
         StoreFloor { .. } => ("STORE_INVENTORY", "FLOOR", "Floor", 20, None),
-        StoreReject { .. } => ("REJECT", "REJECT", "Reject", 30, None),
+        StoreReject { .. } if at_a_shop => ("REJECT", "REJECT", "Reject", 30, None),
+        StoreReject { .. } => ("REJECT", "DC_REJECT", "Reject", 90, None),
     }
 }
 
@@ -714,7 +809,7 @@ fn present_pools(node: &NodeContext, balances: Vec<PoolBalance>) -> Result<Vec<V
             ))));
         }
         let (group, pool_code, base_label, display_order, outbound_stage) =
-            edge_pool_metadata(&pool);
+            edge_pool_metadata(&pool, node.role == EdgeRole::Store);
         let destination_store_id = pool.outbound_destination().map(ToString::to_string);
         if let Some(stage) = outbound_stage {
             if let Some(total) = rollups.get_mut(stage) {
@@ -723,10 +818,7 @@ fn present_pools(node: &NodeContext, balances: Vec<PoolBalance>) -> Result<Vec<V
                 total.2 += balance.missing;
             }
         }
-        let store_origin_site_id = match &pool {
-            OperationalPool::DcRejectStore { store_id, .. } => Some(store_id.to_string()),
-            _ => None,
-        };
+        let store_origin_site_id = pool.return_origin().map(ToString::to_string);
         let label = destination_store_id
             .as_ref()
             .map(|destination| format!("{base_label} · {destination}"))
@@ -766,7 +858,12 @@ fn present_pools(node: &NodeContext, balances: Vec<PoolBalance>) -> Result<Vec<V
         }));
     }
 
-    if node.role == EdgeRole::Dc {
+    // A derived row per stage, for a node whose stage stands only in legacy
+    // per-destination leaves. Since 0610 the stage at the origin is a pool of
+    // its own with this very id, listed above as a leaf and counted; a second
+    // row with its id would be one too many. A shop shows a derived row only
+    // while something stands in it.
+    {
         for (stage, label, slug, display_order) in [
             ("PICKED", "Picked", "picked", 40),
             ("PACKED", "Packed", "packed", 50),
@@ -775,6 +872,16 @@ fn present_pools(node: &NodeContext, balances: Vec<PoolBalance>) -> Result<Vec<V
             ("IN_TRANSIT", "In Transit", "in-transit", 80),
         ] {
             let (stock, on_hand, missing) = rollups.get(stage).copied().unwrap_or_default();
+            if node.role == EdgeRole::Store && stock == 0 {
+                continue;
+            }
+            let stage_id = format!("{}.outbound.{slug}", node.site_id);
+            if items
+                .iter()
+                .any(|item| item.get("id").and_then(Value::as_str) == Some(stage_id.as_str()))
+            {
+                continue;
+            }
             items.push(json!({
                 "id":format!("{}.outbound.{slug}", node.site_id),
                 "site_id":node.site_id,

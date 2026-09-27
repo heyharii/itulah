@@ -1,5 +1,13 @@
 //! Deliveries on their way to this shop, and the blind count that receives them.
 //!
+//! "This shop" since the owner's routes of 2026-09-27 means any site of ours
+//! that goods are sent to: a shop receives an allotment or a transfer here,
+//! and the Gudang receives a shop's return — the same announcement, the same
+//! blind count, the same one receipt. A return lands in that store's own
+//! return pool at the Gudang, named on the announcement
+//! (`destination_pool_id`), and is inspected afterwards; everything else lands
+//! in the receiving site's stockroom, as it always did.
+//!
 //! Head office tells a Store Edge about every koli that leaves the DC for it
 //! (`inventory.store_inbound.announce.v1`, issued when the centre applies the
 //! koli's IN_TRANSIT fact). The koli of one surat jalan are filed under ONE
@@ -176,11 +184,12 @@ fn parse_time(value: &str) -> Result<DateTime<Utc>, EdgeError> {
 /// result — a late koli is written down (`late_announcement = 1`) so the
 /// history is complete, and never counted.
 ///
-/// A node that is not the destination shop ignores the announcement with a
-/// warning rather than blocking: the centre only ever targets the store origin
-/// bound to `destination_store_id`, so this is a misdirected command (e.g. an
+/// A node that is not the destination ignores the announcement with a
+/// warning rather than blocking: the centre only ever targets the origin that
+/// owns `destination_store_id`, so this is a misdirected command (e.g. an
 /// operator broadcast), and stopping a node's whole command stream over an
-/// advisory is worse than dropping it.
+/// advisory is worse than dropping it. Which ROLE the node runs as does not
+/// matter: the Gudang is the destination of a shop's return.
 pub(crate) fn apply_announcement(
     tx: &Transaction<'_>,
     command_id: Uuid,
@@ -193,7 +202,7 @@ pub(crate) fn apply_announcement(
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .map_err(db)?;
-    if role != "STORE" || site_id != payload.destination_store_id {
+    if site_id != payload.destination_store_id {
         tracing::warn!(
             koli = %payload.koli_id,
             destination = %payload.destination_store_id,
@@ -223,26 +232,30 @@ pub(crate) fn apply_announcement(
             tx.execute(
                 "INSERT INTO store_inbound_delivery
                      (delivery_id,source_site_id,shipment_reference,departed_at,status,
-                      created_at,updated_at)
-                 VALUES(?1,?2,?3,?4,'IN_TRANSIT',?5,?5)",
+                      created_at,updated_at,destination_pool_id)
+                 VALUES(?1,?2,?3,?4,'IN_TRANSIT',?5,?5,?6)",
                 params![
                     delivery_id,
                     payload.source_site_id,
                     payload.shipment_reference,
                     departed_at,
-                    now
+                    now,
+                    payload.destination_pool_id
                 ],
             )
             .map_err(db)?;
             false
         }
         Some(STATUS_IN_TRANSIT) => {
-            // Text timestamps in one fixed format compare as times.
+            // Text timestamps in one fixed format compare as times. The koli
+            // of one surat jalan all land in one pool; the first to name it
+            // names it for the delivery.
             tx.execute(
                 "UPDATE store_inbound_delivery
-                 SET departed_at=MAX(departed_at,?2),updated_at=?3
+                 SET departed_at=MAX(departed_at,?2),updated_at=?3,
+                     destination_pool_id=COALESCE(destination_pool_id,?4)
                  WHERE delivery_id=?1",
-                params![delivery_id, departed_at, now],
+                params![delivery_id, departed_at, now, payload.destination_pool_id],
             )
             .map_err(db)?;
             false

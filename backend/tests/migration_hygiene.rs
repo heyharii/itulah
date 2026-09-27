@@ -267,10 +267,11 @@ const RESERVED: &[(u32, u32, &str)] = &[
          moved to a distant block rather than race for the next numbers",
     ),
     (
-        605,
-        619,
-        "held by the unit/site lane's books, routes and flow-template steps in \
-         flight on 27 Sep 2026",
+        614,
+        614,
+        "left unused by the unit/site lane's goods-routes step, which was given \
+         0610-0614 on 27 Sep 2026 and needed four numbers; the books step filled \
+         0605-0609 and the flow-template engine 0615-0619",
     ),
 ];
 
