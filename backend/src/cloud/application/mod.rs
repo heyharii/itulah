@@ -1322,6 +1322,25 @@ pub struct SetRfidDeviceActiveRequest {
     pub active: bool,
 }
 
+/// `POST /api/v1/auth/rfid-devices`: the registration, and what the key's
+/// machine is. Kept beside [`RegisterRfidDeviceRequest`] rather than inside it
+/// so the callers that build a registration in code need not name a kind.
+#[derive(Clone, Debug, Deserialize)]
+pub struct RegisterRfidDeviceBody {
+    #[serde(flatten)]
+    pub device: RegisterRfidDeviceRequest,
+    /// `RFID_READER` (a fixed reader, the default) or `HANDHELD`.
+    #[serde(default)]
+    pub kind: Option<String>,
+}
+
+/// `POST /api/v1/auth/rfid-devices/{device_id}/kind`.
+#[derive(Clone, Debug, Deserialize)]
+pub struct SetRfidDeviceKindRequest {
+    /// `RFID_READER` or `HANDHELD`.
+    pub kind: String,
+}
+
 // ---- Returns and reporting ----------------------------------------------
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

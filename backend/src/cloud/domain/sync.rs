@@ -15,6 +15,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::BTreeMap;
 use uuid::Uuid;
 
 /// One fact on the wire and in the log.
@@ -1540,6 +1541,14 @@ pub struct AuthPolicySnapshot {
     /// the same reason as `site`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sites: Vec<SiteProfile>,
+    /// What each RFID key in `devices` belongs to — `HANDHELD` or
+    /// `RFID_READER` — as head office registered it (`rfid_device.kind`,
+    /// postgres 0623), by device id. The node keeps it beside the key and
+    /// reports the device under it. A key not named here, or named with a word
+    /// this build does not know, is a fixed `RFID_READER`: what every key was
+    /// reported as before. Outside the hash for the same reason as `site`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub device_kinds: BTreeMap<String, String>,
 }
 
 /// What head office says about one site, for a node that keeps no `site`

@@ -273,6 +273,13 @@ const RESERVED: &[(u32, u32, &str)] = &[
          0610-0614 on 27 Sep 2026 and needed four numbers; the books step filled \
          0605-0609 and the flow-template engine 0615-0619",
     ),
+    (
+        621,
+        622,
+        "held for the unit/site lane's other steps in flight on 27 Sep 2026 when \
+         the device step was given 0623-0624 (the RFID key's kind and the \
+         terminals head office registers, in the device register)",
+    ),
 ];
 
 #[test]

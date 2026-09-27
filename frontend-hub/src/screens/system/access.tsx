@@ -39,11 +39,13 @@ import {
   rotateRfidDeviceKey,
   setEdgeAssignmentActive,
   setRfidDeviceActive,
+  setRfidDeviceKind,
   systemKeys,
   upsertEdgeAssignment,
   type AccessScope,
   type EdgeAssignment,
   type RfidDevice,
+  type RfidKind,
   type SyncOrigin,
 } from "@/lib/queries/system"
 import { queryState } from "@/lib/query-state"
@@ -203,8 +205,15 @@ function peopleColumns(on: {
   ]
 }
 
+/// What each kind of key's machine is called here.
+const RFID_KIND_LABEL: Record<RfidKind, string> = {
+  RFID_READER: "Fixed reader",
+  HANDHELD: "Handheld",
+}
+
 function readerColumns(on: {
   setActive: (row: RfidDevice, active: boolean) => void
+  setKind: (row: RfidDevice, kind: RfidKind) => void
   rotate: (row: RfidDevice) => void
   busy: boolean
 }): ColumnDef<TableSetup, RfidDevice>[] {
@@ -225,6 +234,18 @@ function readerColumns(on: {
       size: 180,
       cell: ({ row }) => (
         <span className="font-medium text-ink">{row.original.label}</span>
+      ),
+    },
+    {
+      id: "kind",
+      // A key registered before head office asked is a fixed reader until
+      // somebody says otherwise, and the list is where they notice.
+      accessorFn: (row) => RFID_KIND_LABEL[row.kind] ?? row.kind,
+      header: "Kind",
+      size: 120,
+      enableSorting: false,
+      cell: ({ row }) => (
+        <Tag>{RFID_KIND_LABEL[row.original.kind] ?? row.original.kind}</Tag>
       ),
     },
     {
@@ -298,10 +319,22 @@ function readerColumns(on: {
     {
       id: "act",
       header: "",
-      size: 180,
+      size: 300,
       enableSorting: false,
       cell: ({ row }) => (
         <ButtonGroup className="[&>button:disabled]:opacity-50">
+          <button
+            type="button"
+            disabled={on.busy}
+            onClick={() =>
+              on.setKind(
+                row.original,
+                row.original.kind === "HANDHELD" ? "RFID_READER" : "HANDHELD"
+              )
+            }
+          >
+            {row.original.kind === "HANDHELD" ? "Make fixed" : "Make handheld"}
+          </button>
           <button
             type="button"
             disabled={on.busy}
@@ -352,6 +385,15 @@ export function Access() {
     },
   })
 
+  const kindReader = useMutation({
+    mutationFn: (input: { row: RfidDevice; kind: RfidKind }) =>
+      setRfidDeviceKind(input.row.device_id, input.kind),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: systemKeys.rfidDevices() })
+      void client.invalidateQueries({ queryKey: systemKeys.devices() })
+    },
+  })
+
   // Depending on `mutate` and `isPending` rather than the mutation object:
   // `mutate` is stable across renders, so the column definitions are rebuilt
   // when the busy flag actually flips and not on every keystroke in the search
@@ -360,6 +402,8 @@ export function Access() {
   const suspendPersonBusy = suspendPerson.isPending
   const switchReaderNow = switchReader.mutate
   const switchReaderBusy = switchReader.isPending
+  const kindReaderNow = kindReader.mutate
+  const kindReaderBusy = kindReader.isPending
 
   const peopleActions = useMemo(
     () => ({
@@ -375,13 +419,15 @@ export function Access() {
     () => ({
       setActive: (row: RfidDevice, active: boolean) =>
         switchReaderNow({ row, active }),
+      setKind: (row: RfidDevice, kind: RfidKind) =>
+        kindReaderNow({ row, kind }),
       rotate: (row: RfidDevice) => setRotatingReader(row),
-      busy: switchReaderBusy,
+      busy: switchReaderBusy || kindReaderBusy,
     }),
-    [switchReaderNow, switchReaderBusy]
+    [switchReaderNow, switchReaderBusy, kindReaderNow, kindReaderBusy]
   )
 
-  const failure = suspendPerson.error ?? switchReader.error
+  const failure = suspendPerson.error ?? switchReader.error ?? kindReader.error
 
   return (
     <PageContent>
@@ -808,6 +854,7 @@ interface ReaderDraft {
   deviceId: string
   originId: string
   label: string
+  kind: RfidKind
   pools: string
   lease: string
 }
@@ -1102,6 +1149,7 @@ function RegisterReaderSheet({
           .filter((pool) => pool !== ""),
         offline_ttl_seconds:
           draft.lease.trim() === "" ? null : Number(draft.lease),
+        kind: draft.kind,
       }),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: systemKeys.rfidDevices() })
@@ -1116,6 +1164,7 @@ function RegisterReaderSheet({
       deviceId: "",
       originId: "",
       label: "",
+      kind: "RFID_READER",
       pools: "",
       lease: "",
     } as ReaderDraft,
@@ -1227,6 +1276,24 @@ function RegisterReaderSheet({
                 onBlur={field.handleBlur}
                 onChange={(event) => field.handleChange(event.target.value)}
               />
+            </Field>
+          )}
+        </form.Field>
+
+        <form.Field name="kind">
+          {(field) => (
+            <Field
+              label="Kind"
+              required
+              hint="A handheld is carried round the floor; a fixed reader stays over a door or a bench. The node reports it under this kind."
+            >
+              <Select
+                value={field.state.value}
+                onChange={(next) => field.handleChange(next as RfidKind)}
+              >
+                <option value="RFID_READER">Fixed reader</option>
+                <option value="HANDHELD">Handheld</option>
+              </Select>
             </Field>
           )}
         </form.Field>

@@ -815,8 +815,8 @@ pub fn set_status(
         .map_err(db)?;
     if reader {
         return Err(EdgeError::Conflict(
-            "an RFID reader is switched on and off at head office (System → Access), \
-             where its key is kept"
+            "an RFID reader or handheld is switched on and off at head office \
+             (System → Access), where its key is kept"
                 .into(),
         ));
     }
@@ -1215,9 +1215,10 @@ fn find_device(connection: &Connection, device_id: &str) -> Result<DeviceReport,
 }
 
 /// Every device this node holds: tills (`edge_terminal`), printers
-/// (`edge_printer`) and RFID readers (`edge_rfid_device`, whose authority is
-/// head office's policy — reported so the registry shows where each one is
-/// and when it was last heard). Secrets never leave: no key, no digest.
+/// (`edge_printer`) and RFID keys (`edge_rfid_device`, whose authority is head
+/// office's policy — reported so the registry shows where each one is and when
+/// it was last heard), each a `HANDHELD` or an `RFID_READER` as head office
+/// registered it. Secrets never leave: no key, no digest.
 pub fn list_devices(connection: &Connection) -> Result<Vec<DeviceReport>, EdgeError> {
     let mut devices = Vec::new();
     {
@@ -1296,9 +1297,10 @@ pub fn list_devices(connection: &Connection) -> Result<Vec<DeviceReport>, EdgeEr
         }
     }
     {
+        // Carried or fixed, as head office registered each key (`0056`).
         let mut statement = connection
             .prepare(
-                "SELECT device_id, label, active, last_seen_at, valid_until
+                "SELECT device_id, label, active, last_seen_at, valid_until, kind
                    FROM edge_rfid_device
                   ORDER BY device_id",
             )
@@ -1307,9 +1309,14 @@ pub fn list_devices(connection: &Connection) -> Result<Vec<DeviceReport>, EdgeEr
             .query_map([], |row| {
                 let active: i64 = row.get(2)?;
                 let valid_until: Option<String> = row.get(4)?;
+                let kind: String = row.get(5)?;
                 Ok(DeviceReport {
                     device_id: row.get(0)?,
-                    kind: KIND_RFID_READER.to_string(),
+                    kind: if wire::is_rfid_kind(&kind) {
+                        kind
+                    } else {
+                        KIND_RFID_READER.to_string()
+                    },
                     label: row.get(1)?,
                     status: (if active == 1 {
                         STATUS_ACTIVE

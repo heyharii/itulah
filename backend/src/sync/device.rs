@@ -78,6 +78,13 @@ pub fn is_kind(value: &str) -> bool {
     KINDS.contains(&value)
 }
 
+/// The two kinds an RFID key can belong to: a reader somebody carries, and one
+/// fixed over a door or a bench. Head office says which when it registers the
+/// key (postgres 0623), and the node reports the device under it.
+pub fn is_rfid_kind(value: &str) -> bool {
+    matches!(value, KIND_HANDHELD | KIND_RFID_READER)
+}
+
 pub fn is_status(value: &str) -> bool {
     STATUSES.contains(&value)
 }

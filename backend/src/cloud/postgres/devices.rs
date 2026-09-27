@@ -40,6 +40,11 @@ use sqlx::{PgPool, Postgres, Row, Transaction};
 /// move another shop's till onto its own list. Rows this cloud cannot file —
 /// an unknown kind from a newer node, an empty id — are skipped the same way,
 /// rather than failing the heartbeat they came in.
+///
+/// An RFID key is filed under the kind head office registered it as
+/// (`rfid_device.kind`, 0623), whatever the node says: a node older than that
+/// reports every key as an `RFID_READER`, and head office is the one that
+/// knows which of them are handhelds.
 pub async fn record_reported_devices(
     tx: &mut Transaction<'_, Postgres>,
     origin_id: &str,
@@ -106,7 +111,10 @@ pub async fn record_reported_devices(
             Some((_, previous)) => {
                 sqlx::query(
                     "UPDATE device SET
-                         kind = $2, site_id = $3, label = $4, status = $5,
+                         kind = CASE WHEN $2 IN ('RFID_READER', 'HANDHELD')
+                             THEN COALESCE((SELECT r.kind FROM rfid_device r WHERE r.device_id = $1), $2)
+                             ELSE $2 END,
+                         site_id = $3, label = $4, status = $5,
                          last_seen_at = GREATEST(last_seen_at, $6),
                          config = $7,
                          replaces_device_id = COALESCE($8, replaces_device_id),
@@ -142,7 +150,11 @@ pub async fn record_reported_devices(
                     "INSERT INTO device
                          (device_id, kind, origin_id, site_id, label, status, last_seen_at,
                           config, replaces_device_id, registered_at, registered_by, rfid_device_id)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+                     VALUES ($1,
+                             CASE WHEN $2 IN ('RFID_READER', 'HANDHELD')
+                                  THEN COALESCE((SELECT r.kind FROM rfid_device r WHERE r.device_id = $1), $2)
+                                  ELSE $2 END,
+                             $3, $4, $5, $6, $7, $8, $9, $10, $11,
                              CASE WHEN $2 IN ('RFID_READER', 'HANDHELD')
                                   THEN (SELECT r.device_id FROM rfid_device r WHERE r.device_id = $1)
                              END)

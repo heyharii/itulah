@@ -11,9 +11,10 @@
 
 use crate::cloud::{
     application::{
-        AppError, AppState, ChangePasswordRequest, CreateUserRequest, RegisterRfidDeviceRequest,
+        AppError, AppState, ChangePasswordRequest, CreateUserRequest, RegisterRfidDeviceBody,
         ResetPasswordRequest, SetEdgeAssignmentActiveRequest, SetRfidDeviceActiveRequest,
-        SetUserActiveRequest, SetUserRoleRequest, UpsertEdgeAssignmentRequest,
+        SetRfidDeviceKindRequest, SetUserActiveRequest, SetUserRoleRequest,
+        UpsertEdgeAssignmentRequest,
     },
     domain::{relay, required_role, role_allows, RecordKind, Role, UnitId},
     http::audit::{id_in, DeclaredSubject},
@@ -760,10 +761,15 @@ pub async fn register_rfid_device(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
     Extension(acted_on): Extension<DeclaredSubject>,
-    Json(request): Json<RegisterRfidDeviceRequest>,
+    Json(request): Json<RegisterRfidDeviceBody>,
 ) -> Result<Json<Value>, AppError> {
-    let body =
-        infrastructure::register_rfid_device(&state.db, request, &principal.username).await?;
+    let body = infrastructure::register_rfid_device_as(
+        &state.db,
+        request.device,
+        request.kind.as_deref(),
+        &principal.username,
+    )
+    .await?;
     if let Some(device_id) = id_in(&body, "device_id") {
         acted_on.set(RecordKind::RfidDevice, device_id);
     }
@@ -778,6 +784,19 @@ pub async fn set_rfid_device_active(
 ) -> Result<Json<Value>, AppError> {
     Ok(Json(
         infrastructure::set_rfid_device_active(&state.db, &device_id, request, &principal.username)
+            .await?,
+    ))
+}
+
+/// Handheld or fixed. Filed against the reader by its path, like `active`.
+pub async fn set_rfid_device_kind(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(device_id): Path<String>,
+    Json(request): Json<SetRfidDeviceKindRequest>,
+) -> Result<Json<Value>, AppError> {
+    Ok(Json(
+        infrastructure::set_rfid_device_kind(&state.db, &device_id, request, &principal.username)
             .await?,
     ))
 }

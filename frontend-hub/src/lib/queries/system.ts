@@ -186,6 +186,10 @@ export interface EdgeAssignment {
   readonly updated_at: string
 }
 
+/// What an RFID key's machine is: carried round the floor, or fixed over a
+/// door or a bench. Head office says which; the node reports it back.
+export type RfidKind = "RFID_READER" | "HANDHELD"
+
 /// A reader on a node's floor. Its key is not here and never will be.
 export interface RfidDevice {
   readonly device_id: string
@@ -197,6 +201,7 @@ export interface RfidDevice {
   readonly created_at: string
   readonly updated_at: string
   readonly last_seen_at: string | null
+  readonly kind: RfidKind
 }
 
 /// What a policy publication produced. Every identity write publishes one, so
@@ -1068,6 +1073,8 @@ export interface RegisterRfidDeviceRequest {
   readonly label: string
   readonly pools: readonly string[]
   readonly offline_ttl_seconds?: number | null
+  /// A fixed reader when left out.
+  readonly kind?: RfidKind
 }
 
 /// Register a reader.
@@ -1106,6 +1113,25 @@ export function setRfidDeviceActive(
   }>(
     `/api/v1/auth/rfid-devices/${encodeURIComponent(deviceId)}/active`,
     { active },
+    { signal }
+  )
+}
+
+/// Say whether a key's reader is a handheld or a fixed one. The node hears
+/// it in the policy this publishes, and the Devices list shows it at once.
+export function setRfidDeviceKind(
+  deviceId: string,
+  kind: RfidKind,
+  signal?: AbortSignal
+) {
+  return node.post<{
+    device_id: string
+    origin_id: string
+    kind: RfidKind
+    policy: PolicyReceipt
+  }>(
+    `/api/v1/auth/rfid-devices/${encodeURIComponent(deviceId)}/kind`,
+    { kind },
     { signal }
   )
 }
