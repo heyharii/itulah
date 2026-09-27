@@ -17,7 +17,13 @@ use sqlx::{PgPool, Postgres, Row, Transaction};
 use std::{collections::HashMap, str::FromStr};
 use uuid::Uuid;
 
-const TO_STORE_SOURCE_PLACE_ID: &str = "dc.warehouse:on_hand";
+/// The pool a place id stands in, when it is an operational place.
+fn operational_pool_of(place_id: &str) -> Option<crate::cloud::domain::OperationalPool> {
+    match place_id.parse::<crate::cloud::domain::Place>() {
+        Ok(crate::cloud::domain::Place::Operational { pool, .. }) => Some(pool),
+        _ => None,
+    }
+}
 
 pub async fn create_manual_movement(
     pool: &PgPool,
@@ -33,17 +39,18 @@ pub async fn create_manual_movement(
             "manual movement endpoint only accepts NORMAL_MOVE, SALE, or SUPPLIER_RETURN".into(),
         ));
     }
-    // Both spellings of the same exit. `picking` is where an execution lands
-    // now (INVENTORY-V1 INV-05); `picked.{store}` is retired and takes no new
-    // writes, and naming it here says so with an error rather than a foreign
-    // key. Either way the guard is about the counter, not the shelf: a hand
-    // written movement out of DC Warehouse leaves the allotment line claiming
-    // goods that have already gone.
+    // Both spellings of the same exit, at any site. `picking` is where an
+    // execution lands now (INVENTORY-V1 INV-05); `picked.{store}` is retired
+    // and takes no new writes. Either way the guard is about the counter, not
+    // the shelf: a hand-written movement out of a stockroom into the outbound
+    // area leaves the allotment line claiming goods that have already gone.
+    // Read by the pools' roles (0610), never by how their ids are spelled.
     if cause == MovementCause::NormalMove
         && request.lines.iter().any(|line| {
-            line.from == TO_STORE_SOURCE_PLACE_ID
-                && (line.to.starts_with("dc.outbound.picking")
-                    || line.to.starts_with("dc.outbound.picked.store-"))
+            operational_pool_of(&line.from)
+                .is_some_and(|pool| pool.role() == crate::pool_role::PoolRole::Stockroom)
+                && operational_pool_of(&line.to)
+                    .is_some_and(|pool| pool.role() == crate::pool_role::PoolRole::Picking)
         })
     {
         return Err(AppError::Validation(
@@ -244,20 +251,24 @@ pub(super) async fn apply_lines(
     // here, in this same transaction: the movement ledger and the cost ledger
     // commit together or not at all. A move, a sale (already costed by the
     // sales day) and a gain post nothing — see `post_operational_outflow`.
-    let head_office = crate::ids::SiteId::new(super::sites::head_office_site_id(&mut **tx).await?)
-        .map_err(|error| AppError::Configuration(error.to_string()))?;
     for line in &command.lines {
         let Some(pool) = line.from.pool() else {
             continue;
         };
+        // The site the goods stood at is the pool row's (0610), not the first
+        // segment of its id. A company place always has its pool row.
+        let pool_id = pool.id();
+        let site_id = super::sites::pool_site_id(&mut **tx, &pool_id)
+            .await?
+            .ok_or_else(|| AppError::Conflict(format!("pool {pool_id} has no row")))?;
         super::stock_ledger::post_operational_outflow(
             tx,
             command.cause.as_str(),
             line.subject_id.0,
             line.quantity,
             command.occurred_at.date_naive(),
-            &pool.id(),
-            pool.site_id(&head_office).as_str(),
+            &pool_id,
+            site_id.as_str(),
             &format!("{idempotency_key}:{}", line.subject_id.0),
             &command.reason,
             &command.actor_id,
@@ -442,8 +453,9 @@ async fn validate_outbound_allotment_line_provenance(
 ) -> Result<(), AppError> {
     let from = line.from.id();
     let to = line.to.id();
-    let from_outbound = from.starts_with("dc.outbound.");
-    let to_outbound = to.starts_with("dc.outbound.");
+    // The outbound area of any site, by role (0610).
+    let from_outbound = line.from.pool().is_some_and(|pool| pool.role().is_outbound());
+    let to_outbound = line.to.pool().is_some_and(|pool| pool.role().is_outbound());
     if !from_outbound && !to_outbound {
         return Ok(());
     }
@@ -464,11 +476,15 @@ async fn validate_outbound_allotment_line_provenance(
             .fetch_optional(&mut **tx)
             .await?
             .ok_or_else(|| AppError::NotFound("movement allotment line reference".into()))?;
-        if provenance.get::<String, _>("allotment_type") != "TO_STORE"
-            || provenance.get::<String, _>("destination_type") != "STORE"
-        {
+        // A route that goes to a site of ours: TO_SITE (TO_STORE before 0611)
+        // or RETURN_TO_WAREHOUSE (RETURN_TO_DC). A supplier is no site.
+        let route = crate::cloud::domain::AllotmentType::from_str(
+            &provenance.get::<String, _>("allotment_type"),
+        )
+        .map_err(|error| AppError::Conflict(error.to_string()))?;
+        if !route.goes_to_a_site() || provenance.get::<String, _>("destination_type") == "SUPPLIER" {
             return Err(AppError::Conflict(
-                "outbound movement requires a TO_STORE line with a Store destination".into(),
+                "outbound movement requires an allotment line bound for a site of ours".into(),
             ));
         }
         let line_sku_id: Uuid = provenance.get("sku_id");
@@ -514,11 +530,22 @@ async fn validate_outbound_allotment_line_provenance(
                 )));
             }
         }
-        if to.starts_with("store-") && to.split('.').next() != Some(destination_id.as_str()) {
-            return Err(AppError::Conflict(format!(
-                "allotment line {allotment_line_id} is destined for {destination_id}, not {}",
-                to.split('.').next().unwrap_or_default()
-            )));
+        // Arriving out of in-transit, the goods land at the line's destination
+        // and nowhere else. Which site a pool stands at is its row's (0610).
+        let arriving = line
+            .from
+            .pool()
+            .is_some_and(|pool| pool.role() == crate::pool_role::PoolRole::InTransit);
+        if arriving && !to_outbound {
+            if let Some(to_pool) = line.to.pool() {
+                let landing = super::sites::pool_site_id(&mut **tx, &to_pool.id()).await?;
+                if landing.as_deref() != Some(destination_id.as_str()) {
+                    return Err(AppError::Conflict(format!(
+                        "allotment line {allotment_line_id} is destined for {destination_id}, not {}",
+                        landing.unwrap_or_default()
+                    )));
+                }
+            }
         }
         return Ok(());
     }
@@ -721,8 +748,9 @@ const MOVEMENT_SCOPE_PLACES: &str = r#"
     JOIN operational_pool op ON op.id=place.pool_id
     WHERE op.id=$2 OR EXISTS (
         SELECT 1 FROM operational_pool scope
-        WHERE scope.id=$2 AND NOT scope.is_placement AND scope.outbound_stage IS NOT NULL
-          AND op.is_placement AND op.outbound_stage=scope.outbound_stage)
+        WHERE scope.id=$2 AND scope.destination_store_id IS NULL AND scope.outbound_stage IS NOT NULL
+          AND op.is_placement AND op.outbound_stage=scope.outbound_stage
+          AND op.site_id=scope.site_id)
 "#;
 
 /// WHICH movements a scope matches, defined once — for the page and for the

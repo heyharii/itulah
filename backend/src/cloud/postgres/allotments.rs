@@ -1,4 +1,7 @@
-use super::sync::{inventory_dc_owner_tx, issue_command_tx, origin_site_id_tx, pool_id_for_site};
+use super::sync::{
+    inventory_owner_tx, issue_command_tx, origin_site_id_tx, origin_takes_goods_routes_tx,
+    pool_id_for_site,
+};
 use super::{apply_lines, begin_idempotent, complete_idempotent, insert_group, payload_digest};
 use crate::cloud::{
     application::{
@@ -6,12 +9,11 @@ use crate::cloud::{
         CreateAllotmentRequest, ExecuteAllotmentRequest,
     },
     domain::{
-        AllotmentStatus, AllotmentType, DestinationType, FulfillmentStatus, InventoryState,
-        MovementCause, MovementCommand, MovementGroupId, MovementLine, OperationalPool, Place,
-        SiteId, SubjectId,
+        AllotmentPurpose, AllotmentStatus, AllotmentType, DestinationType, FulfillmentStatus,
+        MovementCause, MovementCommand, MovementGroupId, MovementLine, Place, SubjectId,
     },
 };
-use crate::edge::OperationalPool as EdgeOperationalPool;
+use crate::pool_role::PoolRole;
 use crate::sync::workflow::{
     parse_allotment_cancellation, AllotmentActivationLine, AllotmentActivationPayload,
     AllotmentCancellationLine, AllotmentCancellationPayload, AllotmentCancellationResultLine,
@@ -27,15 +29,9 @@ use std::{
 };
 use uuid::Uuid;
 
-/// A POOL id, and deliberately still spelled `dc`. 0256 renamed the site, not
-/// the seventy-four pools standing on it.
-const DEFAULT_SOURCE_POOL_ID: &str = "dc.warehouse";
-
-/// `site.kind` for the one place that is not a shop. Was `DC` until 0256 made
-/// the warehouse and head office one row; a check against `DC` now matches
-/// nothing at all rather than matching the wrong thing, which is the better of
-/// the two failures but still a failure.
-const HEAD_OFFICE_KIND: &str = "HO";
+/// `unit.kind` of head office (0600). A KIND, read off the unit row a site
+/// belongs to — never a site id.
+const HEAD_OFFICE_UNIT_KIND: &str = "HO";
 
 #[derive(Clone, Debug)]
 pub(super) struct LineIdentity {
@@ -52,9 +48,44 @@ struct NormalizedLine {
     quantity: i64,
 }
 
+/// What the rows say about one site a line names.
+#[derive(Clone, Debug)]
+struct SiteFacts {
+    /// `site.kind`.
+    kind: String,
+    /// The kind of the unit that owns it: HO or STORE (0600).
+    unit_kind: String,
+}
+
+/// Everything the route rules read, read once, from rows.
 struct CreateValidationContext {
-    source_sites: HashMap<String, (String, String)>,
-    destination_kinds: HashMap<String, String>,
+    /// Source pool id → (the site it stands at, its role).
+    source_pools: HashMap<String, (String, String)>,
+    sites: HashMap<String, SiteFacts>,
+    /// Site kinds whose template gives a saleable floor: sites that sell.
+    selling_kinds: HashSet<String>,
+    /// Site kinds whose template gives receiving: warehouses.
+    warehouse_kinds: HashSet<String>,
+}
+
+impl CreateValidationContext {
+    fn sells(&self, site_id: &str) -> bool {
+        self.sites
+            .get(site_id)
+            .is_some_and(|site| self.selling_kinds.contains(&site.kind))
+    }
+
+    fn is_warehouse(&self, site_id: &str) -> bool {
+        self.sites
+            .get(site_id)
+            .is_some_and(|site| self.warehouse_kinds.contains(&site.kind))
+    }
+
+    fn of_head_office(&self, site_id: &str) -> bool {
+        self.sites
+            .get(site_id)
+            .is_some_and(|site| site.unit_kind == HEAD_OFFICE_UNIT_KIND)
+    }
 }
 
 pub async fn create_allotment(
@@ -145,8 +176,14 @@ pub async fn create_allotment(
     }
 
     let validation = load_create_validation_context(&mut tx, &lines).await?;
+    // The destination word nodes read (STORE / DC) is derived from the
+    // destination site's kind, never trusted from the id or the request.
+    for line in &mut lines {
+        line.identity.destination_type = resolve_destination_type(&line.identity, &validation)?;
+    }
+    let mut purpose = None;
     for line in &lines {
-        validate_create_line(request.allotment_type, line, &validation)?;
+        purpose = validate_create_line(request.allotment_type, line, &validation)?.or(purpose);
     }
     let mut sku_ids: Vec<Uuid> = lines.iter().map(|line| line.identity.sku_id).collect();
     sku_ids.sort_unstable();
@@ -166,15 +203,24 @@ pub async fn create_allotment(
         .next()
         .cloned()
         .ok_or_else(|| AppError::Validation("allotment source site is required".into()))?;
-    let activation_target_origin_id = if matches!(
-        request.allotment_type,
-        AllotmentType::ToStore | AllotmentType::ReturnToSupplier
-    ) {
-        inventory_dc_owner_tx(&mut tx, &source_site_id).await?
-    } else {
-        None
-    };
-    // What that owner calls itself. `inventory_dc_owner_tx` resolves the
+    // Whoever owns the source site's ledger executes the allotment: the
+    // Gudang's node, or a shop's for its return or transfer. A site no node
+    // owns is executed by the centre.
+    let activation_target_origin_id = inventory_owner_tx(&mut tx, &source_site_id).await?;
+    // A node that cannot yet send goods is not sent the work: an unreadable
+    // command blocks its whole stream. The Gudang's allotment has always
+    // been understood; anything a shop sends needs the newer build, which
+    // says so in its heartbeat.
+    if let Some(origin_id) = activation_target_origin_id.as_deref() {
+        if !validation.of_head_office(&source_site_id)
+            && !origin_takes_goods_routes_tx(&mut tx, origin_id).await?
+        {
+            return Err(AppError::Conflict(format!(
+                "the server at {source_site_id} runs a build that cannot send goods yet; update it before raising this allotment"
+            )));
+        }
+    }
+    // What that owner calls itself. `inventory_owner_tx` resolves the
     // centre's canonical `dc` to whichever origin is registered, and that
     // origin is entitled to run as `dc-01` — so every name leaving this
     // transaction for it has to be respelled. Identical to `source_site_id`
@@ -191,7 +237,7 @@ pub async fn create_allotment(
         .get::<i64, _>("sequence");
     let allotment_number = format!("ALT-{sequence:08}");
     let now = Utc::now();
-    sqlx::query("INSERT INTO allotment(id,allotment_number,type,status,created_by,notes,idempotency_key,created_at,updated_at,activation_target_origin_id,edge_application_status) VALUES($1,$2,$3,'ACTIVE',$4,$5,$6,$7,$7,$8,CASE WHEN $8 IS NULL THEN NULL ELSE 'PENDING' END)")
+    sqlx::query("INSERT INTO allotment(id,allotment_number,type,purpose,status,created_by,notes,idempotency_key,created_at,updated_at,activation_target_origin_id,edge_application_status) VALUES($1,$2,$3,$9,'ACTIVE',$4,$5,$6,$7,$7,$8,CASE WHEN $8 IS NULL THEN NULL ELSE 'PENDING' END)")
         .bind(allotment_id)
         .bind(&allotment_number)
         .bind(request.allotment_type.as_str())
@@ -200,6 +246,7 @@ pub async fn create_allotment(
         .bind(&request.idempotency_key)
         .bind(now)
         .bind(activation_target_origin_id.as_deref())
+        .bind(purpose.map(AllotmentPurpose::as_str))
         .execute(&mut *tx)
         .await?;
 
@@ -358,7 +405,8 @@ pub async fn create_allotment(
             schema_version: INVENTORY_WORKFLOW_SCHEMA_VERSION,
             allotment_id,
             allotment_number: allotment_number.clone(),
-            allotment_type: request.allotment_type.as_str().to_string(),
+            // The old word, which every build in the field reads.
+            allotment_type: request.allotment_type.wire_code().to_string(),
             status: "ACTIVE".into(),
             source_site_id: command_site_id.to_string(),
             created_by: request.actor_id.trim().to_string(),
@@ -388,6 +436,7 @@ pub async fn create_allotment(
         "id":allotment_id,
         "allotment_number":allotment_number,
         "type":request.allotment_type.as_str(),
+        "purpose":purpose.map(AllotmentPurpose::as_str),
         "status":"ACTIVE",
         "total_quantity":total_quantity,
         "total_picked_quantity":0,
@@ -402,6 +451,7 @@ pub async fn create_allotment(
         "lines":response_lines,
         "activation_command_id":activation_command_id,
         "activation_target_origin_id":activation_target_origin_id,
+        // The wire word; a shop that executes its own return answers here too.
         "execution_authority":if activation_command_id.is_some() { "EDGE_DC" } else { "CLOUD" },
         "inventory_effect":{"movement_count":0,"ledger_changed":false}
     });
@@ -751,9 +801,8 @@ pub async fn execute_allotment(
 
     let allotment_type = AllotmentType::from_str(&header.get::<String, _>("type"))
         .map_err(|error| AppError::Conflict(error.to_string()))?;
-    let head_office = super::sites::head_office_site_id(&mut *tx).await?;
     let (cause, destination_place_id) =
-        execution_transition(allotment_type, &identity, &head_office)?;
+        execution_transition(&mut tx, allotment_type, &identity).await?;
     let source_place_id = format!("{}:on_hand", identity.source_pool_id);
     let movement_lines = allocate_source_subjects(
         &mut tx,
@@ -1256,7 +1305,14 @@ pub async fn get_allotment(pool: &PgPool, allotment_id: Uuid) -> Result<Value, A
 
 pub async fn list_allotments(pool: &PgPool, query: AllotmentQuery) -> Result<Value, AppError> {
     let limit = query.limit.unwrap_or(200).clamp(1, 500);
-    let allotment_type = query.allotment_type.map(|value| value.as_str().to_owned());
+    // Every spelling the route was ever stored under (0611).
+    let allotment_type = query.allotment_type.map(|value| {
+        value
+            .spellings()
+            .iter()
+            .map(|spelling| (*spelling).to_owned())
+            .collect::<Vec<String>>()
+    });
     let status = query.status.map(|value| value.as_str().to_owned());
     // A row here is read before the allotment is opened, so it carries the
     // shape of the promise beside its size: lines written, SKUs named, and
@@ -1265,7 +1321,7 @@ pub async fn list_allotments(pool: &PgPool, query: AllotmentQuery) -> Result<Val
     // keeps a line-less allotment honest — the outer join hands it a pair of
     // nulls, and a pair of nulls is still a value COUNT DISTINCT would call
     // one destination.
-    let rows = sqlx::query("SELECT a.id,a.allotment_number,a.type,a.status,a.edge_cancellation_status,a.created_by,a.notes,a.created_at,a.updated_at,COUNT(l.id)::bigint line_count,COUNT(DISTINCT l.sku_id)::bigint sku_count,COUNT(DISTINCT (l.destination_type,l.destination_id)) FILTER (WHERE l.id IS NOT NULL)::bigint destination_count,COALESCE(SUM(l.quantity),0)::bigint quantity,COALESCE(SUM(COALESCE(progress.accepted_quantity,CASE WHEN a.activation_target_origin_id IS NULL THEN l.quantity ELSE 0 END)),0)::bigint accepted,COALESCE(SUM(COALESCE(progress.picked_quantity,l.picked_quantity)),0)::bigint picked,COALESCE(SUM(COALESCE(progress.packed_quantity,l.packed_quantity)),0)::bigint packed,COALESCE(SUM(COALESCE(progress.shipment_quantity,l.shipment_quantity)),0)::bigint shipment,COALESCE(SUM(COALESCE(progress.dispatched_quantity,l.dispatched_quantity)),0)::bigint dispatched,COALESCE(SUM(COALESCE(progress.in_transit_quantity,l.in_transit_quantity)),0)::bigint in_transit,COALESCE(SUM(COALESCE(progress.received_quantity,l.received_quantity)),0)::bigint received,COALESCE(SUM(COALESCE(progress.cancelled_quantity,l.cancelled_quantity)),0)::bigint cancelled,COALESCE(SUM(commitment.to_pack_qty),0)::bigint remaining,COALESCE(SUM(commitment.to_receive_qty),0)::bigint to_receive,COALESCE(SUM(commitment.receiving_gap_qty),0)::bigint receiving_gap_qty FROM allotment a LEFT JOIN allotment_line l ON l.allotment_id=a.id LEFT JOIN edge_allotment_line_progress progress ON progress.allotment_line_id=l.id LEFT JOIN allotment_line_commitment commitment ON commitment.allotment_line_id=l.id WHERE ($1::text IS NULL OR a.type=$1) AND ($2::text IS NULL OR a.status=$2) AND ($3::text IS NULL OR EXISTS(SELECT 1 FROM allotment_line source_line WHERE source_line.allotment_id=a.id AND source_line.source_pool_id=$3)) AND ($4::text IS NULL OR EXISTS(SELECT 1 FROM allotment_line destination_line WHERE destination_line.allotment_id=a.id AND destination_line.destination_id=$4)) GROUP BY a.id ORDER BY a.created_at DESC LIMIT $5")
+    let rows = sqlx::query("SELECT a.id,a.allotment_number,a.type,a.status,a.edge_cancellation_status,a.created_by,a.notes,a.created_at,a.updated_at,COUNT(l.id)::bigint line_count,COUNT(DISTINCT l.sku_id)::bigint sku_count,COUNT(DISTINCT (l.destination_type,l.destination_id)) FILTER (WHERE l.id IS NOT NULL)::bigint destination_count,COALESCE(SUM(l.quantity),0)::bigint quantity,COALESCE(SUM(COALESCE(progress.accepted_quantity,CASE WHEN a.activation_target_origin_id IS NULL THEN l.quantity ELSE 0 END)),0)::bigint accepted,COALESCE(SUM(COALESCE(progress.picked_quantity,l.picked_quantity)),0)::bigint picked,COALESCE(SUM(COALESCE(progress.packed_quantity,l.packed_quantity)),0)::bigint packed,COALESCE(SUM(COALESCE(progress.shipment_quantity,l.shipment_quantity)),0)::bigint shipment,COALESCE(SUM(COALESCE(progress.dispatched_quantity,l.dispatched_quantity)),0)::bigint dispatched,COALESCE(SUM(COALESCE(progress.in_transit_quantity,l.in_transit_quantity)),0)::bigint in_transit,COALESCE(SUM(COALESCE(progress.received_quantity,l.received_quantity)),0)::bigint received,COALESCE(SUM(COALESCE(progress.cancelled_quantity,l.cancelled_quantity)),0)::bigint cancelled,COALESCE(SUM(commitment.to_pack_qty),0)::bigint remaining,COALESCE(SUM(commitment.to_receive_qty),0)::bigint to_receive,COALESCE(SUM(commitment.receiving_gap_qty),0)::bigint receiving_gap_qty FROM allotment a LEFT JOIN allotment_line l ON l.allotment_id=a.id LEFT JOIN edge_allotment_line_progress progress ON progress.allotment_line_id=l.id LEFT JOIN allotment_line_commitment commitment ON commitment.allotment_line_id=l.id WHERE ($1::text[] IS NULL OR a.type=ANY($1)) AND ($2::text IS NULL OR a.status=$2) AND ($3::text IS NULL OR EXISTS(SELECT 1 FROM allotment_line source_line WHERE source_line.allotment_id=a.id AND source_line.source_pool_id=$3)) AND ($4::text IS NULL OR EXISTS(SELECT 1 FROM allotment_line destination_line WHERE destination_line.allotment_id=a.id AND destination_line.destination_id=$4)) GROUP BY a.id ORDER BY a.created_at DESC LIMIT $5")
         .bind(allotment_type)
         .bind(status)
         .bind(query.source_pool_id.as_deref().map(str::trim).filter(|value| !value.is_empty()))
@@ -1437,7 +1493,14 @@ pub async fn list_allotments_by_article(
     pool: &PgPool,
     query: AllotmentQuery,
 ) -> Result<Value, AppError> {
-    let allotment_type = query.allotment_type.map(|value| value.as_str().to_owned());
+    // Every spelling the route was ever stored under (0611).
+    let allotment_type = query.allotment_type.map(|value| {
+        value
+            .spellings()
+            .iter()
+            .map(|spelling| (*spelling).to_owned())
+            .collect::<Vec<String>>()
+    });
     let status = query.status.map(|value| value.as_str().to_owned());
     let destination_id = query
         .destination_id
@@ -1448,7 +1511,7 @@ pub async fn list_allotments_by_article(
     // Destinations are counted as the pair, because the id alone is only
     // unique within its kind — a store and a supplier may answer to the same
     // string, and they are two places to send goods.
-    let rows = sqlx::query("SELECT ar.id article_id,ar.article_code,ar.name article_name,ar.division_code,ar.image_url,COUNT(DISTINCT l.sku_id)::bigint sku_count,COUNT(DISTINCT (l.destination_type,l.destination_id))::bigint destination_count,SUM(l.quantity)::bigint quantity,SUM(COALESCE(progress.accepted_quantity,CASE WHEN a.activation_target_origin_id IS NULL THEN l.quantity ELSE 0 END))::bigint accepted,SUM(COALESCE(progress.picked_quantity,l.picked_quantity))::bigint picked,SUM(COALESCE(progress.packed_quantity,l.packed_quantity))::bigint packed,SUM(COALESCE(progress.shipment_quantity,l.shipment_quantity))::bigint shipment,SUM(COALESCE(progress.dispatched_quantity,l.dispatched_quantity))::bigint dispatched,SUM(COALESCE(progress.in_transit_quantity,l.in_transit_quantity))::bigint in_transit,SUM(COALESCE(progress.received_quantity,l.received_quantity))::bigint received,SUM(COALESCE(progress.cancelled_quantity,l.cancelled_quantity))::bigint cancelled,SUM(commitment.to_pack_qty)::bigint remaining,SUM(commitment.to_receive_qty)::bigint to_receive,SUM(commitment.receiving_gap_qty)::bigint receiving_gap_qty FROM allotment_line l JOIN allotment a ON a.id=l.allotment_id JOIN sku sk ON sk.id=l.sku_id JOIN article ar ON ar.id=sk.article_id LEFT JOIN edge_allotment_line_progress progress ON progress.allotment_line_id=l.id LEFT JOIN allotment_line_commitment commitment ON commitment.allotment_line_id=l.id WHERE ($1::text IS NULL OR a.type=$1) AND ($2::text IS NULL OR a.status=$2) AND ($3::text IS NULL OR l.destination_id=$3) GROUP BY ar.id,ar.article_code,ar.name,ar.division_code,ar.image_url ORDER BY ar.name")
+    let rows = sqlx::query("SELECT ar.id article_id,ar.article_code,ar.name article_name,ar.division_code,ar.image_url,COUNT(DISTINCT l.sku_id)::bigint sku_count,COUNT(DISTINCT (l.destination_type,l.destination_id))::bigint destination_count,SUM(l.quantity)::bigint quantity,SUM(COALESCE(progress.accepted_quantity,CASE WHEN a.activation_target_origin_id IS NULL THEN l.quantity ELSE 0 END))::bigint accepted,SUM(COALESCE(progress.picked_quantity,l.picked_quantity))::bigint picked,SUM(COALESCE(progress.packed_quantity,l.packed_quantity))::bigint packed,SUM(COALESCE(progress.shipment_quantity,l.shipment_quantity))::bigint shipment,SUM(COALESCE(progress.dispatched_quantity,l.dispatched_quantity))::bigint dispatched,SUM(COALESCE(progress.in_transit_quantity,l.in_transit_quantity))::bigint in_transit,SUM(COALESCE(progress.received_quantity,l.received_quantity))::bigint received,SUM(COALESCE(progress.cancelled_quantity,l.cancelled_quantity))::bigint cancelled,SUM(commitment.to_pack_qty)::bigint remaining,SUM(commitment.to_receive_qty)::bigint to_receive,SUM(commitment.receiving_gap_qty)::bigint receiving_gap_qty FROM allotment_line l JOIN allotment a ON a.id=l.allotment_id JOIN sku sk ON sk.id=l.sku_id JOIN article ar ON ar.id=sk.article_id LEFT JOIN edge_allotment_line_progress progress ON progress.allotment_line_id=l.id LEFT JOIN allotment_line_commitment commitment ON commitment.allotment_line_id=l.id WHERE ($1::text[] IS NULL OR a.type=ANY($1)) AND ($2::text IS NULL OR a.status=$2) AND ($3::text IS NULL OR l.destination_id=$3) GROUP BY ar.id,ar.article_code,ar.name,ar.division_code,ar.image_url ORDER BY ar.name")
         .bind(allotment_type)
         .bind(status)
         .bind(destination_id)
@@ -1513,13 +1576,22 @@ pub async fn get_availability(pool: &PgPool, query: AvailabilityQuery) -> Result
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty());
-    let source_pool_id = query
+    // Without a pool named, head office's stockroom — found by the site's
+    // kind and the pool's role (0610), never by a spelled id.
+    let source_pool_id = match query
         .source_pool_id
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or(DEFAULT_SOURCE_POOL_ID)
-        .to_ascii_lowercase();
+    {
+        Some(named) => named.to_ascii_lowercase(),
+        None => {
+            let head_office = super::sites::head_office_site_id(pool).await?;
+            super::sites::pool_of_role(pool, &head_office, PoolRole::Stockroom)
+                .await?
+                .ok_or_else(|| AppError::NotFound("head office stockroom".into()))?
+        }
+    };
     let source =
         sqlx::query("SELECT p.site_id,p.label FROM operational_pool p WHERE p.id=$1 AND p.active AND p.is_placement")
             .bind(&source_pool_id)
@@ -1534,7 +1606,7 @@ pub async fn get_availability(pool: &PgPool, query: AvailabilityQuery) -> Result
     // Resolve the same owner and Edge spelling used by that write path.
     let source_site_id: String = source.get("site_id");
     let mut ownership_tx = pool.begin().await?;
-    let edge_origin_id = inventory_dc_owner_tx(&mut ownership_tx, &source_site_id).await?;
+    let edge_origin_id = inventory_owner_tx(&mut ownership_tx, &source_site_id).await?;
     let edge_source_pool_id = if let Some(origin_id) = edge_origin_id.as_deref() {
         let owner_site_id = origin_site_id_tx(&mut ownership_tx, origin_id).await?;
         Some(pool_id_for_site(&source_pool_id, &owner_site_id))
@@ -1860,163 +1932,267 @@ async fn load_create_validation_context(
         .iter()
         .map(|line| line.identity.source_pool_id.clone())
         .collect();
-    let destination_ids: Vec<String> = lines
+    let site_ids: Vec<String> = lines
         .iter()
-        .map(|line| line.identity.destination_id.clone())
+        .flat_map(|line| {
+            [
+                line.identity.source_site_id.clone(),
+                line.identity.destination_id.clone(),
+            ]
+        })
         .collect();
-    let source_sites = sqlx::query(
-        "SELECT pool.id,pool.site_id,site.kind FROM operational_pool pool
-         JOIN site ON site.id=pool.site_id
+    let source_pools = sqlx::query(
+        "SELECT pool.id,pool.site_id,pool.role FROM operational_pool pool
          WHERE pool.id=ANY($1) AND pool.active AND pool.is_placement",
     )
     .bind(&pool_ids)
     .fetch_all(&mut **tx)
     .await?
     .into_iter()
-    .map(|row| (row.get("id"), (row.get("site_id"), row.get("kind"))))
+    .map(|row| (row.get("id"), (row.get("site_id"), row.get("role"))))
     .collect();
-    let destination_kinds = sqlx::query("SELECT id,kind FROM site WHERE id=ANY($1)")
-        .bind(&destination_ids)
-        .fetch_all(&mut **tx)
-        .await?
-        .into_iter()
-        .map(|row| (row.get("id"), row.get("kind")))
-        .collect();
+    let sites = sqlx::query(
+        "SELECT site.id,site.kind,unit.kind unit_kind FROM site JOIN unit ON unit.id=site.unit_id
+         WHERE site.id=ANY($1)",
+    )
+    .bind(&site_ids)
+    .fetch_all(&mut **tx)
+    .await?
+    .into_iter()
+    .map(|row| {
+        (
+            row.get::<String, _>("id"),
+            SiteFacts {
+                kind: row.get("kind"),
+                unit_kind: row.get("unit_kind"),
+            },
+        )
+    })
+    .collect();
+    // What a kind of site IS comes from its template (0610): one that is given
+    // a saleable floor sells, one that is given receiving is a warehouse. No
+    // kind word is written into this file.
+    let mut selling_kinds = HashSet::new();
+    let mut warehouse_kinds = HashSet::new();
+    for row in sqlx::query(
+        "SELECT site_kind,bool_or(role='FLOOR') sells,bool_or(role='RECEIVING') receives
+         FROM pool_template GROUP BY site_kind",
+    )
+    .fetch_all(&mut **tx)
+    .await?
+    {
+        let kind: String = row.get("site_kind");
+        if row.get::<bool, _>("sells") {
+            selling_kinds.insert(kind.clone());
+        }
+        if row.get::<bool, _>("receives") {
+            warehouse_kinds.insert(kind);
+        }
+    }
     Ok(CreateValidationContext {
-        source_sites,
-        destination_kinds,
+        source_pools,
+        sites,
+        selling_kinds,
+        warehouse_kinds,
     })
 }
 
+/// The word a line's destination is stored and sent under, from the
+/// destination's row. A request may say SITE and leave it to the centre; one
+/// that says STORE or DC must agree with the site it names.
+fn resolve_destination_type(
+    identity: &LineIdentity,
+    context: &CreateValidationContext,
+) -> Result<DestinationType, AppError> {
+    if identity.destination_type == DestinationType::Supplier {
+        return Ok(DestinationType::Supplier);
+    }
+    let destination = &identity.destination_id;
+    if !context.sites.contains_key(destination) {
+        return Err(AppError::NotFound(format!("destination site {destination}")));
+    }
+    let derived = if context.sells(destination) {
+        DestinationType::Store
+    } else if context.is_warehouse(destination) {
+        DestinationType::Warehouse
+    } else {
+        return Err(AppError::Validation(format!(
+            "destination {destination} neither sells nor keeps goods for others"
+        )));
+    };
+    if identity.destination_type != DestinationType::Site && identity.destination_type != derived {
+        return Err(AppError::Validation(format!(
+            "destination {destination} is a {} site, not {}",
+            derived.as_str(),
+            identity.destination_type.as_str()
+        )));
+    }
+    Ok(derived)
+}
+
+/// Whether one line fits its route, read from rows. Returns the purpose a
+/// TO_SITE line implies.
 fn validate_create_line(
     allotment_type: AllotmentType,
     line: &NormalizedLine,
     context: &CreateValidationContext,
-) -> Result<(), AppError> {
-    let (source_site_id, source_site_kind) = context
-        .source_sites
-        .get(&line.identity.source_pool_id)
+) -> Result<Option<AllotmentPurpose>, AppError> {
+    let identity = &line.identity;
+    let (pool_site_id, pool_role) = context
+        .source_pools
+        .get(&identity.source_pool_id)
         .ok_or_else(|| AppError::NotFound("active placement source pool/site pair".into()))?;
-    if source_site_id != &line.identity.source_site_id {
+    if pool_site_id != &identity.source_site_id {
         return Err(AppError::NotFound(
             "active placement source pool/site pair".into(),
         ));
     }
+    // Goods at rest at the source, by the pool's role; the pool's own row
+    // has already proved it stands at the source site.
+    let role = PoolRole::from_code(pool_role).ok_or_else(|| {
+        AppError::Conflict(format!(
+            "pool {} has a role this build does not know",
+            identity.source_pool_id
+        ))
+    })?;
+    if !role.is_fulfillment_source() {
+        return Err(AppError::Validation(format!(
+            "{} is a {role} pool; an allotment is served from goods at rest",
+            identity.source_pool_id
+        )));
+    }
+    if !context.sites.contains_key(&identity.source_site_id) {
+        return Err(AppError::NotFound(format!(
+            "source site {}",
+            identity.source_site_id
+        )));
+    }
+    if identity.destination_id == identity.source_site_id {
+        return Err(AppError::Validation(
+            "an allotment cannot send goods to the site they stand at".into(),
+        ));
+    }
     match allotment_type {
-        AllotmentType::ToStore => {
-            let source_pool = EdgeOperationalPool::from_str(&line.identity.source_pool_id)
-                .map_err(|error| AppError::Validation(error.to_string()))?;
-            // The pool's own owner segment, not the site id. Until 0256 those
-            // were the same string — `dc.warehouse` at site `dc` — and this
-            // check read the site id. The site is `ho` now and the pools kept
-            // their names, so parsing `ho` as a pool owner would refuse every
-            // TO_STORE line ever raised.
-            //
-            // What binds pool to site is no longer a shared spelling but the
-            // `operational_pool JOIN site` above, which has already proved
-            // this pool belongs to this site; the kind is what says the site
-            // is the warehouse and not a shop.
-            let source_owner = source_pool.site_id().clone();
-            if source_pool.id() != line.identity.source_pool_id
-                || !source_pool.is_dc_fulfillment_source_for(&source_owner)
-                || source_site_kind != HEAD_OFFICE_KIND
-                || line.identity.destination_type != DestinationType::Store
+        // Gudang → store is REPLENISH; store → store is a TRANSFER.
+        AllotmentType::ToSite => {
+            if identity.destination_type != DestinationType::Store {
+                return Err(AppError::Validation(
+                    "TO_SITE goes to a site of ours that sells".into(),
+                ));
+            }
+            Ok(Some(if context.of_head_office(&identity.source_site_id) {
+                AllotmentPurpose::Replenish
+            } else {
+                AllotmentPurpose::Transfer
+            }))
+        }
+        // A shop's goods back to a warehouse of head office, into that store's
+        // return pool there.
+        AllotmentType::ReturnToWarehouse => {
+            if !context.sells(&identity.source_site_id)
+                || context.of_head_office(&identity.source_site_id)
             {
                 return Err(AppError::Validation(
-                    "TO_STORE requires an allowed non-fulfillment DC source pool and a STORE destination".into(),
+                    "RETURN_TO_WAREHOUSE starts at a shop of a store unit".into(),
                 ));
             }
-            let destination = context
-                .destination_kinds
-                .get(&line.identity.destination_id)
-                .ok_or_else(|| AppError::NotFound("destination store".into()))?;
-            if destination != "STORE" {
-                return Err(AppError::Validation(
-                    "TO_STORE destination must be an existing Store".into(),
-                ));
-            }
-        }
-        AllotmentType::ReturnToDc => {
-            let site = &line.identity.source_site_id;
-            let source_matches_store = line.identity.source_pool_id == format!("{site}.warehouse")
-                || line.identity.source_pool_id == format!("{site}.floor")
-                || line.identity.source_pool_id == format!("{site}.reject");
-            // Head office by the kind its row carries, not by its id.
-            let destination_is_head_office = context
-                .destination_kinds
-                .get(&line.identity.destination_id)
-                .is_some_and(|kind| kind == HEAD_OFFICE_KIND);
-            if source_site_kind != "STORE"
-                || !source_matches_store
-                || line.identity.destination_type != DestinationType::Dc
-                || !destination_is_head_office
+            if identity.destination_type != DestinationType::Warehouse
+                || !context.of_head_office(&identity.destination_id)
             {
                 return Err(AppError::Validation(
-                    "RETURN_TO_DC requires a Store warehouse/floor/reject source and DC/ho destination"
-                        .into(),
+                    "RETURN_TO_WAREHOUSE goes to a warehouse of head office".into(),
                 ));
             }
+            if role == PoolRole::Picking {
+                return Err(AppError::Validation(
+                    "a return is served from the shop's stockroom, floor or reject".into(),
+                ));
+            }
+            Ok(None)
         }
+        // Stores never deal with suppliers: goods leave for one only from a
+        // site of the head-office unit.
         AllotmentType::ReturnToSupplier => {
-            // A site id on the left, a pool id on the right. They stopped
-            // being the same word at 0256 and only the first one moved.
-            // The source pool is already proved to stand at `source_site_id`
-            // (the `operational_pool JOIN site` above); its kind says whether
-            // that is head office.
-            if source_site_kind != HEAD_OFFICE_KIND
-                || line.identity.source_pool_id != "dc.reject.dc"
-                || line.identity.destination_type != DestinationType::Supplier
-                || line.identity.destination_id != "external/supplier"
-            {
+            if !context.of_head_office(&identity.source_site_id) {
                 return Err(AppError::Validation(
-                    "RETURN_TO_SUPPLIER requires dc.reject.dc and SUPPLIER/external/supplier"
-                        .into(),
+                    "RETURN_TO_SUPPLIER leaves only from a site of the head-office unit".into(),
                 ));
             }
+            if identity.destination_type != DestinationType::Supplier
+                || identity.destination_id != "external/supplier"
+            {
+                return Err(AppError::Validation(
+                    "RETURN_TO_SUPPLIER goes to SUPPLIER/external/supplier".into(),
+                ));
+            }
+            if !matches!(
+                role,
+                PoolRole::Stockroom | PoolRole::Reject | PoolRole::Return
+            ) {
+                return Err(AppError::Validation(
+                    "a supplier return is served from a stockroom, reject or return pool".into(),
+                ));
+            }
+            Ok(None)
         }
     }
-    Ok(())
 }
 
-fn execution_transition(
+/// The movement the centre writes for a line it executes itself — a source
+/// site no node owns. Every pool is found by its site and role (0610).
+async fn execution_transition(
+    tx: &mut Transaction<'_, Postgres>,
     allotment_type: AllotmentType,
     identity: &LineIdentity,
-    head_office: &str,
 ) -> Result<(MovementCause, String), AppError> {
     match allotment_type {
-        AllotmentType::ToStore
-            if identity.source_site_id == head_office
-                && identity.source_pool_id == DEFAULT_SOURCE_POOL_ID
-                && identity.destination_type == DestinationType::Store =>
-        {
-            // The destination is still validated and still carried — by the
-            // allotment line, which is where a promise belongs. What it no
-            // longer does is name the shelf: executing a TO_STORE line fetches
-            // goods to the pick area, and which piece serves which shop is
-            // settled when it goes into a carton (INVENTORY-V1 INV-05).
-            //
-            // Writing `picked.{store}` here was the centre's whole reason for
-            // having thirteen pools the DC node has never written to.
-            SiteId::new(&identity.destination_id)
-                .map_err(|error| AppError::Conflict(error.to_string()))?;
-            let destination = Place::Operational {
-                pool: OperationalPool::DcOutboundPicking,
-                state: InventoryState::Normal,
-            };
-            Ok((MovementCause::NormalMove, destination.id()))
+        AllotmentType::ToSite if identity.destination_type == DestinationType::Store => {
+            // The destination is carried by the allotment line, which is where
+            // a promise belongs. Executing a line fetches goods to the source
+            // site's pick area, and which piece serves which site is settled
+            // when it goes into a carton (INVENTORY-V1 INV-05).
+            let picking =
+                super::sites::pool_of_role(&mut **tx, &identity.source_site_id, PoolRole::Picking)
+                    .await?
+                    .ok_or_else(|| {
+                        AppError::Conflict(format!(
+                            "{} has no pick area",
+                            identity.source_site_id
+                        ))
+                    })?;
+            Ok((MovementCause::NormalMove, format!("{picking}:on_hand")))
         }
-        AllotmentType::ReturnToDc
-            if identity.destination_type == DestinationType::Dc
-                && identity.destination_id == head_office =>
+        AllotmentType::ReturnToWarehouse
+            if identity.destination_type == DestinationType::Warehouse =>
         {
-            // The site the goods are going to is `ho`; the shelf they land on
-            // is still called `dc.warehouse`. Both spellings are correct and
-            // neither is the other's.
-            Ok((MovementCause::ReturnToDc, "dc.warehouse:on_hand".into()))
+            // Into that store's own return pool at the warehouse, to be
+            // inspected; the warehouse's stockroom only where no return pool
+            // has been made for it.
+            let landing = match super::sites::return_pool_for(
+                &mut **tx,
+                &identity.destination_id,
+                &identity.source_site_id,
+            )
+            .await?
+            {
+                Some(pool_id) => pool_id,
+                None => super::sites::pool_of_role(
+                    &mut **tx,
+                    &identity.destination_id,
+                    PoolRole::Stockroom,
+                )
+                .await?
+                .ok_or_else(|| {
+                    AppError::Conflict(format!(
+                        "{} has neither a return pool for {} nor a stockroom",
+                        identity.destination_id, identity.source_site_id
+                    ))
+                })?,
+            };
+            Ok((MovementCause::ReturnToWarehouse, format!("{landing}:on_hand")))
         }
         AllotmentType::ReturnToSupplier
-            if identity.source_pool_id == "dc.reject.dc"
-                && identity.destination_type == DestinationType::Supplier
+            if identity.destination_type == DestinationType::Supplier
                 && identity.destination_id == "external/supplier" =>
         {
             Ok((MovementCause::SupplierReturn, "external/supplier".into()))
