@@ -1,11 +1,11 @@
 //! Devices: the machines enrolled to a node, what a node says about them, and
-//! the wire a till speaks to join one.
+//! the wire a till speaks to find and join one.
 //!
-//! Shared by the edge, which enrols tills and records printers and reports
-//! both in its heartbeat, and by the cloud, which keeps the registry the hub
-//! reads and sends a node the hub's suspend and revoke decisions. One copy of
-//! the vocabulary, for the reason `enrolment.rs` gives for its protocol: two
-//! copies of a wire are two wires.
+//! Shared by the edge, which enrols tills, records printers and reports them
+//! with the RFID keys it trusts in every heartbeat, and by the cloud, which
+//! keeps the registry the hub reads and sends a node the hub's suspend and
+//! revoke decisions. One copy of the vocabulary, for the reason `enrolment.rs`
+//! gives for its protocol: two copies of a wire are two wires.
 //!
 //! # What a device is (CONTEXT.md, "The fleet")
 //!
@@ -16,6 +16,49 @@
 //! printer) are not devices: they are configuration of the one till they hang
 //! off, and travel in that till's `config.peripherals`. A person's phone or
 //! laptop is a session, not a device.
+//!
+//! # How each kind reaches head office's register
+//!
+//! | Kind | Authority | On the register |
+//! |------|-----------|-----------------|
+//! | TILL, PRINTER | the node (`edge_terminal`, `edge_printer`) | reported in the heartbeat; switchable from the hub by `device.status.set.v1` |
+//! | HANDHELD, RFID_READER | head office's `rfid_device`, sent in the auth policy | reported by the node under the kind head office registered the key as (`device_kinds`, postgres 0623 / sqlite 0056) |
+//! | ATTENDANCE_TERMINAL | head office's `attendance_terminal` (People) | linked by head office itself, never reported (postgres 0624) |
+//! | EDC | Finance's `edc_terminal` | linked by head office itself, never reported (postgres 0624) |
+//!
+//! The last two are registered at head office against a site, so head office
+//! already holds every fact the register shows about them, a node was never
+//! sent an EDC at all, and a terminal at a site with no node must still be
+//! listed. The register (`device_register`, a view) links each to its site and
+//! to the node that serves the site when it is read; nothing is copied.
+//!
+//! A USB receipt printer is a peripheral, and the one a till prints to itself:
+//! the node renders the receipt as it renders every receipt and hands the bytes
+//! back (`POST /api/v1/store/sales/{id}/receipt/escpos`); the till sends them
+//! through the Windows spooler as a RAW job, or to a CUPS queue with `lp -o
+//! raw` (`pos-desktop/src-tauri/src/printer.rs`).
+//!
+//! # A till finds its node on the LAN
+//!
+//! The node advertises [`MDNS_SERVICE_TYPE`] as `itulah {node id}` on
+//! `{node id}.local` (`edge/discovery.rs`) — names built from the node's id,
+//! which do not change when the shop is renamed or the router hands the node a
+//! new address. The TXT records carry what [`NodeIdentity`] carries: the
+//! origin, the site id and the site's display code and name from the site
+//! directory ("C004-TOKO", "Bumiayu"), re-announced when head office changes
+//! them. A till lists only machines that confirm themselves at
+//! `GET /api/v1/node/identity`, keeps the instance and host beside the address
+//! it joined at, and when that address stops connecting looks again and takes
+//! a new address only from the same origin (`pos-desktop/src-tauri/src/edge.rs`).
+//!
+//! What the machines must allow: the node answers queries on UDP 5353, which
+//! `store.exe install-service` opens beside TCP 8082 on private and domain
+//! networks. A Windows till listening for the first time raises the firewall's
+//! prompt for the app — allow it on private networks, or nothing is heard. A
+//! Mac till (macOS 15 and later) asks for Local Network access, declared in its
+//! `Info.plist`; refused, it can neither hear a node nor reach one at a LAN
+//! address, typed or found. A router that drops multicast, or a node on another
+//! subnet, leaves the typed address, checked by the same identity call.
 //!
 //! # A till joins its node the way a node joins head office, one level down
 //!
@@ -103,8 +146,8 @@ pub fn may_become(from: &str, to: &str) -> bool {
 /// `edge_terminal`, a printer in `edge_printer` — and which head office can
 /// therefore suspend or revoke by sending the node a command. Every other kind
 /// keeps its authority where it already is (`rfid_device` in the centre's
-/// auth policy, `attendance_terminal`, `edc_terminal`), and the registry only
-/// mirrors it.
+/// auth policy, `attendance_terminal`, `edc_terminal`) and is switched there;
+/// the registry only shows it.
 pub fn node_owns(kind: &str) -> bool {
     matches!(kind, KIND_TILL | KIND_PRINTER)
 }
@@ -321,9 +364,10 @@ pub enum JoinStatus {
 
 // ---- Who a node is, to anybody on its LAN ----------------------------------------
 
-/// The DNS-SD service type a node will advertise itself under
-/// (`STORE-SERVER-PLAN.md` §7). Recorded here so the day the advertisement
-/// lands, the till's browser and the node agree on one spelling.
+/// The DNS-SD service type a node advertises itself under
+/// (`edge/discovery.rs`) and a till browses for
+/// (`pos-desktop/src-tauri/src/discovery.rs`, which repeats the spelling: the
+/// shell does not link this crate).
 pub const MDNS_SERVICE_TYPE: &str = "_itulah-store._tcp.local.";
 
 /// `GET /api/v1/node/identity`: who this node is, for a till looking for its

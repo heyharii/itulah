@@ -128,26 +128,47 @@ A new till does not need an address typed or an admin's pairing:
 
 1. **Setelan → Gabungkan ke node** (or the prompt on the sign-in card) listens
    for `_itulah-store._tcp` on the LAN (`src-tauri/src/discovery.rs`) and lists
-   the nodes that confirmed themselves at `GET /api/v1/node/identity`. A typed
-   address is checked the same way — a router that drops multicast is common.
+   the nodes that confirmed themselves at `GET /api/v1/node/identity`, by the
+   shop's display code and name ("C004-TOKO · Bumiayu") once the node has heard
+   them from head office. A typed address is checked the same way — a router
+   that drops multicast is common.
 2. The shell mints a key, sends only its SHA-256 to `POST /api/v1/devices/join`
    (`src-tauri/src/join.rs`), and the screen shows a code and a six-digit
    number.
 3. On a till that has already joined, a supervisor opens **Setelan → Kasir
-   menunggu**, checks the number matches, and approves with a finger or PIN —
-   as a new till or as the replacement for one (which keeps its name). A
-   shop's *first* till is approved by a supervisor signing in on the new till
-   itself; the node accepts that only for the first till, or from an Admin.
+   menunggu** — the top bar says when a till is waiting — checks the number
+   matches, and approves with a finger or PIN, as a new till or as the
+   replacement for one (which keeps its name). A replacement waits until the
+   old till's cash shift is closed: the shift is kept by that name. A shop's
+   *first* till is approved by a supervisor signing in on the new till itself;
+   the node accepts that only for the first till, or from an Admin.
 4. The till polls with an HMAC proof, and on approval keeps the node's
    `terminal_id` beside its key, exactly where a paired till keeps its pairing.
    Its name ("Kasir N") becomes its terminal name on receipts and shifts.
 
+A joined till also keeps the node's mDNS instance and host. When the router
+gives the node a new address and a call cannot connect, the shell listens
+again, takes the new address only from a machine answering as the same origin,
+and sends the call once more (`src-tauri/src/edge.rs`).
+
+Discovery needs the machine's consent. On Windows the first listen raises the
+firewall's prompt for the app: allow it on **private** networks. On macOS 15
+and later the app asks for **Local Network** access (`src-tauri/Info.plist`);
+refused, the till can neither hear the node nor reach it at a LAN address.
+
 **Perangkat kasir** (from Setelan) records what is plugged into the till — the
 customer display (optionally opened at start), the desk reader, the drawer, the
 scanner, and the receipt printer: none, the typed address, a printer the node
-recorded (by `printer_id`), or USB (recorded only; the node cannot print to it).
-It is kept by the shell and reported to `POST /api/v1/devices/self/peripherals`
-signed as the till; an unacknowledged report goes again at the next start.
+recorded (by `printer_id`), or USB. It is kept by the shell and reported to
+`POST /api/v1/devices/self/peripherals` signed as the till; an unacknowledged
+report goes again at the next start.
+
+A **USB receipt printer** is printed to by the till itself
+(`src-tauri/src/printer.rs`): the node renders the receipt as it renders every
+receipt (`POST /api/v1/store/sales/{id}/receipt/escpos`) and the shell sends
+the bytes through the Windows spooler as a RAW job, or to a CUPS queue with
+`lp -o raw` on a Mac or Linux till. The printer is chosen by the name the
+machine lists it under, and *Cetak tes* proves it.
 
 ## Testing the fingerprint path without a fingerprint
 
@@ -199,7 +220,8 @@ shop that discovers the difference on a busy Saturday.
 ## Not built yet
 
 Receipt printing is built — the node renders and prints ESC/POS
-(`POST /store/sales/{id}/receipt`), the drawer opens through the printer's
+(`POST /store/sales/{id}/receipt`), or renders it for the USB printer on the
+till to print (`…/receipt/escpos`); the drawer opens through the printer's
 pulse, and a reprint is stamped as a copy. So are: the PIN step-up (sign-in,
 supervisor grants, and unlocking the idle lock — `scripts/pin-step-up-e2e.mjs`
 is the executable contract), held baskets that survive a restart

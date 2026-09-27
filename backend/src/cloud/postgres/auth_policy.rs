@@ -769,7 +769,7 @@ pub async fn set_rfid_device_kind(
     request: SetRfidDeviceKindRequest,
     actor: &str,
 ) -> Result<Value, AppError> {
-    let kind = rfid_kind(Some(&request.kind))?;
+    let kind = rfid_kind(Some(request.kind.as_str()))?;
     let device_id = device_id.trim().to_ascii_uppercase();
     let mut tx = pool.begin().await?;
     let row = sqlx::query(
