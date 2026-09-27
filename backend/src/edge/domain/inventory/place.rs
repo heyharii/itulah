@@ -362,6 +362,13 @@ pub enum SystemPlace {
     /// movement group that touches it leaves it at zero, and a non-zero
     /// balance means a transformation was recorded by halves.
     Identification,
+    /// Goods another site of ours has counted in, let go of by the site they
+    /// left (inventory-fleet G3). No movement crosses a node boundary: the
+    /// destination books them in from `system/opening`, and the origin, told
+    /// by head office once the two claims pair, moves them out of its
+    /// in-transit pool to here. The two ledgers meet in the claims, and each
+    /// closes its own side.
+    HandedOver,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
@@ -404,6 +411,9 @@ impl Place {
             Self::System {
                 place: SystemPlace::Identification,
             } => "system/identification".into(),
+            Self::System {
+                place: SystemPlace::HandedOver,
+            } => "system/handed_over".into(),
         }
     }
 
@@ -461,6 +471,9 @@ impl FromStr for Place {
             }),
             "system/identification" => Ok(Self::System {
                 place: SystemPlace::Identification,
+            }),
+            "system/handed_over" => Ok(Self::System {
+                place: SystemPlace::HandedOver,
             }),
             _ => {
                 let (pool, state) = value

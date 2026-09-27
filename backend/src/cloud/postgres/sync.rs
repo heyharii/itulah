@@ -2935,11 +2935,12 @@ async fn reconcile_transfer_allotment_attribution(
                 ));
             }
         } else {
+            // The origin that put it in transit is owed a release (G3, 0613).
             sqlx::query(
                 "INSERT INTO edge_transfer_allotment_attribution
                      (receipt_event_id,in_transit_event_id,koli_id,allotment_id,
-                      allotment_line_id,epc)
-                 VALUES($1,$2,$3,$4,$5,$6)",
+                      allotment_line_id,epc,release_origin_id)
+                 VALUES($1,$2,$3,$4,$5,$6,$7)",
             )
             .bind(receipt_event_id)
             .bind(in_transit_event_id)
@@ -2947,8 +2948,10 @@ async fn reconcile_transfer_allotment_attribution(
             .bind(allotment_id)
             .bind(allotment_line_id)
             .bind(epc)
+            .bind(dc_origin_id.as_str())
             .execute(&mut **tx)
             .await?;
+            issue_in_transit_release_tx(tx, receipt_event_id).await?;
         }
         touched_lines.insert(allotment_line_id);
         touched_allotments.insert(allotment_id);
@@ -3067,6 +3070,107 @@ async fn reconcile_transfer_allotment_attribution(
         .await?;
     }
     Ok(())
+}
+
+/// How many waiting releases one heartbeat issues. A node that comes back
+/// after a long silence, or one upgraded with a backlog (0613 backfilled every
+/// pair matched before it), is told in instalments rather than in one
+/// transaction the size of its history.
+const IN_TRANSIT_RELEASES_PER_HEARTBEAT: i64 = 500;
+
+/// Tell the origin of one matched pair to let go of its EPC (inventory-fleet
+/// G3). A no-op when the release was already issued, when the pair names no
+/// origin, or when that origin's build cannot take the command yet — the pair
+/// then waits, and [`issue_waiting_in_transit_releases_tx`] issues it when the
+/// node's heartbeat first says it can.
+async fn issue_in_transit_release_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    receipt_event_id: Uuid,
+) -> Result<(), AppError> {
+    let Some(row) = sqlx::query(
+        "SELECT attribution.release_origin_id,attribution.release_command_id,
+                attribution.koli_id,attribution.epc,
+                receipt.source_dc_id,receipt.destination_store_id,
+                receipt.shipment_reference,receipt.sku_code,
+                receipt.occurred_at AS received_at,
+                in_transit.movement_group_id AS in_transit_movement_group_id
+         FROM edge_transfer_allotment_attribution attribution
+         JOIN edge_transfer_claim receipt ON receipt.event_id=attribution.receipt_event_id
+         JOIN edge_transfer_claim in_transit ON in_transit.event_id=attribution.in_transit_event_id
+         WHERE attribution.receipt_event_id=$1
+         FOR UPDATE OF attribution",
+    )
+    .bind(receipt_event_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    else {
+        return Ok(());
+    };
+    if row.get::<Option<Uuid>, _>("release_command_id").is_some() {
+        return Ok(());
+    }
+    let Some(origin_id) = row.get::<Option<String>, _>("release_origin_id") else {
+        return Ok(());
+    };
+    if !origin_takes_goods_routes_tx(tx, &origin_id).await? {
+        return Ok(());
+    }
+    let Some(source_site_id) = row.get::<Option<String>, _>("source_dc_id") else {
+        return Ok(());
+    };
+    let payload = crate::sync::transfer::InTransitReleasePayload {
+        release_id: receipt_event_id,
+        source_site_id,
+        destination_site_id: row.get("destination_store_id"),
+        shipment_reference: row.get("shipment_reference"),
+        koli_id: row.get("koli_id"),
+        epc: row.get("epc"),
+        sku_code: row.get("sku_code"),
+        in_transit_movement_group_id: row.get("in_transit_movement_group_id"),
+        received_at: row.get("received_at"),
+    };
+    let command_id = issue_command_tx(
+        tx,
+        crate::sync::transfer::INVENTORY_IN_TRANSIT_RELEASE_V1,
+        &serde_json::to_value(&payload)?,
+        "system:in-transit-release",
+        None,
+        std::slice::from_ref(&origin_id),
+    )
+    .await?;
+    sqlx::query(
+        "UPDATE edge_transfer_allotment_attribution
+         SET release_command_id=$2,release_issued_at=now()
+         WHERE receipt_event_id=$1",
+    )
+    .bind(receipt_event_id)
+    .bind(command_id)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+/// Issue the releases one origin is owed and was not yet sent, oldest match
+/// first, a bounded instalment at a time. Called when the node's heartbeat
+/// says it takes the goods-route commands. Returns how many were considered.
+pub(super) async fn issue_waiting_in_transit_releases_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    origin_id: &str,
+) -> Result<usize, AppError> {
+    let waiting: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT receipt_event_id FROM edge_transfer_allotment_attribution
+         WHERE release_origin_id=$1 AND release_command_id IS NULL
+         ORDER BY matched_at,receipt_event_id
+         LIMIT $2",
+    )
+    .bind(origin_id)
+    .bind(IN_TRANSIT_RELEASES_PER_HEARTBEAT)
+    .fetch_all(&mut **tx)
+    .await?;
+    for receipt_event_id in &waiting {
+        issue_in_transit_release_tx(tx, *receipt_event_id).await?;
+    }
+    Ok(waiting.len())
 }
 
 async fn apply_transfer_claim(
@@ -5055,6 +5159,11 @@ fn validate_issued_command(command_type: &str, payload: &Value) -> Result<(), Ap
         INVENTORY_STORE_INBOUND_ANNOUNCE_V1 => {
             // A shop that cannot read it blocks its command stream.
             parse_store_inbound_announcement(payload).map_err(AppError::Validation)?;
+        }
+        crate::sync::transfer::INVENTORY_IN_TRANSIT_RELEASE_V1 => {
+            // Same reason: an origin that cannot read it stops there.
+            crate::sync::transfer::parse_in_transit_release(payload)
+                .map_err(AppError::Validation)?;
         }
         crate::cloud::domain::COMMAND_ATTENDANCE_BOOK_REPLACE => {
             // Refused at the issuing desk rather than at the unit, for the

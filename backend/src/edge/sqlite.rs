@@ -210,6 +210,13 @@ pub(crate) const DELIVERY_POOL_SCHEMA: &str = include_str!(concat!(
     "/migrations/sqlite/0054_a_delivery_knows_the_pool_it_lands_in.sql"
 ));
 
+/// What head office told this node to let go of once it arrived elsewhere
+/// (`0055`, inventory-fleet G3). Creates only, so it runs on every open.
+pub(crate) const IN_TRANSIT_RELEASE_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0055_the_origin_lets_go_when_the_goods_arrive.sql"
+));
+
 /// Who raised a purchase order, and whether the centre cancelled it
 /// (`0047`). ALTERs, so applied only when the columns are absent.
 pub(crate) const PURCHASE_ORDER_CANCEL_SCHEMA: &str = include_str!(concat!(
@@ -1191,6 +1198,10 @@ impl SqliteEdge {
                 .execute_batch(DELIVERY_POOL_SCHEMA)
                 .map_err(db)?;
         }
+        // The releases head office sends (`0055`): creates only, no probe.
+        connection
+            .execute_batch(IN_TRANSIT_RELEASE_SCHEMA)
+            .map_err(db)?;
         // A cancelled order (`0047`): an ALTER, so probed first.
         let an_order_can_be_cancelled: i64 = connection
             .query_row(

@@ -119,6 +119,74 @@ impl TransferClaimPayload {
     }
 }
 
+/// Cloud → origin node: the destination counted this EPC in, so let go of it.
+///
+/// No movement crosses a node boundary. A koli that left the Gudang stood in
+/// the Gudang's in-transit pool for ever, even after the shop had received it,
+/// because the two ledgers meet only in the claims and nothing told the origin
+/// when they paired (inventory-fleet G3). Head office tells it now, once per
+/// matched RECEIVED claim, and the origin writes its own movement out of
+/// in-transit — its ledger is its own to write, as with an official count.
+///
+/// Sent only to a node whose heartbeat carries
+/// [`crate::sync::workflow::GOODS_ROUTES_CAPABILITY`]: an unknown command
+/// blocks a node's whole stream. Deliberately no `deny_unknown_fields`.
+pub const INVENTORY_IN_TRANSIT_RELEASE_V1: &str = "inventory.in_transit.release.v1";
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct InTransitReleasePayload {
+    /// The paired RECEIVED claim's event id: one release per receipt, and the
+    /// key a replay is recognised by.
+    pub release_id: Uuid,
+    /// The site the goods left, as the origin's own IN_TRANSIT claim spelled
+    /// it — the node this is addressed to.
+    pub source_site_id: String,
+    /// The site that counted them in, as its claim spelled it.
+    pub destination_site_id: String,
+    pub shipment_reference: Option<String>,
+    pub koli_id: Uuid,
+    pub epc: String,
+    pub sku_code: String,
+    /// The origin's own movement that put the EPC in transit.
+    pub in_transit_movement_group_id: Uuid,
+    /// When the destination received it.
+    pub received_at: DateTime<Utc>,
+}
+
+impl InTransitReleasePayload {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.release_id.is_nil() || self.koli_id.is_nil() || self.in_transit_movement_group_id.is_nil()
+        {
+            return Err("in-transit release ids must not be nil".into());
+        }
+        for (field, value) in [
+            ("source_site_id", self.source_site_id.as_str()),
+            ("destination_site_id", self.destination_site_id.as_str()),
+            ("epc", self.epc.as_str()),
+            ("sku_code", self.sku_code.as_str()),
+        ] {
+            validate_required(field, value).map_err(|error| error.to_string())?;
+        }
+        validate_optional("shipment_reference", self.shipment_reference.as_deref())
+            .map_err(|error| error.to_string())?;
+        if self.epc != self.epc.to_ascii_uppercase() || self.sku_code != self.sku_code.to_ascii_uppercase()
+        {
+            return Err("in-transit release EPC and SKU must be uppercase".into());
+        }
+        if self.source_site_id == self.destination_site_id {
+            return Err("in-transit release source and destination must differ".into());
+        }
+        Ok(())
+    }
+}
+
+pub fn parse_in_transit_release(value: &serde_json::Value) -> Result<InTransitReleasePayload, String> {
+    let payload: InTransitReleasePayload =
+        serde_json::from_value(value.clone()).map_err(|error| error.to_string())?;
+    payload.validate()?;
+    Ok(payload)
+}
+
 fn validate_required(field: &'static str, value: &str) -> Result<(), TransferClaimValidationError> {
     if value.trim().is_empty() {
         return Err(TransferClaimValidationError::MissingField(field));

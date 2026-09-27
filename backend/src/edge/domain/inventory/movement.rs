@@ -42,6 +42,11 @@ pub enum MovementCause {
     /// Labels went onto the goods: a quantity of a SKU becomes that many
     /// individually tracked units, each with its own EPC.
     Tagging,
+    /// The site the goods left lets go of them, because the site they went
+    /// to has counted them in (inventory-fleet G3): out of in-transit, to
+    /// `system/handed_over`. Written only on head office's word
+    /// (`inventory.in_transit.release.v1`), never by a hand at the site.
+    HandedOver,
 }
 
 impl MovementCause {
@@ -62,6 +67,7 @@ impl MovementCause {
             Self::Disposal => "DISPOSAL",
             Self::Identification => "IDENTIFICATION",
             Self::Tagging => "TAGGING",
+            Self::HandedOver => "HANDED_OVER",
         }
     }
 }
@@ -92,6 +98,7 @@ impl FromStr for MovementCause {
             "DISPOSAL" => Ok(Self::Disposal),
             "IDENTIFICATION" => Ok(Self::Identification),
             "TAGGING" => Ok(Self::Tagging),
+            "HANDED_OVER" => Ok(Self::HandedOver),
             _ => Err(MovementError::UnknownCause(value.to_owned())),
         }
     }
@@ -279,6 +286,22 @@ pub fn validate_transition(cause: MovementCause, line: &MovementLine) -> Result<
                     pool,
                     state: InventoryState::Normal,
                 } if pool.role() == PoolRole::Return
+            )
+        }
+        // Custody passed at the other site's door: what stood in transit at
+        // this one — the stage at the origin, or a legacy leaf — leaves it.
+        MovementCause::HandedOver => {
+            matches!(
+                &line.from,
+                Place::Operational {
+                    pool,
+                    state: InventoryState::Normal,
+                } if pool.role() == PoolRole::InTransit
+            ) && matches!(
+                line.to,
+                Place::System {
+                    place: SystemPlace::HandedOver
+                }
             )
         }
         MovementCause::SupplierReturn => {
