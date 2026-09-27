@@ -59,7 +59,7 @@ import {
 /// Account links screen both read — so the number on the sidebar and the
 /// number on the screen it links to are one answer, not two derivations.
 ///
-/// A (role, source, site) that resolves nowhere is a gap. That is the server's
+/// A (role, source, unit) that resolves nowhere is a gap. That is the server's
 /// count, taken over everything; the browser does not re-derive it.
 export function usePostingReadiness() {
   return useQuery({
@@ -125,7 +125,7 @@ export function useUnansweredChargeCount(): number | null {
   return count === null || count === 0 ? null : count
 }
 
-/// Roles with no account behind them, counted per (role, source, site).
+/// Roles with no account behind them, counted per (role, source, unit).
 ///
 /// Drawn as `bad` and not `warn`: every posting that needs one of these is
 /// refused outright, so this is not a backlog, it is a stoppage.

@@ -36,7 +36,7 @@ import { useSheet } from "@/lib/sheets"
 import { useFilters } from "@/lib/filters"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { usePostingReadiness } from "@/screens/finance/badges"
-import { useCategoryName, useSiteName } from "@/screens/finance/hooks"
+import { useCategoryName, useUnitName } from "@/screens/finance/hooks"
 import {
   SOURCE_TYPES,
   decodeLinkSource,
@@ -47,7 +47,7 @@ import {
 import { SourceIdPicker } from "@/screens/finance/master-parts"
 import {
   AccountAndCategory,
-  LocationSelect,
+  UnitSelect,
   accountChoiceProblem,
   accountChoiceReady,
   type AccountChoice,
@@ -68,13 +68,14 @@ import type {
 /// A posting rule names a ROLE — `trade_payable` — and the client's chart has
 /// an account. The old map wrote that decision out once per site, 8,330 rows
 /// for about six hundred decisions. A link holds for a scope instead: every
-/// site, one kind of site, or one site, and the most specific one wins. So a
-/// fifteenth shop inherits every link that holds for all shops, and the
-/// exception is one row sitting under the rule it overrides.
+/// unit, one kind of unit, or one unit — the books are a unit's since 0605 —
+/// and the most specific one wins. So a fifteenth store inherits every link
+/// that holds for all stores, and the exception is one row sitting under the
+/// rule it overrides.
 ///
 /// # Why the gaps come from the server
 ///
-/// "Does this role reach an account at this site" is answered by the
+/// "Does this role reach an account in this unit's books" is answered by the
 /// database's own resolution (`account_resolution`), and the readiness matrix
 /// is that answer laid out. Working it out again here from the links would be
 /// a second opinion about the one thing that decides whether a posting is
@@ -82,8 +83,8 @@ import type {
 ///
 /// # Why removing a link can be refused
 ///
-/// A link that looks unused may be the only thing deciding three shops. The
-/// server names those sites and refuses; "Remove anyway" is for the day
+/// A link that looks unused may be the only thing deciding three stores. The
+/// server names those units and refuses; "Remove anyway" is for the day
 /// somebody means exactly that.
 ///
 /// # Why a source
@@ -144,7 +145,7 @@ const columns: ColumnDef<TableSetup, RoleRow>[] = [
     accessorKey: "gaps",
     header: "Gaps",
     size: 110,
-    meta: { align: "right", filter: { kind: "number", unit: "sites" } },
+    meta: { align: "right", filter: { kind: "number", unit: "units" } },
     cell: ({ row }) =>
       row.original.gaps === 0 ? (
         <span className="text-ok-fg">None</span>
@@ -156,19 +157,21 @@ const columns: ColumnDef<TableSetup, RoleRow>[] = [
   },
 ]
 
-/// A link's scope, as a person says it.
+/// A link's scope, as a person says it: `ALL`, a `UNIT_KIND` (`HO`, `STORE`,
+/// `ONLINE`) or one `UNIT`.
 function scopeWords(
   scopeType: string,
   scopeKey: string,
-  siteName: (id: string) => string
+  unitName: (id: string) => string
 ): string {
-  if (scopeType === "ALL") return "All sites"
-  if (scopeType === "SITE_KIND") {
+  if (scopeType === "ALL") return "All units"
+  if (scopeType === "UNIT_KIND") {
     if (scopeKey === "STORE") return "All stores"
     if (scopeKey === "HO") return "Head office"
-    return scopeKey
+    if (scopeKey === "ONLINE") return "Online"
+    return label(scopeKey)
   }
-  return siteName(scopeKey)
+  return unitName(scopeKey)
 }
 
 function sameSource(
@@ -285,7 +288,7 @@ export function AccountLinks() {
       <PageHeader
         crumb="Finance"
         title="Account links"
-        sub="The posting rules name roles; the client's chart has accounts. A link says which account answers, for every site, one kind of site, or one site."
+        sub="The posting rules name roles; the client's chart has accounts. A link says which account answers, for every unit, one kind of unit, or one unit."
         actions={
           <Input
             value={query}
@@ -305,7 +308,7 @@ export function AccountLinks() {
         <FilterPanel model={filters} table={table} />
         <Toolbar.Spacer />
         <span className="text-[0.875rem] text-mute">
-          {count(page.data?.total ?? 0)} links · {count(gaps)} role-and-site
+          {count(page.data?.total ?? 0)} links · {count(gaps)} role-and-unit
           gaps
           {onlyGaps ? " · showing only what is left" : ""}
         </span>
@@ -333,7 +336,7 @@ export function AccountLinks() {
         <>
           {gaps > 0 && (
             <Banner tone="warn" className="mb-3">
-              {count(gaps)} role-and-site combinations reach no account. Every
+              {count(gaps)} role-and-unit combinations reach no account. Every
               posting that needs one is refused, and the refusal names the role.{" "}
               <AppLink
                 to="/finance/setup/posting-readiness"
@@ -346,7 +349,7 @@ export function AccountLinks() {
           <KpiStrip className="md:grid-cols-4 xl:grid-cols-4">
             <Kpi label="Roles" value={count(rows.length)} />
             <Kpi label="Links" value={count(page.data.total)} />
-            <Kpi label="Locations" value={count(page.data.locations.length)} />
+            <Kpi label="Units" value={count(page.data.locations.length)} />
             <Kpi label="Gaps" value={count(gaps)} />
           </KpiStrip>
         </>
@@ -359,7 +362,7 @@ export function AccountLinks() {
             rows.length === 0 ? (
               <EmptyState>
                 {onlyGaps
-                  ? "Every role reaches an account at every site. Nothing is left to do here."
+                  ? "Every role reaches an account in every unit. Nothing is left to do here."
                   : "The posting rules ask for no roles at all, which means none of them is loaded."}
               </EmptyState>
             ) : (
@@ -383,9 +386,9 @@ export function AccountLinks() {
   )
 }
 
-type ScopeChoice = "ALL" | "STORE" | "HO" | "SITE"
+type ScopeChoice = "ALL" | "STORE" | "HO" | "UNIT"
 
-/// One role: its links grouped by source, what each site ends up on, and who
+/// One role: its links grouped by source, what each unit ends up on, and who
 /// changed what.
 /// How many link changes one page of a role's history asks for.
 const HISTORY_PAGE = 30
@@ -401,7 +404,7 @@ function RoleSheet({
   onClose: () => void
 }) {
   const client = useQueryClient()
-  const siteName = useSiteName()
+  const unitName = useUnitName()
   const page = useLinkPage()
   const readiness = usePostingReadiness()
   // A page at a time, read on as the sheet scrolls — it used to stop at the
@@ -518,7 +521,7 @@ function RoleSheet({
             {sources.length === 0 ? (
               <p className="text-[0.875rem] text-bad-fg">
                 No link names this role. Every posting that needs it is refused
-                at every site.
+                in every unit.
               </p>
             ) : (
               sources.map((source) => {
@@ -536,7 +539,7 @@ function RoleSheet({
                     highlighted={preset !== null && sameSource(source, preset)}
                     links={ofSource}
                     resolved={resolved}
-                    siteName={siteName}
+                    unitName={unitName}
                     onChanged={refresh}
                   />
                 )
@@ -571,7 +574,7 @@ function RoleSheet({
                             {scopeWords(
                               change.scope_type,
                               change.scope_key,
-                              siteName
+                              unitName
                             )}
                           </span>
                           <span className="font-mono text-mute">
@@ -626,7 +629,7 @@ function AddLinkForm({
   const [sourceType, setSourceType] = useState(preset?.source_type ?? "COMPANY")
   const [source, setSource] = useState(preset?.source_id ?? "")
   const [scope, setScope] = useState<ScopeChoice>("ALL")
-  const [site, setSite] = useState("")
+  const [unit, setUnit] = useState("")
   const [note, setNote] = useState("")
   const [choice, setChoice] = useState<AccountChoice | null>(null)
 
@@ -635,7 +638,7 @@ function AddLinkForm({
     setSourceType(preset?.source_type ?? "COMPANY")
     setSource(preset?.source_id ?? "")
     setScope("ALL")
-    setSite("")
+    setUnit("")
     setNote("")
     setChoice(null)
   }
@@ -647,8 +650,8 @@ function AddLinkForm({
         source_type: sourceType,
         source_id: source.trim(),
         scope_type:
-          scope === "ALL" ? "ALL" : scope === "SITE" ? "SITE" : "SITE_KIND",
-        scope_key: scope === "ALL" ? "" : scope === "SITE" ? site : scope,
+          scope === "ALL" ? "ALL" : scope === "UNIT" ? "UNIT" : "UNIT_KIND",
+        scope_key: scope === "ALL" ? "" : scope === "UNIT" ? unit : scope,
         account_code: choice!.account_code,
         category_code: choice!.category_code,
         note: note.trim() === "" ? null : note.trim(),
@@ -659,7 +662,7 @@ function AddLinkForm({
     },
   })
 
-  const scopeReady = scope !== "SITE" || site !== ""
+  const scopeReady = scope !== "UNIT" || unit !== ""
   // A master record is the whole point of a non-company source; a link from
   // "some expense category" is a decision about nothing.
   const sourceReady = sourceType === "COMPANY" || source.trim() !== ""
@@ -735,18 +738,18 @@ function AddLinkForm({
               value={scope}
               onChange={(next) => setScope(next as ScopeChoice)}
             >
-              <option value="ALL">All sites</option>
+              <option value="ALL">All units</option>
               <option value="STORE">All stores</option>
               <option value="HO">Head office</option>
-              <option value="SITE">One site</option>
+              <option value="UNIT">One unit</option>
             </Select>
           </Field>
-          {scope === "SITE" && (
-            <Field label="Site" required>
-              <LocationSelect
-                value={site}
-                onChange={setSite}
-                emptyLabel="Choose a site"
+          {scope === "UNIT" && (
+            <Field label="Unit" required>
+              <UnitSelect
+                value={unit}
+                onChange={setUnit}
+                emptyLabel="Choose a unit"
               />
             </Field>
           )}
@@ -768,7 +771,7 @@ function AddLinkForm({
               {!sourceReady
                 ? `Choose the ${sourceTypeLabel(sourceType).toLowerCase()} this link is for.`
                 : !scopeReady
-                  ? "Choose the site this link is for."
+                  ? "Choose the unit this link is for."
                   : (accountChoiceProblem(choice) ??
                     `${choice?.account_code} will answer here.`)}
             </span>
@@ -790,14 +793,14 @@ function AddLinkForm({
   )
 }
 
-/// The links one source keeps for a role, and what each site ends up on.
+/// The links one source keeps for a role, and what each unit ends up on.
 function SourceGroup({
   source,
   showSource,
   highlighted,
   links,
   resolved,
-  siteName,
+  unitName,
   onChanged,
 }: {
   source: LinkSource
@@ -805,7 +808,7 @@ function SourceGroup({
   highlighted: boolean
   links: readonly AccountLink[]
   resolved: ReadinessRow | undefined
-  siteName: (id: string) => string
+  unitName: (id: string) => string
   onChanged: () => Promise<void>
 }) {
   return (
@@ -841,8 +844,8 @@ function SourceGroup({
             }
           >
             {resolved.gaps > 0
-              ? `${count(resolved.gaps)} sites unreached`
-              : "Every site reached"}
+              ? `${count(resolved.gaps)} ${resolved.gaps === 1 ? "unit" : "units"} unreached`
+              : "Every unit reached"}
           </span>
         )}
       </div>
@@ -855,7 +858,7 @@ function SourceGroup({
             <LinkRow
               key={link.link_id}
               link={link}
-              scope={scopeWords(link.scope_type, link.scope_key, siteName)}
+              scope={scopeWords(link.scope_type, link.scope_key, unitName)}
               onChanged={onChanged}
             />
           ))}
@@ -865,25 +868,22 @@ function SourceGroup({
       {resolved !== undefined && (
         <div>
           <div className="mb-1.5 text-[0.875rem] font-medium text-text">
-            What each site posts to
+            What each unit posts to
           </div>
           <div className="grid grid-cols-2 gap-x-3 gap-y-1">
             {resolved.cells.map((cell) => (
               <div
-                key={cell.site_id}
+                key={cell.unit_id}
                 className="flex min-w-0 items-center gap-2 text-[0.875rem]"
               >
-                <span
-                  className="min-w-0 flex-1 truncate text-body"
-                  title={cell.site_id}
-                >
-                  {siteName(cell.site_id)}
+                <span className="min-w-0 flex-1 truncate text-body">
+                  {unitName(cell.unit_id)}
                 </span>
                 {cell.account_code === null ? (
                   <Tag tone="bad">—</Tag>
                 ) : (
                   <Tag
-                    tone={cell.scope_type === "SITE" ? "info" : "neutral"}
+                    tone={cell.scope_type === "UNIT" ? "info" : "neutral"}
                     title={
                       cell.scope_type === null
                         ? undefined
@@ -916,7 +916,7 @@ function LinkRow({
   const categoryName = useCategoryName()
   const [editing, setEditing] = useState(false)
   const [choice, setChoice] = useState<AccountChoice | null>(null)
-  // The server's sentence naming the sites a removal would strand, held so
+  // The server's sentence naming the units a removal would strand, held so
   // "Remove anyway" is offered only after somebody has read it.
   const [stranding, setStranding] = useState<string | null>(null)
 
@@ -971,10 +971,10 @@ function LinkRow({
         </span>
       </div>
       <div className="flex flex-wrap items-center gap-x-2 text-[0.875rem] text-faint">
-        <span className={link.decides_sites === 0 ? "text-warn-fg" : ""}>
-          {link.decides_sites === 0
-            ? "Decides no site — every one it covers has a more specific link"
-            : `Decides ${count(link.decides_sites)} ${link.decides_sites === 1 ? "site" : "sites"}`}
+        <span className={link.decides_units === 0 ? "text-warn-fg" : ""}>
+          {link.decides_units === 0
+            ? "Decides no unit — every one it covers has a more specific link"
+            : `Decides ${count(link.decides_units)} ${link.decides_units === 1 ? "unit" : "units"}`}
         </span>
         <span>
           · {link.set_by} · {moment(link.set_at)}

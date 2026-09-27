@@ -48,22 +48,22 @@ export function LinkAccountsButton({
   )
 }
 
-/// How many sites a master record reaches an account at, against how many
+/// How many units a master record reaches an account in, against how many
 /// there are. Fewer is a posting refused somewhere, by name.
-export function Reach({ sites }: { sites: number }) {
+export function Reach({ units }: { units: number }) {
   const locations = useLocations()
   const total = locations.data?.locations.length ?? null
-  if (sites === 0)
+  if (units === 0)
     return <span className="font-medium text-bad-fg">Not linked</span>
-  if (total !== null && sites < total)
+  if (total !== null && units < total)
     return (
       <span className="font-medium text-warn-fg tabular-nums">
-        {count(sites)} of {count(total)} sites
+        {count(units)} of {count(total)} units
       </span>
     )
   return (
     <span className="text-ok-fg tabular-nums">
-      {total === null ? `${count(sites)} sites` : "Every site"}
+      {total === null ? `${count(units)} units` : "Every unit"}
     </span>
   )
 }
