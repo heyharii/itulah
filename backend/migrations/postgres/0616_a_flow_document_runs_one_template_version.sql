@@ -155,13 +155,21 @@ CREATE INDEX ix_flow_document_template ON flow_document (template_id);
 COMMENT ON TABLE flow_document IS
     'One run of one flow template version between two ends (0616). Keeps its version; crosses_units is generated from the ends'' units and decides the inter-unit posting, never the template.';
 
--- What was asked for, per SKU. Hidden from a blind stage by the reader.
+-- What was asked for, per line. Hidden from a blind stage by the reader.
+--
+-- `sku_id` is the goods' identity on the route: our SKU for goods that are
+-- ours, and — for a supplier's goods, which have no SKU until Article Setup
+-- (CONTEXT.md, "Unidentified") — the purchase line they arrive against. So
+-- it is not a foreign key to `sku`; the source document says which it is.
 CREATE TABLE flow_document_line (
     document_id uuid NOT NULL REFERENCES flow_document (id),
-    sku_id      uuid NOT NULL REFERENCES sku (id),
+    sku_id      uuid NOT NULL,
     quantity    bigint NOT NULL CHECK (quantity > 0),
     PRIMARY KEY (document_id, sku_id)
 );
+
+COMMENT ON COLUMN flow_document_line.sku_id IS
+    'Our SKU; for goods from a supplier before Article Setup, the purchase line (0616). Not a foreign key for that reason.';
 
 -- The ends match the template, the units are the sites' own, and suppliers
 -- only meet head office.

@@ -97,7 +97,8 @@ COMMENT ON TABLE flow_stage_state IS
 CREATE TABLE flow_stage_line (
     document_id      uuid NOT NULL,
     stage_index      integer NOT NULL,
-    sku_id           uuid NOT NULL REFERENCES sku (id),
+    -- As `flow_document_line.sku_id`: the SKU, or a supplier's purchase line.
+    sku_id           uuid NOT NULL,
     quantity         bigint NOT NULL CHECK (quantity >= 0),
     missing_quantity bigint NOT NULL DEFAULT 0 CHECK (missing_quantity >= 0),
     reject_quantity  bigint NOT NULL DEFAULT 0 CHECK (reject_quantity >= 0),
