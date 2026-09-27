@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import type { UnitPic, UnitSite, UnitView } from "@itulah/contract"
+import { useCallback, useMemo } from "react"
 
 import { node } from "@/lib/api"
 
@@ -62,6 +63,29 @@ export function appointPic(
   )
 }
 
+/// What a person reads for a unit: the client's code and its name, "C004 ·
+/// Bumiayu". The id is ours and appears on no screen.
+export function unitLabel(unit: {
+  readonly code: string
+  readonly name: string
+}): string {
+  return `${unit.code} · ${unit.name}`
+}
+
+/// What a person reads for a site: the unit's label when the unit keeps one
+/// site (a store and its shop), and the site's own name after it when the unit
+/// keeps several (head office's office and the Gudang).
+export function siteLabel(unit: UnitView, site: UnitSite): string {
+  return unit.sites.length === 1
+    ? unitLabel(unit)
+    : `${unitLabel(unit)} — ${site.name}`
+}
+
+/// Head office: the unit of kind `HO`, found by its kind and never by an id.
+export function headOffice(units: readonly UnitView[]): UnitView | undefined {
+  return units.find((unit) => unit.kind === "HO")
+}
+
 /// Every site, labelled with the unit that owns it — what a form asks for
 /// when the thing it registers is installed somewhere (a punch station).
 export interface SiteChoice {
@@ -75,10 +99,51 @@ export function siteChoices(units: readonly UnitView[]): SiteChoice[] {
     unit.sites.map((site) => ({
       siteId: site.id,
       unitId: unit.id,
-      label:
-        unit.sites.length === 1
-          ? `${unit.code} · ${unit.name}`
-          : `${unit.code} · ${unit.name} — ${site.name}`,
+      label: siteLabel(unit, site),
     }))
+  )
+}
+
+/// Unit ids as people read them, from the one register every screen shares.
+///
+/// An id the register does not hold reads as "…" while it loads and as the id
+/// itself after — the one honest thing to draw for a unit nobody registered,
+/// and a sign that something upstream named a unit that does not exist.
+export function useUnitLabel(): (unitId: string | null | undefined) => string {
+  const units = useUnits()
+  const byId = useMemo(
+    () => new Map((units.data ?? []).map((unit) => [unit.id, unitLabel(unit)])),
+    [units.data]
+  )
+  const loading = units.isPending
+  return useCallback(
+    (unitId) =>
+      unitId === null || unitId === undefined || unitId === ""
+        ? "—"
+        : (byId.get(unitId) ?? (loading ? "…" : unitId)),
+    [byId, loading]
+  )
+}
+
+/// Site ids as people read them — `siteLabel` for every site the register
+/// knows, with the same fallbacks as `useUnitLabel`.
+export function useSiteLabel(): (siteId: string | null | undefined) => string {
+  const units = useUnits()
+  const byId = useMemo(
+    () =>
+      new Map(
+        (units.data ?? []).flatMap((unit) =>
+          unit.sites.map((site) => [site.id, siteLabel(unit, site)] as const)
+        )
+      ),
+    [units.data]
+  )
+  const loading = units.isPending
+  return useCallback(
+    (siteId) =>
+      siteId === null || siteId === undefined || siteId === ""
+        ? "—"
+        : (byId.get(siteId) ?? (loading ? "…" : siteId)),
+    [byId, loading]
   )
 }
